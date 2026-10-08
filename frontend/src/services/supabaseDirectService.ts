@@ -1,8 +1,22 @@
 // Businz Enterprise HRMS — Direct Supabase Database Service
 // Guarantees 100% database connectivity even if IIS Node.js on Plesk is offline or returning 404
 
-const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://psccqynqwebbtzdaqfqv.supabase.co';
-const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBzY2NxeW5xd2ViYnR6ZGFxZnF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMjA1NjAsImV4cCI6MjEwNDY5NjU2MH0.W8dsNMM6qIVQI0OBC4ZhpOC8T1n0KxfDAhtgskW43CI';
+const resolveDatabaseRestBaseUrl = (): string => {
+  const env = (import.meta as any).env || {};
+  const configured = env.VITE_DB_REST_URL || env.VITE_SUPABASE_URL;
+  if (typeof configured === 'string' && configured.trim()) {
+    return configured.trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return 'http://localhost:3001';
+};
+
+const SUPABASE_URL = resolveDatabaseRestBaseUrl();
+const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_DB_REST_KEY
+  || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY
+  || 'vps-local-rest-key';
 
 const getHeaders = () => ({
   'apikey': SUPABASE_ANON_KEY,

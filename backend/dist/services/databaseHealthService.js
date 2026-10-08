@@ -9,13 +9,13 @@ export async function checkDatabaseHealth() {
     const result = {
         configured: Boolean(env.DATABASE_URL) && isRealSupabaseConfigured(),
         postgres: { connected: false },
-        supabaseRest: { connected: false },
+        databaseRest: { connected: false },
     };
     if (env.DATABASE_URL) {
         const started = Date.now();
         const client = new pg.Client({
             connectionString: env.DATABASE_URL,
-            ssl: { rejectUnauthorized: false },
+            ssl: env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
             connectionTimeoutMillis: 5000,
         });
         try {
@@ -41,14 +41,14 @@ export async function checkDatabaseHealth() {
                 .select('id', { count: 'exact', head: true });
             if (error)
                 throw new Error(error.message);
-            result.supabaseRest = { connected: true, latencyMs: Date.now() - started };
+            result.databaseRest = { connected: true, latencyMs: Date.now() - started };
         }
         catch (error) {
-            result.supabaseRest = { connected: false, error: safeMessage(error) };
+            result.databaseRest = { connected: false, error: safeMessage(error) };
         }
     }
     else {
-        result.supabaseRest.error = 'Supabase is not configured';
+        result.databaseRest.error = 'Database REST API is not configured';
     }
     return result;
 }
