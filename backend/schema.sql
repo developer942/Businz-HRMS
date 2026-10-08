@@ -70,7 +70,7 @@ CREATE TYPE public.hr_gender AS ENUM ('Male', 'Female', 'Other');
 DROP TYPE IF EXISTS public.hr_attendance_status CASCADE;
 CREATE TYPE public.hr_attendance_status AS ENUM ('Present', 'Absent', 'Late', 'Half Day', 'Work From Home', 'On Leave');
 DROP TYPE IF EXISTS public.hr_leave_type CASCADE;
-CREATE TYPE public.hr_leave_type AS ENUM ('Casual Leave', 'Sick Leave', 'Paid Leave', 'Unpaid Leave', 'Work From Home');
+CREATE TYPE public.hr_leave_type AS ENUM ('Casual Leave', 'Sick Leave', 'Paid Leave', 'Unpaid Leave', 'Work From Home', 'Emergency Leave');
 DROP TYPE IF EXISTS public.hr_request_status CASCADE;
 CREATE TYPE public.hr_request_status AS ENUM ('Pending', 'Approved', 'Rejected');
 DROP TYPE IF EXISTS public.hr_task_status CASCADE;

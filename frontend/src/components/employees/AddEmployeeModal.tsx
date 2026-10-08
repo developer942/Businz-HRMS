@@ -1554,10 +1554,10 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         }
       }
     } catch {
-      // Backend not running, proceed directly to cloud database
+      // Backend not running, proceed directly to VPS database
     }
 
-    // 2. Direct Supabase Cloud Database insert (guaranteed connectivity)
+    // 2. Direct VPS database insert
     if (!dbSaved) {
       try {
         const sbRes = await supabaseDirect.insertEmployee({
@@ -1590,7 +1590,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     // If cloud persistence failed, abort and inform user immediately
     if (!dbSaved) {
       setIsSubmitting(false);
-      let readableError = 'Failed to register employee into the cloud database.';
+      let readableError = 'Failed to register employee into the VPS database.';
       if (dbErrorMessage.includes('unique constraint') || dbErrorMessage.includes('duplicate')) {
         readableError = `Employee with ID "${cleanEmpCode}" or Email "${primaryEmail}" is already registered. Please use unique values.`;
       } else if (dbErrorMessage) {
@@ -4175,3 +4175,4 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     </div>
   );
 };
+

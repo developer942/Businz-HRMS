@@ -1,31 +1,34 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from './env.js';
-let supabaseAdminClient = null;
-let supabaseAnonClient = null;
+let databaseAdminClient = null;
+let databaseAnonClient = null;
 export const isRealSupabaseConfigured = () => {
-    return !env.SUPABASE_URL.includes('mock-supabase.local') && env.SUPABASE_ANON_KEY !== 'mock-anon-key';
+    return !env.DB_REST_URL.includes('mock-supabase.local') && env.DB_REST_KEY !== 'mock-anon-key';
 };
 /**
- * Service Role Client with elevated permissions for server-side payroll calculations.
+ * Admin database REST client for server-side payroll calculations.
+ *
+ * The implementation still uses supabase-js because it is the existing PostgREST
+ * query client. In VPS deployments it points to our own PostgREST proxy.
  */
 export const getSupabaseAdmin = () => {
-    if (!supabaseAdminClient) {
-        supabaseAdminClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    if (!databaseAdminClient) {
+        databaseAdminClient = createClient(env.DB_REST_URL, env.DB_REST_SERVICE_KEY, {
             auth: {
                 autoRefreshToken: false,
                 persistSession: false,
             },
         });
     }
-    return supabaseAdminClient;
+    return databaseAdminClient;
 };
 /**
- * Standard public/anon client for scoped operations.
+ * Standard public database REST client for scoped operations.
  */
 export const getSupabaseAnon = () => {
-    if (!supabaseAnonClient) {
-        supabaseAnonClient = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+    if (!databaseAnonClient) {
+        databaseAnonClient = createClient(env.DB_REST_URL, env.DB_REST_KEY);
     }
-    return supabaseAnonClient;
+    return databaseAnonClient;
 };
 //# sourceMappingURL=supabase.js.map

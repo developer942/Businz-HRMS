@@ -6,6 +6,10 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+ARG VITE_DB_REST_URL=""
+ARG VITE_DB_REST_KEY="vps-local-rest-key"
+ENV VITE_DB_REST_URL=$VITE_DB_REST_URL
+ENV VITE_DB_REST_KEY=$VITE_DB_REST_KEY
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runner

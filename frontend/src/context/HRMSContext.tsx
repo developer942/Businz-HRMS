@@ -1160,7 +1160,7 @@ const localDateTimeToIso = (date: string, time?: string | null): string | null =
 };
 
 export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Pure Supabase Cloud Architecture: purge any remaining business data from browser localStorage
+  // VPS database architecture: purge any remaining business data from browser localStorage
   if (typeof window !== 'undefined') {
     const STORAGE_MODE = 'vrm_hrms_supabase_cloud_only_v4';
     if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
@@ -1249,7 +1249,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         supabaseDirect.saveCompanySetting('geofence_config', geofenceConfig);
       }
     } catch (e) {
-      console.error('Error saving geofenceConfig to cloud database', e);
+      console.error('Error saving geofenceConfig to VPS database', e);
     }
   }, [geofenceConfig]);
 
@@ -2651,7 +2651,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   };
 
-  // Enhanced Enterprise Tasks & Systems (Supabase Cloud + LocalStorage Fallback)
+  // Enhanced Enterprise Tasks & Systems (VPS database + LocalStorage fallback)
   const [enhancedTasks, setEnhancedTasks] = useState<TaskItemEnhanced[]>(() => {
     try {
       const cached = localStorage.getItem('vrm_hrms_enhanced_tasks');
@@ -2783,7 +2783,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // ==========================================
   const [loanPolicies, setLoanPolicies] = useState<LoanPolicy[]>(DEFAULT_LOAN_POLICIES);
 
-  // Supabase Cloud persistence effects
+  // VPS database persistence effects
   useEffect(() => {
     try {
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
@@ -2986,14 +2986,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [loanRecords, setLoanRecords] = useState<LoanRecord[]>([]);
 
-  // Sync loan records to Supabase Cloud whenever updated
+  // Sync loan records to VPS database whenever updated
   useEffect(() => {
     try {
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('loan_records_data', loanRecords);
       }
     } catch (e) {
-      console.warn('Failed to save loanRecords to cloud database', e);
+      console.warn('Failed to save loanRecords to VPS database', e);
     }
   }, [loanRecords]);
 
@@ -5005,7 +5005,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Direct cloud sync to Supabase if connected
     supabaseDirect.updateEmployee(employeeId, {
       account_status: normStatus
-    }).catch(err => console.warn('[SupabaseDirect] updateEmployeeLoginStatus sync notice:', err));
+    }).catch(err => console.warn('[DatabaseRest] updateEmployeeLoginStatus sync notice:', err));
 
     addNotification({
       title: isActivating ? 'Account Activated' : 'Account Deactivated',
@@ -5096,7 +5096,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: check.reason };
     }
 
-    // 1. Delete from Supabase Cloud Database directly
+    // 1. Delete from Supabase VPS database directly
     let cloudSuccess = false;
     let cloudError: any = null;
     try {
@@ -5104,7 +5104,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       cloudSuccess = res.success;
       cloudError = res.error;
     } catch (sbErr) {
-      console.warn('Direct Supabase delete notice:', sbErr);
+      console.warn('Direct database delete notice:', sbErr);
       cloudError = sbErr;
     }
 
@@ -5124,7 +5124,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const errMsg = typeof cloudError === 'string' ? cloudError : (cloudError?.message || 'Database error occurred');
       addNotification({
         title: 'Delete Failed',
-        message: `Could not delete employee record from cloud database: ${errMsg}`,
+        message: `Could not delete employee record from VPS database: ${errMsg}`,
         priority: 'Urgent',
         category: 'Announcement'
       });
@@ -8284,7 +8284,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       isSyncingFromCloud.current = true;
 
-      // Parallel batch fetch directly from Supabase Cloud
+      // Parallel batch fetch directly from VPS database
       const [
         rawEmployees, 
         rawTasks, 
@@ -8428,6 +8428,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return {
           ...savedLeave,
           ...dbLeave,
+          leaveType: savedLeave.leaveType || dbLeave.leaveType,
           approvedBy: dbLeave.approvedBy || savedLeave.approvedBy,
           comment: dbLeave.comment || savedLeave.comment
         };
@@ -9324,3 +9325,4 @@ export const useHRMS = () => {
   }
   return context;
 };
+

@@ -873,7 +873,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                       borderRadius: 'var(--radius-input)',
                       fontSize: '0.82rem'
                     }}>
-                      ⚠️ This will permanently remove the record from Supabase Cloud Database, attendance logs, and auth credentials.
+                      ⚠️ This will permanently remove the record from VPS database, attendance logs, and auth credentials.
                     </div>
                   </div>
                 )}
@@ -933,3 +933,4 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
     </div>
   );
 };
+

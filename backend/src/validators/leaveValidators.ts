@@ -2,7 +2,22 @@ import { z } from 'zod';
 
 export const createLeaveSchema = z.object({
   employeeId: z.string().max(50).optional(),
-  leaveType: z.enum(['Casual', 'Sick', 'Earned', 'Maternity', 'Paternity', 'Unpaid']).default('Casual'),
+  leaveType: z.enum([
+    'Casual',
+    'Casual Leave',
+    'Sick',
+    'Sick Leave',
+    'Earned',
+    'Earned Leave',
+    'Paid Leave',
+    'Emergency',
+    'Emergency Leave',
+    'Maternity',
+    'Paternity',
+    'Unpaid',
+    'Unpaid Leave',
+    'Work From Home',
+  ]).default('Casual'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate must be in format YYYY-MM-DD'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'endDate must be in format YYYY-MM-DD'),
   reason: z.string().max(500, 'Reason cannot exceed 500 characters').optional().default('Personal Leave'),

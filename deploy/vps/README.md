@@ -6,7 +6,7 @@ This stack runs Businz HRMS with a VPS-hosted PostgreSQL database. It does not u
 
 - `postgres`: HRMS PostgreSQL database.
 - `postgrest`: PostgreSQL REST API.
-- `rest-proxy`: exposes a Supabase-style `/rest/v1` path for existing app code.
+- `rest-proxy`: exposes the `/rest/v1` database API path for existing app code.
 - `backend`: Node/Express HRMS API.
 - `frontend`: React production build served by nginx.
 
@@ -35,4 +35,4 @@ curl http://localhost/api/v1/health/ready
 
 ## Notes
 
-The schema includes small compatibility shims for `auth` and `storage` so the old Supabase-oriented SQL can initialize on normal PostgreSQL. The app talks to the VPS database through `/rest/v1` and the backend talks to the same local REST proxy.
+The schema includes small compatibility shims for `auth` and `storage` so the existing SQL can initialize on normal PostgreSQL. The app talks to the VPS database through `/rest/v1` and the backend talks to the same local REST proxy.

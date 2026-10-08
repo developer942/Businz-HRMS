@@ -1,9 +1,9 @@
-// Businz Enterprise HRMS — Direct Supabase Database Service
-// Guarantees 100% database connectivity even if IIS Node.js on Plesk is offline or returning 404
+// Businz Enterprise HRMS - direct VPS database REST service
+// Keeps database connectivity available even if the main Node.js API is offline.
 
 const resolveDatabaseRestBaseUrl = (): string => {
   const env = (import.meta as any).env || {};
-  const configured = env.VITE_DB_REST_URL || env.VITE_SUPABASE_URL;
+  const configured = env.VITE_DB_REST_URL || env.VITE_DATABASE_REST_URL || env.VITE_SUPABASE_URL;
   if (typeof configured === 'string' && configured.trim()) {
     return configured.trim().replace(/\/$/, '');
   }
@@ -13,14 +13,15 @@ const resolveDatabaseRestBaseUrl = (): string => {
   return 'http://localhost:3001';
 };
 
-const SUPABASE_URL = resolveDatabaseRestBaseUrl();
-const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_DB_REST_KEY
+const DATABASE_REST_URL = resolveDatabaseRestBaseUrl();
+const DATABASE_REST_KEY = (import.meta as any).env?.VITE_DB_REST_KEY
+  || (import.meta as any).env?.VITE_DATABASE_REST_KEY
   || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY
   || 'vps-local-rest-key';
 
 const getHeaders = () => ({
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+  'apikey': DATABASE_REST_KEY,
+  'Authorization': `Bearer ${DATABASE_REST_KEY}`,
   'Content-Type': 'application/json',
 });
 
@@ -32,7 +33,7 @@ const resolveDepartmentId = async (departmentName?: string, departmentId?: strin
   if (!cleanName) return undefined;
 
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/departments?select=id,name&name=ilike.${encodeURIComponent(cleanName)}&limit=1`, {
+    const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?select=id,name&name=ilike.${encodeURIComponent(cleanName)}&limit=1`, {
       headers: getHeaders(),
     });
     if (res.ok) {
@@ -42,7 +43,7 @@ const resolveDepartmentId = async (departmentName?: string, departmentId?: strin
     }
 
     const cleanCode = cleanName.substring(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'DEPT';
-    const createRes = await fetch(`${SUPABASE_URL}/rest/v1/departments`, {
+    const createRes = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
       method: 'POST',
       headers: {
         ...getHeaders(),
@@ -59,7 +60,7 @@ const resolveDepartmentId = async (departmentName?: string, departmentId?: strin
       return row?.id;
     }
   } catch (err) {
-    console.warn('[SupabaseDirect] resolveDepartmentId notice:', err);
+    console.warn('[DatabaseRest] resolveDepartmentId notice:', err);
   }
 
   return undefined;
@@ -73,7 +74,7 @@ const resolveEmployeeUuid = async (employeeIdOrCode?: string): Promise<string | 
   }
 
   try {
-    const byEmployeeCode = await fetch(`${SUPABASE_URL}/rest/v1/employees?employee_id=eq.${encodeURIComponent(clean)}&select=id&limit=1`, {
+    const byEmployeeCode = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?employee_id=eq.${encodeURIComponent(clean)}&select=id&limit=1`, {
       headers: getHeaders(),
     });
     if (byEmployeeCode.ok) {
@@ -82,7 +83,7 @@ const resolveEmployeeUuid = async (employeeIdOrCode?: string): Promise<string | 
     }
 
     if (clean.includes('@')) {
-      const byEmail = await fetch(`${SUPABASE_URL}/rest/v1/employees?email=eq.${encodeURIComponent(clean.toLowerCase())}&select=id&limit=1`, {
+      const byEmail = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?email=eq.${encodeURIComponent(clean.toLowerCase())}&select=id&limit=1`, {
         headers: getHeaders(),
       });
       if (byEmail.ok) {
@@ -91,7 +92,7 @@ const resolveEmployeeUuid = async (employeeIdOrCode?: string): Promise<string | 
       }
     }
   } catch (err) {
-    console.warn('[SupabaseDirect] resolveEmployeeUuid notice:', err);
+    console.warn('[DatabaseRest] resolveEmployeeUuid notice:', err);
   }
 
   return undefined;
@@ -99,29 +100,29 @@ const resolveEmployeeUuid = async (employeeIdOrCode?: string): Promise<string | 
 
 export const supabaseDirect = {
   /**
-   * Fetches all active employees directly from Supabase REST
+   * Fetches all active employees directly from the VPS database REST API
    */
   async getEmployees(): Promise<any[]> {
     try {
-      let res = await fetch(`${SUPABASE_URL}/rest/v1/employees?select=*,departments!employees_department_id_fkey(id,name,code)&order=created_at.desc`, {
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?select=*,departments!employees_department_id_fkey(id,name,code)&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) {
         // Fallback to basic employee fetch without nested relation if relation error occurs
-        res = await fetch(`${SUPABASE_URL}/rest/v1/employees?select=*&order=created_at.desc`, {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?select=*&order=created_at.desc`, {
           headers: getHeaders(),
         });
       }
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getEmployees notice:', err);
+      console.warn('[DatabaseRest] getEmployees notice:', err);
       return [];
     }
   },
 
   /**
-   * Inserts an employee directly into Supabase REST
+   * Inserts an employee directly into the VPS database REST API
    */
   async insertEmployee(emp: {
     employee_id: string;
@@ -164,7 +165,7 @@ export const supabaseDirect = {
         attendance_method: emp.attendance_method || (emp.designation === 'CEO' || (emp.designation && emp.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan'),
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/employees`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -196,7 +197,7 @@ export const supabaseDirect = {
       // Look up by email, employee_id, or phone
       const filter = `or=(email.ilike.${encodeURIComponent(clean)},employee_id.ilike.${encodeURIComponent(clean)},phone.ilike.${encodeURIComponent(clean)})`;
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/employees?${filter}&select=*&limit=1`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${filter}&select=*&limit=1`, {
         headers: getHeaders(),
       });
 
@@ -233,13 +234,13 @@ export const supabaseDirect = {
       if (err?.message?.includes('deactivated')) {
         throw err;
       }
-      console.warn('[SupabaseDirect] verifyLogin notice:', err);
+      console.warn('[DatabaseRest] verifyLogin notice:', err);
       return null;
     }
   },
 
   /**
-   * Directly deletes an employee from Supabase REST
+   * Directly deletes an employee from the VPS database REST API
    */
   async deleteEmployee(idOrEmpId: string): Promise<{ success: boolean; error?: any }> {
     try {
@@ -257,7 +258,7 @@ export const supabaseDirect = {
           ? `id=eq.${encodeURIComponent(cleanId)}`
           : `employee_id=eq.${encodeURIComponent(cleanId)}`;
 
-        const empRows = await fetch(`${SUPABASE_URL}/rest/v1/employees?${queryFilter}&select=id,employee_id,email&limit=1`, {
+        const empRows = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${queryFilter}&select=id,employee_id,email&limit=1`, {
           headers: getHeaders(),
         });
         if (empRows.ok) {
@@ -269,7 +270,7 @@ export const supabaseDirect = {
           }
         }
       } catch (findErr) {
-        console.warn('[SupabaseDirect] Employee lookup warning:', findErr);
+        console.warn('[DatabaseRest] Employee lookup warning:', findErr);
       }
 
       // 2. Cascade delete dependent child records and unassign references
@@ -297,7 +298,7 @@ export const supabaseDirect = {
 
           await Promise.allSettled(
             tablesToClean.map(t =>
-              fetch(`${SUPABASE_URL}/rest/v1/${t.table}?${t.col}=eq.${encodeURIComponent(uuid)}`, {
+              fetch(`${DATABASE_REST_URL}/rest/v1/${t.table}?${t.col}=eq.${encodeURIComponent(uuid)}`, {
                 method: 'DELETE',
                 headers: getHeaders(),
               })
@@ -305,7 +306,7 @@ export const supabaseDirect = {
           );
 
           if (empEmail) {
-            await fetch(`${SUPABASE_URL}/rest/v1/password_resets?email=eq.${encodeURIComponent(empEmail)}`, {
+            await fetch(`${DATABASE_REST_URL}/rest/v1/password_resets?email=eq.${encodeURIComponent(empEmail)}`, {
               method: 'DELETE',
               headers: getHeaders(),
             }).catch(() => {});
@@ -313,17 +314,17 @@ export const supabaseDirect = {
 
           // Unassign foreign key references without deleting parent containers
           await Promise.allSettled([
-            fetch(`${SUPABASE_URL}/rest/v1/departments?head_id=eq.${encodeURIComponent(uuid)}`, {
+            fetch(`${DATABASE_REST_URL}/rest/v1/departments?head_id=eq.${encodeURIComponent(uuid)}`, {
               method: 'PATCH',
               headers: getHeaders(),
               body: JSON.stringify({ head_id: null }),
             }),
-            fetch(`${SUPABASE_URL}/rest/v1/assets?assigned_employee_id=eq.${encodeURIComponent(uuid)}`, {
+            fetch(`${DATABASE_REST_URL}/rest/v1/assets?assigned_employee_id=eq.${encodeURIComponent(uuid)}`, {
               method: 'PATCH',
               headers: getHeaders(),
               body: JSON.stringify({ assigned_employee_id: null, status: 'Available' }),
             }),
-            fetch(`${SUPABASE_URL}/rest/v1/tasks?responsible_person_id=eq.${encodeURIComponent(uuid)}`, {
+            fetch(`${DATABASE_REST_URL}/rest/v1/tasks?responsible_person_id=eq.${encodeURIComponent(uuid)}`, {
               method: 'PATCH',
               headers: getHeaders(),
               body: JSON.stringify({ responsible_person_id: null }),
@@ -333,14 +334,14 @@ export const supabaseDirect = {
 
         // Clean enterprise_tasks by empCode
         if (empCode) {
-          await fetch(`${SUPABASE_URL}/rest/v1/enterprise_tasks?responsible_person_id=eq.${encodeURIComponent(empCode)}`, {
+          await fetch(`${DATABASE_REST_URL}/rest/v1/enterprise_tasks?responsible_person_id=eq.${encodeURIComponent(empCode)}`, {
             method: 'PATCH',
             headers: getHeaders(),
             body: JSON.stringify({ responsible_person_id: null, responsible_person_name: null }),
           }).catch(() => {});
         }
       } catch (cascadeErr) {
-        console.warn('[SupabaseDirect] Pre-delete cascade notice:', cascadeErr);
+        console.warn('[DatabaseRest] Pre-delete cascade notice:', cascadeErr);
       }
 
       // 3. Delete from employees table
@@ -348,20 +349,20 @@ export const supabaseDirect = {
         ? `id=eq.${encodeURIComponent(uuid)}`
         : `employee_id=eq.${encodeURIComponent(cleanId)}`;
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/employees?${deleteFilter}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${deleteFilter}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error('[SupabaseDirect] deleteEmployee error:', res.status, errText);
+        console.error('[DatabaseRest] deleteEmployee error:', res.status, errText);
         return { success: false, error: errText };
       }
 
       return { success: true };
     } catch (err: any) {
-      console.error('[SupabaseDirect] deleteEmployee exception:', err);
+      console.error('[DatabaseRest] deleteEmployee exception:', err);
       return { success: false, error: err?.message || err };
     }
   },
@@ -390,7 +391,7 @@ export const supabaseDirect = {
   },
 
   /**
-   * Updates an employee record directly in Supabase REST
+   * Updates an employee record directly in the VPS database REST API
    */
   async updateEmployee(idOrEmpId: string, updates: Record<string, any>): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
@@ -401,7 +402,7 @@ export const supabaseDirect = {
         ? `id=eq.${encodeURIComponent(cleanId)}`
         : `or=(employee_id.ilike.${encodeURIComponent(cleanId)},email.ilike.${encodeURIComponent(cleanId)})`;
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/employees?${filter}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${filter}`, {
         method: 'PATCH',
         headers: {
           ...getHeaders(),
@@ -423,11 +424,11 @@ export const supabaseDirect = {
   },
 
   /**
-   * Fetches a company setting JSON directly from Supabase Cloud
+   * Fetches a company setting JSON directly from VPS database
    */
   async getCompanySetting(key: string): Promise<any | null> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/company_settings?setting_key=eq.${encodeURIComponent(key)}&select=*&limit=1`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?setting_key=eq.${encodeURIComponent(key)}&select=*&limit=1`, {
         headers: getHeaders(),
       });
       if (!res.ok) return null;
@@ -437,17 +438,17 @@ export const supabaseDirect = {
       }
       return null;
     } catch (err) {
-      console.warn(`[SupabaseDirect] getCompanySetting('${key}') error:`, err);
+      console.warn(`[DatabaseRest] getCompanySetting('${key}') error:`, err);
       return null;
     }
   },
 
   /**
-   * Saves or merges a company setting JSON directly into Supabase Cloud
+   * Saves or merges a company setting JSON directly into VPS database
    */
   async saveCompanySetting(key: string, val: any): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/company_settings?on_conflict=setting_key`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?on_conflict=setting_key`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -461,26 +462,26 @@ export const supabaseDirect = {
       });
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
-        console.error(`[SupabaseDirect] saveCompanySetting('${key}') failed:`, res.status, errorText);
+        console.error(`[DatabaseRest] saveCompanySetting('${key}') failed:`, res.status, errorText);
       }
       return res.ok;
     } catch (err) {
-      console.warn(`[SupabaseDirect] saveCompanySetting('${key}') error:`, err);
+      console.warn(`[DatabaseRest] saveCompanySetting('${key}') error:`, err);
       return false;
     }
   },
 
   /**
-   * Fetches all company settings from Supabase Cloud in a single batch request
+   * Fetches all company settings from VPS database in a single batch request
    */
   async getAllCompanySettings(): Promise<Record<string, any>> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/company_settings?select=setting_key,setting_val`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val`, {
         headers: getHeaders(),
       });
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
-        console.error('[SupabaseDirect] getAllCompanySettings failed:', res.status, errorText);
+        console.error('[DatabaseRest] getAllCompanySettings failed:', res.status, errorText);
         return {};
       }
       const rows = await res.json();
@@ -493,7 +494,7 @@ export const supabaseDirect = {
       }
       return result;
     } catch (err) {
-      console.warn('[SupabaseDirect] getAllCompanySettings error:', err);
+      console.warn('[DatabaseRest] getAllCompanySettings error:', err);
       return {};
     }
   },
@@ -503,13 +504,13 @@ export const supabaseDirect = {
    */
   async getDepartments(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/departments?select=*&order=name.asc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?select=*&order=name.asc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getDepartments error:', err);
+      console.warn('[DatabaseRest] getDepartments error:', err);
       return [];
     }
   },
@@ -521,7 +522,7 @@ export const supabaseDirect = {
     try {
       const cleanName = name.trim();
       const cleanCode = (code || cleanName.substring(0, 4)).toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/departments`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -535,7 +536,7 @@ export const supabaseDirect = {
       if (!res.ok) {
         // If conflict on code, generate a timestamped code
         const fallbackCode = `${cleanCode.substring(0, 2)}${Math.floor(10 + Math.random() * 90)}`;
-        const retryRes = await fetch(`${SUPABASE_URL}/rest/v1/departments`, {
+        const retryRes = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
           method: 'POST',
           headers: {
             ...getHeaders(),
@@ -553,7 +554,7 @@ export const supabaseDirect = {
       const data = await res.json();
       return { success: true, data: Array.isArray(data) ? data[0] : data };
     } catch (err) {
-      console.warn('[SupabaseDirect] insertDepartment error:', err);
+      console.warn('[DatabaseRest] insertDepartment error:', err);
       return { success: false };
     }
   },
@@ -563,7 +564,7 @@ export const supabaseDirect = {
    */
   async updateDepartment(oldName: string, newName: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/departments?name=eq.${encodeURIComponent(oldName.trim())}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?name=eq.${encodeURIComponent(oldName.trim())}`, {
         method: 'PATCH',
         headers: {
           ...getHeaders(),
@@ -576,7 +577,7 @@ export const supabaseDirect = {
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateDepartment error:', err);
+      console.warn('[DatabaseRest] updateDepartment error:', err);
       return false;
     }
   },
@@ -586,23 +587,23 @@ export const supabaseDirect = {
    */
   async deleteDepartment(name: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/departments?name=eq.${encodeURIComponent(name.trim())}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?name=eq.${encodeURIComponent(name.trim())}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteDepartment error:', err);
+      console.warn('[DatabaseRest] deleteDepartment error:', err);
       return false;
     }
   },
 
   /**
-   * Fetches all enterprise tasks directly from Supabase Cloud
+   * Fetches all enterprise tasks directly from VPS database
    */
   async getTasks(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/enterprise_tasks?select=*&order=created_at.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/enterprise_tasks?select=*&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
@@ -617,13 +618,13 @@ export const supabaseDirect = {
         overallProgress: r.overall_progress ?? r.task_data?.overallProgress ?? 0,
       }));
     } catch (err) {
-      console.warn('[SupabaseDirect] getTasks error:', err);
+      console.warn('[DatabaseRest] getTasks error:', err);
       return [];
     }
   },
 
   /**
-   * Upserts an enterprise task directly into Supabase Cloud
+   * Upserts an enterprise task directly into VPS database
    */
   async saveTask(task: any): Promise<boolean> {
     try {
@@ -652,7 +653,7 @@ export const supabaseDirect = {
         updated_at: new Date().toISOString()
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/enterprise_tasks?on_conflict=id`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/enterprise_tasks?on_conflict=id`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -662,23 +663,23 @@ export const supabaseDirect = {
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] saveTask error:', err);
+      console.warn('[DatabaseRest] saveTask error:', err);
       return false;
     }
   },
 
   /**
-   * Deletes an enterprise task from Supabase Cloud
+   * Deletes an enterprise task from VPS database
    */
   async deleteTask(taskId: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/enterprise_tasks?id=eq.${encodeURIComponent(taskId)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/enterprise_tasks?id=eq.${encodeURIComponent(taskId)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteTask error:', err);
+      console.warn('[DatabaseRest] deleteTask error:', err);
       return false;
     }
   },
@@ -688,13 +689,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getShifts(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?select=*&order=created_at.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?select=*&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getShifts error:', err);
+      console.warn('[DatabaseRest] getShifts error:', err);
       return [];
     }
   },
@@ -718,7 +719,7 @@ export const supabaseDirect = {
         grace_period_mins: shift.grace_period_mins ?? 15,
         color: shift.color || '#0E7490',
       };
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -739,27 +740,27 @@ export const supabaseDirect = {
 
   async updateShift(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateShift error:', err);
+      console.warn('[DatabaseRest] updateShift error:', err);
       return false;
     }
   },
 
   async deleteShift(id: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteShift error:', err);
+      console.warn('[DatabaseRest] deleteShift error:', err);
       return false;
     }
   },
@@ -770,19 +771,19 @@ export const supabaseDirect = {
   async getLeaveRequests(): Promise<any[]> {
     try {
       // Using explicit foreign key constraint to avoid PostgREST HTTP 300 (PGRST201)
-      let res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?select=*,employee:employees!leave_requests_employee_id_fkey(employee_id,first_name,last_name,department_id)&order=created_at.desc`, {
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests?select=*,employee:employees!leave_requests_employee_id_fkey(employee_id,first_name,last_name,department_id)&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) {
         // Fallback without embed to guarantee records are retrieved
-        res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?select=*&order=created_at.desc`, {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests?select=*&order=created_at.desc`, {
           headers: getHeaders(),
         });
       }
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getLeaveRequests error:', err);
+      console.warn('[DatabaseRest] getLeaveRequests error:', err);
       return [];
     }
   },
@@ -802,10 +803,11 @@ export const supabaseDirect = {
         return { success: false, error: `Employee '${req.employee_id}' was not found in Supabase employees table.` };
       }
 
-      // Map to PostgreSQL enum hr_leave_type: ['Casual Leave', 'Sick Leave', 'Paid Leave', 'Unpaid Leave', 'Work From Home']
+      // Map to PostgreSQL enum hr_leave_type.
       const rawType = (req.leave_type || '').toLowerCase();
       let normType = 'Casual Leave';
       if (rawType.includes('sick')) normType = 'Sick Leave';
+      else if (rawType.includes('emergency')) normType = 'Emergency Leave';
       else if (rawType.includes('unpaid') || rawType.includes('loss') || rawType.includes('lop')) normType = 'Unpaid Leave';
       else if (rawType.includes('paid') || rawType.includes('earn') || rawType.includes('annual')) normType = 'Paid Leave';
       else if (rawType.includes('wfh') || rawType.includes('home')) normType = 'Work From Home';
@@ -824,7 +826,7 @@ export const supabaseDirect = {
         applied_date: new Date().toISOString().split('T')[0],
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -857,14 +859,14 @@ export const supabaseDirect = {
       };
       if (approvedBy && approvedBy.length === 36) body.approved_by = approvedBy;
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(body),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateLeaveRequestStatus error:', err);
+      console.warn('[DatabaseRest] updateLeaveRequestStatus error:', err);
       return false;
     }
   },
@@ -874,18 +876,18 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getAttendanceRecords(): Promise<any[]> {
     try {
-      let res = await fetch(`${SUPABASE_URL}/rest/v1/attendance_records?select=*,employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=*,employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) {
-        res = await fetch(`${SUPABASE_URL}/rest/v1/attendance_records?select=*&order=date.desc`, {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=*&order=date.desc`, {
           headers: getHeaders(),
         });
       }
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getAttendanceRecords error:', err);
+      console.warn('[DatabaseRest] getAttendanceRecords error:', err);
       return [];
     }
   },
@@ -934,7 +936,7 @@ export const supabaseDirect = {
         shift_date: record.shift_date || record.date,
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/attendance_records`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
@@ -956,14 +958,14 @@ export const supabaseDirect = {
 
   async updateAttendanceRecord(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/attendance_records?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateAttendanceRecord error:', err);
+      console.warn('[DatabaseRest] updateAttendanceRecord error:', err);
       return false;
     }
   },
@@ -973,13 +975,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getAssets(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/assets?select=*&order=created_at.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets?select=*&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getAssets error:', err);
+      console.warn('[DatabaseRest] getAssets error:', err);
       return [];
     }
   },
@@ -1022,7 +1024,7 @@ export const supabaseDirect = {
         notes: asset.notes || null,
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/assets`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(payload),
@@ -1038,27 +1040,27 @@ export const supabaseDirect = {
 
   async updateAsset(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/assets?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateAsset error:', err);
+      console.warn('[DatabaseRest] updateAsset error:', err);
       return false;
     }
   },
 
   async deleteAsset(id: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/assets?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteAsset error:', err);
+      console.warn('[DatabaseRest] deleteAsset error:', err);
       return false;
     }
   },
@@ -1068,13 +1070,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getExpenses(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/expenses?select=*,employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/expenses?select=*,employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getExpenses error:', err);
+      console.warn('[DatabaseRest] getExpenses error:', err);
       return [];
     }
   },
@@ -1112,7 +1114,7 @@ export const supabaseDirect = {
         status: normStatus,
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/expenses`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/expenses`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(payload),
@@ -1141,27 +1143,27 @@ export const supabaseDirect = {
       };
       if (approvedBy && approvedBy.length === 36) body.approved_by = approvedBy;
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/expenses?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/expenses?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(body),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateExpenseStatus error:', err);
+      console.warn('[DatabaseRest] updateExpenseStatus error:', err);
       return false;
     }
   },
 
   async deleteExpense(id: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/expenses?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/expenses?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteExpense error:', err);
+      console.warn('[DatabaseRest] deleteExpense error:', err);
       return false;
     }
   },
@@ -1171,13 +1173,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getJobOpenings(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/job_openings?select=*&order=posted_date.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/job_openings?select=*&order=posted_date.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getJobOpenings error:', err);
+      console.warn('[DatabaseRest] getJobOpenings error:', err);
       return [];
     }
   },
@@ -1214,7 +1216,7 @@ export const supabaseDirect = {
         description: job.description || '',
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/job_openings`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/job_openings`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(payload),
@@ -1230,40 +1232,40 @@ export const supabaseDirect = {
 
   async updateJobOpening(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/job_openings?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/job_openings?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateJobOpening error:', err);
+      console.warn('[DatabaseRest] updateJobOpening error:', err);
       return false;
     }
   },
 
   async deleteJobOpening(id: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/job_openings?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/job_openings?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteJobOpening error:', err);
+      console.warn('[DatabaseRest] deleteJobOpening error:', err);
       return false;
     }
   },
 
   async getCandidates(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/candidates?select=*&order=applied_date.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/candidates?select=*&order=applied_date.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getCandidates error:', err);
+      console.warn('[DatabaseRest] getCandidates error:', err);
       return [];
     }
   },
@@ -1301,7 +1303,7 @@ export const supabaseDirect = {
         notes: cand.notes || null,
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/candidates`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/candidates`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(payload),
@@ -1317,27 +1319,27 @@ export const supabaseDirect = {
 
   async updateCandidateStage(id: string, stage: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/candidates?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/candidates?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({ stage, updated_at: new Date().toISOString() }),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] updateCandidateStage error:', err);
+      console.warn('[DatabaseRest] updateCandidateStage error:', err);
       return false;
     }
   },
 
   async deleteCandidate(id: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/candidates?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/candidates?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteCandidate error:', err);
+      console.warn('[DatabaseRest] deleteCandidate error:', err);
       return false;
     }
   },
@@ -1347,13 +1349,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getDesignations(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/designations?select=*&order=title.asc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/designations?select=*&order=title.asc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getDesignations error:', err);
+      console.warn('[DatabaseRest] getDesignations error:', err);
       return [];
     }
   },
@@ -1367,7 +1369,7 @@ export const supabaseDirect = {
       }
       if (!deptId) return { success: false };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/designations`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/designations`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({
@@ -1380,20 +1382,20 @@ export const supabaseDirect = {
       const data = await res.json();
       return { success: true, data: Array.isArray(data) ? data[0] : data };
     } catch (err) {
-      console.warn('[SupabaseDirect] insertDesignation error:', err);
+      console.warn('[DatabaseRest] insertDesignation error:', err);
       return { success: false };
     }
   },
 
   async deleteDesignation(id: string): Promise<boolean> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/designations?id=eq.${encodeURIComponent(id)}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/designations?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       return res.ok;
     } catch (err) {
-      console.warn('[SupabaseDirect] deleteDesignation error:', err);
+      console.warn('[DatabaseRest] deleteDesignation error:', err);
       return false;
     }
   },
@@ -1403,13 +1405,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getPayrollRecords(): Promise<any[]> {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/payroll_records?select=*,employee:employees(employee_id,first_name,last_name,department_id,designation)&order=payroll_month.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/payroll_records?select=*,employee:employees(employee_id,first_name,last_name,department_id,designation)&order=payroll_month.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
       return await res.json();
     } catch (err) {
-      console.warn('[SupabaseDirect] getPayrollRecords error:', err);
+      console.warn('[DatabaseRest] getPayrollRecords error:', err);
       return [];
     }
   },
@@ -1453,7 +1455,7 @@ export const supabaseDirect = {
         status: normStatus,
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/payroll_records`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/payroll_records`, {
         method: 'POST',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(payload),
@@ -1467,3 +1469,5 @@ export const supabaseDirect = {
     }
   },
 };
+
+

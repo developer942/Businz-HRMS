@@ -205,16 +205,16 @@ export const authService = {
         const errMessage = await readError(response, 'Invalid User ID / Email or password.');
         throw new Error(errMessage);
       } else {
-        console.warn(`[Auth] Backend login unavailable (HTTP ${response.status}); trying direct Supabase login.`);
+        console.warn(`[Auth] Backend login unavailable (HTTP ${response.status}); trying direct VPS database login.`);
       }
     } catch (err: any) {
       if (err.message && (err.message.includes('deactivated') || err.message.includes('disabled') || err.message.includes('Invalid'))) {
         throw err;
       }
-      // If backend network error / unreachable, fallback to direct Supabase cloud authentication
+      // If backend network error / unreachable, fallback to direct VPS database authentication
     }
 
-    // 2. Direct Supabase Cloud Database Query
+    // 2. Direct VPS database query
     try {
       const dbUser = await supabaseDirect.verifyLogin(cleanId, cleanPass);
       if (dbUser) {
@@ -611,3 +611,5 @@ export const authService = {
     localStorage.removeItem(`vrm_valid_token_${resetToken}`);
   },
 };
+
+

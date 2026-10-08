@@ -494,7 +494,7 @@ export const CompanyDetailsSettings: React.FC = () => {
   const handleSyncSettings = async () => {
     setIsSyncing(true);
     await refreshSettings();
-    showCloudNotice('Settings refreshed from cloud database!');
+    showCloudNotice('Settings refreshed from VPS database!');
     setTimeout(() => setIsSyncing(false), 500);
   };
 
@@ -747,7 +747,7 @@ export const CompanyDetailsSettings: React.FC = () => {
     const added = newDept.trim();
     updateOrgStructure({ departments: [...orgStructure.departments, added] });
     setNewDept('');
-    showCloudNotice(`Department "${added}" saved to cloud database!`);
+    showCloudNotice(`Department "${added}" saved to VPS database!`);
   };
 
   const handleAddDesig = () => {
@@ -755,7 +755,7 @@ export const CompanyDetailsSettings: React.FC = () => {
     const added = newDesig.trim();
     updateOrgStructure({ designations: [...orgStructure.designations, added] });
     setNewDesig('');
-    showCloudNotice(`Designation "${added}" saved to cloud database!`);
+    showCloudNotice(`Designation "${added}" saved to VPS database!`);
   };
 
   const handleAddEmpType = () => {
@@ -763,7 +763,7 @@ export const CompanyDetailsSettings: React.FC = () => {
     const added = newEmpType.trim();
     updateOrgStructure({ employmentTypes: [...orgStructure.employmentTypes, added] });
     setNewEmpType('');
-    showCloudNotice(`Employment Type "${added}" saved to cloud database!`);
+    showCloudNotice(`Employment Type "${added}" saved to VPS database!`);
   };
 
   const handleAddLocation = () => {
@@ -771,7 +771,7 @@ export const CompanyDetailsSettings: React.FC = () => {
     const added = newLocation.trim();
     updateOrgStructure({ workLocations: [...orgStructure.workLocations, added] });
     setNewLocation('');
-    showCloudNotice(`Work Location "${added}" saved to cloud database!`);
+    showCloudNotice(`Work Location "${added}" saved to VPS database!`);
   };
 
   const handleRemoveLocation = (locToRemove: string) => {
@@ -781,7 +781,7 @@ export const CompanyDetailsSettings: React.FC = () => {
 
   const handleRemoveDept = (deptToRemove: string) => {
     removeOrgDepartment(deptToRemove);
-    showCloudNotice(`Department "${deptToRemove}" removed from cloud database.`);
+    showCloudNotice(`Department "${deptToRemove}" removed from VPS database.`);
   };
 
   const handleRemoveDesig = (desigToRemove: string) => {
@@ -805,7 +805,7 @@ export const CompanyDetailsSettings: React.FC = () => {
     updateOrgStructure({ teams: [...orgStructure.teams, newTeam] });
     setNewTeamName('');
     setNewTeamLead('');
-    showCloudNotice(`Team "${newTeam.name}" saved to cloud database!`);
+    showCloudNotice(`Team "${newTeam.name}" saved to VPS database!`);
   };
 
   const setInfoField = <K extends keyof CompanyInfo>(field: K, value: CompanyInfo[K]) => {
@@ -2477,3 +2477,4 @@ export const CompanyDetailsSettings: React.FC = () => {
     </div>
   );
 };
+

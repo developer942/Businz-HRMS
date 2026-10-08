@@ -10,9 +10,9 @@ services:
     environment:
       - PORT=8000
       - NODE_ENV=production
-      - SUPABASE_URL=${SUPABASE_URL:-https://mock-supabase.local}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-mock-anon-key}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-mock-service-role-key}
+      - DB_REST_URL=${DB_REST_URL:-http://localhost:3001}
+      - DB_REST_KEY=${DB_REST_KEY:-vps-local-rest-key}
+      - DB_REST_SERVICE_KEY=${DB_REST_SERVICE_KEY:-vps-local-rest-key}
       - JWT_SECRET=${JWT_SECRET:-vrm-hrms-production-jwt-secret-key-2026}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
     healthcheck:

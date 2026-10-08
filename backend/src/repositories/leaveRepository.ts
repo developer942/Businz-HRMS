@@ -2,6 +2,16 @@ import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.j
 import { LeaveRecord, LeaveBalance } from '../types/hrms.js';
 import { employeeRepository } from './employeeRepository.js';
 
+const toDatabaseLeaveType = (leaveType?: string): string => {
+  const rawType = (leaveType || '').toLowerCase();
+  if (rawType.includes('sick')) return 'Sick Leave';
+  if (rawType.includes('emergency')) return 'Emergency Leave';
+  if (rawType.includes('unpaid') || rawType.includes('loss') || rawType.includes('lop')) return 'Unpaid Leave';
+  if (rawType.includes('wfh') || rawType.includes('home')) return 'Work From Home';
+  if (rawType.includes('paid') || rawType.includes('earn') || rawType.includes('annual')) return 'Paid Leave';
+  return 'Casual Leave';
+};
+
 export class LeaveRepository {
   async getLeaves(filters?: { employeeId?: string; status?: string }): Promise<LeaveRecord[]> {
     if (!isRealSupabaseConfigured()) {
@@ -132,7 +142,7 @@ export class LeaveRepository {
         if (emp?.id) {
           await supabase.from('leave_requests').insert({
             employee_id: emp.id,
-            leave_type: newRecord.leaveType === 'Casual' ? 'Casual Leave' : newRecord.leaveType === 'Sick' ? 'Sick Leave' : 'Casual Leave',
+            leave_type: toDatabaseLeaveType(newRecord.leaveType),
             start_date: newRecord.startDate,
             end_date: newRecord.endDate,
             days_count: newRecord.daysCount,

@@ -57,9 +57,9 @@ services:
       PORT: 8000
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hrms}
       DATABASE_SSL: "false"
-      SUPABASE_URL: http://rest-proxy:3001
-      SUPABASE_ANON_KEY: ${DB_REST_KEY:-vps-local-rest-key}
-      SUPABASE_SERVICE_ROLE_KEY: ${DB_REST_KEY:-vps-local-rest-key}
+      DB_REST_URL: http://rest-proxy:3001
+      DB_REST_KEY: ${DB_REST_KEY:-vps-local-rest-key}
+      DB_REST_SERVICE_KEY: ${DB_REST_KEY:-vps-local-rest-key}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
@@ -71,6 +71,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_DB_REST_URL: ""
+        VITE_DB_REST_KEY: ${DB_REST_KEY:-vps-local-rest-key}
     container_name: businz_hrms_frontend
     restart: unless-stopped
     depends_on:
