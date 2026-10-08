@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
-import { Bell, CheckCircle2, AlertTriangle, Info, Plus } from 'lucide-react';
+import { AlertTriangle, Info, Plus } from 'lucide-react';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export const NotificationCenter: React.FC = () => {
-  const { notifications, markNotificationRead, markAllNotificationsRead, addNotification } = useHRMS();
+  const { notifications, markNotificationRead, addNotification } = useHRMS();
   const [filter, setFilter] = useState<'All' | 'Urgent' | 'Important' | 'Normal'>('All');
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
 
@@ -35,9 +36,6 @@ export const NotificationCenter: React.FC = () => {
           <p className="page-subtitle">Company announcements, leave status alerts, task assignments, and payroll updates</p>
         </div>
         <div className="header-actions">
-          <button className="btn btn-secondary btn-sm" onClick={markAllNotificationsRead}>
-            <CheckCircle2 size={16} /> Mark All Read
-          </button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowAnnounceModal(true)}>
             <Plus size={16} /> Post Announcement
           </button>
@@ -67,11 +65,13 @@ export const NotificationCenter: React.FC = () => {
             <div
               key={n.id}
               className="card"
+              onClick={() => markNotificationRead(n.id)}
               style={{
                 marginBottom: 0,
                 padding: '16px 20px',
                 borderLeft: `4px solid ${n.priority === 'Urgent' ? 'var(--accent-rose)' : n.priority === 'Important' ? 'var(--accent-amber)' : 'var(--primary-500)'}`,
-                backgroundColor: n.read ? '#ffffff' : '#f8fafc'
+                backgroundColor: n.read ? '#ffffff' : '#f8fafc',
+                cursor: n.read ? 'default' : 'pointer'
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -84,7 +84,19 @@ export const NotificationCenter: React.FC = () => {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <span className={`priority-pill ${n.priority.toLowerCase()}`}>{n.priority}</span>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>{n.timestamp}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {formatDateDDMMYYYY(n.createdAt || new Date())}
+                  </div>
+                  {!n.read && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id); }}
+                      style={{ marginTop: '6px', padding: '3px 8px', fontSize: '0.7rem' }}
+                    >
+                      Mark Read
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

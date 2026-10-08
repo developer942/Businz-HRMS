@@ -89,6 +89,18 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
 
+  const isHrEmployeeRecord = (employeeId?: string, employeeName?: string) => {
+    const nameKey = (employeeName || '').trim().toLowerCase();
+    const emp = employees.find(e => {
+      const fullName = `${e.firstName} ${e.lastName}`.trim().toLowerCase();
+      return Boolean(employeeId && (e.employeeId === employeeId || e.id === employeeId)) || Boolean(nameKey && fullName === nameKey);
+    });
+    const role = String((emp as any)?.role || '').toLowerCase();
+    const dept = String(emp?.department || '').toLowerCase();
+    const designation = String(emp?.designation || '').toLowerCase();
+    return role.includes('hr') || dept.includes('hr') || dept.includes('human resource') || designation.includes('hr');
+  };
+
   // Target Employee for Personal Advance Salary Application (Strictly own application)
   const targetEmployee = useMemo(() => {
     const found = employees.find(e => 
@@ -530,6 +542,10 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     // Approval / rejection is strictly HR & CEO only (Accounts only disburse)
     if (!isApprovalAuthority) {
       showFeedback('error', 'Only HR or CEO can approve or reject advance salary requests.');
+      return;
+    }
+    if (!isCEOUser && isHrEmployeeRecord(reviewModalRecord.employeeId, reviewModalRecord.employeeName)) {
+      showFeedback('error', 'HR staff advance salary requests can be approved or rejected only by CEO.');
       return;
     }
 

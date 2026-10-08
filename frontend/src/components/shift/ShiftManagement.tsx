@@ -585,7 +585,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                       {r.status === 'Pending' ? (
-                        canManageShifts ? (
+                        (isCEO || isHR) ? (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             {/* ACCEPT BUTTON */}
                             <button 

@@ -40,6 +40,7 @@ import {
   TaskAuditLog,
   TaskTimelineEvent,
   computeTaskOverallStatusAndProgress,
+  computeDueStatus,
   calculateEmployeeTaskMetrics,
   SettingsSubTab,
   LeavePolicyItem,
@@ -816,6 +817,9 @@ interface HRMSContextType {
   enhancedTasks: TaskItemEnhanced[];
   refreshTasks: () => Promise<void>;
   createEnhancedTask: (task: Omit<TaskItemEnhanced, 'id' | 'taskNumber' | 'overallProgress' | 'overallStatus' | 'updates' | 'comments' | 'attachments' | 'timeline' | 'auditLogs' | 'createdAt' | 'updatedAt'> & Partial<Pick<TaskItemEnhanced, 'assignees' | 'attachments'>>) => TaskItemEnhanced;
+  updateEnhancedTask: (taskId: string, updates: Partial<Pick<TaskItemEnhanced, 'title' | 'description' | 'expectedOutput' | 'priority' | 'dueDate' | 'taskCategory'>>) => void;
+  markTaskViewed: (taskId: string) => void;
+  markTaskDailyReportsSeen: (taskId: string) => void;
   updateAssigneeProgress: (taskId: string, assigneeId: string, progressPercentage: number, individualStatus: TaskAssigneeStatus, latestRemark?: string, completionEvidence?: TaskCompletionEvidence) => void;
   closeTask: (taskId: string, closedBy: string, closureRemarks?: string) => void;
   reopenTask: (taskId: string, reopenedBy: string, reopenReason: string) => void;
@@ -1780,6 +1784,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const approveMissedPunchRequest = (id: string, reviewedBy: string, remarks?: string) => {
     const target = missedPunchRequests.find(r => r.id === id);
     if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff requests can be approved only by CEO.',
+        priority: 'Important',
+        category: 'Attendance'
+      });
+      return;
+    }
 
     const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     const targetCheckIn = target.requestedCheckIn || '09:00 AM';
@@ -1902,6 +1915,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const rejectMissedPunchRequest = (id: string, reviewedBy: string, remarks?: string) => {
     const target = missedPunchRequests.find(r => r.id === id);
     if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff requests can be rejected only by CEO.',
+        priority: 'Important',
+        category: 'Attendance'
+      });
+      return;
+    }
     const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     setMissedPunchRequests(prev => prev.map(r => r.id === id ? {
       ...r,
@@ -2093,6 +2115,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   ) => {
     const target = overtimeRequests.find(r => r.id === id);
     if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff requests can be approved only by CEO.',
+        priority: 'Important',
+        category: 'Attendance'
+      });
+      return;
+    }
     const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
     const activeMultiplier = multiplier || target.multiplier || '1x Salary';
@@ -2164,6 +2195,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const rejectOtRequest = (id: string, reviewedBy: string, remarks?: string) => {
     const target = overtimeRequests.find(r => r.id === id);
     if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff requests can be rejected only by CEO.',
+        priority: 'Important',
+        category: 'Attendance'
+      });
+      return;
+    }
     const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
     setOvertimeRequests(prev => prev.map(r => r.id === id ? {
@@ -3228,6 +3268,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     employeeVisibleNotes?: string;
     rejectionReason?: string;
   }) => {
+    const targetRecord = loanRecords.find(rec => rec.id === id);
+    if (targetRecord && !canCurrentUserApproveRequests({ employeeId: targetRecord.employeeId, employeeName: targetRecord.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff advance salary / loan requests can be approved or rejected only by CEO.',
+        priority: 'Important',
+        category: 'Payroll'
+      });
+      return;
+    }
     const now = new Date();
     const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const approverName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
@@ -5596,7 +5646,51 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const findEmployeeForApproval = (target?: { employeeId?: string; employeeName?: string; email?: string }) => {
+    if (!target) return null;
+    const targetName = String(target.employeeName || '').trim().toLowerCase();
+    const targetEmail = String(target.email || '').trim().toLowerCase();
+    return employees.find(emp => {
+      const fullName = `${emp.firstName} ${emp.lastName}`.trim().toLowerCase();
+      return (
+        Boolean(target.employeeId && (emp.employeeId === target.employeeId || emp.id === target.employeeId)) ||
+        Boolean(targetEmail && emp.email?.trim().toLowerCase() === targetEmail) ||
+        Boolean(targetName && fullName === targetName)
+      );
+    }) || null;
+  };
+
+  const isApprovalTargetHR = (target?: { employeeId?: string; employeeName?: string; email?: string; role?: string; department?: string; designation?: string }) => {
+    const emp = findEmployeeForApproval(target);
+    const role = String(target?.role || (emp as any)?.role || '').toLowerCase();
+    const dept = String(target?.department || emp?.department || '').toLowerCase();
+    const designation = String(target?.designation || emp?.designation || '').toLowerCase();
+    return role.includes('hr') || dept.includes('hr') || dept.includes('human resource') || designation.includes('hr');
+  };
+
+  const canCurrentUserApproveRequests = (target?: { employeeId?: string; employeeName?: string; email?: string; role?: string; department?: string; designation?: string }) => {
+    const role = String(currentUser.role || '').toLowerCase();
+    const designation = String((currentUser as any).designation || '').toLowerCase();
+    const department = String((currentUser as any).department || '').toLowerCase();
+    const isCeoUser = role === 'ceo' || role === 'super admin' || designation.includes('ceo') || currentUser.employeeId === 'EMP-000';
+    if (isCeoUser) return true;
+    const isHrUser = role.includes('hr') || department.includes('hr') || department.includes('human resource') || designation.includes('hr');
+    if (!isHrUser) return false;
+    return !isApprovalTargetHR(target);
+  };
+
   const approveLeave = (id: string, approvedBy: string) => {
+    const target = leaveRequests.find(l => l.id === id);
+    if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff requests can be approved only by CEO.',
+        priority: 'Important',
+        category: 'Leave'
+      });
+      return;
+    }
     setLeaveRequests(prevLeaves => {
       const updatedLeaves = prevLeaves.map(l => {
       if (l.id === id) {
@@ -5706,6 +5800,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const rejectLeave = (id: string, approvedBy: string, comment?: string) => {
+    const target = leaveRequests.find(l => l.id === id);
+    if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff requests can be rejected only by CEO.',
+        priority: 'Important',
+        category: 'Leave'
+      });
+      return;
+    }
     setLeaveRequests(prevLeaves => {
       const updatedLeaves = prevLeaves.map(l => {
       if (l.id === id) {
@@ -5954,6 +6059,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const approveShiftRequest = (id: string, approvedBy: string) => {
     const target = shiftRequests.find(r => r.id === id);
     if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff shift requests can be approved only by CEO.',
+        priority: 'Important',
+        category: 'Shift'
+      });
+      return;
+    }
     const updated: ShiftRequest = { ...target, status: 'Approved', approvedBy, updatedAt: new Date().toISOString() };
 
     setShiftRequests(prev => prev.map(r => r.id === id ? updated : r));
@@ -5993,6 +6107,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const rejectShiftRequest = (id: string, rejectedBy: string, reason?: string) => {
     const target = shiftRequests.find(r => r.id === id);
     if (!target) return;
+    if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
+      addNotification({
+        title: 'CEO Approval Required',
+        message: 'HR staff shift requests can be rejected only by CEO.',
+        priority: 'Important',
+        category: 'Shift'
+      });
+      return;
+    }
     const finalReason = reason || 'Shift swap request was declined by management.';
     const updated: ShiftRequest = { ...target, status: 'Rejected', rejectedBy, rejectionReason: finalReason, updatedAt: new Date().toISOString() };
 
@@ -6228,7 +6351,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     preparedAssignees.forEach(asn => {
       addNotification({
         title: 'New Task Assigned',
-        message: `You have been assigned to task: "${newTask.title}" (Due: ${newTask.dueDate})`,
+        message: `You have been assigned to task: "${newTask.title}" (Due: ${formatDateDDMMYYYY(newTask.dueDate)})`,
         priority: newTask.priority === 'Urgent' ? 'Urgent' : 'Normal',
         category: 'Task',
         link: newTask.id
@@ -6236,6 +6359,82 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     return newTask;
+  };
+
+  const getCurrentUserReadKey = () => String(currentUser.employeeId || currentUser.id || currentUser.email || currentUser.name || '').trim().toLowerCase();
+
+  const updateEnhancedTask = (
+    taskId: string,
+    updates: Partial<Pick<TaskItemEnhanced, 'title' | 'description' | 'expectedOutput' | 'priority' | 'dueDate' | 'taskCategory'>>
+  ) => {
+    const today = new Date().toISOString().split('T')[0];
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setEnhancedTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t;
+      const audit: TaskAuditLog = {
+        id: `AUD-${Date.now()}`,
+        taskId,
+        taskNumber: t.taskNumber,
+        action: 'Task Edited',
+        module: 'Task Management',
+        oldValue: 'Previous task details',
+        newValue: Object.keys(updates).join(', '),
+        performedBy: currentUser.name,
+        performedByRole: currentUser.role,
+        timestamp: `${today} ${nowTime}`
+      };
+      const updated: TaskItemEnhanced = {
+        ...t,
+        ...updates,
+        editedAt: new Date().toISOString(),
+        editedBy: currentUser.name,
+        updatedAt: today,
+        auditLogs: [audit, ...t.auditLogs]
+      };
+      supabaseDirect.saveTask(updated);
+      return updated;
+    }));
+
+    addNotification({
+      title: 'Task Edited',
+      message: `Task details updated by ${currentUser.name}.`,
+      priority: 'Normal',
+      category: 'Task',
+      link: taskId
+    });
+  };
+
+  const markTaskViewed = (taskId: string) => {
+    const myKey = getCurrentUserReadKey();
+    if (!myKey) return;
+    setEnhancedTasks(prev => prev.map(t => {
+      if (t.id !== taskId || (t.viewedBy || []).includes(myKey)) return t;
+      const updated: TaskItemEnhanced = {
+        ...t,
+        viewedBy: [...(t.viewedBy || []), myKey],
+        viewedAt: { ...(t.viewedAt || {}), [myKey]: new Date().toISOString() }
+      };
+      supabaseDirect.saveTask(updated);
+      return updated;
+    }));
+  };
+
+  const markTaskDailyReportsSeen = (taskId: string) => {
+    const myKey = getCurrentUserReadKey();
+    if (!myKey) return;
+    setEnhancedTasks(prev => prev.map(t => {
+      if (t.id !== taskId || !t.dailyReports?.length) return t;
+      let changed = false;
+      const dailyReports = t.dailyReports.map(r => {
+        if ((r.seenBy || []).includes(myKey)) return r;
+        changed = true;
+        return { ...r, seenBy: [...(r.seenBy || []), myKey], seenAt: new Date().toISOString() };
+      });
+      if (!changed) return t;
+      const updated: TaskItemEnhanced = { ...t, dailyReports };
+      supabaseDirect.saveTask(updated);
+      return updated;
+    }));
   };
 
   const updateAssigneeProgress = (
@@ -7340,10 +7539,41 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...note,
       id: `NOT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: 'Just now',
-      read: false
+      read: false,
+      createdAt: (note as any).createdAt || new Date().toISOString()
     };
     setNotifications(prev => [newNote, ...prev]);
   };
+
+  useEffect(() => {
+    const myKey = getCurrentUserReadKey();
+    if (!myKey || !enhancedTasks.length) return;
+    const today = new Date().toISOString().split('T')[0];
+    const storageKey = `vrm_task_unseen_reminders_${myKey}_${today}`;
+    const alreadySent = new Set<string>(JSON.parse(localStorage.getItem(storageKey) || '[]'));
+    const unseenTasks = enhancedTasks.filter(t => {
+      if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED' || (t.viewedBy || []).includes(myKey) || alreadySent.has(t.id)) return false;
+      return t.assignees.some(a => {
+        const empId = String(a.employeeId || '').trim().toLowerCase();
+        const empName = String(a.employeeName || '').trim().toLowerCase();
+        const email = String(a.employeeEmail || '').trim().toLowerCase();
+        return [empId, empName, email].filter(Boolean).includes(myKey);
+      });
+    });
+
+    if (!unseenTasks.length) return;
+    unseenTasks.slice(0, 5).forEach(t => {
+      alreadySent.add(t.id);
+      addNotification({
+        title: 'Task Reminder',
+        message: `You have not opened "${t.title}" yet. Due: ${formatDateDDMMYYYY(t.dueDate)}.`,
+        priority: t.priority === 'Urgent' || computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue' ? 'Important' : 'Normal',
+        category: 'Task',
+        link: t.id
+      });
+    });
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(alreadySent)));
+  }, [currentUser, enhancedTasks]);
 
   const processPayrollBatch = async () => {
     const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
@@ -9104,6 +9334,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       enhancedTasks,
       refreshTasks,
       createEnhancedTask,
+      updateEnhancedTask,
+      markTaskViewed,
+      markTaskDailyReportsSeen,
       updateAssigneeProgress,
       closeTask,
       reopenTask,

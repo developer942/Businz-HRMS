@@ -785,6 +785,11 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                             <span style={{ fontSize: '0.69rem', color: '#64748B', background: '#F1F5F9', padding: '2px 7px', borderRadius: '5px', fontWeight: 600 }}>
                               {task.taskCategory}
                             </span>
+                            {task.editedAt && (
+                              <span style={{ fontSize: '0.69rem', color: '#475569', background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '5px', fontWeight: 700 }}>
+                                Edited
+                              </span>
+                            )}
                             {(() => {
                               const startDateStr = task.startDate || task.taskDate || (task.createdAt ? task.createdAt.split('T')[0] : '');
                               if (!startDateStr) return null;

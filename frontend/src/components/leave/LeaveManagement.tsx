@@ -62,7 +62,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   const isEmployeeRole = currentUser.role === 'Employee';
   const isManagerRole = currentUser.role === 'Department Manager';
   const isPrivileged = currentUser.role === 'Super Admin' || currentUser.role === 'HR Admin' || currentUser.role === 'HR Manager' || currentUser.role === 'CEO' || currentUser.role === 'Management';
-  const canApprove = hasPermission('leaves', 'approve');
+  const isCEO = currentUser.role === 'CEO' || currentUser.role === 'Super Admin' || (currentUser as any).designation?.toLowerCase().includes('ceo') || currentUser.employeeId === 'EMP-000';
+  const isHRApprover = currentUser.role === 'HR Admin' || currentUser.role === 'HR Manager' || currentUser.role === 'HR' || (currentUser as any).department?.toLowerCase().includes('hr');
+  const canApprove = isCEO || isHRApprover;
   const currentEmployee = employees.find(emp => {
     const fullName = `${emp.firstName} ${emp.lastName}`.trim().toLowerCase();
     return (

@@ -54,6 +54,8 @@ export const AttendanceHub: React.FC = () => {
 
   // Modals for Pending Approvals
   const [activeApprovalModal, setActiveApprovalModal] = useState<'leaves' | 'regularisations' | 'docs' | 'helpdesk' | null>(null);
+  const isCEO = currentUser.role === 'CEO' || currentUser.role === 'Super Admin' || (currentUser as any).designation?.toLowerCase().includes('ceo') || currentUser.employeeId === 'EMP-000';
+  const isHRApprover = currentUser.role === 'HR Admin' || currentUser.role === 'HR Manager' || currentUser.role === 'HR' || (currentUser as any).department?.toLowerCase().includes('hr');
 
 
 
@@ -762,22 +764,24 @@ export const AttendanceHub: React.FC = () => {
                         <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{l.leaveType} • {formatDateDDMMYYYY(l.startDate)} to {formatDateDDMMYYYY(l.endDate)} ({l.daysCount} days)</div>
                         <div style={{ fontSize: '0.76rem', color: '#334155', marginTop: '4px' }}>Reason: {l.reason}</div>
                       </div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button 
-                          className="btn btn-primary btn-sm"
-                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#16a34a' }}
-                          onClick={() => approveLeave(l.id, currentUser.name)}
-                        >
-                          Approve
-                        </button>
-                        <button 
-                          className="btn btn-secondary btn-sm"
-                          style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#ef4444' }}
-                          onClick={() => rejectLeave(l.id, currentUser.name, 'Rejected by manager')}
-                        >
-                          Reject
-                        </button>
-                      </div>
+                      {(isCEO || isHRApprover) && (
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button 
+                            className="btn btn-primary btn-sm"
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#16a34a' }}
+                            onClick={() => approveLeave(l.id, currentUser.name)}
+                          >
+                            Approve
+                          </button>
+                          <button 
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#ef4444' }}
+                            onClick={() => rejectLeave(l.id, currentUser.name, 'Rejected by CEO')}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

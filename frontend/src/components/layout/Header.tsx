@@ -14,6 +14,7 @@ import {
   Receipt,
   Banknote
 } from 'lucide-react';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export type QuickAddType = 'employee' | 'leave' | 'task' | 'expense' | 'overtime' | 'shift' | 'advance_salary';
 
@@ -35,7 +36,6 @@ export const Header: React.FC<HeaderProps> = ({
     businessSettings,
     notifications, 
     markNotificationRead, 
-    markAllNotificationsRead,
     searchQuery, 
     setSearchQuery,
     setActiveModule,
@@ -416,12 +416,6 @@ export const Header: React.FC<HeaderProps> = ({
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
                   <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0B1A2D' }}>Notifications ({notifications.length})</h4>
-                  <button 
-                    style={{ fontSize: '0.75rem', color: 'var(--primary-600)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
-                    onClick={markAllNotificationsRead}
-                  >
-                    Mark all read
-                  </button>
                 </div>
 
                 {notifications.length === 0 ? (
@@ -444,7 +438,7 @@ export const Header: React.FC<HeaderProps> = ({
                           <span style={{ fontSize: '0.8rem', fontWeight: 750, color: '#0B1A2D' }}>
                             {n.title}
                           </span>
-                          <span style={{ fontSize: '0.68rem', color: '#64748B' }}>{n.timestamp}</span>
+                          <span style={{ fontSize: '0.68rem', color: '#64748B' }}>{formatDateDDMMYYYY(n.createdAt || new Date())}</span>
                         </div>
                         <p style={{ fontSize: '0.78rem', color: '#64748B', margin: 0 }}>{n.message}</p>
                       </div>

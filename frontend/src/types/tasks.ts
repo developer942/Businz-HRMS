@@ -102,6 +102,8 @@ export interface TaskDailyReport {
   processStatus: TaskAssigneeStatus;
   submittedAt: string;
   submittedTo: string[]; // e.g. ['CEO', 'HR Manager', 'Assigner']
+  seenBy?: string[];
+  seenAt?: string;
 }
 
 export interface TaskComment {
@@ -266,6 +268,11 @@ export interface TaskItemEnhanced {
   links?: TaskLinkItem[];
   timeline: TaskTimelineEvent[];
   auditLogs: TaskAuditLog[];
+  viewedBy?: string[];
+  viewedAt?: Record<string, string>;
+  reminderSentAt?: Record<string, string>;
+  editedAt?: string;
+  editedBy?: string;
   isReopened?: boolean;
   reopenReason?: string;
   closedAt?: string;

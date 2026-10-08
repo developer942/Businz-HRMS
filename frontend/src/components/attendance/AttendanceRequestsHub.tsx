@@ -59,6 +59,11 @@ export const AttendanceRequestsHub: React.FC = () => {
     currentUser?.role === 'Super Admin' ||
     currentUser?.role === 'Management' ||
     currentUser?.role === 'ERP Administrator';
+  const isCEO =
+    currentUser?.role === 'CEO' ||
+    currentUser?.role === 'Super Admin' ||
+    (currentUser as any)?.designation?.toLowerCase?.().includes('ceo') ||
+    currentUser?.employeeId === 'EMP-000';
 
   const currentEmpId = currentUser?.employeeId || currentUser?.id;
 
@@ -311,7 +316,7 @@ export const AttendanceRequestsHub: React.FC = () => {
                   <div className="vrm-req-actions">
                     <button
                       type="button"
-                      onClick={() => rejectMissedPunchRequest(item.id, currentUser.name, 'Rejected by HR/CEO')}
+                      onClick={() => rejectMissedPunchRequest(item.id, currentUser.name, 'Rejected by CEO')}
                       className="vrm-btn vrm-btn-secondary"
                       style={{ color: '#DC2626', borderColor: '#FECACA' }}
                     >
@@ -445,7 +450,7 @@ export const AttendanceRequestsHub: React.FC = () => {
                   <div className="vrm-req-actions">
                     <button
                       type="button"
-                      onClick={() => rejectOtRequest(ot.id, currentUser.name, 'Rejected by HR/CEO')}
+                      onClick={() => rejectOtRequest(ot.id, currentUser.name, 'Rejected by CEO')}
                       className="vrm-btn vrm-btn-secondary"
                       style={{ color: '#DC2626', borderColor: '#FECACA' }}
                     >

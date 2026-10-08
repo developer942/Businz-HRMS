@@ -15,7 +15,9 @@ import {
   Calendar,
   Link2,
   ExternalLink,
-  Trash2
+  Trash2,
+  Pencil,
+  Save
 } from 'lucide-react';
 import { TaskItemEnhanced, TaskAssigneeStatus, TaskDailyReport, computeDueStatus } from '../../types/tasks';
 import { ExportDropdown } from '../common/ExportDropdown';
@@ -43,6 +45,9 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
     addTaskAttachment,
     addTaskDailyReport,
     updateTaskProcessStatus,
+    updateEnhancedTask,
+    markTaskViewed,
+    markTaskDailyReportsSeen,
     addTaskLink,
     deleteTaskLink
   } = useHRMS();
@@ -68,8 +73,17 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
   const [closeRemarks, setCloseRemarks] = useState<string>('');
   const [showReopenPrompt, setShowReopenPrompt] = useState<boolean>(false);
   const [reopenReason, setReopenReason] = useState<string>('');
+  const [isEditingTask, setIsEditingTask] = useState<boolean>(false);
 
   const task = enhancedTasks.find(t => t.id === taskId)!;
+  const [editTaskForm, setEditTaskForm] = useState({
+    title: task.title,
+    description: task.description,
+    expectedOutput: task.expectedOutput,
+    dueDate: task.dueDate,
+    priority: task.priority,
+    taskCategory: task.taskCategory
+  });
 
   const currentEmpId = currentUser.employeeId || currentUser.id || 'EMP-001';
   const myAssignee = task.assignees.find(a => 
@@ -110,6 +124,14 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
     (currentEmpName && a.employeeName && a.employeeName.toLowerCase().includes(currentEmpName)) ||
     (currentEmpName && a.employeeName && currentEmpName.includes(a.employeeName.toLowerCase()))
   );
+  const canEditTaskDetails = isCEO || isHR || isSuperAdmin || isAssigner || isResponsiblePerson;
+
+  useEffect(() => {
+    markTaskViewed(task.id);
+    if (isAssigner || isResponsiblePerson || isCEO || isHR || isSuperAdmin) {
+      markTaskDailyReportsSeen(task.id);
+    }
+  }, [task.id, isAssigner, isResponsiblePerson, isCEO, isHR, isSuperAdmin]);
 
   // Process Stage status can ONLY be edited by the assigned person (or responsible person if no assignees assigned)
   const canEditProcess = isAssignee || (task.assignees.length === 0 && isResponsiblePerson);
@@ -126,6 +148,19 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
   const isTaskDoer = isAssignee || (task.assignees.length === 0 && isResponsiblePerson);
   const canAddLink = isTaskDoer;
   const canDeleteLink = isTaskDoer || isSuperAdmin;
+
+  const handleSaveTaskEdits = () => {
+    if (!canEditTaskDetails || !editTaskForm.title.trim()) return;
+    updateEnhancedTask(task.id, {
+      title: editTaskForm.title.trim(),
+      description: editTaskForm.description.trim(),
+      expectedOutput: editTaskForm.expectedOutput.trim(),
+      dueDate: editTaskForm.dueDate,
+      priority: editTaskForm.priority,
+      taskCategory: editTaskForm.taskCategory.trim() || task.taskCategory
+    });
+    setIsEditingTask(false);
+  };
 
   const handleAddLink = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -368,6 +403,11 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
               <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#ECFEFF', color: '#0E7490' }}>
                 ● {currentStage}
               </span>
+              {task.editedAt && (
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#F1F5F9', color: '#475569' }}>
+                  Edited
+                </span>
+              )}
             </div>
             <h2 style={{ fontSize: '1.18rem', fontWeight: 700, margin: 0, color: '#FFFFFF', lineHeight: 1.3 }}>
               {task.title}
@@ -375,6 +415,16 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {canEditTaskDetails && (
+              <button 
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setIsEditingTask(prev => !prev)}
+                style={{ background: '#FFFFFF', color: '#0E7490', fontSize: '0.75rem', borderRadius: '8px', padding: '6px 12px', border: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Pencil size={14} /> Edit
+              </button>
+            )}
             {canReopen && (
               <button 
                 type="button"
@@ -416,6 +466,46 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
               boxShadow: '0 2px 5px rgba(22, 101, 52, 0.1)'
             }}>
               <CheckCircle2 size={18} color="#16A34A" /> {submitSuccessMsg}
+            </div>
+          )}
+
+          {isEditingTask && (
+            <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #CFFAFE', boxShadow: '0 1px 3px rgba(14,116,144,0.08)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 150px 150px', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Task Title</label>
+                  <input className="form-control" value={editTaskForm.title} onChange={e => setEditTaskForm(prev => ({ ...prev, title: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Due Date</label>
+                  <input type="date" className="form-control" value={editTaskForm.dueDate} onChange={e => setEditTaskForm(prev => ({ ...prev, dueDate: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Priority</label>
+                  <select className="form-control" value={editTaskForm.priority} onChange={e => setEditTaskForm(prev => ({ ...prev, priority: e.target.value as any }))}>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Urgent">Urgent</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Description</label>
+                  <textarea className="form-control" rows={3} value={editTaskForm.description} onChange={e => setEditTaskForm(prev => ({ ...prev, description: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Expected Output</label>
+                  <textarea className="form-control" rows={3} value={editTaskForm.expectedOutput} onChange={e => setEditTaskForm(prev => ({ ...prev, expectedOutput: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsEditingTask(false)}>Cancel</button>
+                <button type="button" className="btn btn-primary btn-sm" onClick={handleSaveTaskEdits} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <Save size={14} /> Save Changes
+                </button>
+              </div>
             </div>
           )}
 
@@ -897,6 +987,16 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                             {dayItem.dayIndex > 0 ? `Day ${dayItem.dayIndex}` : 'Daily'}: {formatDateDDMMYYYY(dayItem.dateStr)} {isStart ? '(Start Date)' : isToday ? '(Today)' : ''}
                           </span>
                           <strong style={{ fontSize: '0.8rem', color: '#1E293B' }}>{dlr.employeeName}</strong>
+                          <span
+                            title={(dlr.seenBy || []).length > 0 ? 'Seen by assigner' : 'Not seen by assigner yet'}
+                            style={{
+                              fontSize: '0.74rem',
+                              color: (dlr.seenBy || []).length > 0 ? '#0E7490' : '#94A3B8',
+                              fontWeight: 800
+                            }}
+                          >
+                            {(dlr.seenBy || []).length > 0 ? '✓✓' : '✓'}
+                          </span>
                           {dlr.employeeDepartment && (
                             <span style={{ fontSize: '0.68rem', color: '#64748B' }}>({dlr.employeeDepartment})</span>
                           )}
