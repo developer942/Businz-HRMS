@@ -410,7 +410,7 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
           border: '1px solid #E7ECF3',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          <div className="employee-task-tabs-row" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
             {[
               { id: 'my_tasks', label: 'My Tasks', icon: UserCheck, badge: myTasksCount },
               { id: 'assigned_tasks', label: 'Assigned Tasks', icon: CheckSquare, badge: assignedTasksCount },

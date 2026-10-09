@@ -102,18 +102,19 @@ export const CompanyHeader: React.FC<{
   subtitle?: string;
   rightMeta?: DetailRow[];
 }> = ({ profile, title, subtitle, rightMeta = [] }) => (
-  <div style={{ borderBottom: '2px solid #0E7490', paddingBottom: '16px', marginBottom: '18px' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'center' }}>
-      <div style={{ display: 'flex', gap: '16px', minWidth: 0, flex: 1, alignItems: 'center' }}>
+  <div className="company-doc-header-root" style={{ borderBottom: '2px solid #0E7490', paddingBottom: '16px', marginBottom: '18px' }}>
+    <div className="company-doc-header-row" style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
+      <div className="company-doc-header-left" style={{ display: 'flex', gap: '16px', minWidth: 0, flex: 1, alignItems: 'center' }}>
         {profile.logoUrl && (
           <img
             src={profile.logoUrl}
             alt={`${profile.companyName} logo`}
+            className="company-doc-header-logo"
             style={{ width: 'auto', height: 'auto', maxWidth: '200px', maxHeight: '72px', objectFit: 'contain', flexShrink: 0 }}
             onError={event => { event.currentTarget.style.display = 'none'; }}
           />
         )}
-        <div style={{ minWidth: 0 }}>
+        <div className="company-doc-header-text" style={{ minWidth: 0 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: '1.05rem', color: '#0f172a', fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.25 }}>
             {profile.companyName}
           </h2>
@@ -151,7 +152,7 @@ export const CompanyHeader: React.FC<{
         </div>
       </div>
       {(title || rightMeta.length > 0) && (
-        <div style={{ textAlign: 'right', minWidth: '180px', flexShrink: 0 }}>
+        <div className="company-doc-header-right" style={{ textAlign: 'right', minWidth: '180px', flexShrink: 0 }}>
           {title && <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title}</div>}
           {subtitle && <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>{subtitle}</div>}
           {rightMeta.map(row => (
@@ -166,21 +167,24 @@ export const CompanyHeader: React.FC<{
 );
 
 export const EmployeeDetailsGrid: React.FC<{ rows: DetailRow[]; columns?: number }> = ({ rows, columns = 2 }) => (
-  <div style={{
-    display: 'grid',
-    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-    gap: '8px 16px',
-    backgroundColor: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: '8px',
-    padding: '12px',
-    fontSize: '0.8rem',
-    marginBottom: '18px'
-  }}>
+  <div 
+    className="employee-details-grid-doc"
+    style={{
+      display: 'grid',
+      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+      gap: '8px 16px',
+      backgroundColor: '#f8fafc',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      padding: '12px',
+      fontSize: '0.8rem',
+      marginBottom: '18px'
+    }}
+  >
     {rows.filter(row => row.value !== undefined && row.value !== null && row.value !== '').map(row => (
       <div key={row.label} style={{ minWidth: 0 }}>
         <span style={{ color: '#64748b', fontWeight: 700 }}>{row.label}: </span>
-        <span style={{ color: '#0f172a', fontWeight: 600, overflowWrap: 'anywhere' }}>{row.value}</span>
+        <span style={{ color: '#0f172a', fontWeight: 600, overflowWrap: 'break-word' }}>{row.value}</span>
       </div>
     ))}
   </div>
@@ -190,49 +194,53 @@ export const EmployeeDetailsGrid: React.FC<{ rows: DetailRow[]; columns?: number
 export const EmployeeDetails = EmployeeDetailsGrid;
 
 export const DynamicEarningsTable: React.FC<{ earnings: AmountLine[]; total: number }> = ({ earnings, total }) => (
-  <table className="payslip-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '14px' }}>
-    <thead>
-      <tr style={{ backgroundColor: '#f1f5f9' }}>
-        <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Earnings</th>
-        <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Amount (INR)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {earnings.map((earning, i) => (
-        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-          <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={earning} /></td>
-          <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', border: '1px solid #e2e8f0' }}>{formatCurrency(earning.amount)}</td>
+  <div className="payslip-table-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '14px' }}>
+    <table className="payslip-table" style={{ width: '100%', minWidth: '320px', borderCollapse: 'collapse', marginBottom: '0' }}>
+      <thead>
+        <tr style={{ backgroundColor: '#f1f5f9' }}>
+          <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Earnings</th>
+          <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Amount (INR)</th>
         </tr>
-      ))}
-      <tr style={{ backgroundColor: '#f8fafc', fontWeight: 800 }}>
-        <td style={{ padding: '8px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Gross Earnings</td>
-        <td style={{ padding: '8px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#0E7490', border: '1px solid #e2e8f0' }}>{formatCurrency(total)}</td>
-      </tr>
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {earnings.map((earning, i) => (
+          <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+            <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={earning} /></td>
+            <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(earning.amount)}</td>
+          </tr>
+        ))}
+        <tr style={{ backgroundColor: '#f8fafc', fontWeight: 800 }}>
+          <td style={{ padding: '8px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Gross Earnings</td>
+          <td style={{ padding: '8px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#0E7490', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 );
 
 export const DynamicDeductionsTable: React.FC<{ deductions: AmountLine[]; total: number }> = ({ deductions, total }) => (
-  <table className="payslip-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '14px' }}>
-    <thead>
-      <tr style={{ backgroundColor: '#f1f5f9' }}>
-        <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Deductions</th>
-        <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Amount (INR)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {deductions.map((deduction, i) => (
-        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-          <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={deduction} /></td>
-          <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0' }}>{formatCurrency(deduction.amount)}</td>
+  <div className="payslip-table-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '14px' }}>
+    <table className="payslip-table" style={{ width: '100%', minWidth: '320px', borderCollapse: 'collapse', marginBottom: '0' }}>
+      <thead>
+        <tr style={{ backgroundColor: '#f1f5f9' }}>
+          <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Deductions</th>
+          <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Amount (INR)</th>
         </tr>
-      ))}
-      <tr style={{ backgroundColor: '#f8fafc', fontWeight: 800 }}>
-        <td style={{ padding: '8px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Total Deductions</td>
-        <td style={{ padding: '8px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0' }}>{formatCurrency(total)}</td>
-      </tr>
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {deductions.map((deduction, i) => (
+          <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+            <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={deduction} /></td>
+            <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(deduction.amount)}</td>
+          </tr>
+        ))}
+        <tr style={{ backgroundColor: '#f8fafc', fontWeight: 800 }}>
+          <td style={{ padding: '8px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Total Deductions</td>
+          <td style={{ padding: '8px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 );
 
 export const DynamicAmountTable: React.FC<{
@@ -243,38 +251,40 @@ export const DynamicAmountTable: React.FC<{
 }> = ({ earnings, deductions, grossEarnings, totalDeductions }) => {
   const rowCount = Math.max(earnings.length, deductions.length, 1);
   return (
-    <table className="payslip-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', marginBottom: '18px' }}>
-      <thead>
-        <tr style={{ backgroundColor: '#f1f5f9' }}>
-          <th style={{ width: '35%', textAlign: 'left', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Earnings</th>
-          <th style={{ width: '15%', textAlign: 'right', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Amount</th>
-          <th style={{ width: '35%', textAlign: 'left', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Deductions</th>
-          <th style={{ width: '15%', textAlign: 'right', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        {Array.from({ length: rowCount }).map((_, index) => {
-          const earning = earnings[index];
-          const deduction = deductions[index];
-          return (
-            <tr key={index}>
-              <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{earning && <LineLabel line={earning} />}</td>
-              <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', border: '1px solid #e2e8f0' }}>{earning ? formatCurrency(earning.amount) : ''}</td>
-              <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{deduction && <LineLabel line={deduction} />}</td>
-              <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', color: deduction ? '#be123c' : undefined, border: '1px solid #e2e8f0' }}>
-                {deduction ? formatCurrency(deduction.amount) : ''}
-              </td>
-            </tr>
-          );
-        })}
-        <tr style={{ fontWeight: 800, backgroundColor: '#f8fafc' }}>
-          <td style={{ padding: '9px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Gross Earnings</td>
-          <td style={{ padding: '9px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#0E7490', border: '1px solid #e2e8f0' }}>{formatCurrency(grossEarnings)}</td>
-          <td style={{ padding: '9px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Total Deductions</td>
-          <td style={{ padding: '9px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0' }}>{formatCurrency(totalDeductions)}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div className="payslip-table-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '18px' }}>
+      <table className="payslip-table" style={{ width: '100%', minWidth: '480px', borderCollapse: 'collapse', marginBottom: '0' }}>
+        <thead>
+          <tr style={{ backgroundColor: '#f1f5f9' }}>
+            <th style={{ width: '33%', textAlign: 'left', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Earnings</th>
+            <th style={{ width: '17%', minWidth: '70px', textAlign: 'right', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Amount</th>
+            <th style={{ width: '33%', textAlign: 'left', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0' }}>Deductions</th>
+            <th style={{ width: '17%', minWidth: '70px', textAlign: 'right', padding: '9px 12px', fontSize: '0.82rem', fontWeight: 700, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rowCount }).map((_, index) => {
+            const earning = earnings[index];
+            const deduction = deductions[index];
+            return (
+              <tr key={index}>
+                <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{earning && <LineLabel line={earning} />}</td>
+                <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{earning ? formatCurrency(earning.amount) : ''}</td>
+                <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{deduction && <LineLabel line={deduction} />}</td>
+                <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', color: deduction ? '#be123c' : undefined, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
+                  {deduction ? formatCurrency(deduction.amount) : ''}
+                </td>
+              </tr>
+            );
+          })}
+          <tr style={{ fontWeight: 800, backgroundColor: '#f8fafc' }}>
+            <td style={{ padding: '9px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Gross Earnings</td>
+            <td style={{ padding: '9px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#0E7490', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(grossEarnings)}</td>
+            <td style={{ padding: '9px 12px', fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>Total Deductions</td>
+            <td style={{ padding: '9px 12px', fontSize: '0.82rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(totalDeductions)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 };
 
@@ -370,7 +380,8 @@ const headerLineStyle: React.CSSProperties = {
   fontSize: '0.74rem',
   color: '#64748b',
   lineHeight: 1.45,
-  overflowWrap: 'anywhere'
+  overflowWrap: 'break-word',
+  wordBreak: 'normal'
 };
 
 const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];

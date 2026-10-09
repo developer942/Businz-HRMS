@@ -478,7 +478,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
               {/* Profile Details Form */}
               <form onSubmit={handleProfileSave}>
                 {/* Row 1: Full Name * | Official Corporate Email * */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div className="user-profile-grid-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                   <div>
                     <label style={labelStyle}>Full Name <span style={{ color: '#EF4444' }}>*</span></label>
                     <input
@@ -520,7 +520,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
                 </div>
 
                 {/* Row 2: Phone Number | System Role (Fixed by HR/CEO) */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div className="user-profile-grid-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                   <div>
                     <label style={labelStyle}>Phone Number</label>
                     <input
@@ -573,7 +573,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
                 </div>
 
                 {/* Row 3: Designation / Job Title | Department */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div className="user-profile-grid-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                   <div>
                     <label style={labelStyle}>Designation / Job Title</label>
                     <input
@@ -598,7 +598,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
                 </div>
 
                 {/* Row 4: Primary Work Location | Employee Code / ID */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div className="user-profile-grid-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                   <div>
                     <label style={labelStyle}>Primary Work Location</label>
                     <input
@@ -670,7 +670,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
                     </span>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="user-profile-grid-2col portal-credentials-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div>
                       <label style={labelStyle}>Portal Login User ID / Code</label>
                       <div style={{

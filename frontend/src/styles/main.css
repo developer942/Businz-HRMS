@@ -5140,4 +5140,111 @@ div[style*="overflow-x: auto"] {
   }
 }
 
+/* ==========================================================================
+   L. MOBILE SCREEN ALIGNMENT & RESPONSIVE POLISH (Payslips, Profiles, Tasks)
+   ========================================================================== */
+
+/* 1. Official Payslip Modal & Document Parts */
+@media (max-width: 640px) {
+  .payslip-container {
+    padding: 16px 12px !important;
+  }
+  .company-doc-header-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  .company-doc-header-left {
+    width: 100% !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 12px !important;
+  }
+  .company-doc-header-logo {
+    max-width: 110px !important;
+    max-height: 50px !important;
+  }
+  .company-doc-header-text {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+  }
+  .company-doc-header-right {
+    text-align: left !important;
+    min-width: 100% !important;
+    width: 100% !important;
+    border-top: 1px dashed #e2e8f0 !important;
+    padding-top: 10px !important;
+    margin-top: 4px !important;
+  }
+  .employee-details-grid-doc {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  .payslip-table-wrapper {
+    width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .payslip-table {
+    min-width: 480px !important;
+    table-layout: auto !important;
+  }
+  .payslip-table th, .payslip-table td {
+    padding: 8px 10px !important;
+  }
+}
+
+/* 2. User Profile Mobile Form Grids */
+@media (max-width: 640px) {
+  .user-profile-grid-2col,
+  .portal-credentials-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .portal-credentials-grid > div {
+    width: 100% !important;
+  }
+}
+
+/* 3. Task Management Mobile Polish */
+@media (max-width: 640px) {
+  .task-filter-chips-bar {
+    display: flex !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 6px !important;
+    margin-bottom: 14px !important;
+    gap: 8px !important;
+  }
+  .task-filter-chips-bar .btn {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+  .employee-task-tabs-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  .employee-task-tabs-row button {
+    width: 100% !important;
+    justify-content: center !important;
+    font-size: 0.78rem !important;
+    padding: 8px 10px !important;
+  }
+}
+
+/* 4. Table Empty States Sticky Centering */
+.table-responsive td[colspan] > div {
+  position: sticky;
+  left: 0;
+  width: 100%;
+  max-width: calc(100vw - 48px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+
 
