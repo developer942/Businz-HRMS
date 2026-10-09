@@ -620,7 +620,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                     {task.assignees.length > 1 ? `Team Member Updates (${task.assignees.length} Members)` : 'Process Stage'}
                   </h3>
                   <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px' }}>
-                    Overall Task Progress: <strong style={{ color: task.overallProgress === 100 ? '#16A34A' : '#0E7490' }}>{task.overallProgress}%</strong> • Status: <strong style={{ color: task.overallStatus === 'COMPLETED' ? '#16A34A' : '#0E7490' }}>{task.overallStatus}</strong>
+                    Overall Task Progress • Status: <strong style={{ color: task.overallStatus === 'COMPLETED' ? '#16A34A' : '#0E7490' }}>{task.overallStatus}</strong>
                     {task.assignees.length > 1 && (
                       <span style={{ marginLeft: '6px', color: '#64748B' }}>
                         ({task.assignees.filter(a => a.individualStatus === 'Completed' || a.progressPercentage === 100).length} of {task.assignees.length} members completed)
@@ -630,25 +630,13 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                 </div>
               </div>
 
-              {/* Overall Progress Bar */}
-              <div style={{ minWidth: '180px', flex: 1, maxWidth: '280px', margin: '0 12px' }}>
-                <div style={{ height: '8px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
-                  <div style={{
-                    width: `${task.overallProgress}%`,
-                    height: '100%',
-                    background: task.overallProgress === 100 ? '#16A34A' : '#0E7490',
-                    borderRadius: '999px',
-                    transition: 'width 0.3s ease'
-                  }} />
-                </div>
-              </div>
             </div>
 
             {/* If Single Assignee */}
             {task.assignees.length <= 1 ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '14px', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ fontSize: '0.82rem', color: '#334155', fontWeight: 600 }}>
-                  Assignee: <strong>{task.assignees[0]?.employeeName || 'Assigned Person'}</strong> ({task.assignees[0]?.individualStatus || 'Pending'} - {task.assignees[0]?.progressPercentage || 0}%)
+                  Assignee: <strong>{task.assignees[0]?.employeeName || 'Assigned Person'}</strong> ({task.assignees[0]?.individualStatus || 'Pending'})
                 </div>
                 {canEditProcess ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -672,10 +660,10 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                         outline: 'none'
                       }}
                     >
-                      <option value="Pending">Pending (0%)</option>
-                      <option value="In Process">In Process (50%)</option>
-                      <option value="Under Review">Under Review (90%)</option>
-                      <option value="Completed">Completed (100%)</option>
+                      <option value="Pending">Pending</option>
+                      <option value="In Process">In Process</option>
+                      <option value="Under Review">Under Review</option>
+                      <option value="Completed">Completed</option>
                     </select>
                   </div>
                 ) : (
@@ -748,9 +736,6 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                       <div style={{ minWidth: '140px', flex: 1, maxWidth: '200px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                           <span>Individual Progress</span>
-                          <span style={{ fontWeight: 700, color: isCompleted ? '#16A34A' : '#0E7490' }}>
-                            {a.progressPercentage || 0}%
-                          </span>
                         </div>
                         <div style={{ height: '6px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
                           <div style={{
@@ -785,11 +770,11 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                               outline: 'none'
                             }}
                           >
-                            <option value="Pending">Pending (0%)</option>
-                            <option value="In Process">In Process (50%)</option>
-                            <option value="Under Review">Under Review (90%)</option>
-                            <option value="Completed">Completed (100%)</option>
-                            <option value="Blocked">Blocked (30%)</option>
+                            <option value="Pending">Pending</option>
+                            <option value="In Process">In Process</option>
+                            <option value="Under Review">Under Review</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Blocked">Blocked</option>
                           </select>
                         </div>
                       ) : (
@@ -801,7 +786,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                           background: isCompleted ? '#DCFCE7' : '#F1F5F9',
                           color: isCompleted ? '#166534' : '#475569'
                         }}>
-                          {a.individualStatus || 'Pending'} ({a.progressPercentage || 0}%)
+                          {a.individualStatus || 'Pending'}
                         </span>
                       )}
                     </div>

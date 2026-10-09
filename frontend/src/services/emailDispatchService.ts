@@ -105,7 +105,7 @@ export async function dispatchCredentialEmail(payload: EmployeeCredentialEmailPa
 
   // Try dispatching to backend server if alive
   try {
-    const token = localStorage.getItem('token') || localStorage.getItem('hrms_auth_token');
+    const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token');
     const apiRes = await fetch(`${API_BASE_URL}/employees/send-credentials`, {
       method: 'POST',
       headers: {

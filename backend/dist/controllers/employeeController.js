@@ -1,10 +1,19 @@
+import { z } from 'zod';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { authRepository } from '../repositories/authRepository.js';
 import { auditRepository } from '../repositories/auditRepository.js';
 import { generateTemporaryPassword } from '../services/passwordService.js';
-import { sendCredentialEmail } from '../services/emailService.js';
+import { sendCredentialEmail, sendOfferLetterEmail } from '../services/emailService.js';
 import { createEmployeeSchema, updateEmployeeSchema } from '../validators/employeeValidators.js';
 import { updateAccountStatusSchema } from '../validators/authValidators.js';
+const sendOfferLetterSchema = z.object({
+    to: z.string().email(),
+    candidateName: z.string().trim().min(1),
+    employeeCode: z.string().trim().optional(),
+    subject: z.string().trim().min(1),
+    letterBody: z.string().trim().min(1),
+    companyName: z.string().trim().optional(),
+});
 export const getEmployees = async (req, res, next) => {
     try {
         const { department, status, search } = req.query;
@@ -267,6 +276,41 @@ export const deleteEmployee = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: `Employee ${id} deleted successfully`,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+export const sendEmployeeOfferLetter = async (req, res, next) => {
+    try {
+        const validated = sendOfferLetterSchema.parse(req.body);
+        const performer = req.user?.email || 'HR Department';
+        const result = await sendOfferLetterEmail(validated);
+        await auditRepository.recordLog('CREDENTIAL_EMAIL_SENT', validated.employeeCode || validated.to, performer, {
+            email: validated.to,
+            emailType: 'OFFER_LETTER',
+            deliveryStatus: result.status,
+            error: result.error,
+        });
+        if (result.status === 'FAILED') {
+            res.status(502).json({
+                success: false,
+                status: result.status,
+                error: {
+                    code: 'OFFER_EMAIL_FAILED',
+                    message: result.error || 'Offer letter email could not be delivered.',
+                },
+            });
+            return;
+        }
+        res.status(200).json({
+            success: true,
+            status: result.status,
+            message: 'Offer letter email sent successfully.',
+            data: {
+                sentAt: result.sentAt,
+            },
         });
     }
     catch (err) {

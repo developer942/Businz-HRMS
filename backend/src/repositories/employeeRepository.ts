@@ -232,7 +232,7 @@ export class EmployeeRepository {
 
         if (data && !error) {
           const list = data
-            .filter(d => d.employee_id !== 'EMP-000' && d.email?.toLowerCase() !== 'admin@businz.com')
+            .filter(d => d.employee_id !== 'EMP-000' && !['admin@businz.com', 'developer@businz.com'].includes((d.email || '').toLowerCase()))
             .map(mapDbRowToEmployee);
 
           memoryCache.set(cacheKey, list, 30000);

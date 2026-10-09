@@ -288,6 +288,7 @@ export const Dashboard: React.FC = () => {
     if (
       emp.employeeId === 'EMP-000' || 
       emp.email?.toLowerCase() === 'admin@businz.com' ||
+      emp.email?.toLowerCase() === 'developer@businz.com' ||
       emp.designation === 'Super Administrator'
     ) {
       return false;

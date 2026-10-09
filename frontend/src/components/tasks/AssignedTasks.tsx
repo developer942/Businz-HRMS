@@ -333,7 +333,7 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
       {/* TASKS TABLE VIEW */}
       <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid #E7ECF3', borderRadius: '16px' }}>
         <div className="table-responsive">
-          <table className="hrms-table" style={{ width: '100%', minWidth: '950px' }}>
+          <table className="hrms-table" style={{ width: '100%', minWidth: '810px' }}>
             <thead>
               <tr style={{ background: '#F8FAFC' }}>
                 <th style={{ width: '42px', minWidth: '42px', textAlign: 'center' }}>
@@ -349,7 +349,6 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
                 <th style={{ minWidth: '200px' }}>Assigned To (Assignees)</th>
                 <th style={{ minWidth: '130px' }}>Department</th>
                 <th style={{ minWidth: '120px' }}>Due Date</th>
-                <th style={{ minWidth: '140px' }}>Progress</th>
                 <th style={{ minWidth: '110px' }}>Status</th>
                 <th style={{ minWidth: '90px', textAlign: 'right' }}>Actions</th>
               </tr>
@@ -357,7 +356,7 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
             <tbody>
               {paginatedTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-muted)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-muted)' }}>
                     <CheckSquare size={40} style={{ opacity: 0.3, margin: '0 auto 12px', color: '#0E7490' }} />
                     <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
                       {assignedByMeTasks.length === 0 
@@ -512,7 +511,7 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
                                     color: asnStyle.color,
                                     whiteSpace: 'nowrap'
                                   }}>
-                                    {asn.individualStatus || 'Pending'} ({progress}%)
+                                    {asn.individualStatus || 'Pending'}
                                   </span>
                                 </div>
                               );
@@ -563,30 +562,6 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
                             Due Today
                           </div>
                         )}
-                      </td>
-
-                      {/* Progress */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ 
-                            flex: 1, 
-                            height: '7px', 
-                            background: '#E2E8F0', 
-                            borderRadius: '9999px', 
-                            overflow: 'hidden' 
-                          }}>
-                            <div style={{ 
-                              width: `${Math.min(100, Math.max(0, task.overallProgress))}%`, 
-                              height: '100%', 
-                              background: task.overallProgress === 100 ? '#22C55E' : '#0E7490',
-                              borderRadius: '9999px',
-                              transition: 'width 0.3s ease'
-                            }} />
-                          </div>
-                          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', minWidth: '32px', textAlign: 'right' }}>
-                            {task.overallProgress}%
-                          </span>
-                        </div>
                       </td>
 
                       {/* Overall Status */}

@@ -479,7 +479,6 @@ export const TaskDashboard: React.FC<TaskDashboardProps> = ({ onNavigateTab, onS
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' }}
                   >
                     <span style={{ fontWeight: 600, color: '#1e293b' }}>{task.taskNumber}: {task.title.slice(0, 32)}...</span>
-                    <span style={{ background: '#ffedd5', color: '#c2410c', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{task.overallProgress}%</span>
                   </div>
                 ))}
               </div>
@@ -684,7 +683,7 @@ export const TaskDashboard: React.FC<TaskDashboardProps> = ({ onNavigateTab, onS
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem', marginBottom: '4px' }}>
                     <span style={{ fontWeight: 600 }}>{dept.name}</span>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                      {deptCompleted}/{deptTasks.length} ({rate}%)
+                      {deptCompleted}/{deptTasks.length}
                     </span>
                   </div>
                   <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '99px', overflow: 'hidden' }}>

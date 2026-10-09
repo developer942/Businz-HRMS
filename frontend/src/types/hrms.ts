@@ -311,6 +311,7 @@ export interface LeaveRequest {
   status: 'Pending' | 'Approved' | 'Rejected';
   appliedDate: string;
   approvedBy?: string;
+  approvedAt?: string;
   comment?: string;
   attachmentUrl?: string;
   sandwichDetails?: SandwichCalculationResult;

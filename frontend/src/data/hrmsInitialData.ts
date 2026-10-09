@@ -36,6 +36,7 @@ export const isSystemAdmin = (emp?: {
   return (
     emp.employeeId === 'EMP-000' ||
     emp.email?.toLowerCase() === 'admin@businz.com' ||
+    emp.email?.toLowerCase() === 'developer@businz.com' ||
     emp.designation === 'Super Administrator'
   );
 };

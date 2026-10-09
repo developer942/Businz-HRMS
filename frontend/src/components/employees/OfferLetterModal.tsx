@@ -3,6 +3,7 @@ import { Employee } from '../../types/hrms';
 import { OfferLetterTemplate } from '../../types/offerLetter';
 import { INITIAL_OFFER_LETTER_TEMPLATES } from '../../data/offerLetterTemplates';
 import { useHRMS } from '../../context/HRMSContext';
+import { API_BASE_URL } from '../../config/api';
 import { downloadElementAsPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { formatCurrency, toNum } from '../../utils/numbers';
@@ -28,6 +29,7 @@ import {
   Plus, 
   Save, 
   Sparkles,
+  Send,
   Printer 
 } from 'lucide-react';
 
@@ -93,6 +95,8 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
   const [customizedContent, setCustomizedContent] = useState<string>('');
   const [copiedToast, setCopiedToast] = useState(false);
   const [savedToProfileToast, setSavedToProfileToast] = useState(false);
+  const [sendStatus, setSendStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isSendingOffer, setIsSendingOffer] = useState(false);
 
   // New Template Form state
   const [newTemplateForm, setNewTemplateForm] = useState({
@@ -233,6 +237,56 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+  };
+
+  const handleSendOfferEmail = async () => {
+    if (!currentEmployee?.email) {
+      setSendStatus({ type: 'error', message: 'Candidate email is missing.' });
+      return;
+    }
+
+    setIsSendingOffer(true);
+    setSendStatus(null);
+
+    const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token');
+    const compensationText = [
+      '',
+      'Annexure A: Compensation & Benefits Structure',
+      ...compensationRows
+        .filter(row => row.amount > 0)
+        .map(row => `${row.label}: Monthly ${formatCurrency(row.amount)} / Annual ${formatCurrency(row.amount * 12)}`),
+      `Total Cost to Company (CTC): Monthly ${formatCurrency(monthlyCtc)} / Annual ${formatCurrency(annualCtc)}`,
+    ].join('\n');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/employees/send-offer-letter`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          to: currentEmployee.email,
+          candidateName: `${currentEmployee.firstName || ''} ${currentEmployee.lastName || ''}`.trim(),
+          employeeCode: currentEmployee.employeeId,
+          subject: replacePlaceholders(currentTemplate?.subject || DEFAULT_OFFER_TEMPLATE.subject),
+          letterBody: `${customizedContent}\n${compensationText}`,
+          companyName: documentProfile.companyName,
+        }),
+      });
+
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body?.success === false) {
+        throw new Error(body?.error?.message || 'Offer letter email could not be sent.');
+      }
+
+      setSendStatus({ type: 'success', message: `Offer letter sent to ${currentEmployee.email}` });
+      setTimeout(() => setSendStatus(null), 3000);
+    } catch (err: any) {
+      setSendStatus({ type: 'error', message: err?.message || 'Offer letter email could not be sent.' });
+    } finally {
+      setIsSendingOffer(false);
+    }
   };
 
   // Create Custom Template
@@ -684,6 +738,11 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                 <CheckCircle2 size={16} /> Attached to {currentEmployee?.firstName}'s Profile!
               </span>
             )}
+            {sendStatus && (
+              <span style={{ fontSize: '0.8rem', color: sendStatus.type === 'success' ? '#0891b2' : '#dc2626', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {sendStatus.type === 'success' ? <CheckCircle2 size={16} /> : <X size={16} />} {sendStatus.message}
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -713,6 +772,17 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
               style={{ backgroundColor: '#ecfeff', color: '#0891b2', borderColor: '#a5f3fc', fontWeight: 700 }}
             >
               <Save size={15} /> Save to Profile
+            </button>
+
+            <button 
+              type="button" 
+              className="btn btn-primary btn-sm" 
+              onClick={handleSendOfferEmail}
+              disabled={isSendingOffer || !currentEmployee?.email}
+              title="Send offer letter from developer@businz.com"
+              style={{ background: 'linear-gradient(135deg, #155DFC, #1D4ED8)', color: '#ffffff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(21, 93, 252, 0.28)', border: 'none', opacity: isSendingOffer ? 0.7 : 1 }}
+            >
+              <Send size={15} /> {isSendingOffer ? 'Sending...' : 'Send Email'}
             </button>
 
             <button 

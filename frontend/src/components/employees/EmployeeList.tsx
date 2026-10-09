@@ -95,6 +95,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
   const roleScopedEmployees = employees.filter(e => 
     e.employeeId !== 'EMP-000' && 
     e.email?.toLowerCase() !== 'admin@businz.com' && 
+    e.email?.toLowerCase() !== 'developer@businz.com' && 
     e.designation !== 'Super Administrator'
   );
 

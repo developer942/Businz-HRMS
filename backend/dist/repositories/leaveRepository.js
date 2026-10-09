@@ -42,6 +42,7 @@ export class LeaveRepository {
                     status: d.status || 'Pending',
                     appliedDate: d.appliedDate || d.applied_date || new Date().toISOString().split('T')[0],
                     approvedBy: d.approvedBy || d.approved_by,
+                    approvedAt: d.approvedAt || d.approved_at,
                     comment: d.comment,
                 }));
             }
@@ -65,6 +66,7 @@ export class LeaveRepository {
                         status: d.status || 'Pending',
                         appliedDate: d.applied_date || d.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
                         approvedBy: d.approved_by,
+                        approvedAt: d.approved_at,
                         comment: d.comment,
                     }));
                 }
@@ -179,6 +181,7 @@ export class LeaveRepository {
                     .update({
                     status,
                     approved_by: approverName,
+                    approved_at: new Date().toISOString(),
                     comment,
                 })
                     .eq('id', id);

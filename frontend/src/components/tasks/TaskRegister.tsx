@@ -823,7 +823,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                                   key={a.id || idx}
                                   src={a.employeeAvatar}
                                   alt={a.employeeName}
-                                  title={`${a.employeeName} (${a.progressPercentage}% - ${a.individualStatus})`}
+                                  title={`${a.employeeName} - ${a.individualStatus}`}
                                   style={{ 
                                     width: '28px', 
                                     height: '28px', 
@@ -837,7 +837,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                               ) : (
                                 <div 
                                   key={a.id || idx}
-                                  title={`${a.employeeName} (${a.progressPercentage}% - ${a.individualStatus})`}
+                                  title={`${a.employeeName} - ${a.individualStatus}`}
                                   style={{
                                     width: '28px',
                                     height: '28px',

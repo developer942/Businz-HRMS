@@ -244,13 +244,12 @@ export const TaskReports: React.FC = () => {
                   <th>Due Date</th>
                   <th>Days Overdue</th>
                   <th>Assignees Pending</th>
-                  <th>Overall Progress</th>
                 </tr>
               </thead>
               <tbody>
                 {overdueAnalysisData.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: '#10b981', fontWeight: 600 }}>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#10b981', fontWeight: 600 }}>
                       ✓ Zero overdue tasks found! Outstanding performance.
                     </td>
                   </tr>
@@ -272,7 +271,6 @@ export const TaskReports: React.FC = () => {
                       <td>
                         {task.assignees.filter(a => a.individualStatus !== 'Completed').map(a => a.employeeName).join(', ')}
                       </td>
-                      <td>{task.overallProgress}%</td>
                     </tr>
                   ))
                 )}

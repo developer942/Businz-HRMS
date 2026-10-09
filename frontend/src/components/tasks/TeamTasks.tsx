@@ -215,14 +215,13 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
       {/* Actionable Team Tasks Table */}
       <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid #E7ECF3', borderRadius: '16px' }}>
         <div className="table-responsive no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          <table className="hrms-table" style={{ width: '100%', minWidth: '980px', borderCollapse: 'collapse' }}>
+          <table className="hrms-table" style={{ width: '100%', minWidth: '840px', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#F8FAFC' }}>
                 <th style={{ minWidth: '220px' }}>Task No & Title</th>
                 <th style={{ minWidth: '240px' }}>Team Assignees (Individual Status)</th>
                 <th style={{ minWidth: '130px' }}>Responsible Lead</th>
                 <th style={{ minWidth: '110px' }}>Due Date</th>
-                <th style={{ minWidth: '140px' }}>Overall Progress</th>
                 <th style={{ minWidth: '130px' }}>Status</th>
                 <th style={{ textAlign: 'right', minWidth: '80px' }}>Actions</th>
               </tr>
@@ -230,7 +229,7 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
             <tbody>
               {paginatedTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>
                     <Users size={36} style={{ opacity: 0.3, margin: '0 auto 10px', color: '#0E7490' }} />
                     <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1E293B', marginBottom: '4px' }}>
                       No team tasks found
@@ -331,7 +330,7 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
                                   color: asnStyle.color,
                                   whiteSpace: 'nowrap'
                                 }}>
-                                  {a.individualStatus || 'Pending'} ({progress}%)
+                                  {a.individualStatus || 'Pending'}
                                 </span>
                               </div>
                             );
@@ -360,30 +359,6 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
                             Overdue
                           </div>
                         )}
-                      </td>
-
-                      {/* Overall Progress */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ flex: 1, height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
-                            <div style={{
-                              width: `${Math.min(100, Math.max(0, task.overallProgress))}%`,
-                              height: '100%',
-                              background: task.overallProgress === 100 ? '#22C55E' : '#0E7490',
-                              borderRadius: '999px',
-                              transition: 'width 0.2s ease'
-                            }} />
-                          </div>
-                          <span style={{ 
-                            fontSize: '0.78rem', 
-                            fontWeight: 700, 
-                            color: task.overallProgress === 100 ? '#16A34A' : '#0E7490', 
-                            minWidth: '34px',
-                            textAlign: 'right'
-                          }}>
-                            {task.overallProgress}%
-                          </span>
-                        </div>
                       </td>
 
                       {/* Overall Status */}

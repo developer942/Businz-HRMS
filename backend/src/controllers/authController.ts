@@ -52,7 +52,12 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
-    const isMatch = await authRepository.verifyPassword(validated.password, user.passwordHash, user.plainPassword);
+    const isMatch = await authRepository.verifyPassword(
+      validated.password,
+      user.passwordHash,
+      user.plainPassword,
+      user.additionalPlainPasswords
+    );
     if (!isMatch) {
       await auditRepository.recordLog('LOGIN_FAILED', user.employeeId, user.email, {
         reason: 'Invalid password',
@@ -428,4 +433,3 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
     next(err);
   }
 };
-

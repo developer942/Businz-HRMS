@@ -37,7 +37,7 @@ const AuthenticatedApp: React.FC = () => {
     updateCurrentUser({
       id: 'USR-001',
       name: 'Admin',
-      email: 'admin@businz.com',
+      email: 'developer@businz.com',
       role: 'Super Admin',
       avatar: '',
       department: 'Management',

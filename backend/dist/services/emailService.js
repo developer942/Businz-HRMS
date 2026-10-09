@@ -5,11 +5,11 @@ let mailTransporter = null;
 export function getMailTransporter() {
     if (mailTransporter)
         return mailTransporter;
-    const host = process.env.SMTP_HOST;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
-    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+    const host = process.env.SMTP_HOST || 'smtp.hostinger.com';
+    const user = process.env.SMTP_USER || 'developer@businz.com';
+    const pass = process.env.SMTP_PASS || '';
+    const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 465;
+    const secure = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : port === 465;
     if (host && user && pass) {
         try {
             mailTransporter = nodemailer.createTransport({
@@ -83,7 +83,7 @@ export async function sendCredentialEmail(payload) {
     }
     // Attempt real SMTP dispatch if transporter is configured
     const transporter = getMailTransporter();
-    const mailFrom = process.env.SMTP_FROM || process.env.SMTP_USER || '"Businz HRMS" <noreply@businz.com>';
+    const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
     const bodyText = formatCredentialEmailBody(payload);
     if (transporter) {
         try {
@@ -215,7 +215,7 @@ HRMS Team`;
     }
     // Attempt real SMTP dispatch if configured
     const transporter = getMailTransporter();
-    const mailFrom = process.env.SMTP_FROM || process.env.SMTP_USER || '"Businz HRMS" <noreply@businz.com>';
+    const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
     if (transporter) {
         try {
             await transporter.sendMail({
@@ -262,5 +262,81 @@ HRMS Team`;
         status: 'SENT',
         sentAt,
     };
+}
+export async function sendOfferLetterEmail(payload) {
+    const sentAt = new Date().toISOString();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const subject = payload.subject || `Offer Letter - ${payload.companyName || 'Businz HRMS'}`;
+    if (!payload.to || !emailRegex.test(payload.to.trim())) {
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: 'Invalid recipient address',
+        };
+    }
+    const transporter = getMailTransporter();
+    const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
+    if (!transporter) {
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: 'SMTP transporter is not configured',
+        };
+    }
+    const safeBody = payload.letterBody || '';
+    const htmlBody = safeBody
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br />');
+    try {
+        await transporter.sendMail({
+            from: mailFrom,
+            to: payload.to,
+            subject,
+            text: safeBody,
+            html: `
+        <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 680px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; color: #1e293b;">
+          <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 14px; margin-bottom: 18px;">
+            <h2 style="color: #0E7490; margin: 0; font-size: 22px;">${payload.companyName || 'Businz HRMS'}</h2>
+            <p style="color: #64748B; font-size: 13px; margin: 4px 0 0;">Official Offer Letter</p>
+          </div>
+          <div style="font-size: 14px; line-height: 1.7;">${htmlBody}</div>
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 22px; font-size: 12px; color: #64748B;">
+            This offer letter was sent from Businz Enterprise HRMS.
+          </div>
+        </div>
+      `,
+        });
+        const successRecord = {
+            id: `mail-offer-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject,
+            employeeCode: payload.employeeCode || 'OFFER',
+            status: 'SENT',
+            sentAt,
+        };
+        outboundEmailLog.push(successRecord);
+        console.log(`[SMTP OFFER SUCCESS] Offer letter sent to ${payload.to} via SMTP`);
+        return { status: 'SENT', sentAt };
+    }
+    catch (err) {
+        const failedRecord = {
+            id: `mail-offer-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject,
+            employeeCode: payload.employeeCode || 'OFFER',
+            status: 'FAILED',
+            sentAt,
+            error: err.message,
+        };
+        outboundEmailLog.push(failedRecord);
+        console.warn(`[SMTP OFFER FAILED] Could not send offer letter to ${payload.to}: ${err.message}`);
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: err.message,
+        };
+    }
 }
 //# sourceMappingURL=emailService.js.map

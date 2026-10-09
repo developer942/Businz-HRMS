@@ -78,6 +78,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   const currentEmployeeName = currentEmployee
     ? `${currentEmployee.firstName} ${currentEmployee.lastName}`.trim()
     : (currentUser.name || 'Staff Member');
+  const reviewerName = `${currentUser.name || 'Authorized User'} (${currentUser.role || 'Reviewer'})`;
   const getLocalDateString = (offsetDays: number = 0) => {
     const date = new Date();
     date.setDate(date.getDate() + offsetDays);
@@ -85,6 +86,19 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+  const formatReviewDateTime = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
   };
   const minRequestDate = getLocalDateString(1);
 
@@ -365,6 +379,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       { key: 'status', label: 'Status' },
       { key: 'appliedDate', label: 'Applied Date' },
       { key: 'approvedBy', label: 'Approved/Reviewed By' },
+      { key: 'approvedAt', label: 'Reviewed Date & Time' },
       { key: 'reason', label: 'Reason' }
     ];
 
@@ -383,6 +398,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       status: l.status,
       appliedDate: formatDateDDMMYYYY(l.appliedDate) || '-',
       approvedBy: l.approvedBy || '-',
+      approvedAt: formatReviewDateTime(l.approvedAt) || '-',
       reason: l.reason || '-'
     }));
 
@@ -526,6 +542,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Duration</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '200px' }}>Pay & Attendance Breakdown</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '100px' }}>Status</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Reviewed By</th>
                 <th style={{ 
                   textAlign: 'right', 
                   whiteSpace: 'nowrap', 
@@ -539,7 +556,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
             <tbody>
               {paginatedLeaves.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
                     No applications found matching the selected filter.
                   </td>
                 </tr>
@@ -692,6 +709,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           {l.status}
                         </span>
                       </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {l.status === 'Pending' ? (
+                          <span style={{ color: '#94A3B8', fontSize: '0.78rem', fontWeight: 600 }}>Awaiting review</span>
+                        ) : (
+                          <div>
+                            <div style={{ fontSize: '0.82rem', color: '#0F172A', fontWeight: 800 }}>
+                              {l.approvedBy || 'Authorized Reviewer'}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, marginTop: '2px' }}>
+                              {formatReviewDateTime(l.approvedAt) || '-'}
+                            </div>
+                          </div>
+                        )}
+                      </td>
                       <td style={{ 
                         textAlign: 'right', 
                         whiteSpace: 'nowrap', 
@@ -704,7 +735,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                             <>
                               <button 
                                 className="btn btn-success btn-sm"
-                                onClick={() => approveLeave(l.id, currentUser.name)}
+                                onClick={() => approveLeave(l.id, reviewerName)}
                                 style={{ padding: '6px 14px', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(34,197,94,0.2)' }}
                                 title={isWfh ? "Approve Work From Home (marks as [WFH] working day)" : "Approve Leave Request"}
                               >
@@ -712,7 +743,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               </button>
                               <button 
                                 className="btn btn-danger btn-sm"
-                                onClick={() => rejectLeave(l.id, currentUser.name)}
+                                onClick={() => rejectLeave(l.id, reviewerName)}
                                 style={{ padding: '6px 14px', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(239,68,68,0.2)' }}
                               >
                                 Reject
@@ -756,7 +787,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 type="button"
                 className="action-bar-btn"
                 onClick={() => {
-                  selectedLeaveIds.forEach(id => approveLeave(id, currentUser.name));
+                  selectedLeaveIds.forEach(id => approveLeave(id, reviewerName));
                   setSelectedLeaveIds([]);
                 }}
                 style={{ color: '#86EFAC' }}
@@ -767,7 +798,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 type="button"
                 className="action-bar-btn danger"
                 onClick={() => {
-                  selectedLeaveIds.forEach(id => rejectLeave(id, currentUser.name));
+                  selectedLeaveIds.forEach(id => rejectLeave(id, reviewerName));
                   setSelectedLeaveIds([]);
                 }}
               >

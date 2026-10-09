@@ -1166,7 +1166,7 @@ const localDateTimeToIso = (date: string, time?: string | null): string | null =
 export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // VPS database architecture: purge any remaining business data from browser localStorage
   if (typeof window !== 'undefined') {
-    const STORAGE_MODE = 'vrm_hrms_supabase_cloud_only_v4';
+    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v5';
     if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
       const keysToRemove = [
         'vrm_hrms_employees', 'vrm_hrms_enhanced_tasks', 'vrm_hrms_attendance_records',
@@ -1174,7 +1174,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         'vrm_hrms_expenses', 'vrm_hrms_assets', 'vrm_hrms_mom_meetings',
         'vrm_hrms_payroll_records', 'vrm_hrms_field_assignments', 'vrm_hrms_trip_sessions',
         'vrm_hrms_tracking_alerts', 'vrm_hrms_shifts', 'vrm_hrms_holiday_policies',
-        'vrm_hrms_shift_requests', 'vrm_hrms_reward_policies', 'vrm_hrms_employee_rewards',
+        'vrm_hrms_shift_requests', 'vrm_hrms_shift_requests_persistent', 'vrm_hrms_leave_requests_persistent',
+        'vrm_hrms_reward_policies', 'vrm_hrms_employee_rewards',
         'vrm_hrms_master_attendance_policies', 'vrm_hrms_master_leave_policies',
         'vrm_hrms_payroll_settings_config', 'vrm_hrms_geofence_config', 'vrm_hrms_company_info',
         'vrm_hrms_company_branches', 'vrm_hrms_org_structure', 'vrm_hrms_departments',
@@ -1211,7 +1212,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return {
       id: 'USR-001',
       name: 'Businz Super Admin',
-      email: 'admin@businz.com',
+      email: 'developer@businz.com',
       role: 'Super Admin',
       avatar: '',
       department: 'Management',
@@ -3551,7 +3552,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         name: currentUser.name.includes('Nexus') ? currentUser.name : 'Nexus Administrator',
         employeeId: currentUser.employeeId.startsWith('EMP-B') ? currentUser.employeeId : 'EMP-B001'
       } : {
-        email: currentUser.email.includes('businz') ? currentUser.email : 'admin@businz.com',
+        email: currentUser.email.includes('businz') ? currentUser.email : 'developer@businz.com',
         name: currentUser.name.includes('Businz') ? currentUser.name : 'Businz Super Admin',
         employeeId: !currentUser.employeeId.startsWith('EMP-B') ? currentUser.employeeId : 'EMP-000'
       })
@@ -4637,7 +4638,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Role Switching Engine supporting all HRMS and Task Management roles
   const switchRole = (newRole: Role) => {
     let name = 'Businz Super Admin';
-    let email = 'admin@businz.com';
+    let email = 'developer@businz.com';
     let empId = 'EMP-000';
     let dept = 'Management';
     let desig = 'Super Administrator';
@@ -4645,7 +4646,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (newRole === 'Super Admin') {
       name = 'Businz Super Admin';
-      email = 'admin@businz.com';
+      email = 'developer@businz.com';
       empId = 'EMP-000';
       dept = 'Management';
       desig = 'Super Administrator';
@@ -4699,7 +4700,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       avatar = '';
     } else if (newRole === 'ERP Administrator') {
       name = 'ERP Administrator';
-      email = 'admin@businz.com';
+      email = 'developer@businz.com';
       empId = 'EMP-SYS';
       dept = 'Technical Support';
       desig = 'ERP Administrator';
@@ -5691,6 +5692,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       return;
     }
+    const approvedAt = new Date().toISOString();
     setLeaveRequests(prevLeaves => {
       const updatedLeaves = prevLeaves.map(l => {
       if (l.id === id) {
@@ -5769,13 +5771,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           leaveRequestId: l.id,
           employeeId: l.employeeId,
           policyId: l.sandwichDetails?.appliedPolicyId,
-          newValue: { approvedBy, daysCount: l.daysCount },
+          newValue: { approvedBy, approvedAt, daysCount: l.daysCount },
           reason: isWfh 
             ? `Work From Home request approved by ${approvedBy}. Attendance updated as [WFH] (Present).`
             : `Leave request approved by ${approvedBy}. Attendance calendar updated.`
         });
 
-        return { ...l, status: 'Approved' as const, approvedBy };
+        return { ...l, status: 'Approved' as const, approvedBy, approvedAt };
       }
       return l;
       });
@@ -5811,6 +5813,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       return;
     }
+    const approvedAt = new Date().toISOString();
     setLeaveRequests(prevLeaves => {
       const updatedLeaves = prevLeaves.map(l => {
       if (l.id === id) {
@@ -5824,7 +5827,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           employeeId: l.employeeId,
           reason: comment || `${isWfh ? 'Work From Home' : 'Leave'} request rejected by ${approvedBy}.`
         });
-        return { ...l, status: 'Rejected' as const, approvedBy, comment };
+        return { ...l, status: 'Rejected' as const, approvedBy, approvedAt, comment };
       }
       return l;
       });
@@ -5989,7 +5992,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setBusinessSettings(prev => ({ ...prev, ...updates }));
   };
 
-  const SHIFT_REQUESTS_KEY = 'shift_requests_data';
+  const SHIFT_REQUESTS_KEY = 'shift_requests_vps_data';
 
   // Read-merge-write so concurrent submissions/approvals from different users are not lost
   const persistShiftRequests = async (changed: ShiftRequest[]) => {
@@ -8560,22 +8563,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.setItem('vrm_hrms_enhanced_tasks', JSON.stringify(sanitized));
         } catch (e) {}
       } else {
-        // Fallback: don't wipe out localStorage if Supabase returned [] or failed
-        try {
-          const cached = localStorage.getItem('vrm_hrms_enhanced_tasks');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setEnhancedTasks(parsed);
-            } else {
-              setEnhancedTasks([]);
-            }
-          } else {
-            setEnhancedTasks([]);
-          }
-        } catch (e) {
-          setEnhancedTasks([]);
-        }
+        setEnhancedTasks([]);
+        try { localStorage.removeItem('vrm_hrms_enhanced_tasks'); } catch (e) {}
       }
 
       // 3. Synchronize All Company Settings & Core Modules
@@ -8628,42 +8617,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setAttendanceRecords([]);
       }
 
-      // Synchronize Leaves (DB table primary, company settings fallback)
-      const savedLeaveRequests = Array.isArray(settings.leave_requests_data) ? settings.leave_requests_data : [];
-      const leaveKey = (l: LeaveRequest) => [
-        l.employeeId,
-        l.leaveType,
-        l.startDate,
-        l.endDate,
-        l.reason || ''
-      ].join('|').toLowerCase();
-      const leaveStatusRank = (status?: LeaveRequest['status']) => {
-        if (status === 'Approved') return 2;
-        if (status === 'Rejected') return 2;
-        return 1;
-      };
-      const mergeLeaveRecord = (dbLeave: LeaveRequest, savedLeave?: LeaveRequest): LeaveRequest => {
-        if (!savedLeave) return dbLeave;
-        const savedIsNewerDecision = leaveStatusRank(savedLeave.status) > leaveStatusRank(dbLeave.status);
-        if (savedIsNewerDecision) {
-          if (dbLeave.id && dbLeave.id.length === 36 && savedLeave.status !== 'Pending') {
-            supabaseDirect.updateLeaveRequestStatus(dbLeave.id, savedLeave.status, savedLeave.approvedBy).catch(() => {});
-          }
-          return {
-            ...dbLeave,
-            ...savedLeave,
-            id: dbLeave.id || savedLeave.id
-          };
-        }
-        return {
-          ...savedLeave,
-          ...dbLeave,
-          leaveType: savedLeave.leaveType || dbLeave.leaveType,
-          approvedBy: dbLeave.approvedBy || savedLeave.approvedBy,
-          comment: dbLeave.comment || savedLeave.comment
-        };
-      };
-
+      // Synchronize Leaves. In Hostinger VPS mode the leave_requests table is the source of truth.
       if (Array.isArray(rawLeaves) && rawLeaves.length > 0) {
         const mappedLeaves = rawLeaves.map((l: any) => {
           const emp = employees.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id);
@@ -8681,57 +8635,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             status: l.status || 'Pending',
             appliedDate: l.applied_date || l.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
             approvedBy: l.approved_by,
+            approvedAt: l.approved_at,
             comment: l.comment
           };
-          const savedMatch = savedLeaveRequests.find((saved: LeaveRequest) => (
-            String(saved.id) === String(mappedLeave.id) || leaveKey(saved) === leaveKey(mappedLeave)
-          ));
-          return mergeLeaveRecord(mappedLeave, savedMatch);
+          return mappedLeave;
         });
-        const savedOnlyLeaves = savedLeaveRequests.filter((l: LeaveRequest) => (
-          l?.id &&
-          !mappedLeaves.some((dbLeave: LeaveRequest) => String(dbLeave.id) === String(l.id) || leaveKey(dbLeave) === leaveKey(l))
-        ));
-        setLeaveRequests(prev => {
-          const mergedCloudLeaves = [...savedOnlyLeaves, ...mappedLeaves];
-          const reconciledCloudLeaves = mergedCloudLeaves.map((cloudLeave: LeaveRequest) => {
-            const localMatch = prev.find((localLeave: LeaveRequest) => (
-              String(localLeave.id) === String(cloudLeave.id) || leaveKey(localLeave) === leaveKey(cloudLeave)
-            ));
-            return mergeLeaveRecord(cloudLeave, localMatch);
-          });
-          const cloudIds = new Set(reconciledCloudLeaves.map((l: LeaveRequest) => String(l.id)));
-          const cloudKeys = new Set(reconciledCloudLeaves.map((l: LeaveRequest) => leaveKey(l)));
-          const localOnlyLeaves = prev.filter((l: LeaveRequest) => (
-            !cloudIds.has(String(l.id)) &&
-            !cloudKeys.has(leaveKey(l))
-          ));
-          const result = [...localOnlyLeaves, ...reconciledCloudLeaves];
-          try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(result)); } catch {}
-          supabaseDirect.saveCompanySetting('leave_requests_data', result).catch(() => {});
-          return result;
-        });
-      } else if (savedLeaveRequests.length > 0) {
-        setLeaveRequests(prev => {
-          const reconciledSavedLeaves = savedLeaveRequests.map((savedLeave: LeaveRequest) => {
-            const localMatch = prev.find((localLeave: LeaveRequest) => (
-              String(localLeave.id) === String(savedLeave.id) || leaveKey(localLeave) === leaveKey(savedLeave)
-            ));
-            return mergeLeaveRecord(savedLeave, localMatch);
-          });
-          const cloudIds = new Set(reconciledSavedLeaves.map((l: LeaveRequest) => String(l.id)));
-          const cloudKeys = new Set(reconciledSavedLeaves.map((l: LeaveRequest) => leaveKey(l)));
-          const localOnly = prev.filter(l => !cloudIds.has(String(l.id)) && !cloudKeys.has(leaveKey(l)));
-          const result = [...localOnly, ...reconciledSavedLeaves];
-          try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(result)); } catch {}
-          supabaseDirect.saveCompanySetting('leave_requests_data', result).catch(() => {});
-          return result;
-        });
+        setLeaveRequests(mappedLeaves);
+        try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(mappedLeaves)); } catch {}
       } else {
-        setLeaveRequests(prev => {
-          try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(prev)); } catch {}
-          return prev;
-        });
+        setLeaveRequests([]);
+        try { localStorage.removeItem('vrm_hrms_leave_requests_persistent'); } catch {}
       }
 
       // Synchronize Assets (DB table primary, settings fallback)
@@ -8994,21 +8907,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setCompanyBranches(settings.company_branches);
         }
 
-        // Shift Requests (merge so a just-submitted / just-approved local change is not reverted by an older cloud copy)
-        if (Array.isArray(settings.shift_requests_data)) {
-          const cloudRequests = settings.shift_requests_data as ShiftRequest[];
-          setShiftRequests(prev => {
-            const cloudMap = new Map(cloudRequests.map(r => [r.id, r]));
-            const localOnly = prev.filter(r => !cloudMap.has(r.id));
-            const merged = cloudRequests.map(cr => {
-              const local = prev.find(r => r.id === cr.id);
-              return local && (local.updatedAt || '') > (cr.updatedAt || '') ? local : cr;
-            });
-            const result = [...localOnly, ...merged];
-            try { localStorage.setItem('vrm_hrms_shift_requests_persistent', JSON.stringify(result)); } catch {}
-            return result;
-          });
-          applyApprovedShiftsToEmployees(cloudRequests);
+        // Shift Requests. Use the VPS-only setting key so old Supabase shift_requests_data does not reappear.
+        const vpsShiftRequests = Array.isArray(settings[SHIFT_REQUESTS_KEY]) ? settings[SHIFT_REQUESTS_KEY] as ShiftRequest[] : [];
+        if (vpsShiftRequests.length > 0) {
+          setShiftRequests(vpsShiftRequests);
+          try { localStorage.setItem('vrm_hrms_shift_requests_persistent', JSON.stringify(vpsShiftRequests)); } catch {}
+          applyApprovedShiftsToEmployees(vpsShiftRequests);
+        } else {
+          setShiftRequests([]);
+          try { localStorage.removeItem('vrm_hrms_shift_requests_persistent'); } catch {}
         }
 
         // Shared cross-user notifications

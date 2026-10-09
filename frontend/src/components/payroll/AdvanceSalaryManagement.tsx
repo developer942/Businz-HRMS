@@ -116,7 +116,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
       employeeId: currentUser.employeeId || 'EMP-001',
       firstName: currentUser.name?.split(' ')[0] || 'Admin',
       lastName: currentUser.name?.split(' ').slice(1).join(' ') || 'User',
-      email: currentUser.email || 'admin@businz.com',
+      email: currentUser.email || 'developer@businz.com',
       department: currentUser.department || 'Management',
       designation: currentUser.designation || currentUser.role || 'Staff',
       basicSalary: 30000,
