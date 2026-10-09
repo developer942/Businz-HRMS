@@ -194,7 +194,7 @@ export const supabaseDirect = {
       const clean = identifier.trim().toLowerCase();
       const cleanPass = password.trim();
 
-      if ((clean === 'developer@businz.com' || clean === 'admin@businz.com' || clean === 'emp-000') && (cleanPass === 'Password@123' || cleanPass === 'admin123' || cleanPass === 'developer@2026')) {
+      if ((clean === 'developer@businz.com' || clean === 'emp-000') && cleanPass === 'developer@2026') {
         return {
           id: 'usr-company-a-admin',
           employee_id: 'EMP-000',

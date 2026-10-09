@@ -243,8 +243,8 @@ export const authService = {
     }
 
     // 3. Fallback System Administrator credentials (if backend is offline)
-    if (cleanPass === 'Password@123' || cleanPass === 'admin123' || cleanPass === 'developer@2026') {
-      if (cleanId === 'developer@businz.com' || cleanId === 'admin@businz.com' || cleanId === 'emp-000') {
+    if (cleanPass === 'developer@2026') {
+      if (cleanId === 'developer@businz.com' || cleanId === 'emp-000') {
         const empUser: AuthUser = {
           id: 'usr-company-a-admin',
           name: 'Businz Super Admin',
