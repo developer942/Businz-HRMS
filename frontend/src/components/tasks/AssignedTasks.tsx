@@ -227,7 +227,7 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
         marginBottom: '20px' 
       }}>
         {/* Quick Filter Section Tabs */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div className="task-filter-chips-bar" style={{ display: 'flex', gap: '8px' }}>
           {[
             { id: 'all', label: 'All Tasks', count: sectionCounts.all },
             { id: 'pending', label: 'To Do', count: sectionCounts.pending },
@@ -332,65 +332,63 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
 
       {/* TASKS TABLE VIEW */}
       <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid #E7ECF3', borderRadius: '16px' }}>
-        <div className="table-responsive">
-          <table className="hrms-table" style={{ width: '100%', minWidth: '810px' }}>
-            <thead>
-              <tr style={{ background: '#F8FAFC' }}>
-                <th style={{ width: '42px', minWidth: '42px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))}
-                    onChange={handleToggleSelectAll}
-                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                    aria-label="Select all tasks on this page"
-                  />
-                </th>
-                <th style={{ minWidth: '220px' }}>Task No & Title</th>
-                <th style={{ minWidth: '200px' }}>Assigned To (Assignees)</th>
-                <th style={{ minWidth: '130px' }}>Department</th>
-                <th style={{ minWidth: '120px' }}>Due Date</th>
-                <th style={{ minWidth: '110px' }}>Status</th>
-                <th style={{ minWidth: '90px', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedTasks.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-muted)' }}>
-                    <CheckSquare size={40} style={{ opacity: 0.3, margin: '0 auto 12px', color: '#0E7490' }} />
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
-                      {assignedByMeTasks.length === 0 
-                        ? "You haven't assigned any tasks yet" 
-                        : "No assigned tasks match your criteria"}
-                    </div>
-                    <div style={{ fontSize: '0.82rem', color: '#64748B', maxWidth: '420px', margin: '0 auto 16px' }}>
-                      {assignedByMeTasks.length === 0 
-                        ? 'Click "+ Assign Task" to delegate tasks to team members and monitor their real-time progress and completion here.'
-                        : 'Try adjusting your search filters or switching to another category.'}
-                    </div>
-                    {onAssignNewTask && (
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={onAssignNewTask}
-                        style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          gap: '6px', 
-                          background: '#0E7490', 
-                          borderColor: '#0E7490',
-                          padding: '8px 16px',
-                          borderRadius: '8px',
-                          fontWeight: 700
-                        }}
-                      >
-                        <Plus size={16} /> Assign New Task
-                      </button>
-                    )}
-                  </td>
+        {paginatedTasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-muted)' }}>
+            <CheckSquare size={40} style={{ opacity: 0.3, margin: '0 auto 12px', color: '#0E7490', display: 'block' }} />
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
+              {assignedByMeTasks.length === 0 
+                ? "You haven't assigned any tasks yet" 
+                : "No assigned tasks match your criteria"}
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#64748B', maxWidth: '420px', margin: '0 auto 16px' }}>
+              {assignedByMeTasks.length === 0 
+                ? 'Click "+ Assign Task" to delegate tasks to team members and monitor their real-time progress and completion here.'
+                : 'Try adjusting your search filters or switching to another category.'}
+            </div>
+            {onAssignNewTask && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={onAssignNewTask}
+                style={{ 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  background: '#0E7490', 
+                  borderColor: '#0E7490',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 700
+                }}
+              >
+                <Plus size={16} /> Assign New Task
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="table-responsive">
+            <table className="hrms-table" style={{ width: '100%', minWidth: '810px' }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC' }}>
+                  <th style={{ width: '42px', minWidth: '42px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))}
+                      onChange={handleToggleSelectAll}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                      aria-label="Select all tasks on this page"
+                    />
+                  </th>
+                  <th style={{ minWidth: '220px' }}>Task No & Title</th>
+                  <th style={{ minWidth: '200px' }}>Assigned To (Assignees)</th>
+                  <th style={{ minWidth: '130px' }}>Department</th>
+                  <th style={{ minWidth: '120px' }}>Due Date</th>
+                  <th style={{ minWidth: '110px' }}>Status</th>
+                  <th style={{ minWidth: '90px', textAlign: 'right' }}>Actions</th>
                 </tr>
-              ) : (
-                paginatedTasks.map(task => {
+              </thead>
+              <tbody>
+                {paginatedTasks.map(task => {
                   const isSelected = selectedTaskIds.includes(task.id);
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
                   const isOverdue = dueStatus === 'Overdue';
@@ -645,10 +643,11 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
                     </tr>
                   );
                 })
-              )}
+              }
             </tbody>
           </table>
         </div>
+      )}
 
         {/* Standard Pagination Footer */}
         {sectionTasks.length > 0 && (

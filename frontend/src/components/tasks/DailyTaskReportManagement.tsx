@@ -364,47 +364,45 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
         boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
         overflow: 'hidden'
       }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table" style={{ width: '100%', borderCollapse: 'collapse', margin: 0, fontSize: '0.84rem' }}>
-            <thead>
-              <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', textAlign: 'left' }}>
-                <th style={{ width: '40px', padding: '12px 14px', textAlign: 'center' }}>
-                  <input 
-                    type="checkbox"
-                    checked={paginatedReports.length > 0 && paginatedReports.every(r => selectedReportIds.includes(r.id))}
-                    onChange={handleSelectAllOnPage}
-                    style={{ accentColor: '#0E7490', cursor: 'pointer' }}
-                  />
-                </th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Report Date</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Task Number</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B' }}>Task Title</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Reporter / Employee</th>
-                {showAssignedByColumn && (
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Assigned By</th>
-                )}
-                {showAssignedToColumn && (
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Assigned To</th>
-                )}
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Department</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', minWidth: '220px' }}>Work Completed Today</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Workflow Stage</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', textAlign: 'right', whiteSpace: 'nowrap' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedReports.length === 0 ? (
-                <tr>
-                  <td colSpan={columnCount} style={{ textAlign: 'center', padding: '40px 16px', color: '#94A3B8' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                      <FileText size={36} color="#CBD5E1" />
-                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748B' }}>No daily reports match your filters</span>
-                      <span style={{ fontSize: '0.76rem', color: '#94A3B8' }}>Reports submitted by assigned persons will appear here</span>
-                    </div>
-                  </td>
+        {paginatedReports.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '56px 20px', color: '#94A3B8' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <FileText size={40} color="#0E7490" style={{ opacity: 0.35 }} />
+              <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1E293B' }}>No daily reports match your filters</span>
+              <span style={{ fontSize: '0.82rem', color: '#64748B' }}>Reports submitted by assigned persons will appear here</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ width: '100%', borderCollapse: 'collapse', margin: 0, fontSize: '0.84rem' }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ width: '40px', padding: '12px 14px', textAlign: 'center' }}>
+                    <input 
+                      type="checkbox"
+                      checked={paginatedReports.length > 0 && paginatedReports.every(r => selectedReportIds.includes(r.id))}
+                      onChange={handleSelectAllOnPage}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Report Date</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Task Number</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B' }}>Task Title</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Reporter / Employee</th>
+                  {showAssignedByColumn && (
+                    <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Assigned By</th>
+                  )}
+                  {showAssignedToColumn && (
+                    <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Assigned To</th>
+                  )}
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Department</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', minWidth: '220px' }}>Work Completed Today</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Workflow Stage</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', textAlign: 'right', whiteSpace: 'nowrap' }}>Action</th>
                 </tr>
-              ) : (
-                paginatedReports.map(item => {
+              </thead>
+              <tbody>
+                {paginatedReports.map(item => {
                   const isSelected = selectedReportIds.includes(item.id);
                   return (
                     <tr 
@@ -630,20 +628,23 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
                     </tr>
                   );
                 })
-              )}
+              }
             </tbody>
           </table>
         </div>
+      )}
 
         {/* Standardized AGENTS.md Pagination Footer */}
-        <StandardTablePagination
-          currentPage={validCurrentPage}
-          totalEntries={filteredReports.length}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={setPageSize}
-          pageSizeOptions={[5, 10]}
-        />
+        {filteredReports.length > 0 && (
+          <StandardTablePagination
+            currentPage={validCurrentPage}
+            totalEntries={filteredReports.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[5, 10]}
+          />
+        )}
       </div>
 
       {/* Floating Action Bar per AGENTS.md */}

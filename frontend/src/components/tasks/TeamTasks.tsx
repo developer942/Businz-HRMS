@@ -214,33 +214,31 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
 
       {/* Actionable Team Tasks Table */}
       <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid #E7ECF3', borderRadius: '16px' }}>
-        <div className="table-responsive no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          <table className="hrms-table" style={{ width: '100%', minWidth: '840px', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#F8FAFC' }}>
-                <th style={{ minWidth: '220px' }}>Task No & Title</th>
-                <th style={{ minWidth: '240px' }}>Team Assignees (Individual Status)</th>
-                <th style={{ minWidth: '130px' }}>Responsible Lead</th>
-                <th style={{ minWidth: '110px' }}>Due Date</th>
-                <th style={{ minWidth: '130px' }}>Status</th>
-                <th style={{ textAlign: 'right', minWidth: '80px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedTasks.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>
-                    <Users size={36} style={{ opacity: 0.3, margin: '0 auto 10px', color: '#0E7490' }} />
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1E293B', marginBottom: '4px' }}>
-                      No team tasks found
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
-                      Tasks assigned to 2 or more members will appear here automatically.
-                    </div>
-                  </td>
+        {paginatedTasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '56px 20px', color: '#64748B' }}>
+            <Users size={40} style={{ opacity: 0.35, margin: '0 auto 12px', color: '#0E7490', display: 'block' }} />
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
+              No team tasks found
+            </div>
+            <div style={{ fontSize: '0.84rem', color: '#64748B' }}>
+              Tasks assigned to 2 or more members will appear here automatically.
+            </div>
+          </div>
+        ) : (
+          <div className="table-responsive no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <table className="hrms-table" style={{ width: '100%', minWidth: '840px', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC' }}>
+                  <th style={{ minWidth: '220px' }}>Task No & Title</th>
+                  <th style={{ minWidth: '240px' }}>Team Assignees (Individual Status)</th>
+                  <th style={{ minWidth: '130px' }}>Responsible Lead</th>
+                  <th style={{ minWidth: '110px' }}>Due Date</th>
+                  <th style={{ minWidth: '130px' }}>Status</th>
+                  <th style={{ textAlign: 'right', minWidth: '80px' }}>Actions</th>
                 </tr>
-              ) : (
-                paginatedTasks.map(task => {
+              </thead>
+              <tbody>
+                {paginatedTasks.map(task => {
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
                   const isOverdue = dueStatus === 'Overdue';
                   const statusBadge = getStatusBadgeStyle(task.overallStatus);
@@ -425,10 +423,11 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
                     </tr>
                   );
                 })
-              )}
+              }
             </tbody>
           </table>
         </div>
+      )}
 
         {/* Standard Pagination Footer */}
         {teamTasks.length > 0 && (

@@ -108,7 +108,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
     <div className="my-tasks-container">
 
       {/* Section Quick Tabs */}
-      <div className="task-filter-chips-bar" style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div className="task-filter-chips-bar" style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
         {[
           { id: 'pending', label: 'To Do', count: myAssignedTasks.filter(t => {
             const a = getAssigneeForTask(t);
@@ -152,60 +152,60 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
 
       {/* TASKS LIST VIEW */}
       <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-        <div className="table-responsive">
-          <table className="hrms-table" style={{ width: '100%', minWidth: '920px' }}>
-            <thead>
-              <tr>
-                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={sectionTasks.length > 0 && sectionTasks.every(t => selectedTaskIds.includes(t.id))}
-                    onChange={handleToggleSelectAll}
-                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                    aria-label="Select all tasks"
-                  />
-                </th>
-                <th>Task No & Title</th>
-                <th>Priority</th>
-                <th>Due Date</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sectionTasks.length === 0 ? (
+        {sectionTasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-muted)' }}>
+            <CheckCircle2 size={40} style={{ opacity: 0.35, margin: '0 auto 12px', color: '#0E7490', display: 'block' }} />
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
+              No {activeSection === 'all' ? '' : activeSection.replace('_', ' ')} tasks found
+            </div>
+            <div style={{ fontSize: '0.84rem', color: '#64748B' }}>
+              You are all caught up!
+            </div>
+            {onSwitchToAssigned && assignedByMeCount > 0 && (
+              <div style={{ marginTop: '16px' }}>
+                <button
+                  type="button"
+                  onClick={onSwitchToAssigned}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    background: '#0E7490',
+                    borderColor: '#0E7490',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 600,
+                    padding: '8px 16px',
+                    borderRadius: '8px'
+                  }}
+                >
+                  View Tasks Assigned by You ({assignedByMeCount}) →
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="table-responsive">
+            <table className="hrms-table" style={{ width: '100%', minWidth: '920px' }}>
+              <thead>
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
-                    <div style={{ position: 'sticky', left: 0, width: '100%', maxWidth: 'calc(100vw - 48px)', margin: '0 auto', textAlign: 'center' }}>
-                      <CheckCircle2 size={36} style={{ opacity: 0.3, margin: '0 auto 10px' }} />
-                      <div style={{ fontWeight: 600 }}>No tasks in this section</div>
-                      <div style={{ fontSize: '0.78rem' }}>You are all caught up!</div>
-                      {onSwitchToAssigned && assignedByMeCount > 0 && (
-                        <div style={{ marginTop: '14px' }}>
-                          <button
-                            type="button"
-                            onClick={onSwitchToAssigned}
-                            className="btn btn-primary btn-sm"
-                            style={{
-                              background: '#0E7490',
-                              borderColor: '#0E7490',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              fontWeight: 600,
-                              padding: '6px 14px',
-                              borderRadius: '8px'
-                            }}
-                          >
-                            View Tasks Assigned by You ({assignedByMeCount}) →
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </td>
+                  <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={sectionTasks.length > 0 && sectionTasks.every(t => selectedTaskIds.includes(t.id))}
+                      onChange={handleToggleSelectAll}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                      aria-label="Select all tasks"
+                    />
+                  </th>
+                  <th>Task No & Title</th>
+                  <th>Priority</th>
+                  <th>Due Date</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
-              ) : (
-                sectionTasks.map(task => {
+              </thead>
+              <tbody>
+                {sectionTasks.map(task => {
                   const myAssignee = getAssigneeForTask(task);
                   const myStatus = myAssignee?.individualStatus || 'Pending';
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
@@ -339,10 +339,11 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
                     </tr>
                   );
                 })
-              )}
+              }
             </tbody>
           </table>
         </div>
+      )}
       </div>
 
       {/* Floating Action Bar per AGENTS.md */}
