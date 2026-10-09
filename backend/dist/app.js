@@ -9,6 +9,9 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { apiRateLimiter } from './middleware/rateLimiter.js';
 export const createApp = () => {
     const app = express();
+    // Behind host nginx -> container nginx (private/loopback IPs). Trust only those hops so
+    // req.ip is the real client IP and the rate limiter doesn't lump all users together.
+    app.set('trust proxy', 'loopback, linklocal, uniquelocal');
     // 1. Security Headers via Helmet
     app.use(helmet({
         crossOriginResourcePolicy: { policy: 'cross-origin' },
