@@ -40,7 +40,8 @@ export const PayrollManagement: React.FC = () => {
     loanRecords,
     payrollSettingsConfig,
     companyInfo,
-    companyBranches
+    companyBranches,
+    departments
   } = useHRMS();
 
   const [selectedPayslip, setSelectedPayslip] = useState<PayrollRecord | null>(null);
@@ -180,13 +181,13 @@ export const PayrollManagement: React.FC = () => {
       return basic;
     }
     if (code === 'DA') {
-      if (p.da !== undefined) return toNum(p.da);
+      if (p.da !== undefined && toNum(p.da) > 0) return toNum(p.da);
     }
     if (code === 'HRA') {
-      if (p.hra !== undefined) return toNum(p.hra);
+      if (p.hra !== undefined && toNum(p.hra) > 0) return toNum(p.hra);
     }
     if (code === 'CONV' || code === 'CONVEYANCE') {
-      if (p.conveyance !== undefined) return toNum(p.conveyance);
+      if (p.conveyance !== undefined && toNum(p.conveyance) > 0) return toNum(p.conveyance);
     }
 
     // Check employee allowances object if present
@@ -233,6 +234,21 @@ export const PayrollManagement: React.FC = () => {
     return `Salary Formula: ${parts.join(' + ')}${totalPercent > 0 ? ` = ${totalPercent}% CTC` : ''}`;
   }, [activeEarnings]);
 
+  const resolveDepartmentName = (rawDept?: string, emp?: Employee): string => {
+    const candidate = rawDept || emp?.department || emp?.departmentId;
+    if (!candidate) return 'General';
+    const matched = departments.find(d => 
+      d.id === candidate || 
+      d.name.toLowerCase() === String(candidate).toLowerCase() || 
+      d.code.toLowerCase() === String(candidate).toLowerCase()
+    );
+    if (matched) return matched.name;
+    if (emp?.department && !emp.department.includes('-')) return emp.department;
+    if (candidate.toLowerCase() === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || candidate.toLowerCase().includes('hr')) return 'HR';
+    if (candidate.length >= 32 && candidate.includes('-')) return 'General';
+    return candidate;
+  };
+
   const getEmployeeForPayroll = (p: PayrollRecord) =>
     employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
 
@@ -252,11 +268,52 @@ export const PayrollManagement: React.FC = () => {
     const deductions = mapPayrollLines(p.deductionsBreakdown);
     const emp = getEmployeeForPayroll(p);
     const withPf = p.withPf ?? resolveEmployeeWithPf(emp);
-    const hasDeduction = (label: string) =>
-      deductions.some(row => row.label.toLowerCase().includes(label.toLowerCase()));
-    const addDeduction = (line: AmountLine) => {
-      if (!hasDeduction(line.label)) deductions.push(line);
-    };
+
+    // 1. Ensure all active configured earnings are reflected (e.g. HRA, BASIC, DA, CONV)
+    if (activeEarnings.length > 0) {
+      const basicAmt = toNum(p.basicSalary) || (emp ? toNum(emp.basicSalary) : 0);
+      const basicComp = activeEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
+      const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
+      const totalCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc) || (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 15000);
+      const standardDays = toNum(p.workingDays) || 26;
+      const paidDays = toNum(p.paidDays) || 26;
+      const factor = standardDays > 0 ? paidDays / standardDays : 1;
+
+      activeEarnings.forEach(comp => {
+        const compCode = (comp.code || '').trim().toUpperCase();
+        const compName = (comp.name || '').trim().toLowerCase();
+        const hasComp = earnings.some(e => {
+          const lbl = e.label.trim().toLowerCase();
+          return lbl.includes(compName) || (compCode && (lbl === compCode.toLowerCase() || lbl.includes(`(${compCode.toLowerCase()})`)));
+        });
+
+        if (!hasComp) {
+          let compAmt = 0;
+          if (compCode === 'HRA' && toNum(p.hra) > 0) {
+            compAmt = toNum(p.hra);
+          } else if (compCode === 'DA' && toNum(p.da) > 0) {
+            compAmt = toNum(p.da);
+          } else if ((compCode === 'CONV' || compCode === 'CONVEYANCE') && toNum(p.conveyance) > 0) {
+            compAmt = toNum(p.conveyance);
+          } else if (comp.calculationMethod === 'PERCENTAGE') {
+            const base = comp.percentageBase === 'BASIC' ? basicAmt : totalCtc;
+            compAmt = Math.round(((base * (comp.defaultValue || 0)) / 100) * factor);
+          } else if (comp.calculationMethod === 'FIXED_AMOUNT') {
+            compAmt = Math.round((comp.defaultValue || 0) * factor);
+          }
+
+          if (compAmt > 0) {
+            earnings.push({
+              label: comp.name.trim(),
+              amount: compAmt,
+              description: comp.calculationMethod === 'PERCENTAGE'
+                ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'} | Paid ${paidDays}/${standardDays} days`
+                : `Paid ${paidDays}/${standardDays} days`
+            });
+          }
+        }
+      });
+    }
 
     if (earnings.length === 0) {
       const basic = toNum(p.basicSalary);
@@ -272,9 +329,10 @@ export const PayrollManagement: React.FC = () => {
       if (toNum(p.rewardEarnings) > 0) earnings.push({ label: 'Rewards / Incentives', amount: toNum(p.rewardEarnings) });
     }
 
+    // 2. Fallback deductions if deductions array was empty
     if (deductions.length === 0) {
-      if (toNum(p.epfDeduction) > 0) deductions.push({ label: 'EPF Employee Contribution', amount: toNum(p.epfDeduction) });
-      if (toNum(p.esiDeduction) > 0) deductions.push({ label: 'ESIC Employee Contribution', amount: toNum(p.esiDeduction) });
+      if (toNum(p.epfDeduction) > 0) deductions.push({ label: 'EPF Employee Contribution', amount: toNum(p.epfDeduction), description: 'As per Payroll Settings PF formula' });
+      if (toNum(p.esiDeduction) > 0) deductions.push({ label: 'ESIC Employee Contribution', amount: toNum(p.esiDeduction), description: 'As per Payroll Settings ESIC formula' });
       if (toNum(p.professionalTax) > 0) deductions.push({ label: 'Professional Tax', amount: toNum(p.professionalTax) });
       if (toNum(p.taxDeduction) > 0 && deductions.length === 0) deductions.push({ label: 'Statutory / Tax Deductions', amount: toNum(p.taxDeduction) });
       if (toNum(p.leaveDeduction) > 0) deductions.push({ label: 'Loss of Pay Deduction', amount: toNum(p.leaveDeduction) });
@@ -282,28 +340,54 @@ export const PayrollManagement: React.FC = () => {
       if (toNum(p.advanceDeduction) > 0) deductions.push({ label: 'Advance Salary / Loan Recovery', amount: toNum(p.advanceDeduction) });
     }
 
+    // 3. Deduplicate Statutory Contributions (prevent EPF & ESIC showing twice)
+    const hasPfDeduction = deductions.some(row =>
+      /provident|epf|\bpf\b/i.test(row.label)
+    );
+    const hasEsiDeduction = deductions.some(row =>
+      /insurance|esic|\besi\b/i.test(row.label)
+    );
+
     if (withPf) {
-      if (toNum(p.epfDeduction) > 0) {
-        addDeduction({ label: 'EPF Employee Contribution', amount: toNum(p.epfDeduction), description: 'As per Payroll Settings PF formula' });
+      if (!hasPfDeduction && toNum(p.epfDeduction) > 0) {
+        deductions.push({ label: 'EPF Employee Contribution', amount: toNum(p.epfDeduction), description: 'As per Payroll Settings PF formula' });
       }
-      if (toNum(p.esiDeduction) > 0) {
-        addDeduction({ label: 'ESIC Employee Contribution', amount: toNum(p.esiDeduction), description: 'As per Payroll Settings ESIC formula' });
+      if (!hasEsiDeduction && toNum(p.esiDeduction) > 0) {
+        deductions.push({ label: 'ESIC Employee Contribution', amount: toNum(p.esiDeduction), description: 'As per Payroll Settings ESIC formula' });
       }
     } else {
-      addDeduction({ label: 'EPF Employee Contribution', amount: 0, description: 'Exempt (< 6 Months)' });
-      addDeduction({ label: 'ESIC Contribution', amount: 0, description: 'Exempt (< 6 Months)' });
+      if (!hasPfDeduction) {
+        deductions.push({ label: 'EPF Employee Contribution', amount: 0, description: 'Exempt (< 6 Months)' });
+      }
+      if (!hasEsiDeduction) {
+        deductions.push({ label: 'ESIC Contribution', amount: 0, description: 'Exempt (< 6 Months)' });
+      }
     }
 
-    const grossEarnings = toNum(p.grossSalary, earnings.reduce((sum, row) => sum + toNum(row.amount), 0));
-    const derivedDeductions = deductions.reduce((sum, row) => sum + toNum(row.amount), 0);
-    const totalDeductions = toNum(p.totalDeductions, derivedDeductions || Math.max(0, grossEarnings - toNum(p.netSalary)));
+    // Clean up any double additions that might already exist in p.deductionsBreakdown
+    const seenDeductions = new Set<string>();
+    const uniqueDeductions: AmountLine[] = [];
+    for (const d of deductions) {
+      const normalizedKey = /provident|epf|\bpf\b/i.test(d.label) ? 'PF_STATUTORY'
+        : /insurance|esic|\besi\b/i.test(d.label) ? 'ESI_STATUTORY'
+        : d.label.trim().toLowerCase();
+      if (!seenDeductions.has(normalizedKey)) {
+        seenDeductions.add(normalizedKey);
+        uniqueDeductions.push(d);
+      }
+    }
+
+    const grossEarnings = earnings.reduce((sum, row) => sum + toNum(row.amount), 0) || toNum(p.grossSalary);
+    const derivedDeductions = uniqueDeductions.reduce((sum, row) => sum + toNum(row.amount), 0);
+    const totalDeductions = toNum(p.totalDeductions) > 0 ? toNum(p.totalDeductions) : derivedDeductions;
+    const netPay = Math.max(0, grossEarnings - totalDeductions);
 
     return {
       earnings,
-      deductions,
+      deductions: uniqueDeductions,
       grossEarnings,
       totalDeductions,
-      netPay: toNum(p.netSalary)
+      netPay
     };
   };
 
@@ -339,7 +423,7 @@ export const PayrollManagement: React.FC = () => {
       const rowData: Record<string, any> = {
         employeeId: p.employeeId,
         employeeName: p.employeeName,
-        department: p.department,
+        department: resolveDepartmentName(p.department, emp),
         advanceDeduction: toNum(p.advanceDeduction || 0),
         epfDeduction: toNum(p.epfDeduction || 0),
         esiDeduction: toNum(p.esiDeduction || 0),
@@ -586,7 +670,7 @@ export const PayrollManagement: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td>{p.department}</td>
+                    <td>{resolveDepartmentName(p.department, emp)}</td>
                     {activeEarnings.length > 0 ? (
                       activeEarnings.map(comp => {
                         const val = getComponentValue(comp, p, emp);
@@ -837,7 +921,7 @@ export const PayrollManagement: React.FC = () => {
                     rows={[
                       { label: 'Employee Name', value: selectedPayslip.employeeName },
                       { label: 'Employee ID', value: selectedPayslip.employeeId },
-                      { label: 'Department', value: selectedPayslip.department },
+                      { label: 'Department', value: resolveDepartmentName(selectedPayslip.department, emp) },
                       { label: 'Designation', value: selectedPayslip.designation },
                       { label: 'Date of Joining', value: formatDateDDMMYYYY(emp?.joiningDate || emp?.dateOfJoining) || '—' },
                       { label: 'Bank Account', value: emp?.bankDetails?.accountNumber },

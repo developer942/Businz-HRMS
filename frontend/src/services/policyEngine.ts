@@ -1083,7 +1083,7 @@ export const calculateEmployeePayroll = (
   const getSavedComponentAmount = (code: string): number | undefined => {
     const lower = code.toLowerCase();
     const raw = savedComponentValues[code] ?? savedComponentValues[lower];
-    return raw !== undefined && raw !== null ? toNum(raw) : undefined;
+    return raw !== undefined && raw !== null && toNum(raw) > 0 ? toNum(raw) : undefined;
   };
 
   const earningsBreakdown: { name: string; category: 'EARNING'; amount: number; description?: string }[] = [];
@@ -1097,11 +1097,13 @@ export const calculateEmployeePayroll = (
     configuredEarnings.forEach(comp => {
       const configuredAmount = configuredBreakdown.customComponents[comp.code] || 0;
       const savedAmount = getSavedComponentAmount(comp.code);
-      const actualVal = savedAmount !== undefined ? savedAmount : configuredAmount;
+      const actualVal = (savedAmount !== undefined && savedAmount > 0)
+        ? savedAmount
+        : (configuredAmount > 0 ? configuredAmount : (savedAmount ?? 0));
 
       if (actualVal > 0) {
         earningsBreakdown.push({
-          name: comp.name,
+          name: comp.name.trim(),
           category: 'EARNING',
           amount: actualVal,
           description: getComponentCalculationDescription(comp)
@@ -1213,7 +1215,10 @@ export const calculateEmployeePayroll = (
   configuredEarnings.forEach(comp => {
     const configuredAmount = configuredBreakdown.customComponents[comp.code] || 0;
     const savedAmount = getSavedComponentAmount(comp.code);
-    payableComponentContext[comp.code] = prorateSalary(savedAmount !== undefined ? savedAmount : configuredAmount);
+    const actualVal = (savedAmount !== undefined && savedAmount > 0)
+      ? savedAmount
+      : (configuredAmount > 0 ? configuredAmount : (savedAmount ?? 0));
+    payableComponentContext[comp.code] = prorateSalary(actualVal);
   });
 
   const deductionContext = buildPayrollFormulaContext({

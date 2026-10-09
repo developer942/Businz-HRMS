@@ -1273,13 +1273,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [employees, setEmployees] = useState<Employee[]>([]);
 
   // Supabase Database Employee Entity Mapper
-  const resolveEmployeeDepartmentName = (d: any): string => {
+  const resolveEmployeeDepartmentName = (d: any, depts?: DepartmentItem[]): string => {
     const directDepartment = typeof d.department === 'string' ? d.department : d.department_name || d.deptName;
     const relatedDepartment = d.departments?.name || d.department?.name;
-    return directDepartment || relatedDepartment || d.departmentId || d.department_id || 'General';
+    const rawVal = directDepartment || relatedDepartment || d.departmentId || d.department_id;
+    if (!rawVal) return 'General';
+    const deptList = depts && depts.length > 0 ? depts : (typeof departments !== 'undefined' ? departments : []);
+    const match = deptList.find((dep: any) =>
+      dep.id === rawVal ||
+      dep.code?.toLowerCase() === String(rawVal).toLowerCase() ||
+      dep.name?.toLowerCase() === String(rawVal).toLowerCase()
+    );
+    if (match) return match.name;
+    if (String(rawVal).toLowerCase() === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || String(rawVal).toLowerCase().includes('hr')) return 'HR';
+    if (String(rawVal).length >= 32 && String(rawVal).includes('-')) return 'General';
+    return String(rawVal);
   };
 
-  const mapEmployeeFromDb = (d: any): Employee => ({
+  const mapEmployeeFromDb = (d: any, depts?: DepartmentItem[]): Employee => ({
     id: d.id,
     company_id: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
     companyId: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
@@ -1291,7 +1302,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dob: d.dob || '1995-01-01',
     gender: (d.gender as any) || 'Male',
     address: d.address || 'Chennai, Tamil Nadu',
-    department: resolveEmployeeDepartmentName(d),
+    department: resolveEmployeeDepartmentName(d, depts),
     designation: d.designation || 'Staff',
     reportingManagerId: d.reportingManagerId || d.reporting_manager_id || '',
     reportingManagerName: d.reportingManagerName || d.reporting_manager_name || '',
@@ -1312,7 +1323,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...(d.salaryDetails || d.salary_details || {}),
       monthlyCtc: d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc,
       basicSalary: d.salaryDetails?.basicSalary ?? d.salary_details?.basicSalary ?? d.salary_details?.basic_salary ?? d.basicSalary ?? d.basic_salary,
-      hra: d.salaryDetails?.hra ?? d.salary_details?.hra ?? d.hra ?? d.allowances_hra,
+      hra: d.salaryDetails?.hra ?? d.salary_details?.hra ?? (Number(d.hra) > 0 ? Number(d.hra) : (Number(d.allowances_hra) > 0 ? Number(d.allowances_hra) : undefined)),
       da: d.salaryDetails?.da ?? d.salary_details?.da ?? d.da,
       conveyance: d.salaryDetails?.conveyance ?? d.salary_details?.conveyance ?? d.conveyance,
       withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf,
@@ -7630,6 +7641,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         batchYear
       );
 
+      const resolvedEmpDept = resolveEmployeeDepartmentName(emp, departments);
       const backendRec = backendRecords?.find((b: any) => b.employeeId === emp.employeeId);
       if (backendRec) {
         const resolvedPfAmount = calc.epfDeduction;
@@ -7640,7 +7652,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           id: backendRec.id || `PAY-${batchYear}-${batchMonthPad}-${emp.employeeId}`,
           employeeId: emp.employeeId,
           employeeName: `${emp.firstName} ${emp.lastName}`,
-          department: emp.department,
+          department: resolvedEmpDept,
           designation: emp.designation,
           month: batchMonthName,
           year: batchYear,
@@ -7706,7 +7718,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         id: `PAY-${batchYear}-${batchMonthPad}-${emp.employeeId}`,
         employeeId: emp.employeeId,
         employeeName: `${emp.firstName} ${emp.lastName}`,
-        department: emp.department,
+        department: resolvedEmpDept,
         designation: emp.designation,
         month: batchMonthName,
         year: batchYear,
@@ -8549,7 +8561,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // 1. Synchronize Employees
       if (Array.isArray(rawEmployees) && rawEmployees.length > 0) {
-        const mapped = rawEmployees.map(mapEmployeeFromDb);
+        const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
+        const mapped = rawEmployees.map(e => mapEmployeeFromDb(e, currentDepts));
         setEmployees(mapped);
       } else {
         setEmployees([]);
@@ -8797,13 +8810,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           } as Employee);
           const compId = p.company_id || p.companyId || (p.employee?.email?.includes('nexus') || employeeId?.startsWith('EMP-B') ? 'company-b' : 'company-a');
+          const rawDept = p.employee?.department_id || p.employee?.department || saved?.department || 'General';
+          const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
+          const matchedDept = currentDepts.find((d: any) => 
+            d.id === rawDept || 
+            d.name?.toLowerCase() === String(rawDept).toLowerCase() || 
+            d.code?.toLowerCase() === String(rawDept).toLowerCase()
+          );
+          const resolvedDept = matchedDept?.name || (rawDept === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || String(rawDept).toLowerCase().includes('hr') ? 'HR' : (rawDept.length >= 32 && rawDept.includes('-') ? 'General' : rawDept));
+
           return {
             id: p.id,
             company_id: compId,
             companyId: compId,
             employeeId,
             employeeName: p.employee ? `${p.employee.first_name || ''} ${p.employee.last_name || ''}`.trim() : 'Staff',
-            department: p.employee?.department_id || saved?.department || 'General',
+            department: resolvedDept,
             designation: p.employee?.designation || saved?.designation || 'Staff',
             month: saved?.month || p.payroll_month,
             year,
