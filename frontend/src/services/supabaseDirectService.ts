@@ -322,8 +322,9 @@ export const supabaseDirect = {
             )
           );
 
-          if (empEmail) {
-            await fetch(`${DATABASE_REST_URL}/rest/v1/password_resets?email=eq.${encodeURIComponent(empEmail)}`, {
+          if (empCode) {
+            // password_resets is keyed by the employee code (text), not by email
+            await fetch(`${DATABASE_REST_URL}/rest/v1/password_resets?employee_id=ilike.${encodeURIComponent(empCode)}`, {
               method: 'DELETE',
               headers: getHeaders(),
             }).catch(() => {});

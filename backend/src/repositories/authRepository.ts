@@ -438,13 +438,17 @@ export class AuthRepository {
     if (isRealSupabaseConfigured()) {
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
+        const { error } = await supabase
           .from('employees')
           .update({
             account_status: status,
             status: status === 'ACTIVE' ? 'Active' : 'Inactive',
           })
           .ilike('employee_id', user.employeeId);
+        if (error) {
+          console.warn('Could not sync account status to database:', error.message);
+          return { success: false, message: `Database update failed: ${error.message}` };
+        }
       } catch (err) {
         console.warn('Could not sync account status to Supabase:', err);
       }

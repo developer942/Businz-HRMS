@@ -12,6 +12,8 @@ services:
       - ./db/00-pre-supabase-compat.sql:/docker-entrypoint-initdb.d/00-pre-supabase-compat.sql:ro
       - ../../backend/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
       - ./db/20-app-tables.sql:/docker-entrypoint-initdb.d/20-app-tables.sql:ro
+      - ./db/30-schema-sync.sql:/docker-entrypoint-initdb.d/30-schema-sync.sql:ro
+      - ./db/35-align-role-ids.sql:/docker-entrypoint-initdb.d/35-align-role-ids.sql:ro
       - ./db/99-vps-access.sql:/docker-entrypoint-initdb.d/99-vps-access.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hrms}"]
