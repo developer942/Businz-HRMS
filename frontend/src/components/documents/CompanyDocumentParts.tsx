@@ -103,18 +103,18 @@ export const CompanyHeader: React.FC<{
   rightMeta?: DetailRow[];
 }> = ({ profile, title, subtitle, rightMeta = [] }) => (
   <div style={{ borderBottom: '2px solid #0E7490', paddingBottom: '16px', marginBottom: '18px' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'flex-start' }}>
-      <div style={{ display: 'flex', gap: '14px', minWidth: 0, flex: 1 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '16px', minWidth: 0, flex: 1, alignItems: 'center' }}>
         {profile.logoUrl && (
           <img
             src={profile.logoUrl}
             alt={`${profile.companyName} logo`}
-            style={{ width: 'auto', height: 'auto', maxWidth: '140px', maxHeight: '56px', objectFit: 'contain', flexShrink: 0 }}
+            style={{ width: 'auto', height: 'auto', maxWidth: '200px', maxHeight: '72px', objectFit: 'contain', flexShrink: 0 }}
             onError={event => { event.currentTarget.style.display = 'none'; }}
           />
         )}
         <div style={{ minWidth: 0 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem', color: '#0f172a', fontWeight: 800, letterSpacing: '-0.01em' }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: '1.05rem', color: '#0f172a', fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.25 }}>
             {profile.companyName}
           </h2>
           {profile.registeredAddress && (
@@ -130,20 +130,28 @@ export const CompanyHeader: React.FC<{
               <strong>Branch:</strong> {profile.branchAddress}
             </div>
           )}
-          <div style={headerLineStyle}>
-            {[profile.email, profile.phone, profile.website].filter(Boolean).join(' | ')}
-          </div>
-          <div style={headerLineStyle}>
-            {[
-              profile.gstNumber ? `GST: ${profile.gstNumber}` : '',
-              profile.cinNumber ? `CIN: ${profile.cinNumber}` : '',
-              profile.registrationNumber ? `Reg: ${profile.registrationNumber}` : ''
-            ].filter(Boolean).join(' | ')}
-          </div>
+          {[profile.email, profile.phone, profile.website].filter(Boolean).length > 0 && (
+            <div style={headerLineStyle}>
+              {[profile.email, profile.phone, profile.website].filter(Boolean).join(' | ')}
+            </div>
+          )}
+          {[
+            profile.gstNumber ? `GST: ${profile.gstNumber}` : '',
+            profile.cinNumber ? `CIN: ${profile.cinNumber}` : '',
+            profile.registrationNumber ? `Reg: ${profile.registrationNumber}` : ''
+          ].filter(Boolean).length > 0 && (
+            <div style={headerLineStyle}>
+              {[
+                profile.gstNumber ? `GST: ${profile.gstNumber}` : '',
+                profile.cinNumber ? `CIN: ${profile.cinNumber}` : '',
+                profile.registrationNumber ? `Reg: ${profile.registrationNumber}` : ''
+              ].filter(Boolean).join(' | ')}
+            </div>
+          )}
         </div>
       </div>
       {(title || rightMeta.length > 0) && (
-        <div style={{ textAlign: 'right', minWidth: '190px', flexShrink: 0 }}>
+        <div style={{ textAlign: 'right', minWidth: '180px', flexShrink: 0 }}>
           {title && <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title}</div>}
           {subtitle && <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>{subtitle}</div>}
           {rightMeta.map(row => (
