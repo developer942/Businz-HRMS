@@ -377,7 +377,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
               style={{
                 border: 'none',
                 background: activeMode === 'preview' ? '#ffffff' : 'transparent',
-                color: activeMode === 'preview' ? '#0891b2' : '#64748b',
+                color: activeMode === 'preview' ? '#0E7490' : '#64748b',
                 padding: '6px 14px',
                 borderRadius: '6px',
                 fontWeight: 700,
@@ -389,7 +389,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                 boxShadow: activeMode === 'preview' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
               }}
             >
-              <Eye size={14} color={activeMode === 'preview' ? '#155DFC' : 'currentColor'} /> Preview Document
+              <Eye size={14} color={activeMode === 'preview' ? '#0E7490' : 'currentColor'} /> Preview Document
             </button>
             <button
               type="button"
@@ -397,7 +397,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
               style={{
                 border: 'none',
                 background: activeMode === 'edit' ? '#ffffff' : 'transparent',
-                color: activeMode === 'edit' ? '#155DFC' : '#64748b',
+                color: activeMode === 'edit' ? '#0E7490' : '#64748b',
                 padding: '6px 14px',
                 borderRadius: '6px',
                 fontWeight: 700,
@@ -409,7 +409,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                 boxShadow: activeMode === 'edit' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
               }}
             >
-              <Edit3 size={14} color={activeMode === 'edit' ? '#155DFC' : 'currentColor'} /> Edit Clauses
+              <Edit3 size={14} color={activeMode === 'edit' ? '#0E7490' : 'currentColor'} /> Edit Clauses
             </button>
             <button
               type="button"
@@ -417,7 +417,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
               style={{
                 border: 'none',
                 background: activeMode === 'create_template' ? '#ffffff' : 'transparent',
-                color: activeMode === 'create_template' ? '#155DFC' : '#64748b',
+                color: activeMode === 'create_template' ? '#0E7490' : '#64748b',
                 padding: '6px 14px',
                 borderRadius: '6px',
                 fontWeight: 700,
@@ -429,7 +429,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                 boxShadow: activeMode === 'create_template' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
               }}
             >
-              <Plus size={14} color={activeMode === 'create_template' ? '#155DFC' : 'currentColor'} /> New Template
+              <Plus size={14} color={activeMode === 'create_template' ? '#0E7490' : 'currentColor'} /> New Template
             </button>
           </div>
 
@@ -462,9 +462,9 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                     style={{
                       padding: '7px 14px',
                       borderRadius: '8px',
-                      border: isSelected ? '1.5px solid #155DFC' : '1px solid #e2e8f0',
-                      backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
-                      color: isSelected ? '#155DFC' : '#475569',
+                      border: isSelected ? '1.5px solid #0E7490' : '1px solid #e2e8f0',
+                      backgroundColor: isSelected ? '#ECFEFF' : '#ffffff',
+                      color: isSelected ? '#0E7490' : '#475569',
                       fontSize: '0.8rem',
                       fontWeight: isSelected ? 700 : 500,
                       cursor: 'pointer',
@@ -472,12 +472,12 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      boxShadow: isSelected ? '0 1px 4px rgba(21, 93, 252, 0.25)' : 'none',
+                      boxShadow: isSelected ? '0 1px 4px rgba(14, 116, 144, 0.2)' : 'none',
                       transition: 'all 0.15s ease',
                       flexShrink: 0
                     }}
                   >
-                    <span style={{ width: '8px', height: '8px', borderRadius: '99px', backgroundColor: isSelected ? '#155DFC' : tpl.badgeColor }} />
+                    <span style={{ width: '8px', height: '8px', borderRadius: '99px', backgroundColor: isSelected ? '#0E7490' : tpl.badgeColor }} />
                     {tpl.name}
                   </button>
                 );
@@ -715,7 +715,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveMode('preview')}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary btn-sm" style={{ background: 'linear-gradient(135deg, #155DFC, #1d4ed8)', color: '#ffffff', fontWeight: 700, boxShadow: '0 4px 12px rgba(21, 93, 252, 0.35)' }}>
+                  <button type="submit" className="btn btn-primary btn-sm" style={{ background: 'linear-gradient(135deg, #0E7490, #0891B2)', color: '#ffffff', fontWeight: 700, border: 'none', boxShadow: '0 4px 12px rgba(14, 116, 144, 0.35)' }}>
                     <Save size={14} /> Save Template
                   </button>
                 </div>
@@ -780,7 +780,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
               onClick={handleSendOfferEmail}
               disabled={isSendingOffer || !currentEmployee?.email}
               title="Send offer letter from developer@businz.com"
-              style={{ background: 'linear-gradient(135deg, #155DFC, #1D4ED8)', color: '#ffffff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(21, 93, 252, 0.28)', border: 'none', opacity: isSendingOffer ? 0.7 : 1 }}
+              style={{ background: 'linear-gradient(135deg, #0E7490, #0891B2)', color: '#ffffff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(14, 116, 144, 0.28)', border: 'none', opacity: isSendingOffer ? 0.7 : 1 }}
             >
               <Send size={15} /> {isSendingOffer ? 'Sending...' : 'Send Email'}
             </button>
