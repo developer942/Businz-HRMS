@@ -928,6 +928,11 @@ export const supabaseDirect = {
     shift_date?: string;
   }): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
+      const employeeUuid = await resolveEmployeeUuid(record.employee_id);
+      if (!employeeUuid) {
+        return { success: false, error: `Employee '${record.employee_id}' was not found in employees table.` };
+      }
+
       // Map to PostgreSQL enum hr_attendance_status: ['Present', 'Absent', 'Late', 'Half Day', 'Work From Home', 'On Leave']
       let status = 'Present';
       const rawStatus = (record.status || '').toLowerCase();
@@ -938,7 +943,7 @@ export const supabaseDirect = {
       else if (rawStatus.includes('leave') || rawStatus.includes('off') || rawStatus.includes('holiday')) status = 'On Leave';
 
       const payload = {
-        employee_id: record.employee_id,
+        employee_id: employeeUuid,
         date: record.date,
         check_in: record.check_in || null,
         check_out: record.check_out || null,
@@ -1031,6 +1036,11 @@ export const supabaseDirect = {
       else if (rawCondition.includes('fair')) normCondition = 'Fair';
       else if (rawCondition.includes('repair') || rawCondition.includes('poor') || rawCondition.includes('damag')) normCondition = 'Needs Repair';
 
+      let assignedUuid: string | null = null;
+      if (asset.assigned_employee_id) {
+        assignedUuid = (await resolveEmployeeUuid(asset.assigned_employee_id)) || null;
+      }
+
       const payload = {
         asset_tag: asset.asset_tag,
         name: asset.name,
@@ -1039,7 +1049,7 @@ export const supabaseDirect = {
         purchase_cost: Number(asset.purchase_cost) || 0,
         status: normStatus,
         condition: normCondition,
-        assigned_employee_id: (asset.assigned_employee_id && asset.assigned_employee_id.length === 36) ? asset.assigned_employee_id : null,
+        assigned_employee_id: assignedUuid,
         notes: asset.notes || null,
       };
 
@@ -1059,10 +1069,14 @@ export const supabaseDirect = {
 
   async updateAsset(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
+      const payload: Record<string, any> = { ...updates, updated_at: new Date().toISOString() };
+      if (payload.assigned_employee_id) {
+        payload.assigned_employee_id = (await resolveEmployeeUuid(payload.assigned_employee_id)) || null;
+      }
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
-        body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+        body: JSON.stringify(payload),
       });
       return res.ok;
     } catch (err) {
@@ -1451,6 +1465,11 @@ export const supabaseDirect = {
     status?: string;
   }): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
+      const employeeUuid = await resolveEmployeeUuid(record.employee_id);
+      if (!employeeUuid) {
+        return { success: false, error: `Employee '${record.employee_id}' was not found in employees table.` };
+      }
+
       // Map to PostgreSQL enum hr_payroll_status: ['Pending', 'Verified', 'Processed', 'Paid']
       let normStatus = 'Processed';
       const rawStatus = (record.status || '').toLowerCase();
@@ -1459,7 +1478,7 @@ export const supabaseDirect = {
       else if (rawStatus.includes('draft') || rawStatus.includes('pend') || rawStatus.includes('hold')) normStatus = 'Pending';
 
       const payload = {
-        employee_id: record.employee_id,
+        employee_id: employeeUuid,
         payroll_month: record.payroll_month,
         basic_salary: Number(record.basic_salary) || 0,
         allowances: Number(record.allowances) || 0,

@@ -20,8 +20,16 @@ export class TrackingRepository {
             try {
                 const supabase = getSupabaseAdmin();
                 let query = supabase.from('field_duty_assignments').select('*').order('created_at', { ascending: false });
-                if (filters?.employeeId)
-                    query = query.eq('employee_id', filters.employeeId);
+                if (filters?.employeeId) {
+                    let filterUuid = filters.employeeId;
+                    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filterUuid);
+                    if (!isUuid) {
+                        const emp = await employeeRepository.getEmployeeById(filterUuid);
+                        if (emp?.id)
+                            filterUuid = emp.id;
+                    }
+                    query = query.eq('employee_id', filterUuid);
+                }
                 if (filters?.status)
                     query = query.eq('status', filters.status);
                 const { data, error } = await query;
@@ -103,8 +111,9 @@ export class TrackingRepository {
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
+                const targetEmployeeUuid = emp?.id || newAssignment.employeeId;
                 await supabase.from('field_duty_assignments').insert({
-                    employee_id: newAssignment.employeeId,
+                    employee_id: targetEmployeeUuid,
                     employee_name: newAssignment.employeeName,
                     duty_type: newAssignment.dutyType,
                     schedule_type: newAssignment.scheduleType,

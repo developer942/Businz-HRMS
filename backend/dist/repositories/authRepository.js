@@ -6,8 +6,7 @@ import { generateTemporaryPassword, validatePasswordComplexity } from '../servic
 import { sendCredentialEmail } from '../services/emailService.js';
 import { auditRepository } from './auditRepository.js';
 const SYSTEM_SUPER_ADMIN_EMAIL = 'developer@businz.com';
-const SYSTEM_SUPER_ADMIN_PASSWORD = process.env.SYSTEM_SUPER_ADMIN_PASSWORD || '';
-const LEGACY_SUPER_ADMIN_EMAILS = ['admin@businz.com', 'admin@companya.com'];
+const SYSTEM_SUPER_ADMIN_PASSWORD = process.env.SYSTEM_SUPER_ADMIN_PASSWORD || 'developer@2026';
 const runtimePasswordOverrides = new Map();
 const compactPasswords = (passwords) => passwords.filter((p) => Boolean(p));
 export class AuthRepository {
@@ -63,17 +62,15 @@ export class AuthRepository {
                     const rawDbPass = data.password || '';
                     const passwordHash = rawDbPass.startsWith('$2') ? rawDbPass : (rawDbPass ? await bcrypt.hash(rawDbPass, 10) : '');
                     const isDefaultSuperAdmin = cleanLower === SYSTEM_SUPER_ADMIN_EMAIL ||
-                        LEGACY_SUPER_ADMIN_EMAILS.includes(cleanLower) ||
                         cleanLower === 'emp-000' ||
                         data.email?.toLowerCase() === SYSTEM_SUPER_ADMIN_EMAIL ||
-                        data.email?.toLowerCase() === 'admin@businz.com' ||
                         data.employee_id?.toLowerCase() === 'emp-000';
                     const userAccount = {
                         id: data.auth_id || data.id,
                         email: data.email,
                         passwordHash,
                         plainPassword: rawDbPass,
-                        additionalPlainPasswords: isDefaultSuperAdmin ? compactPasswords([SYSTEM_SUPER_ADMIN_PASSWORD, 'Password@123', 'admin123', 'developer@2026']) : undefined,
+                        additionalPlainPasswords: isDefaultSuperAdmin ? [SYSTEM_SUPER_ADMIN_PASSWORD || 'developer@2026'] : undefined,
                         name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Staff',
                         role: userRole,
                         employeeId: data.employee_id,
@@ -94,34 +91,15 @@ export class AuthRepository {
                 console.warn('Supabase auth query error:', err);
             }
         }
-        // Built-in company accounts for multi-company isolation and testing
-        const defaultHash = await bcrypt.hash('admin123', 10);
-        if (cleanLower === 'admin@companyb.com' || cleanLower === 'emp-b001' || cleanLower === 'admin@nexus-solutions.com') {
-            return {
-                id: 'usr-company-b-admin',
-                email: 'admin@nexus-solutions.com',
-                passwordHash: defaultHash,
-                plainPassword: 'admin123',
-                name: 'Nexus Admin',
-                role: 'Super Admin',
-                employeeId: 'EMP-B001',
-                department: 'Corporate',
-                designation: 'Managing Director',
-                company_id: 'company-b',
-                isActive: true,
-                mustChangePassword: false,
-                accountStatus: 'ACTIVE',
-            };
-        }
-        if (cleanLower === SYSTEM_SUPER_ADMIN_EMAIL || LEGACY_SUPER_ADMIN_EMAILS.includes(cleanLower) || cleanLower === 'emp-000') {
-            const effectivePassword = runtimePasswordOverrides.get('emp-000') || SYSTEM_SUPER_ADMIN_PASSWORD || 'admin123';
+        if (cleanLower === SYSTEM_SUPER_ADMIN_EMAIL || cleanLower === 'emp-000') {
+            const effectivePassword = runtimePasswordOverrides.get('emp-000') || SYSTEM_SUPER_ADMIN_PASSWORD || 'developer@2026';
             const effectivePasswordHash = effectivePassword.startsWith('$2') ? effectivePassword : await bcrypt.hash(effectivePassword, 10);
             return {
                 id: 'usr-company-a-admin',
                 email: SYSTEM_SUPER_ADMIN_EMAIL,
                 passwordHash: effectivePasswordHash,
                 plainPassword: effectivePassword.startsWith('$2') ? undefined : effectivePassword,
-                additionalPlainPasswords: compactPasswords([SYSTEM_SUPER_ADMIN_PASSWORD, 'Password@123', 'admin123', 'developer@2026']),
+                additionalPlainPasswords: [effectivePassword],
                 name: 'Businz Super Admin',
                 role: 'Super Admin',
                 employeeId: 'EMP-000',
@@ -335,13 +313,17 @@ export class AuthRepository {
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
-                await supabase
+                const { error } = await supabase
                     .from('employees')
                     .update({
                     account_status: status,
                     status: status === 'ACTIVE' ? 'Active' : 'Inactive',
                 })
                     .ilike('employee_id', user.employeeId);
+                if (error) {
+                    console.warn('Could not sync account status to database:', error.message);
+                    return { success: false, message: `Database update failed: ${error.message}` };
+                }
             }
             catch (err) {
                 console.warn('Could not sync account status to Supabase:', err);

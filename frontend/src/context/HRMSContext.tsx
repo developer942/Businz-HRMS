@@ -2476,7 +2476,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     });
 
-    const employeeDbId = emp.id && emp.id.length === 36 ? emp.id : undefined;
+    const employeeDbId = emp.id || emp.employeeId || entry.employeeId;
     const checkInIso = cleanCheckIn ? localDateTimeToIso(entry.date, cleanCheckIn) : null;
     const checkOutIso = cleanCheckOut ? localDateTimeToIso(entry.date, cleanCheckOut) : null;
     if (persistedAttendanceId && persistedAttendanceId.length === 36) {
@@ -5373,7 +5373,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const tempAttId = `ATT-${Date.now()}`;
-    const targetEmpDbId = emp?.id && emp.id.length === 36 ? emp.id : (empId.length === 36 ? empId : undefined);
+    const targetEmpDbId = emp?.id || emp?.employeeId || empId;
     let rejectedMessage = '';
 
     setAttendanceRecords(prev => {
@@ -7808,9 +7808,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Persist payroll batch to central Supabase payroll_records table
     updatedRecords.forEach(rec => {
       const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
-      if (emp?.id && emp.id.length === 36) {
+      const targetEmpId = emp?.id || emp?.employeeId || rec.employeeId;
+      if (targetEmpId) {
         supabaseDirect.insertPayrollRecord({
-          employee_id: emp.id,
+          employee_id: targetEmpId,
           payroll_month: `${batchYear}-${batchMonthPad}-01`,
           basic_salary: rec.basicSalary,
           allowances: rec.allowances,
@@ -8140,7 +8141,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       purchase_cost: assetData.purchaseCost,
       status: assetData.status,
       condition: assetData.condition,
-      assigned_employee_id: assetData.assignedEmployeeId && assetData.assignedEmployeeId.length === 36 ? assetData.assignedEmployeeId : undefined,
+      assigned_employee_id: assetData.assignedEmployeeId || undefined,
       notes: assetData.notes,
     }).then(res => {
       if (res.data?.id) {
@@ -8173,7 +8174,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (assetId.length === 36) {
       const emp = employees.find(e => e.id === employeeId || e.employeeId === employeeId);
-      const empDbId = emp?.id && emp.id.length === 36 ? emp.id : undefined;
+      const empDbId = emp?.id || emp?.employeeId || employeeId;
       supabaseDirect.updateAsset(assetId, {
         assigned_employee_id: empDbId,
         status: 'Assigned',
