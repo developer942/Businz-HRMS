@@ -311,7 +311,7 @@ export const GPSGeofenceSettings: React.FC = () => {
       fetchAddress(foundLat, foundLng);
       setTimeout(() => setLinkExtractMsg(null), 4000);
     } else {
-      setLinkExtractMsg('⚠️ Could not auto-detect coordinates from this link. Please enter Latitude & Longitude directly or click on the map.');
+      setLinkExtractMsg('Could not auto-detect coordinates from this link. Please enter Latitude & Longitude directly or click on the map.');
       setTimeout(() => setLinkExtractMsg(null), 5000);
     }
   };

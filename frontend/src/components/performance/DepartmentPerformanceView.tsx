@@ -780,7 +780,7 @@ export const DepartmentPerformanceView: React.FC<DepartmentPerformanceViewProps>
                             alignItems: 'center',
                             gap: '4px'
                           }}>
-                            <span>⚠️ On PIP</span>
+                            <span>On PIP</span>
                           </span>
                         ) : (
                           <span style={{

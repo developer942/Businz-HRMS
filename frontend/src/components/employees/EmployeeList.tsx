@@ -880,7 +880,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                       borderRadius: 'var(--radius-input)',
                       fontSize: '0.82rem'
                     }}>
-                      ⚠️ This will permanently remove the record from VPS database, attendance logs, and auth credentials.
+                      This will permanently remove the record from VPS database, attendance logs, and auth credentials.
                     </div>
                   </div>
                 )}
@@ -896,7 +896,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                     lineHeight: '1.5'
                   }}>
                     <strong style={{ display: 'block', marginBottom: '6px' }}>
-                      ⚠️ {blockedEmps.length} employee(s) cannot be deleted due to active enterprise dependencies:
+                      {blockedEmps.length} employee(s) cannot be deleted due to active enterprise dependencies:
                     </strong>
                     <ul style={{ margin: '0 0 0 18px', padding: 0, fontSize: '0.82rem' }}>
                       {blockedEmps.map(b => (

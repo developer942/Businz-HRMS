@@ -16,7 +16,8 @@ import {
   Layers,
   Check,
   DollarSign,
-  Home
+  Home,
+  Bell
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { toNum } from '../../utils/numbers';
@@ -756,7 +757,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               alignItems: 'center',
                               gap: '4px'
                             }}>
-                              ⏳ Awaiting HR/CEO review
+                              Awaiting HR/CEO review
                             </span>
                             {isEmployeeRole && (
                               <button
@@ -782,7 +783,11 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                 }}
                                 title="Send reminder notification to HR & CEO"
                               >
-                                {reminderSentSet.has(l.id) ? '✓ Reminder Sent' : '🔔 Remind HR/CEO'}
+                                {reminderSentSet.has(l.id) ? '✓ Reminder Sent' : (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                    <Bell size={11} /> Remind HR/CEO
+                                  </span>
+                                )}
                               </button>
                             )}
                           </div>

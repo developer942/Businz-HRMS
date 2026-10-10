@@ -1986,7 +1986,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
                 {formData.employeeId.trim() && employees.some(e => e.employeeId.toLowerCase() === formData.employeeId.trim().toLowerCase()) && (
                   <div style={{ marginTop: '5px', fontSize: '11px', color: '#EF4444', fontWeight: 600 }}>
-                    ⚠️ Employee ID &quot;{formData.employeeId}&quot; is already in use by another employee!
+                    Employee ID &quot;{formData.employeeId}&quot; is already in use by another employee!
                   </div>
                 )}
               </div>

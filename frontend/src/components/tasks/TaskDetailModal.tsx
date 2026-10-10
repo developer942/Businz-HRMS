@@ -1007,7 +1007,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                       )}
                       {dlr.blockersOrIssues && (
                         <div style={{ fontSize: '0.72rem', color: '#DC2626', marginTop: '6px', paddingTop: '4px', borderTop: '1px dashed #FECACA' }}>
-                          <strong>⚠️ Blocker:</strong> {dlr.blockersOrIssues}
+                          <strong>Blocker:</strong> {dlr.blockersOrIssues}
                         </div>
                       )}
                     </div>

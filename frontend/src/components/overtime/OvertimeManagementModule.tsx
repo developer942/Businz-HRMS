@@ -571,7 +571,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
             </div>
             <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               {pendingCount > 0 ? (
-                <span className="kpi-trend-badge amber">⚠️ Needs Review</span>
+                <span className="kpi-trend-badge amber">Needs Review</span>
               ) : (
                 <span className="kpi-trend-badge green">✓ Queue Clear</span>
               )}
@@ -1465,7 +1465,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                 </div>
                 {approvedHours < reviewingRequest.requestedOtHours && approvedHours > 0 && (
                   <div style={{ fontSize: '0.74rem', color: '#B45309', marginTop: '4px' }}>
-                    ⚠️ Hours adjusted down by {(reviewingRequest.requestedOtHours - approvedHours).toFixed(1)}h (Partially Approved).
+                    Hours adjusted down by {(reviewingRequest.requestedOtHours - approvedHours).toFixed(1)}h (Partially Approved).
                   </div>
                 )}
               </div>

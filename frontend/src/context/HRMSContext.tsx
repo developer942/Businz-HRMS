@@ -2868,7 +2868,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   /** Send reminder notification to HR & CEO when a leave request is pending review */
   const sendLeaveReminder = (leave: LeaveRequest) => {
     pushSharedNotification({
-      title: '⚠️ Leave Approval Reminder',
+      title: 'Leave Approval Reminder',
       message: `Reminder from ${leave.employeeName} (${leave.employeeId}): ${leave.leaveType} application (${leave.startDate} to ${leave.endDate}, ${leave.daysCount} days) is pending HR / CEO review.`,
       priority: 'Urgent',
       category: 'Leave',
@@ -7658,7 +7658,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const totalPending = pendingLeaves.length + pendingShifts.length;
       if (totalPending > 0) {
         addNotification({
-          title: '⚠️ Pending Reviews Reminder',
+          title: 'Pending Reviews Reminder',
           message: `You have ${totalPending} pending request(s) (${pendingLeaves.length} leave, ${pendingShifts.length} shift) waiting for review.`,
           priority: 'Urgent',
           category: 'Leave',
