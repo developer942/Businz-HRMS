@@ -1268,7 +1268,7 @@ export function executeHRMSQuery(
         { id: 3, field: 'Department', value: emp.department },
         { id: 4, field: 'Designation', value: emp.designation },
         { id: 5, field: 'Email Address', value: emp.email },
-        { id: 6, field: 'Phone Number', value: emp.phone || '+91 98765 43210' },
+        { id: 6, field: 'Phone Number', value: emp.phone || '—' },
         { id: 7, field: 'Role', value: (emp as any).role || emp.designation },
         { id: 8, field: 'Employment Status', value: emp.status },
         { id: 9, field: 'Joining Date', value: emp.joiningDate || '2023-01-15' }

@@ -1300,7 +1300,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     firstName: d.firstName || d.first_name || '',
     lastName: d.lastName || d.last_name || '',
     email: d.email || '',
-    phone: d.phone || '+91 98765 43210',
+    phone: d.phone || '',
     dob: d.dob || '1995-01-01',
     gender: (d.gender as any) || 'Male',
     address: d.address || 'Chennai, Tamil Nadu',

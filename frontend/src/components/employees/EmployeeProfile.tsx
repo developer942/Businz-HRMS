@@ -119,6 +119,20 @@ const handleCompanyKeyDown = (e: React.KeyboardEvent) => {
   }
 };
 
+const extractLocalDigits = (raw: string | undefined | null, dialCode: string = '+91'): string => {
+  if (!raw) return '';
+  let str = String(raw).trim();
+  if (str.startsWith('+')) {
+    str = str.replace(/^\+[0-9]{1,4}\s*/, '');
+  }
+  let digits = str.replace(/\D/g, '');
+  const codeDigits = dialCode.replace(/\D/g, '');
+  if (codeDigits && digits.startsWith(codeDigits) && dialCode === '+91' && digits.length === 12) {
+    digits = digits.slice(codeDigits.length);
+  }
+  return digits;
+};
+
 export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({ 
   employee, 
   onClose, 
@@ -253,23 +267,30 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   // Sync internal state if prop employee updates
   useEffect(() => {
     setCurrentEmp(employee);
-    setFormData(getInitialFormData(employee));
-    const d = employee.educationalDetails?.degreeName;
-    setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
 
     // Parse country codes from employee contact data if available
     if (employee.phone?.startsWith('+')) {
       const matched = COUNTRY_CODES.find(c => employee.phone?.startsWith(c.dialCode));
       if (matched) setProfilePhoneCountryCode(matched.dialCode);
+    } else {
+      setProfilePhoneCountryCode('+91');
     }
     if (employee.emergencyContact?.mobile?.startsWith('+')) {
       const matched = COUNTRY_CODES.find(c => employee.emergencyContact?.mobile?.startsWith(c.dialCode));
       if (matched) setProfileEmergencyCountryCode(matched.dialCode);
+    } else {
+      setProfileEmergencyCountryCode('+91');
     }
     if (employee.emergencyContact?.alternateMobile?.startsWith('+')) {
       const matched = COUNTRY_CODES.find(c => employee.emergencyContact?.alternateMobile?.startsWith(c.dialCode));
       if (matched) setProfileAltEmergencyCountryCode(matched.dialCode);
+    } else {
+      setProfileAltEmergencyCountryCode('+91');
     }
+
+    setFormData(getInitialFormData(employee));
+    const d = employee.educationalDetails?.degreeName;
+    setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
   }, [employee]);
 
   // 18+ DOB constraint
@@ -282,6 +303,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   // Form State initialized from employee data
   const getInitialFormData = (emp: Employee) => {
     const isEmpCEO = emp.role === 'CEO' || emp.department === 'CEO' || emp.designation === 'CEO';
+    const initialPhoneCode = emp.phone?.startsWith('+') 
+      ? (COUNTRY_CODES.find(c => emp.phone?.startsWith(c.dialCode))?.dialCode || '+91')
+      : '+91';
+    const initialEmCode = emp.emergencyContact?.mobile?.startsWith('+')
+      ? (COUNTRY_CODES.find(c => emp.emergencyContact?.mobile?.startsWith(c.dialCode))?.dialCode || '+91')
+      : '+91';
+    const initialAltEmCode = emp.emergencyContact?.alternateMobile?.startsWith('+')
+      ? (COUNTRY_CODES.find(c => emp.emergencyContact?.alternateMobile?.startsWith(c.dialCode))?.dialCode || '+91')
+      : '+91';
+
     return {
       // 1. Personal Details
       firstName: emp.firstName || '',
@@ -289,7 +320,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       employeeId: emp.employeeId || emp.id || '',
       gender: (emp.gender || 'Male') as 'Male' | 'Female' | 'Other',
       dob: emp.dob || '1996-05-15',
-      phone: emp.phone || '',
+      phone: extractLocalDigits(emp.phone, initialPhoneCode),
       personalEmail: emp.personalEmail || emp.email || '',
       maritalStatus: (emp.maritalStatus || 'Single') as 'Single' | 'Married' | 'Divorced' | 'Widowed',
       avatar: emp.avatar || '',
@@ -320,8 +351,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       permanentPincode: emp.permanentAddress?.pincode || emp.currentAddress?.pincode || '600001',
       emergencyName: emp.emergencyContact?.name || '',
       emergencyRelationship: emp.emergencyContact?.relationship || 'Parent',
-      emergencyMobile: emp.emergencyContact?.mobile || '',
-      emergencyAltMobile: emp.emergencyContact?.alternateMobile || '',
+      emergencyMobile: extractLocalDigits(emp.emergencyContact?.mobile, initialEmCode),
+      emergencyAltMobile: extractLocalDigits(emp.emergencyContact?.alternateMobile, initialAltEmCode),
 
       // 4. Educational Details
       qualification: normalizeQualification(emp.educationalDetails?.highestQualification || emp.professionalDetails?.qualification),
@@ -817,7 +848,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     }
 
     // Validate Phone
-    const cleanPhone = (formData.phone || '').replace(/\D/g, '');
+    const cleanPhone = extractLocalDigits(formData.phone, profilePhoneCountryCode);
     if (cleanPhone) {
       if (profilePhoneCountryCode === '+91') {
         if (cleanPhone.length !== 10) {
@@ -841,37 +872,37 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     }
 
     // Validate Emergency Numbers
-    if (formData.emergencyMobile) {
-      const emDigits = formData.emergencyMobile.replace(/\D/g, '');
+    const cleanEmergencyMobile = extractLocalDigits(formData.emergencyMobile, profileEmergencyCountryCode);
+    if (cleanEmergencyMobile) {
       if (profileEmergencyCountryCode === '+91') {
-        if (emDigits.length !== 10) {
+        if (cleanEmergencyMobile.length !== 10) {
           alert('Emergency Contact Number must contain exactly 10 digits.');
           return;
         }
-        if (!/^[6-9]\d{9}$/.test(emDigits)) {
+        if (!/^[6-9]\d{9}$/.test(cleanEmergencyMobile)) {
           alert('Emergency Contact Number must contain exactly 10 digits starting with 6, 7, 8, or 9.');
           return;
         }
       } else {
-        if (emDigits.length < 6 || emDigits.length > 15) {
+        if (cleanEmergencyMobile.length < 6 || cleanEmergencyMobile.length > 15) {
           alert('Emergency Contact Number must contain between 6 and 15 digits.');
           return;
         }
       }
     }
-    if (formData.emergencyAltMobile) {
-      const emAltDigits = formData.emergencyAltMobile.replace(/\D/g, '');
+    const cleanEmergencyAltMobile = extractLocalDigits(formData.emergencyAltMobile, profileAltEmergencyCountryCode);
+    if (cleanEmergencyAltMobile) {
       if (profileAltEmergencyCountryCode === '+91') {
-        if (emAltDigits.length !== 10) {
+        if (cleanEmergencyAltMobile.length !== 10) {
           alert('Alternate Emergency Number must contain exactly 10 digits.');
           return;
         }
-        if (!/^[6-9]\d{9}$/.test(emAltDigits)) {
+        if (!/^[6-9]\d{9}$/.test(cleanEmergencyAltMobile)) {
           alert('Alternate Emergency Number must contain exactly 10 digits starting with 6, 7, 8, or 9.');
           return;
         }
       } else {
-        if (emAltDigits.length < 6 || emAltDigits.length > 15) {
+        if (cleanEmergencyAltMobile.length < 6 || cleanEmergencyAltMobile.length > 15) {
           alert('Alternate Emergency Number must contain between 6 and 15 digits.');
           return;
         }
@@ -1031,8 +1062,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       emergencyContact: {
         name: formData.emergencyName,
         relationship: formData.emergencyRelationship,
-        mobile: formData.emergencyMobile ? (profileEmergencyCountryCode === '+91' ? formData.emergencyMobile.replace(/\D/g, '') : `${profileEmergencyCountryCode} ${formData.emergencyMobile.replace(/\D/g, '')}`) : '',
-        alternateMobile: formData.emergencyAltMobile ? (profileAltEmergencyCountryCode === '+91' ? formData.emergencyAltMobile.replace(/\D/g, '') : `${profileAltEmergencyCountryCode} ${formData.emergencyAltMobile.replace(/\D/g, '')}`) : ''
+        mobile: cleanEmergencyMobile ? (profileEmergencyCountryCode === '+91' ? cleanEmergencyMobile : `${profileEmergencyCountryCode} ${cleanEmergencyMobile}`) : '',
+        alternateMobile: cleanEmergencyAltMobile ? (profileAltEmergencyCountryCode === '+91' ? cleanEmergencyAltMobile : `${profileAltEmergencyCountryCode} ${cleanEmergencyAltMobile}`) : ''
       },
 
       educationalDetails: {
@@ -1529,7 +1560,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 inputMode="numeric"
                 autoComplete="tel"
                 maxLength={profilePhoneCountryCode === '+91' ? 10 : 15}
-                value={formData.phone.replace(/^\+[0-9]{1,4}\s*/, '').replace(/\D/g, '').slice(0, profilePhoneCountryCode === '+91' ? 10 : 15)} 
+                value={extractLocalDigits(formData.phone, profilePhoneCountryCode).slice(0, profilePhoneCountryCode === '+91' ? 10 : 15)} 
                 onKeyDown={(e) => {
                   if (
                     !/^[0-9]$/.test(e.key) &&
@@ -1544,12 +1575,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   e.preventDefault();
                   const pasteText = e.clipboardData.getData('text');
                   const limit = profilePhoneCountryCode === '+91' ? 10 : 15;
-                  const sanitized = pasteText.replace(/\D/g, '').slice(0, limit);
+                  const sanitized = extractLocalDigits(pasteText, profilePhoneCountryCode).slice(0, limit);
                   handleChange('phone', sanitized);
                 }}
                 onChange={(e) => {
                   const limit = profilePhoneCountryCode === '+91' ? 10 : 15;
-                  const val = e.target.value.replace(/\D/g, '').slice(0, limit);
+                  const val = extractLocalDigits(e.target.value, profilePhoneCountryCode).slice(0, limit);
                   handleChange('phone', val);
                 }} 
                 style={{
@@ -2123,10 +2154,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 />
                 <input 
                   type="tel" 
-                  value={formData.emergencyMobile.replace(/^\+[0-9]{1,4}\s*/, '')} 
+                  value={extractLocalDigits(formData.emergencyMobile, profileEmergencyCountryCode)} 
                   onChange={(e) => {
                     const limit = profileEmergencyCountryCode === '+91' ? 10 : 15;
-                    const val = e.target.value.replace(/\D/g, '').slice(0, limit);
+                    const val = extractLocalDigits(e.target.value, profileEmergencyCountryCode).slice(0, limit);
                     handleChange('emergencyMobile', val);
                   }} 
                   style={{
@@ -2135,7 +2166,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     borderBottomLeftRadius: 0,
                     flex: 1
                   }} 
-                  placeholder={profileEmergencyCountryCode === '+91' ? "98765 43210" : "Enter emergency number"}
+                  placeholder={profileEmergencyCountryCode === '+91' ? "9876543210" : "Enter emergency number"}
                 />
               </div>
             ) : (
@@ -2153,10 +2184,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 />
                 <input 
                   type="tel" 
-                  value={formData.emergencyAltMobile.replace(/^\+[0-9]{1,4}\s*/, '')} 
+                  value={extractLocalDigits(formData.emergencyAltMobile, profileAltEmergencyCountryCode)} 
                   onChange={(e) => {
                     const limit = profileAltEmergencyCountryCode === '+91' ? 10 : 15;
-                    const val = e.target.value.replace(/\D/g, '').slice(0, limit);
+                    const val = extractLocalDigits(e.target.value, profileAltEmergencyCountryCode).slice(0, limit);
                     handleChange('emergencyAltMobile', val);
                   }} 
                   style={{
@@ -2165,7 +2196,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     borderBottomLeftRadius: 0,
                     flex: 1
                   }} 
-                  placeholder={profileAltEmergencyCountryCode === '+91' ? "98765 43210" : "Enter alternate number"}
+                  placeholder={profileAltEmergencyCountryCode === '+91' ? "9876543210" : "Enter alternate number"}
                 />
               </div>
             ) : (
