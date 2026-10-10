@@ -864,28 +864,37 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               </button>
                             )}
 
-                            {/* 4. View Details button - for Admin/HR */}
+                            {/* 4. View Details button - icon only */}
                             <button
                               type="button"
                               onClick={() => setInspectLeave(l)}
-                              className="btn btn-sm"
+                              title="View Details"
+                              aria-label="View Details"
                               style={{
-                                padding: '5px 10px',
-                                borderRadius: '8px',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '6px',
+                                border: '1px solid #CBD5E1',
                                 backgroundColor: '#F8FAFC',
                                 color: '#0E7490',
-                                border: '1px solid #CBD5E1',
-                                cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '4px',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                padding: 0,
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                transition: 'all 0.15s ease'
                               }}
-                              title="View Calculation & Breakdown Details"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#ECFEFF';
+                                e.currentTarget.style.borderColor = '#0E7490';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#F8FAFC';
+                                e.currentTarget.style.borderColor = '#CBD5E1';
+                              }}
                             >
-                              <Eye size={13} /> View
+                              <Eye size={14} />
                             </button>
                           </div>
                         </td>
