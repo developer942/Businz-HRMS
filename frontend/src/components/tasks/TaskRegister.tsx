@@ -643,10 +643,10 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
           scrollbarWidth: 'none',
           msOverflowStyle: 'none'
         }}>
-          <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="hrms-table" style={{ width: '100%', minWidth: '1050px', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
-                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center', padding: '14px 10px' }}>
+                <th style={{ width: '44px', minWidth: '44px', textAlign: 'center', padding: '14px 10px' }}>
                   <input
                     type="checkbox"
                     checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))}
@@ -656,42 +656,42 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                   />
                 </th>
                 {visibleColumns.taskNumber && (
-                  <th onClick={() => handleSort('taskNumber')} style={{ cursor: 'pointer', whiteSpace: 'nowrap', width: '100px', minWidth: '100px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left' }}>
+                  <th onClick={() => handleSort('taskNumber')} style={{ cursor: 'pointer', whiteSpace: 'nowrap', width: '120px', minWidth: '110px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left' }}>
                     Task No {sortColumn === 'taskNumber' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                   </th>
                 )}
                 {visibleColumns.title && (
-                  <th onClick={() => handleSort('title')} style={{ cursor: 'pointer', minWidth: '220px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left' }}>
+                  <th onClick={() => handleSort('title')} style={{ cursor: 'pointer', width: '22%', minWidth: '200px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left' }}>
                     Task Title {sortColumn === 'title' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                   </th>
                 )}
                 {visibleColumns.assignees && (
-                  <th style={{ width: '100px', minWidth: '100px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <th style={{ width: '10%', minWidth: '100px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     Assigned To
                   </th>
                 )}
                 {visibleColumns.responsible && (
-                  <th style={{ width: '120px', minWidth: '120px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <th style={{ width: '18%', minWidth: '150px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     Responsible
                   </th>
                 )}
                 {visibleColumns.department && (
-                  <th style={{ width: '120px', minWidth: '120px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <th style={{ width: '13%', minWidth: '115px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     Department
                   </th>
                 )}
                 {visibleColumns.dueDate && (
-                  <th onClick={() => handleSort('dueDate')} style={{ cursor: 'pointer', width: '110px', minWidth: '110px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <th onClick={() => handleSort('dueDate')} style={{ cursor: 'pointer', width: '11%', minWidth: '105px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     Due Date {sortColumn === 'dueDate' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                   </th>
                 )}
                 {visibleColumns.priority && (
-                  <th onClick={() => handleSort('priority')} style={{ cursor: 'pointer', width: '90px', minWidth: '90px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <th onClick={() => handleSort('priority')} style={{ cursor: 'pointer', width: '10%', minWidth: '90px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     Priority {sortColumn === 'priority' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                   </th>
                 )}
                 {visibleColumns.overallStatus && (
-                  <th onClick={() => handleSort('overallStatus')} style={{ cursor: 'pointer', width: '150px', minWidth: '150px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <th onClick={() => handleSort('overallStatus')} style={{ cursor: 'pointer', width: '16%', minWidth: '135px', padding: '14px 12px', fontSize: '0.74rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     Status {sortColumn === 'overallStatus' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                   </th>
                 )}
@@ -747,7 +747,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                         onSelectTask(task.id);
                       }}
                     >
-                      <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '12px 10px', width: '40px' }} onClick={(e) => e.stopPropagation()}>
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '12px 10px', width: '44px', minWidth: '44px' }} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -758,7 +758,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       </td>
 
                       {visibleColumns.taskNumber && (
-                        <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle', padding: '12px 12px', textAlign: 'left', minWidth: '100px' }}>
+                        <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle', padding: '12px 12px', textAlign: 'left', width: '120px', minWidth: '110px' }}>
                           <span style={{ 
                             fontWeight: 700, 
                             fontFamily: 'monospace', 
@@ -777,7 +777,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.title && (
-                        <td style={{ verticalAlign: 'middle', padding: '12px 12px', textAlign: 'left', minWidth: '220px' }}>
+                        <td style={{ verticalAlign: 'middle', padding: '12px 12px', textAlign: 'left', width: '22%', minWidth: '200px' }}>
                           <div style={{ fontWeight: 600, fontSize: '0.86rem', color: '#0F172A', marginBottom: '4px', lineHeight: 1.35 }}>
                             {task.title}
                           </div>
@@ -815,7 +815,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.assignees && (
-                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', minWidth: '100px' }}>
+                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', width: '10%', minWidth: '100px' }}>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
                             {task.assignees.slice(0, 3).map((a, idx) => (
                               a.employeeAvatar ? (
@@ -870,7 +870,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                                 fontWeight: 700, 
                                 display: 'flex', 
                                 alignItems: 'center', 
-                                justifyContent: 'center',
+                                justifyContent: 'center', 
                                 marginLeft: '-7px',
                                 border: '2px solid #fff'
                               }}>
@@ -882,7 +882,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.responsible && (
-                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', minWidth: '120px' }}>
+                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', width: '18%', minWidth: '150px' }}>
                           <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1E293B' }}>
                             {task.responsiblePersonName}
                           </span>
@@ -890,7 +890,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.department && (
-                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', minWidth: '120px' }}>
+                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', width: '13%', minWidth: '115px' }}>
                           <span style={{ fontSize: '0.82rem', color: '#475569', fontWeight: 500 }}>
                             {task.department}
                           </span>
@@ -898,7 +898,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.dueDate && (
-                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', minWidth: '110px' }}>
+                        <td style={{ verticalAlign: 'middle', whiteSpace: 'nowrap', padding: '12px 12px', textAlign: 'left', width: '11%', minWidth: '105px' }}>
                           <span style={{ 
                             fontSize: '0.82rem', 
                             fontVariantNumeric: 'tabular-nums',
@@ -916,7 +916,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.priority && (
-                        <td style={{ verticalAlign: 'middle', textAlign: 'left', whiteSpace: 'nowrap', padding: '12px 12px', minWidth: '90px' }}>
+                        <td style={{ verticalAlign: 'middle', textAlign: 'left', whiteSpace: 'nowrap', padding: '12px 12px', width: '10%', minWidth: '90px' }}>
                           <span style={{ 
                             fontSize: '0.72rem', 
                             fontWeight: 700,
@@ -943,7 +943,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                       )}
 
                       {visibleColumns.overallStatus && (
-                        <td style={{ verticalAlign: 'middle', textAlign: 'left', whiteSpace: 'nowrap', padding: '12px 12px', minWidth: '150px' }}>
+                        <td style={{ verticalAlign: 'middle', textAlign: 'left', whiteSpace: 'nowrap', padding: '12px 12px', width: '16%', minWidth: '135px' }}>
                           <span style={{ 
                             fontSize: '0.7rem', 
                             fontWeight: 600, 
