@@ -2,6 +2,8 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { CredentialEmailStatus } from '../types/auth.js';
+import { decryptCredential } from '../utils/crypto.js';
+import { settingsRepository } from '../repositories/settingsRepository.js';
 
 export interface CredentialEmailPayload {
   to: string;
@@ -55,6 +57,125 @@ export function getMailTransporter(): Transporter | null {
     }
   }
   return mailTransporter;
+}
+
+export interface SmtpTransporterDetails {
+  transporter: Transporter;
+  senderEmail: string;
+  senderName: string;
+  host: string;
+  port: number;
+}
+
+/**
+ * Resolves company-specific verified SMTP configuration from database, with fallback to .env
+ */
+export async function getCompanySmtpTransporter(companyId?: string): Promise<SmtpTransporterDetails | null> {
+  try {
+    const config = await settingsRepository.getCompanySmtpConfig(companyId);
+    if (config && config.senderEmail && config.appPasswordEncrypted) {
+      const decryptedPass = decryptCredential(config.appPasswordEncrypted);
+      if (decryptedPass) {
+        const port = Number(config.smtpPort) || (config.smtpHost.includes('gmail') ? 587 : 465);
+        const secure = config.secure ?? (port === 465);
+        const transporter = nodemailer.createTransport({
+          host: config.smtpHost || 'smtp.gmail.com',
+          port,
+          secure,
+          auth: {
+            user: config.senderEmail,
+            pass: decryptedPass,
+          },
+          requireTLS: port === 587 || !secure,
+          tls: {
+            rejectUnauthorized: false
+          }
+        });
+        return {
+          transporter,
+          senderEmail: config.senderEmail,
+          senderName: config.senderName || 'Businz HRMS',
+          host: config.smtpHost,
+          port
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[SMTP CONFIG] Could not load company SMTP config for ${companyId}: ${err.message}`);
+  }
+
+  // Fallback to environment variables
+  const fallbackTransporter = getMailTransporter();
+  if (fallbackTransporter) {
+    return {
+      transporter: fallbackTransporter,
+      senderEmail: process.env.SMTP_USER || 'developer@businz.com',
+      senderName: 'Businz HRMS',
+      host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+      port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 465
+    };
+  }
+  return null;
+}
+
+/**
+ * Executes a real live SMTP verification handshake (e.g. against Google Workspace smtp.gmail.com:587)
+ */
+export async function verifySmtpConnection(params: {
+  companyId?: string;
+  smtpHost?: string;
+  smtpPort?: number | string;
+  secure?: boolean;
+  senderEmail: string;
+  appPassword?: string;
+}): Promise<{ success: boolean; message: string }> {
+  let saved: any = null;
+  if (params.companyId) {
+    saved = await settingsRepository.getCompanySmtpConfig(params.companyId);
+  }
+
+  let pass = (params.appPassword || '').replace(/\s+/g, '').trim();
+  if (!pass && saved?.appPasswordEncrypted) {
+    pass = decryptCredential(saved.appPasswordEncrypted);
+  }
+
+  if (!pass) {
+    throw new Error('Google Account App Password (16 digits) is required for SMTP verification.');
+  }
+
+  const senderEmail = (params.senderEmail || saved?.senderEmail || 'developer@businz.com').trim();
+  const cleanHost = (params.smtpHost || saved?.smtpHost || '').trim() || (senderEmail.includes('gmail') || senderEmail.includes('businz') ? 'smtp.gmail.com' : 'smtp.gmail.com');
+  const cleanPort = Number(params.smtpPort || saved?.smtpPort) || (cleanHost.includes('gmail') ? 587 : 465);
+  const secure = params.secure !== undefined ? Boolean(params.secure) : (saved?.secure !== undefined ? Boolean(saved.secure) : cleanPort === 465);
+
+  const transporter = nodemailer.createTransport({
+    host: cleanHost,
+    port: cleanPort,
+    secure,
+    auth: {
+      user: senderEmail,
+      pass,
+    },
+    requireTLS: cleanPort === 587 || !secure,
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
+
+  try {
+    await transporter.verify();
+    return {
+      success: true,
+      message: `Connection successful! Authenticated with ${cleanHost}:${cleanPort} for ${senderEmail}.`
+    };
+  } catch (err: any) {
+    // Sanitize any password leakage from error message
+    let safeMessage = err.message || 'SMTP Authentication failed';
+    if (pass && safeMessage.includes(pass)) {
+      safeMessage = safeMessage.replace(pass, '••••••••');
+    }
+    throw new Error(safeMessage);
+  }
 }
 
 /**
@@ -231,6 +352,11 @@ export interface OfferLetterEmailPayload {
   subject: string;
   letterBody: string;
   companyName?: string;
+  companyId?: string;
+  pdfAttachment?: {
+    filename: string;
+    base64: string;
+  };
 }
 
 /**
@@ -342,15 +468,25 @@ export async function sendOfferLetterEmail(payload: OfferLetterEmailPayload): Pr
     };
   }
 
-  const transporter = getMailTransporter();
-  const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
-  if (!transporter) {
+  // 1. Resolve company-specific SMTP transporter with fallback
+  const smtpDetails = await getCompanySmtpTransporter(payload.companyId);
+  if (!smtpDetails) {
     return {
       status: 'FAILED',
       sentAt,
-      error: 'SMTP transporter is not configured',
+      error: 'SMTP transporter is not configured. Please configure your email in Settings → Integrations.',
     };
   }
+
+  const { transporter, senderEmail, senderName } = smtpDetails;
+  const mailFrom = `"${payload.companyName || senderName || 'Businz HRMS'}" <${senderEmail}>`;
+
+  // 2. Prepare PDF attachment if present
+  const attachments = payload.pdfAttachment && payload.pdfAttachment.base64 ? [{
+    filename: payload.pdfAttachment.filename || `Offer_Letter_${(payload.candidateName || 'Candidate').replace(/\s+/g, '_')}.pdf`,
+    content: Buffer.from(payload.pdfAttachment.base64, 'base64'),
+    contentType: 'application/pdf'
+  }] : [];
 
   const safeBody = payload.letterBody || '';
   const htmlBody = safeBody
@@ -368,15 +504,21 @@ export async function sendOfferLetterEmail(payload: OfferLetterEmailPayload): Pr
       html: `
         <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 680px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; color: #1e293b;">
           <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 14px; margin-bottom: 18px;">
-            <h2 style="color: #0E7490; margin: 0; font-size: 22px;">${payload.companyName || 'Businz HRMS'}</h2>
+            <h2 style="color: #0E7490; margin: 0; font-size: 22px;">${payload.companyName || senderName || 'Businz HRMS'}</h2>
             <p style="color: #64748B; font-size: 13px; margin: 4px 0 0;">Official Offer Letter</p>
           </div>
           <div style="font-size: 14px; line-height: 1.7;">${htmlBody}</div>
+          ${attachments.length > 0 ? `
+            <div style="margin-top: 18px; padding: 12px 16px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; font-size: 13px; color: #166534;">
+              📎 <strong>Attached:</strong> ${attachments[0].filename} (Official Employment Offer Document)
+            </div>
+          ` : ''}
           <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 22px; font-size: 12px; color: #64748B;">
             This offer letter was sent from Businz Enterprise HRMS.
           </div>
         </div>
       `,
+      attachments,
     });
 
     const successRecord: OutboundEmailRecord = {
@@ -388,10 +530,14 @@ export async function sendOfferLetterEmail(payload: OfferLetterEmailPayload): Pr
       sentAt,
     };
     outboundEmailLog.push(successRecord);
-    console.log(`[SMTP OFFER SUCCESS] Offer letter sent to ${payload.to} via SMTP`);
+    console.log(`[SMTP OFFER SUCCESS] Offer letter sent to ${payload.to} via SMTP (${senderEmail}) with ${attachments.length} attachment(s)`);
 
     return { status: 'SENT', sentAt };
   } catch (err: any) {
+    const sanitizedError = (err.message || 'SMTP dispatch failed')
+      .replace(/Bunizzz@1234/g, '••••••••')
+      .replace(/xdarqfxcbkkjgnja/g, '••••••••');
+
     const failedRecord: OutboundEmailRecord = {
       id: `mail-offer-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       to: payload.to,
@@ -399,15 +545,15 @@ export async function sendOfferLetterEmail(payload: OfferLetterEmailPayload): Pr
       employeeCode: payload.employeeCode || 'OFFER',
       status: 'FAILED',
       sentAt,
-      error: err.message,
+      error: sanitizedError,
     };
     outboundEmailLog.push(failedRecord);
-    console.warn(`[SMTP OFFER FAILED] Could not send offer letter to ${payload.to}: ${err.message}`);
+    console.warn(`[SMTP OFFER FAILED] Could not send offer letter to ${payload.to}: ${sanitizedError}`);
 
     return {
       status: 'FAILED',
       sentAt,
-      error: err.message,
+      error: sanitizedError,
     };
   }
 }

@@ -16,6 +16,11 @@ const sendOfferLetterSchema = z.object({
   subject: z.string().trim().min(1),
   letterBody: z.string().trim().min(1),
   companyName: z.string().trim().optional(),
+  companyId: z.string().trim().optional(),
+  pdfAttachment: z.object({
+    filename: z.string().trim().min(1),
+    base64: z.string().min(1),
+  }).optional(),
 });
 
 export const getEmployees = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -322,8 +327,12 @@ export const sendEmployeeOfferLetter = async (req: Request, res: Response, next:
   try {
     const validated = sendOfferLetterSchema.parse(req.body);
     const performer = req.user?.email || 'HR Department';
+    const companyId = req.user?.company_id || validated.companyId || (req.headers['x-company-id'] as string) || 'company-a';
 
-    const result = await sendOfferLetterEmail(validated);
+    const result = await sendOfferLetterEmail({
+      ...validated,
+      companyId,
+    });
 
     await auditRepository.recordLog(
       'CREDENTIAL_EMAIL_SENT',

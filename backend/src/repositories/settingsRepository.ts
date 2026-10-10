@@ -1,6 +1,20 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
 import { PayrollSettingsModel } from '../types/payroll.js';
 import { memoryCache } from '../services/cacheService.js';
+import { encryptCredential, decryptCredential } from '../utils/crypto.js';
+
+export interface CompanySmtpConfig {
+  companyId: string;
+  smtpHost: string;
+  smtpPort: number;
+  secure: boolean;
+  senderEmail: string;
+  senderName?: string;
+  appPasswordEncrypted: string;
+  updatedAt?: string;
+}
+
+const inMemorySmtpConfigs: Record<string, CompanySmtpConfig> = {};
 
 const SETTINGS_CACHE_KEY = 'payroll_settings_global';
 const SETTINGS_TTL_MS = 60000; // 60 seconds
@@ -353,6 +367,112 @@ export class SettingsRepository {
     }
 
     return updates;
+  }
+
+  async getCompanySmtpConfig(companyId?: string): Promise<CompanySmtpConfig | null> {
+    const isCompanyB = companyId === 'company-b' || companyId?.toLowerCase()?.includes('nexus');
+    const cId = isCompanyB ? 'company-b' : 'company-a';
+    const settingKey = isCompanyB ? 'smtp_config_company-b' : 'smtp_config_company-a';
+
+    if (isRealSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase
+          .from('company_settings')
+          .select('setting_val')
+          .eq('setting_key', settingKey)
+          .maybeSingle();
+
+        if (data?.setting_val && typeof data.setting_val === 'object') {
+          const val = data.setting_val as any;
+          const config: CompanySmtpConfig = {
+            companyId: cId,
+            smtpHost: val.smtpHost || (val.senderEmail?.includes('@gmail.com') || val.senderEmail?.includes('businz.com') ? 'smtp.gmail.com' : 'smtp.gmail.com'),
+            smtpPort: Number(val.smtpPort) || 587,
+            secure: val.secure ?? (Number(val.smtpPort) === 465),
+            senderEmail: val.senderEmail || '',
+            senderName: val.senderName || '',
+            appPasswordEncrypted: val.appPasswordEncrypted || '',
+            updatedAt: val.updatedAt || new Date().toISOString(),
+          };
+          inMemorySmtpConfigs[cId] = config;
+          return config;
+        }
+      } catch (err) {
+        console.warn('Database error in getCompanySmtpConfig:', err);
+      }
+    }
+
+    return inMemorySmtpConfigs[cId] || null;
+  }
+
+  async saveCompanySmtpConfig(
+    companyId: string | undefined,
+    updates: {
+      smtpHost?: string;
+      smtpPort?: number | string;
+      secure?: boolean;
+      senderEmail: string;
+      senderName?: string;
+      appPassword?: string;
+    }
+  ): Promise<CompanySmtpConfig> {
+    const isCompanyB = companyId === 'company-b' || companyId?.toLowerCase()?.includes('nexus');
+    const cId = isCompanyB ? 'company-b' : 'company-a';
+    const settingKey = isCompanyB ? 'smtp_config_company-b' : 'smtp_config_company-a';
+
+    const existing = await this.getCompanySmtpConfig(cId);
+
+    const cleanHost = (updates.smtpHost || '').trim() || (updates.senderEmail?.includes('gmail') || updates.senderEmail?.includes('businz') ? 'smtp.gmail.com' : 'smtp.gmail.com');
+    const cleanPort = Number(updates.smtpPort) || (cleanHost.includes('gmail') ? 587 : 465);
+    const isSecure = updates.secure !== undefined ? Boolean(updates.secure) : cleanPort === 465;
+    const cleanEmail = (updates.senderEmail || '').trim();
+
+    let encryptedPassword = existing?.appPasswordEncrypted || '';
+    if (updates.appPassword && updates.appPassword.trim()) {
+      // Strip any spaces from Google App Password
+      const normalizedPassword = updates.appPassword.replace(/\s+/g, '').trim();
+      encryptedPassword = encryptCredential(normalizedPassword);
+    }
+
+    const newConfig: CompanySmtpConfig = {
+      companyId: cId,
+      smtpHost: cleanHost,
+      smtpPort: cleanPort,
+      secure: isSecure,
+      senderEmail: cleanEmail,
+      senderName: updates.senderName || (isCompanyB ? 'Nexus Industrial Solutions' : 'Businz HRMS'),
+      appPasswordEncrypted: encryptedPassword,
+      updatedAt: new Date().toISOString(),
+    };
+
+    inMemorySmtpConfigs[cId] = newConfig;
+
+    if (isRealSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseAdmin();
+        const { data: dbExisting } = await supabase
+          .from('company_settings')
+          .select('id')
+          .eq('setting_key', settingKey)
+          .maybeSingle();
+
+        if (dbExisting?.id) {
+          await supabase
+            .from('company_settings')
+            .update({ setting_val: newConfig, updated_at: new Date().toISOString() })
+            .eq('id', dbExisting.id);
+        } else {
+          await supabase
+            .from('company_settings')
+            .insert({ setting_key: settingKey, setting_val: newConfig });
+        }
+      } catch (err) {
+        console.warn('Could not save company SMTP config to Supabase:', err);
+      }
+    }
+
+    return newConfig;
   }
 }
 

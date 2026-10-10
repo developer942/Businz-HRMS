@@ -24,6 +24,7 @@ import {
   X, 
   Check
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 import {
   getStoredGeminiApiKey,
   setStoredGeminiApiKey,
@@ -160,11 +161,11 @@ export const IntegrationsSettings: React.FC = () => {
           }
         }
         if (parsed.google_workspace) {
-          if (parsed.google_workspace.smtpHost === 'smtp.gmail.com') {
-            parsed.google_workspace.smtpHost = '';
+          if (!parsed.google_workspace.smtpHost) {
+            parsed.google_workspace.smtpHost = 'smtp.gmail.com';
           }
-          if (parsed.google_workspace.smtpPort === 587 || parsed.google_workspace.smtpPort === '587') {
-            parsed.google_workspace.smtpPort = '';
+          if (!parsed.google_workspace.smtpPort) {
+            parsed.google_workspace.smtpPort = '587';
           }
         }
         if (parsed.biometrics) {
@@ -201,8 +202,8 @@ export const IntegrationsSettings: React.FC = () => {
         temperature: 0.7
       },
       google_workspace: {
-        smtpHost: '',
-        smtpPort: '',
+        smtpHost: 'smtp.gmail.com',
+        smtpPort: '587',
         senderEmail: '',
         appPassword: '',
         syncGoogleCalendar: false
@@ -484,14 +485,14 @@ export const IntegrationsSettings: React.FC = () => {
           label: 'SMTP Relay Server Host',
           type: 'text',
           placeholder: 'e.g. smtp.gmail.com',
-          defaultValue: ''
+          defaultValue: 'smtp.gmail.com'
         },
         {
           key: 'smtpPort',
           label: 'SMTP Port',
           type: 'text',
           placeholder: 'e.g. 587',
-          defaultValue: ''
+          defaultValue: '587'
         },
         {
           key: 'senderEmail',
@@ -659,6 +660,42 @@ export const IntegrationsSettings: React.FC = () => {
       });
       setGeminiKey(currentStoredKey);
     }
+    if (item.id === 'google_workspace') {
+      setIntegrationFormValues(prev => {
+        const gw = prev.google_workspace || {};
+        return {
+          ...prev,
+          google_workspace: {
+            ...gw,
+            smtpHost: gw.smtpHost || 'smtp.gmail.com',
+            smtpPort: gw.smtpPort || '587',
+            senderEmail: gw.senderEmail || '',
+            appPassword: gw.appPassword || '',
+          }
+        };
+      });
+
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      fetch(`${API_BASE_URL}/settings/smtp/config`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (res?.success && res.data) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              google_workspace: {
+                ...prev.google_workspace,
+                smtpHost: res.data.smtpHost || prev.google_workspace?.smtpHost || 'smtp.gmail.com',
+                smtpPort: res.data.smtpPort || prev.google_workspace?.smtpPort || '587',
+                senderEmail: res.data.senderEmail || prev.google_workspace?.senderEmail || '',
+                appPassword: prev.google_workspace?.appPassword || '',
+              }
+            }));
+          }
+        })
+        .catch(() => {});
+    }
     setActiveModalIntegration(item);
     setTestResult(null);
     setIsTestingConnection(false);
@@ -674,6 +711,44 @@ export const IntegrationsSettings: React.FC = () => {
       ...integrationFormValues
     };
     localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updatedAllValues));
+
+    // If Google Workspace, sync to backend and encrypt in DB
+    if (id === 'google_workspace') {
+      const gVals = integrationFormValues['google_workspace'] || {};
+      const host = (gVals.smtpHost || '').trim() || 'smtp.gmail.com';
+      const port = Number(gVals.smtpPort) || 587;
+      updatedAllValues['google_workspace'] = {
+        ...gVals,
+        smtpHost: host,
+        smtpPort: String(port)
+      };
+      setIntegrationFormValues(prev => ({
+        ...prev,
+        google_workspace: {
+          ...prev.google_workspace,
+          smtpHost: host,
+          smtpPort: String(port)
+        }
+      }));
+      localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updatedAllValues));
+
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      fetch(`${API_BASE_URL}/settings/smtp/config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          smtpHost: host,
+          smtpPort: port,
+          senderEmail: (gVals.senderEmail || '').trim(),
+          appPassword: (gVals.appPassword || '').trim(),
+        })
+      }).catch(err => {
+        console.error('Failed to sync SMTP config to backend:', err);
+      });
+    }
 
     // If Gemini, sync to Gemini API service and backend
     if (id === 'gemini_ai') {
@@ -826,35 +901,83 @@ export const IntegrationsSettings: React.FC = () => {
     // 2. Google Workspace SMTP Verification
     if (activeModalIntegration.id === 'google_workspace') {
       const gVals = integrationFormValues['google_workspace'] || {};
-      const host = (gVals.smtpHost || '').trim();
+      const host = (gVals.smtpHost || '').trim() || 'smtp.gmail.com';
       const email = (gVals.senderEmail || '').trim();
       const pass = (gVals.appPassword || '').trim();
-      if (!host || !email || !pass) {
+      const port = Number(gVals.smtpPort) || 587;
+
+      if (!email) {
         setIsTestingConnection(false);
         setTestResult({
           success: false,
-          message: 'Please provide SMTP Relay Host, Corporate Sender Email, and 16-digit App Password before testing connection.'
+          message: 'Please provide Corporate Sender Email Address before testing connection.'
         });
         return;
       }
-      setTimeout(() => {
+
+      try {
+        const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token');
+        const res = await fetch(`${API_BASE_URL}/settings/smtp/test-connection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            smtpHost: host,
+            smtpPort: port,
+            senderEmail: email,
+            appPassword: pass,
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error?.message || 'SMTP Authentication failed');
+        }
+
         setIsTestingConnection(false);
         const nextStatuses = { ...connectionStatuses, google_workspace: 'connected' as const };
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
+
+        // Auto-save to backend upon successful handshake
+        if (token && pass) {
+          fetch(`${API_BASE_URL}/settings/smtp/config`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              smtpHost: host,
+              smtpPort: port,
+              senderEmail: email,
+              appPassword: pass,
+            })
+          }).catch(() => {});
+        }
+
         recordAuditLog(
           'Google Workspace / Gmail SMTP',
           '#EA4335',
           'SMTP Handshake Verified',
-          `Authenticated with ${host} for sender ${email}. Email dispatch relay active.`,
+          data.message || `Authenticated with ${host}:${port} for sender ${email}. Email dispatch relay active.`,
           'Active (200 OK)'
         );
         setTestResult({
           success: true,
-          message: 'Connection successful! SMTP relay verified and Google Workspace connected.'
+          message: data.message || 'Connection successful! SMTP relay verified and Google Workspace connected.'
         });
-      }, 1000);
-      return;
+        return;
+      } catch (err: any) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: err.message || 'SMTP Authentication failed. Please verify your host, port, email, and 16-digit Google App Password.'
+        });
+        return;
+      }
     }
 
     // 3. Biometric Terminal Gateway Verification
@@ -1634,6 +1757,44 @@ export const IntegrationsSettings: React.FC = () => {
                         <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
                           {field.label}
                         </label>
+                        {activeModalIntegration.id === 'google_workspace' && field.key === 'smtpHost' && (
+                          <button
+                            type="button"
+                            onClick={() => handleFieldChange('google_workspace', 'smtpHost', 'smtp.gmail.com')}
+                            style={{
+                              fontSize: '0.72rem',
+                              color: '#0E7490',
+                              background: '#ECFEFF',
+                              border: '1px solid #CFFAFE',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontWeight: 650
+                            }}
+                            title="Auto-fill default Google SMTP host"
+                          >
+                            Use smtp.gmail.com
+                          </button>
+                        )}
+                        {activeModalIntegration.id === 'google_workspace' && field.key === 'smtpPort' && (
+                          <button
+                            type="button"
+                            onClick={() => handleFieldChange('google_workspace', 'smtpPort', '587')}
+                            style={{
+                              fontSize: '0.72rem',
+                              color: '#0E7490',
+                              background: '#ECFEFF',
+                              border: '1px solid #CFFAFE',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontWeight: 650
+                            }}
+                            title="Auto-fill default TLS port"
+                          >
+                            Use 587
+                          </button>
+                        )}
                       </div>
 
                       {field.type === 'select' ? (
@@ -1802,10 +1963,37 @@ export const IntegrationsSettings: React.FC = () => {
                     type="button"
                     onClick={() => {
                       if (activeModalIntegration) {
-                        setIntegrationFormValues(prev => ({
-                          ...prev,
-                          [activeModalIntegration.id]: {}
-                        }));
+                        if (activeModalIntegration.id === 'google_workspace') {
+                          setIntegrationFormValues(prev => ({
+                            ...prev,
+                            google_workspace: {
+                              smtpHost: 'smtp.gmail.com',
+                              smtpPort: '587',
+                              senderEmail: '',
+                              appPassword: '',
+                              syncGoogleCalendar: false
+                            }
+                          }));
+                          try {
+                            const saved = localStorage.getItem('vrm_enterprise_integrations_v6');
+                            if (saved) {
+                              const parsed = JSON.parse(saved);
+                              parsed.google_workspace = {
+                                smtpHost: 'smtp.gmail.com',
+                                smtpPort: '587',
+                                senderEmail: '',
+                                appPassword: '',
+                                syncGoogleCalendar: false
+                              };
+                              localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(parsed));
+                            }
+                          } catch (e) {}
+                        } else {
+                          setIntegrationFormValues(prev => ({
+                            ...prev,
+                            [activeModalIntegration.id]: {}
+                          }));
+                        }
                         if (activeModalIntegration.id === 'gemini_ai') {
                           setStoredGeminiApiKey('');
                           setGeminiKey('');

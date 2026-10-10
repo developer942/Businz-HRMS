@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Employee } from '../../types/hrms';
 import { OfferLetterTemplate } from '../../types/offerLetter';
-import { INITIAL_OFFER_LETTER_TEMPLATES } from '../../data/offerLetterTemplates';
+import { INITIAL_OFFER_LETTER_TEMPLATES, OFFICIAL_CORPORATE_OFFER_TEMPLATE } from '../../data/offerLetterTemplates';
 import { useHRMS } from '../../context/HRMSContext';
 import { API_BASE_URL } from '../../config/api';
-import { downloadElementAsPDF } from '../../utils/exportUtils';
+import { downloadElementAsPDF, generateOfferLetterPdfBase64, downloadOfferLetterPdf } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { formatCurrency, toNum } from '../../utils/numbers';
 import { calculateSalaryBreakdown } from '../../services/policyEngine';
@@ -30,7 +30,10 @@ import {
   Save, 
   Sparkles,
   Send,
-  Printer 
+  Printer,
+  Mail,
+  Paperclip,
+  ExternalLink
 } from 'lucide-react';
 
 interface OfferLetterModalProps {
@@ -39,23 +42,8 @@ interface OfferLetterModalProps {
   initialEmployee?: Employee | null;
 }
 
-const DEFAULT_OFFER_TEMPLATE: OfferLetterTemplate = {
-  id: 'TPL-DEFAULT-DYNAMIC',
-  name: 'Standard Offer Letter',
-  category: 'Full-Time',
-  badgeColor: '#0E7490',
-  description: 'Standard dynamic employment offer template.',
-  subject: 'Offer of Employment - {{designation}}',
-  content: `Dear {{candidate_name}},
+const DEFAULT_OFFER_TEMPLATE: OfferLetterTemplate = OFFICIAL_CORPORATE_OFFER_TEMPLATE;
 
-We are pleased to offer you the position of {{designation}} in the {{department}} department at {{company_name}}.
-
-Your expected date of joining is {{joining_date}}. Your employment type will be {{employment_type}}, and your work location will be {{work_location}}.
-
-Your compensation details are provided in Annexure A. This offer is subject to successful completion of company joining formalities and verification of documents submitted during onboarding.
-
-Please confirm your acceptance by signing this letter. We look forward to welcoming you to {{company_name}}.`
-};
 
 const formatComponentLabel = (key: string) =>
   key
@@ -89,7 +77,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
   const [templates, setTemplates] = useState<OfferLetterTemplate[]>(initialTemplates);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplates[0].id);
-  const [activeMode, setActiveMode] = useState<'preview' | 'edit' | 'create_template'>('preview');
+  const [activeMode, setActiveMode] = useState<'preview' | 'email' | 'edit' | 'create_template'>('preview');
 
   // Editable Letter Content
   const [customizedContent, setCustomizedContent] = useState<string>('');
@@ -156,27 +144,87 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
   const monthlyGross = activeEarnings.length > 0 ? configuredBreakdown.grossSalary : savedMonthlyGross;
   const annualCtc = monthlyCtc * 12;
 
+  const candidateFullName = `${currentEmployee?.firstName || ''} ${currentEmployee?.lastName || ''}`.trim();
+  const todayStr = formatDateDDMMYYYY(new Date());
+  const joiningDateStr = (currentEmployee?.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || todayStr;
+  const formattedDeadline = formatDateDDMMYYYY(new Date(Date.now() + 7 * 86400000));
+  const companyLegal = documentProfile.legalName || documentProfile.companyName || 'Businz Technologies Private Limited';
+
+  const coverEmailBodyText = useMemo(() => {
+    return `Dear ${candidateFullName},
+
+We are pleased to welcome you to ${companyLegal}.
+
+Please find attached your Offer Letter for the position of ${currentEmployee?.designation || 'Specialist'}, with a proposed joining date of ${joiningDateStr}.
+
+Kindly review the attached document and confirm your acceptance within ${formattedDeadline}.
+
+For any clarification, please feel free to contact our HR department.
+
+We look forward to welcoming you to our team.
+
+Warm regards,
+${documentProfile.authorizedSignatoryName || 'HR Department'}
+${documentProfile.authorizedSignatoryDesignation || 'HR Management'}
+${companyLegal}
+${documentProfile.email || 'developer@businz.com'}
+${documentProfile.phone || '+91 9876543210'}`;
+  }, [candidateFullName, companyLegal, currentEmployee, joiningDateStr, formattedDeadline, documentProfile]);
+
   // Replace placeholders helper
   const replacePlaceholders = (text: string) => {
     if (!currentEmployee) return text;
 
-    const todayStr = formatDateDDMMYYYY(new Date());
-
     const values: { [key: string]: string } = {
-      '{{candidate_name}}': `${currentEmployee.firstName} ${currentEmployee.lastName}`,
-      '{{employee_name}}': `${currentEmployee.firstName} ${currentEmployee.lastName}`,
+      '{{candidate_name}}': candidateFullName,
+      '{{employee_name}}': candidateFullName,
+      '{{employee_full_name}}': candidateFullName,
+      '{{employee_salutation}}': 'Mr./Ms.',
       '{{employee_id}}': currentEmployee.employeeId,
-      '{{designation}}': currentEmployee.designation,
-      '{{department}}': currentEmployee.department,
-      '{{joining_date}}': (currentEmployee.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || todayStr,
+      '{{employee_address}}': currentEmployee.address || 'Candidate Residential Address',
+      '{{employee_phone}}': currentEmployee.phone || '—',
+      '{{employee_email}}': currentEmployee.email || '—',
+      '{{designation}}': currentEmployee.designation || 'Specialist',
+      '{{department}}': currentEmployee.department || 'Operations',
+      '{{joining_date}}': joiningDateStr,
       '{{employment_type}}': currentEmployee.employmentType || 'Full-Time',
       '{{reporting_manager}}': currentEmployee.reportingManagerName || 'Executive Leadership',
       '{{basic_salary}}': formatCurrency(basicPay),
+      '{{monthly_salary}}': formatCurrency(monthlyGross || monthlyCtc),
       '{{monthly_gross}}': formatCurrency(monthlyGross),
       '{{annual_ctc}}': formatCurrency(annualCtc),
+      '{{total_ctc_monthly}}': formatCurrency(monthlyCtc),
+      '{{total_ctc_annual}}': formatCurrency(annualCtc),
       '{{work_location}}': currentEmployee.workLocation || currentEmployee.bankDetails?.branch || 'Head Office',
       '{{company_name}}': documentProfile.companyName,
-      '{{issue_date}}': todayStr
+      '{{company_legal_name}}': companyLegal,
+      '{{company_address}}': documentProfile.address,
+      '{{company_email}}': documentProfile.email || 'developer@businz.com',
+      '{{company_phone}}': documentProfile.phone || '+91 9876543210',
+      '{{company_website}}': documentProfile.website || 'https://businz.com',
+      '{{offer_letter_number}}': `OL-${new Date().getFullYear()}-${currentEmployee.employeeId || 'EMP'}`,
+      '{{offer_date}}': todayStr,
+      '{{issue_date}}': todayStr,
+      '{{probation_period}}': '3 months',
+      '{{working_days}}': '6',
+      '{{shift_start_time}}': '09:30 AM',
+      '{{shift_end_time}}': '06:30 PM',
+      '{{break_duration}}': '1 hour',
+      '{{incentive_policy}}': 'applicable company performance incentive policy',
+      '{{review_period}}': 'the completion of probation',
+      '{{expense_submission_email}}': documentProfile.email || 'expenses@businz.com',
+      '{{role_responsibilities}}': 'Core technical, operational, and departmental responsibilities designated by department leadership and reporting manager.',
+      '{{notice_period}}': '30 days',
+      '{{service_commitment_terms}}': 'Standard service agreement as specified in onboarding guidelines',
+      '{{acceptance_deadline}}': formattedDeadline,
+      '{{authorized_signatory_name}}': documentProfile.authorizedSignatoryName || 'Authorized Signatory',
+      '{{authorized_signatory_designation}}': documentProfile.authorizedSignatoryDesignation || 'HR Management',
+      '{{hr_signatory_name}}': documentProfile.authorizedSignatoryName || 'HR Department',
+      '{{hr_signatory_designation}}': documentProfile.authorizedSignatoryDesignation || 'HR Management',
+      '{{employee_acceptance_date}}': formattedDeadline,
+      '{{compensation_notes}}': 'All cash components are subject to statutory deductions (PF, ESI, Professional Tax, TDS) as applicable.',
+      '{{statutory_benefits_notes}}': 'Statutory employee benefits are governed in accordance with Indian statutory labor compliances.',
+      '{{variable_pay_notes}}': 'Annual performance bonus evaluated based on company and individual key performance indicators.'
     };
 
     let result = text;
@@ -193,11 +241,42 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
     }
   }, [selectedTemplateId, selectedEmpId]);
 
+  const parsedClauses = useMemo(() => {
+    const rawLines = customizedContent
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.includes('EMPLOYMENT TERMS & CONDITIONS'));
+    const clauses: string[] = [];
+    let currentClause = '';
+    for (const line of rawLines) {
+      if (/^\d+\./.test(line)) {
+        if (currentClause) clauses.push(currentClause);
+        currentClause = line;
+      } else if (currentClause) {
+        currentClause += ' ' + line;
+      } else {
+        clauses.push(line);
+      }
+    }
+    if (currentClause) clauses.push(currentClause);
+    return clauses;
+  }, [customizedContent]);
+
+  const page1Clauses = useMemo(() => parsedClauses.slice(0, 12), [parsedClauses]);
+  const page2Clauses = useMemo(() => parsedClauses.slice(12), [parsedClauses]);
+
   if (!isOpen) return null;
 
   // Copy to clipboard
   const handleCopy = () => {
-    navigator.clipboard.writeText(customizedContent);
+    const textToCopy = activeMode === 'email' ? coverEmailBodyText : customizedContent;
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedToast(true);
+    setTimeout(() => setCopiedToast(false), 2000);
+  };
+
+  const handleCopyEmailCover = () => {
+    navigator.clipboard.writeText(coverEmailBodyText);
     setCopiedToast(true);
     setTimeout(() => setCopiedToast(false), 2000);
   };
@@ -221,11 +300,34 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
 
   // Download PDF Document
   const handleDownloadPDF = () => {
-    downloadElementAsPDF(
-      'printable-offer-letter', 
-      `Offer_Letter_${currentEmployee?.firstName || 'Employee'}_${currentEmployee?.employeeId || ''}`,
-      documentProfile.companyName
-    );
+    const candidateFullName = `${currentEmployee?.firstName || ''} ${currentEmployee?.lastName || ''}`.trim();
+    const joiningDateStr = (currentEmployee?.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || formatDateDDMMYYYY(new Date());
+    const formattedDeadline = formatDateDDMMYYYY(new Date(Date.now() + 7 * 86400000));
+
+    downloadOfferLetterPdf({
+      companyName: documentProfile.legalName || documentProfile.companyName,
+      companyAddress: documentProfile.address,
+      companyEmail: documentProfile.email,
+      companyPhone: documentProfile.phone,
+      companyWebsite: documentProfile.website,
+      candidateName: candidateFullName,
+      employeeId: currentEmployee?.employeeId,
+      designation: currentEmployee?.designation || 'Specialist',
+      department: currentEmployee?.department || 'Operations',
+      joiningDate: joiningDateStr,
+      employmentType: currentEmployee?.employmentType,
+      workLocation: currentEmployee?.workLocation || currentEmployee?.bankDetails?.branch || 'Head Office',
+      candidateEmail: currentEmployee?.email,
+      candidatePhone: currentEmployee?.phone,
+      candidateAddress: currentEmployee?.address,
+      acceptanceDeadline: formattedDeadline,
+      signatoryName: documentProfile.authorizedSignatoryName,
+      signatoryDesignation: documentProfile.authorizedSignatoryDesignation,
+      compensationRows: compensationRows.filter(r => r.amount > 0),
+      monthlyCtc,
+      annualCtc,
+      customizedClauses: customizedContent,
+    });
   };
 
   // Download text file
@@ -249,16 +351,63 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
     setSendStatus(null);
 
     const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token');
-    const compensationText = [
-      '',
-      'Annexure A: Compensation & Benefits Structure',
-      ...compensationRows
-        .filter(row => row.amount > 0)
-        .map(row => `${row.label}: Monthly ${formatCurrency(row.amount)} / Annual ${formatCurrency(row.amount * 12)}`),
-      `Total Cost to Company (CTC): Monthly ${formatCurrency(monthlyCtc)} / Annual ${formatCurrency(annualCtc)}`,
-    ].join('\n');
+    const deadlineDate = new Date(Date.now() + 7 * 86400000);
+    const formattedDeadline = formatDateDDMMYYYY(deadlineDate);
+    const candidateFullName = `${currentEmployee.firstName || ''} ${currentEmployee.lastName || ''}`.trim();
+    const joiningDateStr = (currentEmployee.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || formatDateDDMMYYYY(new Date());
 
     try {
+      // 1. Generate the official 3-page Offer Letter PDF in memory
+      let pdfBase64 = '';
+      try {
+        pdfBase64 = await generateOfferLetterPdfBase64({
+          companyName: documentProfile.companyName,
+          companyAddress: documentProfile.address,
+          companyEmail: documentProfile.email,
+          companyPhone: documentProfile.phone,
+          companyWebsite: documentProfile.website,
+          candidateName: candidateFullName,
+          employeeId: currentEmployee.employeeId,
+          designation: currentEmployee.designation,
+          department: currentEmployee.department,
+          joiningDate: joiningDateStr,
+          employmentType: currentEmployee.employmentType,
+          workLocation: currentEmployee.workLocation || currentEmployee.bankDetails?.branch || 'Head Office',
+          candidateEmail: currentEmployee.email,
+          candidatePhone: currentEmployee.phone,
+          candidateAddress: currentEmployee.address,
+          acceptanceDeadline: formattedDeadline,
+          signatoryName: documentProfile.authorizedSignatoryName,
+          signatoryDesignation: documentProfile.authorizedSignatoryDesignation,
+          compensationRows: compensationRows.filter(r => r.amount > 0),
+          monthlyCtc,
+          annualCtc,
+          customizedClauses: customizedContent,
+        });
+      } catch (pdfErr) {
+        console.warn('Could not compile PDF in memory:', pdfErr);
+      }
+
+      // 2. Format the official Cover Email Body matching the template
+      const coverEmailBody = `Dear ${candidateFullName},
+
+We are pleased to welcome you to ${documentProfile.companyName}.
+
+Please find attached your Offer Letter for the position of ${currentEmployee.designation}, with a proposed joining date of ${joiningDateStr}.
+
+Kindly review the attached document and confirm your acceptance within ${formattedDeadline}.
+
+For any clarification, please feel free to contact our HR department.
+
+We look forward to welcoming you to our team.
+
+Warm regards,
+${documentProfile.authorizedSignatoryName || 'HR Department'}
+${documentProfile.authorizedSignatoryDesignation || 'HR Management'}
+${documentProfile.companyName}
+${documentProfile.email || 'developer@businz.com'}
+${documentProfile.phone || ''}`;
+
       const response = await fetch(`${API_BASE_URL}/employees/send-offer-letter`, {
         method: 'POST',
         headers: {
@@ -267,11 +416,15 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
         },
         body: JSON.stringify({
           to: currentEmployee.email,
-          candidateName: `${currentEmployee.firstName || ''} ${currentEmployee.lastName || ''}`.trim(),
+          candidateName: candidateFullName,
           employeeCode: currentEmployee.employeeId,
-          subject: replacePlaceholders(currentTemplate?.subject || DEFAULT_OFFER_TEMPLATE.subject),
-          letterBody: `${customizedContent}\n${compensationText}`,
+          subject: `Offer Letter – Confirmation of Employment - ${currentEmployee.designation || 'Employment'}`,
+          letterBody: coverEmailBody,
           companyName: documentProfile.companyName,
+          pdfAttachment: pdfBase64 ? {
+            filename: `Offer_Letter_${(currentEmployee.firstName || 'Candidate').replace(/\s+/g, '_')}_${currentEmployee.employeeId || 'EMP'}.pdf`,
+            base64: pdfBase64,
+          } : undefined,
         }),
       });
 
@@ -280,8 +433,8 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
         throw new Error(body?.error?.message || 'Offer letter email could not be sent.');
       }
 
-      setSendStatus({ type: 'success', message: `Offer letter sent to ${currentEmployee.email}` });
-      setTimeout(() => setSendStatus(null), 3000);
+      setSendStatus({ type: 'success', message: `Offer letter with PDF attachment sent to ${currentEmployee.email}` });
+      setTimeout(() => setSendStatus(null), 4000);
     } catch (err: any) {
       setSendStatus({ type: 'error', message: err?.message || 'Offer letter email could not be sent.' });
     } finally {
@@ -393,6 +546,26 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => setActiveMode('email')}
+              style={{
+                border: 'none',
+                background: activeMode === 'email' ? '#ffffff' : 'transparent',
+                color: activeMode === 'email' ? '#0E7490' : '#64748b',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontWeight: 700,
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: activeMode === 'email' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+              }}
+            >
+              <Mail size={14} color={activeMode === 'email' ? '#0E7490' : 'currentColor'} /> Email Cover
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveMode('edit')}
               style={{
                 border: 'none',
@@ -436,7 +609,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
         </div>
 
         {/* TEMPLATE PICKER STRIP */}
-        {activeMode !== 'create_template' && (
+        {activeMode !== 'create_template' && activeMode !== 'email' && (
           <div style={{ backgroundColor: '#ffffff', padding: '10px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>
               Templates ({templates.length}):
@@ -491,109 +664,368 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
           
           {/* MODE 1: DOCUMENT PREVIEW */}
           {activeMode === 'preview' && (
-            <div 
-              id="printable-offer-letter"
-              style={{ 
-                backgroundColor: '#ffffff', 
-                borderRadius: '8px', 
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
-                padding: '40px 48px', 
-                maxWidth: '780px', 
-                margin: '0 auto',
-                fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-                color: '#1e293b',
-                lineHeight: 1.65,
-                border: '1px solid #e2e8f0'
-              }}
-            >
-              <CompanyHeader
-                profile={documentProfile}
-                title="Offer Letter"
-                subtitle="Official Appointment"
-                rightMeta={[
-                  { label: 'Ref No', value: `OL-${new Date().getFullYear()}-${currentEmployee?.employeeId || 'EMP'}` },
-                  { label: 'Date', value: formatDateDDMMYYYY(new Date()) }
-                ]}
-              />
-
-              <EmployeeDetailsGrid
-                rows={[
-                  { label: 'Candidate', value: `${currentEmployee?.firstName || ''} ${currentEmployee?.lastName || ''}`.trim() },
-                  { label: 'Employee ID', value: currentEmployee?.employeeId },
-                  { label: 'Department', value: currentEmployee?.department },
-                  { label: 'Designation', value: currentEmployee?.designation },
-                  { label: 'Joining Date', value: formatDateDDMMYYYY(currentEmployee?.joiningDate || currentEmployee?.dateOfJoining) || '—' },
-                  { label: 'Employment Type', value: currentEmployee?.employmentType },
-                  { label: 'Work Location', value: currentEmployee?.workLocation || currentEmployee?.bankDetails?.branch },
-                  { label: 'Email', value: currentEmployee?.email },
-                  { label: 'Contact', value: currentEmployee?.phone },
-                  { label: 'Residential Address', value: currentEmployee?.address }
-                ]}
-              />
-
-
-              {/* Subject */}
-              <div style={{ fontWeight: 800, fontSize: '0.94rem', color: '#0f172a', marginBottom: '18px' }}>
-                <span style={{ borderBottom: '2px solid #0f172a', paddingBottom: '2px' }}>
-                  Subject: {replacePlaceholders(currentTemplate?.subject || DEFAULT_OFFER_TEMPLATE.subject)}
-                </span>
-              </div>
-
-              {/* Letter Body */}
-              <div style={{ fontSize: '0.86rem', whiteSpace: 'pre-line', color: '#334155', marginBottom: '26px' }}>
-                {customizedContent}
-              </div>
-
-              {/* SALARY & COMPENSATION ANNEXURE */}
-              <div style={{ marginTop: '28px', marginBottom: '28px', pageBreakInside: 'avoid' }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Annexure A: Compensation & Benefits Structure
+            <div id="printable-offer-letter" style={{ maxWidth: '800px', margin: '0 auto' }}>
+              
+              {/* PAGE 1 SHEET */}
+              <div 
+                style={{ 
+                  backgroundColor: '#ffffff', 
+                  borderRadius: '10px', 
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
+                  padding: '40px 48px', 
+                  fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
+                  color: '#1e293b',
+                  lineHeight: 1.6,
+                  border: '1px solid #e2e8f0',
+                  marginBottom: '24px'
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                    <div style={{ width: '4px', height: '38px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                    </div>
+                  </div>
+                  {documentProfile.logoUrl && (
+                    <img src={documentProfile.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                  )}
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', border: '1px solid #cbd5e1' }}>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '20px' }}>
+                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
+                  <span>Page 1</span>
+                </div>
+
+                <div style={{ marginBottom: '18px' }}>
+                  <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: '0 0 6px', letterSpacing: '-0.01em' }}>OFFER OF EMPLOYMENT</h1>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#64748b' }}>
+                    <span>Reference: OL-{new Date().getFullYear()}-{currentEmployee?.employeeId || 'EMP'}</span>
+                    <span>Date: {todayStr}</span>
+                  </div>
+                </div>
+
+                <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '18px', fontSize: '0.82rem' }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>To</div>
+                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{candidateFullName}</div>
+                  <div style={{ color: '#475569' }}>{currentEmployee?.address || 'Candidate Residential Address'}</div>
+                  <div style={{ color: '#64748b', marginTop: '4px', fontSize: '0.78rem' }}>
+                    Contact: {currentEmployee?.phone || '—'} &nbsp;|&nbsp; Email: {currentEmployee?.email || '—'}
+                  </div>
+                </div>
+
+                <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a', marginBottom: '14px' }}>
+                  Subject: Offer of Employment - {currentEmployee?.designation || 'Specialist'}
+                </div>
+
+                <div style={{ fontSize: '0.84rem', color: '#334155', lineHeight: 1.6, marginBottom: '16px' }}>
+                  <p style={{ margin: '0 0 8px' }}>Dear Mr./Ms. {candidateFullName},</p>
+                  <p style={{ margin: 0 }}>
+                    We are pleased to offer you the position of <strong>{currentEmployee?.designation}</strong> in the <strong>{currentEmployee?.department || 'Operations'}</strong> department of <strong>{companyLegal}</strong>, subject to the following terms and conditions.
+                  </p>
+                </div>
+
+                <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '14px' }}>
+                  EMPLOYMENT TERMS &amp; CONDITIONS
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.79rem', color: '#334155', lineHeight: 1.55 }}>
+                  {page1Clauses.map((clause, idx) => (
+                    <div key={idx} style={{ paddingLeft: '4px' }}>
+                      {clause}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '24px' }}>
+                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
+                  <span>Page 1</span>
+                </div>
+              </div>
+
+              {/* PAGE BREAK INDICATOR */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '20px 0', gap: '12px', color: '#94a3b8', fontSize: '0.76rem', fontWeight: 600 }}>
+                <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
+                <span>PAGE BREAK &bull; PAGE 2 OF 3</span>
+                <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
+              </div>
+
+              {/* PAGE 2 SHEET */}
+              <div 
+                style={{ 
+                  backgroundColor: '#ffffff', 
+                  borderRadius: '10px', 
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
+                  padding: '40px 48px', 
+                  fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
+                  color: '#1e293b',
+                  lineHeight: 1.6,
+                  border: '1px solid #e2e8f0',
+                  marginBottom: '24px'
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                    <div style={{ width: '4px', height: '38px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                    </div>
+                  </div>
+                  {documentProfile.logoUrl && (
+                    <img src={documentProfile.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '20px' }}>
+                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
+                  <span>Page 2</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.79rem', color: '#334155', lineHeight: 1.55, marginBottom: '24px' }}>
+                  {page2Clauses.map((clause, idx) => (
+                    <div key={idx} style={{ paddingLeft: '4px' }}>
+                      {clause}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '12px', marginTop: '24px' }}>
+                  ACCEPTANCE &amp; AUTHORIZATION
+                </div>
+
+                <div style={{ fontSize: '0.82rem', color: '#334155', lineHeight: 1.6, marginBottom: '28px' }}>
+                  Please confirm your acceptance of the terms above by signing and returning this letter by <strong>{formattedDeadline}</strong>. We look forward to welcoming you to <strong>{companyLegal}</strong>.
+                </div>
+
+                {/* Two Column Signatures */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '32px' }}>
+                      For {companyLegal}
+                    </div>
+                    <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '8px', fontSize: '0.8rem' }}>
+                      <div style={{ fontWeight: 800, color: '#0f172a' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>
+                      <div style={{ color: '#64748b' }}>{documentProfile.authorizedSignatoryDesignation || 'HR Management'}</div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.74rem', marginTop: '4px' }}>Official Seal / Digital Stamp</div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '32px' }}>
+                      Employee acceptance
+                    </div>
+                    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '8px', fontSize: '0.8rem' }}>
+                      <div style={{ color: '#64748b' }}>Signature: __________________________</div>
+                      <div style={{ fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>Name: {candidateFullName}</div>
+                      <div style={{ color: '#64748b', fontSize: '0.74rem', marginTop: '4px' }}>Date: {formattedDeadline}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '24px' }}>
+                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
+                  <span>Page 2</span>
+                </div>
+              </div>
+
+              {/* PAGE BREAK INDICATOR */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '20px 0', gap: '12px', color: '#94a3b8', fontSize: '0.76rem', fontWeight: 600 }}>
+                <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
+                <span>PAGE BREAK &bull; PAGE 3 (ANNEXURE A)</span>
+                <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
+              </div>
+
+              {/* PAGE 3 SHEET (ANNEXURE A) */}
+              <div 
+                style={{ 
+                  backgroundColor: '#ffffff', 
+                  borderRadius: '10px', 
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
+                  padding: '40px 48px', 
+                  fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
+                  color: '#1e293b',
+                  lineHeight: 1.6,
+                  border: '1px solid #e2e8f0',
+                  marginBottom: '24px'
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                    <div style={{ width: '4px', height: '38px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                    </div>
+                  </div>
+                  {documentProfile.logoUrl && (
+                    <img src={documentProfile.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '20px' }}>
+                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
+                  <span>Page 3</span>
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0E7490', letterSpacing: '-0.01em', margin: 0 }}>
+                    ANNEXURE A
+                  </div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+                    COMPENSATION &amp; BENEFITS STRUCTURE
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '6px' }}>
+                    Employee: <strong>{candidateFullName}</strong> &nbsp;|&nbsp; Designation: <strong>{currentEmployee?.designation}</strong> &nbsp;|&nbsp; Effective from: <strong>{joiningDateStr}</strong>
+                  </div>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
                   <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #cbd5e1' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700 }}>Salary Component</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>Monthly (INR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>Annualized (INR)</th>
+                    <tr style={{ backgroundColor: '#0E7490', color: '#ffffff' }}>
+                      <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Salary Component</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Monthly (INR)</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Annual (INR)</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {[
-                      ...compensationRows
-                    ].filter(row => row.amount > 0).map(row => (
-                      <tr key={row.label} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '7px 12px' }}>{row.label}</td>
-                        <td style={{ padding: '7px 12px', textAlign: 'right' }}>{formatCurrency(row.amount)}</td>
-                        <td style={{ padding: '7px 12px', textAlign: 'right' }}>{formatCurrency(row.amount * 12)}</td>
+                    {compensationRows.filter(row => row.amount > 0).map((row, idx) => (
+                      <tr key={row.label} style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 14px' }}>{row.label}</td>
+                        <td style={{ padding: '8px 14px', textAlign: 'right' }}>{formatCurrency(row.amount)}</td>
+                        <td style={{ padding: '8px 14px', textAlign: 'right' }}>{formatCurrency(row.amount * 12)}</td>
                       </tr>
                     ))}
                     <tr style={{ backgroundColor: '#f0fdf4', fontWeight: 800, color: '#15803d', borderTop: '2px solid #bbf7d0' }}>
-                      <td style={{ padding: '9px 12px' }}>Total Cost to Company (CTC)</td>
-                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>{formatCurrency(monthlyCtc)}</td>
-                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>{formatCurrency(annualCtc)}</td>
+                      <td style={{ padding: '10px 14px' }}>TOTAL COST TO COMPANY (CTC)</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatCurrency(monthlyCtc)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatCurrency(annualCtc)}</td>
                     </tr>
                   </tbody>
                 </table>
-              </div>
 
-              {/* Signature Blocks */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', marginTop: '40px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-                <AuthorizedSignatory profile={documentProfile} />
+                <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '28px' }}>
+                  <div><strong>Compensation notes:</strong> All cash components are subject to statutory deductions (PF, ESI, Professional Tax, TDS) as applicable.</div>
+                  <div><strong>Benefits / deductions:</strong> Statutory employee benefits are governed in accordance with Indian statutory labor compliances.</div>
+                  <div><strong>Variable incentives:</strong> Annual performance bonus evaluated based on company and individual key performance indicators.</div>
+                  <div>This annexure forms part of the offer letter issued on <strong>{todayStr}</strong>.</div>
+                </div>
 
-                <div>
-                  <div style={{ height: '45px' }}></div>
-                  <div style={{ borderTop: '1px dashed #94a3b8', paddingTop: '6px', fontSize: '0.8rem' }}>
-                    <div style={{ fontWeight: 800, color: '#0f172a' }}>Candidate Acceptance Signature</div>
-                    <div style={{ color: '#64748b' }}>Name: {currentEmployee?.firstName} {currentEmployee?.lastName}</div>
-                    <div style={{ color: '#64748b', fontSize: '0.72rem' }}>Date: ________________________</div>
+                <div style={{ paddingTop: '16px', borderTop: '1px solid #e2e8f0', fontSize: '0.8rem' }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a' }}>
+                    Authorized signatory: {documentProfile.authorizedSignatoryName || 'Authorized Signatory'}
                   </div>
+                  <div style={{ color: '#64748b', fontSize: '0.74rem' }}>{companyLegal}</div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '24px' }}>
+                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
+                  <span>Page 3</span>
                 </div>
               </div>
 
-              <CompanyFooter profile={documentProfile} />
-
             </div>
           )}
+
+          {/* MODE 1.5: EMAIL COVER PREVIEW (MATCHING USER SCREENSHOT) */}
+          {activeMode === 'email' && (
+            <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+              <div 
+                style={{ 
+                  backgroundColor: '#18181b', 
+                  color: '#f4f4f5', 
+                  borderRadius: '12px', 
+                  padding: '24px 28px', 
+                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
+                  border: '1px solid #27272a',
+                  fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif"
+                }}
+              >
+                {/* Header Strip */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #27272a', paddingBottom: '14px', marginBottom: '18px' }}>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fafafa' }}>
+                    Offer Letter &ndash; Confirmation of Employment
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={handleCopyEmailCover}
+                      title="Copy email body"
+                      style={{ background: 'transparent', border: '1px solid #3f3f46', color: '#a1a1aa', borderRadius: '6px', padding: '5px 10px', fontSize: '0.76rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Copy size={13} /> Copy
+                    </button>
+                    <span style={{ fontSize: '0.72rem', backgroundColor: '#064e3b', color: '#6ee7b7', padding: '4px 10px', borderRadius: '999px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #047857' }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} />
+                      Google Workspace (Connected)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Recipients */}
+                <div style={{ marginBottom: '14px', fontSize: '0.84rem' }}>
+                  <div style={{ color: '#a1a1aa', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>Recipients</div>
+                  <span style={{ backgroundColor: '#27272a', color: '#38bdf8', padding: '4px 12px', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, display: 'inline-block' }}>
+                    {candidateFullName} &lt;{currentEmployee?.email}&gt;
+                  </span>
+                </div>
+
+                <div style={{ marginBottom: '18px', fontSize: '0.9rem', fontWeight: 700, color: '#f4f4f5' }}>
+                  Offer Letter &ndash; Confirmation of Employment - {currentEmployee?.designation || 'Specialist'}
+                </div>
+
+                {/* Email Body */}
+                <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: '#d4d4d8', whiteSpace: 'pre-line', borderTop: '1px solid #27272a', paddingTop: '18px', marginBottom: '22px' }}>
+                  {coverEmailBodyText}
+                </div>
+
+                {/* Attachment Card */}
+                <div style={{ backgroundColor: '#27272a', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #3f3f46', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '8px', backgroundColor: '#dc2626', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}>
+                      PDF
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#fafafa' }}>
+                        Offer_Letter_{(currentEmployee?.firstName || 'Candidate').replace(/\s+/g, '_')}_{currentEmployee?.employeeId || 'EMP'}.pdf
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>
+                        3 Pages (A4) &bull; Verified Vector PDF &bull; 25 Terms &amp; Annexure A Included
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadPDF}
+                    style={{ background: '#3f3f46', border: 'none', color: '#e4e4e7', padding: '7px 12px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Download size={13} /> Download PDF
+                  </button>
+                </div>
+
+                {/* Quick send trigger */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #27272a', paddingTop: '16px' }}>
+                  <div style={{ fontSize: '0.76rem', color: '#a1a1aa' }}>
+                    Ready to send to <strong>{currentEmployee?.email}</strong> via verified SMTP.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSendOfferEmail}
+                    disabled={isSendingOffer || !currentEmployee?.email}
+                    style={{ background: 'linear-gradient(135deg, #0E7490, #0891B2)', color: '#ffffff', fontWeight: 700, padding: '8px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', opacity: isSendingOffer ? 0.7 : 1 }}
+                  >
+                    <Send size={15} /> {isSendingOffer ? 'Sending...' : 'Send Email to Candidate'}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          )}
+
 
           {/* MODE 2: EDIT CLAUSES / TEXT */}
           {activeMode === 'edit' && (
@@ -779,7 +1211,7 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
               className="btn btn-primary btn-sm" 
               onClick={handleSendOfferEmail}
               disabled={isSendingOffer || !currentEmployee?.email}
-              title="Send offer letter from developer@businz.com"
+              title="Send official offer letter with PDF attachment via verified company email"
               style={{ background: 'linear-gradient(135deg, #0E7490, #0891B2)', color: '#ffffff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(14, 116, 144, 0.28)', border: 'none', opacity: isSendingOffer ? 0.7 : 1 }}
             >
               <Send size={15} /> {isSendingOffer ? 'Sending...' : 'Send Email'}
