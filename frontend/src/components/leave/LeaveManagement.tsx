@@ -552,8 +552,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     />
                   </th>
                 )}
+                <th style={{ width: '50px', minWidth: '50px', textAlign: 'center' }}>S.No</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '150px' }}>Applicant</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '140px' }}>Department & Type</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '120px' }}>Applied Date</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Duration</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '200px' }}>Pay & Attendance Breakdown</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '100px' }}>Status</th>
@@ -573,12 +575,13 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
             <tbody>
               {paginatedLeaves.length === 0 ? (
                 <tr>
-                  <td colSpan={isEmployeeRole ? 6 : 8} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
+                  <td colSpan={isEmployeeRole ? 8 : 10} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
                     No applications found matching the selected filter.
                   </td>
                 </tr>
               ) : (
-                paginatedLeaves.map(l => {
+                paginatedLeaves.map((l, index) => {
+                  const serialNo = isEmployeeRole ? (index + 1) : ((currentPage - 1) * pageSize + index + 1);
                   const isWfh = l.leaveType === 'Work From Home' || 
                     (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
                     (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
@@ -609,6 +612,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           />
                         </td>
                       )}
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '50px', color: '#64748B', fontWeight: 700, fontSize: '0.84rem' }}>
+                        {serialNo}
+                      </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ fontWeight: 800, color: '#0F172A', fontSize: '0.9rem' }}>{l.employeeName}</div>
                         <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>{l.employeeId}</div>
@@ -645,6 +651,11 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                             {l.leaveType}
                           </span>
                         )}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0F172A' }}>
+                          {formatDateDDMMYYYY(l.appliedDate || l.startDate) || '-'}
+                        </div>
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0F172A' }}>
@@ -1323,13 +1334,19 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               {/* Summary Badges */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
+                gridTemplateColumns: 'repeat(5, 1fr)',
                 gap: '8px',
                 backgroundColor: '#F8FAFC',
                 padding: '12px',
                 borderRadius: '12px',
                 textAlign: 'center'
               }}>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Applied Date</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0E7490' }}>
+                    {formatDateDDMMYYYY(inspectLeave.appliedDate || inspectLeave.startDate) || '-'}
+                  </div>
+                </div>
                 <div>
                   <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Duration</div>
                   <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1E293B' }}>{formatDateDDMMYYYY(inspectLeave.startDate)} → {formatDateDDMMYYYY(inspectLeave.endDate)}</div>
