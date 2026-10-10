@@ -56,8 +56,16 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     masterLeavePolicies,
     sandwichPolicies,
     computeSandwichCalculation,
-    overrideSandwichCalculation
+    overrideSandwichCalculation,
+    sendLeaveReminder
   } = useHRMS();
+
+  const [reminderSentSet, setReminderSentSet] = useState<Set<string>>(new Set());
+
+  const handleSendReminder = (l: LeaveRequest) => {
+    sendLeaveReminder(l);
+    setReminderSentSet(prev => new Set(prev).add(l.id));
+  };
 
   const isEmployeeRole = currentUser.role === 'Employee';
   const isManagerRole = currentUser.role === 'Department Manager';
@@ -720,19 +728,48 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {l.status === 'Pending' ? (
-                          <span style={{ 
-                            color: '#D97706', 
-                            backgroundColor: '#FEF3C7', 
-                            padding: '3px 8px', 
-                            borderRadius: '6px', 
-                            fontSize: '0.74rem', 
-                            fontWeight: 700,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}>
-                            ⏳ Awaiting review
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                            <span style={{ 
+                              color: '#D97706', 
+                              backgroundColor: '#FEF3C7', 
+                              padding: '3px 8px', 
+                              borderRadius: '6px', 
+                              fontSize: '0.74rem', 
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              ⏳ Awaiting HR/CEO review
+                            </span>
+                            {isEmployeeRole && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSendReminder(l);
+                                }}
+                                disabled={reminderSentSet.has(l.id)}
+                                style={{
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  color: reminderSentSet.has(l.id) ? '#059669' : '#0E7490',
+                                  backgroundColor: reminderSentSet.has(l.id) ? '#ECFDF5' : '#ECFEFF',
+                                  border: `1px solid ${reminderSentSet.has(l.id) ? '#A7F3D0' : '#A5F3FC'}`,
+                                  borderRadius: '6px',
+                                  padding: '2px 8px',
+                                  cursor: reminderSentSet.has(l.id) ? 'default' : 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                title="Send reminder notification to HR & CEO"
+                              >
+                                {reminderSentSet.has(l.id) ? '✓ Reminder Sent' : '🔔 Remind HR/CEO'}
+                              </button>
+                            )}
+                          </div>
                         ) : (
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '3px' }}>
@@ -1447,6 +1484,28 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     style={{ borderRadius: '8px', padding: '6px 14px', fontWeight: 700 }}
                   >
                     ✕ Revoke Approval
+                  </button>
+                )}
+                {inspectLeave.status === 'Pending' && isEmployeeRole && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => handleSendReminder(inspectLeave)}
+                    disabled={reminderSentSet.has(inspectLeave.id)}
+                    style={{
+                      borderRadius: '8px',
+                      padding: '6px 14px',
+                      fontWeight: 700,
+                      backgroundColor: reminderSentSet.has(inspectLeave.id) ? '#ECFDF5' : '#ECFEFF',
+                      color: reminderSentSet.has(inspectLeave.id) ? '#059669' : '#0E7490',
+                      border: `1px solid ${reminderSentSet.has(inspectLeave.id) ? '#A7F3D0' : '#A5F3FC'}`,
+                      cursor: reminderSentSet.has(inspectLeave.id) ? 'default' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    {reminderSentSet.has(inspectLeave.id) ? '✓ Reminder Sent to HR & CEO' : '🔔 Send Reminder to HR & CEO'}
                   </button>
                 )}
               </div>

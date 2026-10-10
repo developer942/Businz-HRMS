@@ -871,6 +871,8 @@ interface HRMSContextType {
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
   addNotification: (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => void;
+  pushSharedNotification: (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read' | 'createdAt' | 'readBy' | 'senderKey'>) => void;
+  sendLeaveReminder: (leave: LeaveRequest) => void;
 
   payrollRecords: PayrollRecord[];
   processPayrollBatch: () => void | Promise<void>;
@@ -2734,6 +2736,154 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   // Cross-user notifications persisted in company_settings so recipients (CEO / HR / employee) see them on their own login
   const [sharedNotifications, setSharedNotifications] = useState<NotificationItem[]>([]);
+
+  // ==========================================
+  // SHARED (CROSS-USER) NOTIFICATIONS & REMINDERS
+  // ==========================================
+  const SHARED_NOTIFICATIONS_KEY = 'shared_notifications_data';
+  const SHARED_NOTIFICATIONS_LIMIT = 300;
+  const SHARED_NOTIFICATIONS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+  /** Identity keys of the logged-in user used to match targeted notifications */
+  const getUserNotificationKeys = (): string[] => {
+    const u: any = currentUser || {};
+    return Array.from(new Set(
+      [u.employeeId, u.id, u.email, u.name]
+        .filter(Boolean)
+        .map((k: any) => String(k).trim().toLowerCase())
+    ));
+  };
+
+  /** Audience groups the logged-in user belongs to */
+  const getUserAudienceRoles = (): string[] => {
+    const u: any = currentUser || {};
+    const role = String(u.role || '');
+    const desig = String(u.designation || '').toLowerCase();
+    const dept = String(u.department || '').toLowerCase();
+    const roles = ['ALL'];
+    if (role === 'CEO' || role === 'Super Admin' || desig.includes('ceo') || desig.includes('managing director')) roles.push('CEO');
+    if (role === 'HR Manager' || role === 'HR Admin' || role === 'HR' || dept === 'hr' || dept.includes('human resource') || /\bhr\b/.test(desig)) roles.push('HR');
+    if (role === 'Finance Manager' || dept.includes('account') || dept.includes('finance') || desig.includes('account') || desig.includes('finance')) roles.push('ACCOUNTS');
+    return roles;
+  };
+
+  const formatNotificationTime = (iso?: string): string => {
+    if (!iso) return 'Just now';
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return 'Just now';
+    const diffMin = Math.floor((Date.now() - t) / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin} min ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr} hr ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return diffDay === 1 ? 'Yesterday' : `${diffDay} days ago`;
+  };
+
+  const isSharedNotificationForMe = (n: NotificationItem): boolean => {
+    const myKeys = getUserNotificationKeys();
+    if (n.senderKey && myKeys.includes(n.senderKey.trim().toLowerCase())) return false;
+    const targetIds = (n.targetEmployeeIds || []).map(id => String(id).trim().toLowerCase());
+    if (targetIds.some(id => myKeys.includes(id))) return true;
+    const myRoles = getUserAudienceRoles();
+    return (n.targetRoles || []).some(r => myRoles.includes(r));
+  };
+
+  // Read-merge-write so notifications from different users are not overwritten
+  const persistSharedNotifications = async (changed: NotificationItem[]) => {
+    if (!changed.length) return;
+    try {
+      const remote = await supabaseDirect.getCompanySetting(SHARED_NOTIFICATIONS_KEY);
+      const map = new Map<string, NotificationItem>((Array.isArray(remote) ? remote : []).map((n: NotificationItem) => [n.id, n]));
+      changed.forEach(n => {
+        const existing = map.get(n.id);
+        const readBy = Array.from(new Set([...(existing?.readBy || []), ...(n.readBy || [])]));
+        map.set(n.id, { ...(existing || {}), ...n, read: false, readBy });
+      });
+      const cutoff = Date.now() - SHARED_NOTIFICATIONS_TTL_MS;
+      const merged = Array.from(map.values())
+        .filter(n => !n.createdAt || new Date(n.createdAt).getTime() >= cutoff)
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+        .slice(0, SHARED_NOTIFICATIONS_LIMIT);
+      await supabaseDirect.saveCompanySetting(SHARED_NOTIFICATIONS_KEY, merged);
+    } catch (err) {
+      console.warn('[HRMSContext] shared notification cloud save notice:', err);
+    }
+  };
+
+  /** Deliver a notification to other users (by audience role and/or employee ID) */
+  const pushSharedNotification = (
+    note: Omit<NotificationItem, 'id' | 'timestamp' | 'read' | 'createdAt' | 'readBy' | 'senderKey'>
+  ) => {
+    const newNote: NotificationItem = {
+      ...note,
+      id: `SN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: 'Just now',
+      read: false,
+      createdAt: new Date().toISOString(),
+      senderKey: getUserNotificationKeys()[0] || '',
+      readBy: []
+    };
+    setSharedNotifications(prev => [newNote, ...prev]);
+    persistSharedNotifications([newNote]);
+  };
+
+  const markNotificationRead = (id: string) => {
+    const shared = sharedNotifications.find(n => n.id === id);
+    if (shared) {
+      const myKey = getUserNotificationKeys()[0];
+      if (!myKey || (shared.readBy || []).includes(myKey)) return;
+      const updated = { ...shared, readBy: [...(shared.readBy || []), myKey] };
+      setSharedNotifications(prev => prev.map(n => n.id === id ? updated : n));
+      persistSharedNotifications([updated]);
+      return;
+    }
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    const myKey = getUserNotificationKeys()[0];
+    if (!myKey) return;
+    const toUpdate = sharedNotifications
+      .filter(n => isSharedNotificationForMe(n) && !(n.readBy || []).includes(myKey))
+      .map(n => ({ ...n, readBy: [...(n.readBy || []), myKey] }));
+    if (!toUpdate.length) return;
+    const updatedMap = new Map(toUpdate.map(n => [n.id, n]));
+    setSharedNotifications(prev => prev.map(n => updatedMap.get(n.id) || n));
+    persistSharedNotifications(toUpdate);
+  };
+
+  const addNotification = (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => {
+    const newNote: NotificationItem = {
+      ...note,
+      id: `NOT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: 'Just now',
+      read: false,
+      createdAt: (note as any).createdAt || new Date().toISOString()
+    };
+    setNotifications(prev => [newNote, ...prev]);
+  };
+
+  /** Send reminder notification to HR & CEO when a leave request is pending review */
+  const sendLeaveReminder = (leave: LeaveRequest) => {
+    pushSharedNotification({
+      title: '⚠️ Leave Approval Reminder',
+      message: `Reminder from ${leave.employeeName} (${leave.employeeId}): ${leave.leaveType} application (${leave.startDate} to ${leave.endDate}, ${leave.daysCount} days) is pending HR / CEO review.`,
+      priority: 'Urgent',
+      category: 'Leave',
+      link: 'leaves',
+      targetRoles: ['CEO', 'HR']
+    });
+
+    addNotification({
+      title: 'Reminder Sent to HR & CEO',
+      message: `Your reminder for ${leave.leaveType} (${leave.startDate} to ${leave.endDate}) was delivered to management.`,
+      priority: 'Normal',
+      category: 'Leave',
+      link: 'leaves'
+    });
+  };
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>(INITIAL_DEPTS);
   const [designations, setDesignations] = useState<DesignationItem[]>([]);
@@ -5648,13 +5798,25 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
     }
 
-    addNotification({
+    // 1. Notify approvers (CEO & HR) across accounts on their own login
+    pushSharedNotification({
       title: isWfh ? 'New Work From Home Request' : 'New Leave Request',
       message: isWfh 
-        ? `${req.employeeName} applied for ${finalDaysCount} days Work From Home.`
-        : `${req.employeeName} applied for ${finalDaysCount} days (${sandwichDays > 0 ? `${sandwichDays} sandwich days included, ` : ''}${req.leaveType}).`,
+        ? `${req.employeeName} (${req.employeeId}) applied for ${finalDaysCount} days Work From Home (${safeStartDate} to ${safeEndDate}). Please review.`
+        : `${req.employeeName} (${req.employeeId}) applied for ${finalDaysCount} days ${req.leaveType} (${safeStartDate} to ${safeEndDate}). Please review.`,
       priority: 'Important',
-      category: 'Leave'
+      category: 'Leave',
+      link: 'leaves',
+      targetRoles: ['CEO', 'HR']
+    });
+
+    // 2. Local feedback for applicant
+    addNotification({
+      title: isWfh ? 'Work From Home Request Submitted' : 'Leave Request Submitted',
+      message: `Your request (${safeStartDate} to ${safeEndDate}) has been submitted and is pending HR / CEO review.`,
+      priority: 'Normal',
+      category: 'Leave',
+      link: 'leaves'
     });
   };
 
@@ -5804,11 +5966,33 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.updateLeaveRequestStatus(id, 'Approved', approvedBy);
     }
 
+    // 1. Notify the employee who applied (targeted to their employee ID & name)
+    pushSharedNotification({
+      title: target.leaveType === 'Work From Home' ? 'Work From Home Approved' : 'Leave Request Approved',
+      message: `Your ${target.leaveType} request (${target.startDate} to ${target.endDate}) was approved by ${approvedBy}. Attendance updated.`,
+      priority: 'Normal',
+      category: 'Leave',
+      link: 'leaves',
+      targetEmployeeIds: [target.employeeId, target.employeeName].filter(Boolean) as string[]
+    });
+
+    // 2. Notify management
+    pushSharedNotification({
+      title: 'Leave Request Approved',
+      message: `${target.employeeName}'s ${target.leaveType} request was approved by ${approvedBy}.`,
+      priority: 'Normal',
+      category: 'Leave',
+      link: 'leaves',
+      targetRoles: ['CEO', 'HR']
+    });
+
+    // 3. Local feedback for approver
     addNotification({
       title: 'Request Approved',
-      message: `Your request has been approved by ${approvedBy}. Attendance updated accordingly.`,
+      message: `You approved ${target.employeeName}'s ${target.leaveType} request.`,
       priority: 'Normal',
-      category: 'Leave'
+      category: 'Leave',
+      link: 'leaves'
     });
   };
 
@@ -5854,11 +6038,33 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.updateLeaveRequestStatus(id, 'Rejected', approvedBy, comment);
     }
 
+    // 1. Notify the employee who applied (targeted to their employee ID & name)
+    pushSharedNotification({
+      title: target.leaveType === 'Work From Home' ? 'Work From Home Declined' : 'Leave Request Rejected',
+      message: `Your ${target.leaveType} request (${target.startDate} to ${target.endDate}) was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
+      priority: 'Urgent',
+      category: 'Leave',
+      link: 'leaves',
+      targetEmployeeIds: [target.employeeId, target.employeeName].filter(Boolean) as string[]
+    });
+
+    // 2. Notify management
+    pushSharedNotification({
+      title: 'Leave Request Rejected',
+      message: `${target.employeeName}'s ${target.leaveType} request was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
+      priority: 'Important',
+      category: 'Leave',
+      link: 'leaves',
+      targetRoles: ['CEO', 'HR']
+    });
+
+    // 3. Local feedback for current user
     addNotification({
       title: 'Request Rejected',
-      message: `Your request has been rejected by ${approvedBy}.`,
-      priority: 'Important',
-      category: 'Leave'
+      message: `You rejected ${target.employeeName}'s ${target.leaveType} request.`,
+      priority: 'Normal',
+      category: 'Leave',
+      link: 'leaves'
     });
   };
 
@@ -7431,133 +7637,55 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // ==========================================
-  // SHARED (CROSS-USER) NOTIFICATIONS
-  // ==========================================
-  const SHARED_NOTIFICATIONS_KEY = 'shared_notifications_data';
-  const SHARED_NOTIFICATIONS_LIMIT = 300;
-  const SHARED_NOTIFICATIONS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
-  /** Identity keys of the logged-in user used to match targeted notifications */
-  const getUserNotificationKeys = (): string[] => {
-    const u: any = currentUser || {};
-    return Array.from(new Set(
-      [u.employeeId, u.id, u.email, u.name]
-        .filter(Boolean)
-        .map((k: any) => String(k).trim().toLowerCase())
-    ));
-  };
-
-  /** Audience groups the logged-in user belongs to */
-  const getUserAudienceRoles = (): string[] => {
-    const u: any = currentUser || {};
-    const role = String(u.role || '');
-    const desig = String(u.designation || '').toLowerCase();
-    const dept = String(u.department || '').toLowerCase();
-    const roles = ['ALL'];
-    if (role === 'CEO' || role === 'Super Admin' || desig.includes('ceo') || desig.includes('managing director')) roles.push('CEO');
-    if (role === 'HR Manager' || role === 'HR Admin' || role === 'HR' || dept === 'hr' || dept.includes('human resource') || /\bhr\b/.test(desig)) roles.push('HR');
-    if (role === 'Finance Manager' || dept.includes('account') || dept.includes('finance') || desig.includes('account') || desig.includes('finance')) roles.push('ACCOUNTS');
-    return roles;
-  };
-
-  const formatNotificationTime = (iso?: string): string => {
-    if (!iso) return 'Just now';
-    const t = new Date(iso).getTime();
-    if (isNaN(t)) return 'Just now';
-    const diffMin = Math.floor((Date.now() - t) / 60000);
-    if (diffMin < 1) return 'Just now';
-    if (diffMin < 60) return `${diffMin} min ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr} hr ago`;
-    const diffDay = Math.floor(diffHr / 24);
-    return diffDay === 1 ? 'Yesterday' : `${diffDay} days ago`;
-  };
-
-  const isSharedNotificationForMe = (n: NotificationItem): boolean => {
+  // Automated Pending Reviews Reminder (CEO, HR, and Employee):
+  // 1. If HR/CEO has pending leave/shift requests: reminds them to review
+  // 2. If Employee has pending leave/shift requests: reminds them their request is awaiting review
+  useEffect(() => {
+    if (!currentUser) return;
     const myKeys = getUserNotificationKeys();
-    if (n.senderKey && myKeys.includes(n.senderKey.trim().toLowerCase())) return false;
-    const targetIds = (n.targetEmployeeIds || []).map(id => String(id).trim().toLowerCase());
-    if (targetIds.some(id => myKeys.includes(id))) return true;
+    if (!myKeys.length) return;
+    const today = new Date().toISOString().split('T')[0];
+    const myKey = myKeys[0];
+    const reminderKey = `vrm_leave_pending_alert_${myKey}_${today}`;
+    if (localStorage.getItem(reminderKey)) return;
+
     const myRoles = getUserAudienceRoles();
-    return (n.targetRoles || []).some(r => myRoles.includes(r));
-  };
+    const isHrOrCeo = myRoles.includes('CEO') || myRoles.includes('HR');
 
-  // Read-merge-write so notifications from different users are not overwritten
-  const persistSharedNotifications = async (changed: NotificationItem[]) => {
-    if (!changed.length) return;
-    try {
-      const remote = await supabaseDirect.getCompanySetting(SHARED_NOTIFICATIONS_KEY);
-      const map = new Map<string, NotificationItem>((Array.isArray(remote) ? remote : []).map((n: NotificationItem) => [n.id, n]));
-      changed.forEach(n => {
-        const existing = map.get(n.id);
-        const readBy = Array.from(new Set([...(existing?.readBy || []), ...(n.readBy || [])]));
-        map.set(n.id, { ...(existing || {}), ...n, read: false, readBy });
+    if (isHrOrCeo) {
+      const pendingLeaves = leaveRequests.filter(l => l.status === 'Pending');
+      const pendingShifts = shiftRequests.filter(s => s.status === 'Pending');
+      const totalPending = pendingLeaves.length + pendingShifts.length;
+      if (totalPending > 0) {
+        addNotification({
+          title: '⚠️ Pending Reviews Reminder',
+          message: `You have ${totalPending} pending request(s) (${pendingLeaves.length} leave, ${pendingShifts.length} shift) waiting for review.`,
+          priority: 'Urgent',
+          category: 'Leave',
+          link: 'leaves'
+        });
+        localStorage.setItem(reminderKey, 'true');
+      }
+    } else {
+      // Employee pending requests
+      const myPendingLeaves = leaveRequests.filter(l => {
+        if (l.status !== 'Pending') return false;
+        const eId = String(l.employeeId || '').trim().toLowerCase();
+        const eName = String(l.employeeName || '').trim().toLowerCase();
+        return myKeys.includes(eId) || myKeys.includes(eName);
       });
-      const cutoff = Date.now() - SHARED_NOTIFICATIONS_TTL_MS;
-      const merged = Array.from(map.values())
-        .filter(n => !n.createdAt || new Date(n.createdAt).getTime() >= cutoff)
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-        .slice(0, SHARED_NOTIFICATIONS_LIMIT);
-      await supabaseDirect.saveCompanySetting(SHARED_NOTIFICATIONS_KEY, merged);
-    } catch (err) {
-      console.warn('[HRMSContext] shared notification cloud save notice:', err);
+      if (myPendingLeaves.length > 0) {
+        addNotification({
+          title: 'Leave Request Pending Review',
+          message: `Your ${myPendingLeaves.length} leave request(s) are waiting for HR / CEO review.`,
+          priority: 'Important',
+          category: 'Leave',
+          link: 'leaves'
+        });
+        localStorage.setItem(reminderKey, 'true');
+      }
     }
-  };
-
-  /** Deliver a notification to other users (by audience role and/or employee ID) */
-  const pushSharedNotification = (
-    note: Omit<NotificationItem, 'id' | 'timestamp' | 'read' | 'createdAt' | 'readBy' | 'senderKey'>
-  ) => {
-    const newNote: NotificationItem = {
-      ...note,
-      id: `SN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: 'Just now',
-      read: false,
-      createdAt: new Date().toISOString(),
-      senderKey: getUserNotificationKeys()[0] || '',
-      readBy: []
-    };
-    setSharedNotifications(prev => [newNote, ...prev]);
-    persistSharedNotifications([newNote]);
-  };
-
-  const markNotificationRead = (id: string) => {
-    const shared = sharedNotifications.find(n => n.id === id);
-    if (shared) {
-      const myKey = getUserNotificationKeys()[0];
-      if (!myKey || (shared.readBy || []).includes(myKey)) return;
-      const updated = { ...shared, readBy: [...(shared.readBy || []), myKey] };
-      setSharedNotifications(prev => prev.map(n => n.id === id ? updated : n));
-      persistSharedNotifications([updated]);
-      return;
-    }
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  };
-
-  const markAllNotificationsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    const myKey = getUserNotificationKeys()[0];
-    if (!myKey) return;
-    const toUpdate = sharedNotifications
-      .filter(n => isSharedNotificationForMe(n) && !(n.readBy || []).includes(myKey))
-      .map(n => ({ ...n, readBy: [...(n.readBy || []), myKey] }));
-    if (!toUpdate.length) return;
-    const updatedMap = new Map(toUpdate.map(n => [n.id, n]));
-    setSharedNotifications(prev => prev.map(n => updatedMap.get(n.id) || n));
-    persistSharedNotifications(toUpdate);
-  };
-
-  const addNotification = (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => {
-    const newNote: NotificationItem = {
-      ...note,
-      id: `NOT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: 'Just now',
-      read: false,
-      createdAt: (note as any).createdAt || new Date().toISOString()
-    };
-    setNotifications(prev => [newNote, ...prev]);
-  };
+  }, [currentUser, leaveRequests, shiftRequests]);
 
   useEffect(() => {
     const myKey = getCurrentUserReadKey();
@@ -9346,6 +9474,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       markNotificationRead,
       markAllNotificationsRead,
       addNotification,
+      pushSharedNotification,
+      sendLeaveReminder,
       payrollRecords: visiblePayrollRecords,
       allPayrollRecords: payrollRecords,
       processPayrollBatch,

@@ -4,7 +4,7 @@ import { AlertTriangle, Info, Plus } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export const NotificationCenter: React.FC = () => {
-  const { notifications, markNotificationRead, addNotification } = useHRMS();
+  const { notifications, markNotificationRead, addNotification, pushSharedNotification } = useHRMS();
   const [filter, setFilter] = useState<'All' | 'Urgent' | 'Important' | 'Normal'>('All');
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
 
@@ -17,6 +17,13 @@ export const NotificationCenter: React.FC = () => {
   const handlePostAnnouncement = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) return;
+    pushSharedNotification({
+      title,
+      message,
+      priority,
+      category: 'Announcement',
+      targetRoles: ['ALL']
+    });
     addNotification({
       title,
       message,

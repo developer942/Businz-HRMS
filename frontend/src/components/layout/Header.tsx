@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { 
   Bell, 
@@ -12,7 +12,9 @@ import {
   CalendarPlus,
   CheckSquare,
   Receipt,
-  Banknote
+  Banknote,
+  X,
+  CheckCheck
 } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
@@ -36,6 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
     businessSettings,
     notifications, 
     markNotificationRead, 
+    markAllNotificationsRead,
     searchQuery, 
     setSearchQuery,
     setActiveModule,
@@ -45,6 +48,38 @@ export const Header: React.FC<HeaderProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showQuickAddMenu, setShowQuickAddMenu] = useState(false);
+
+  const notificationsRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const quickAddRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (notificationsRef.current && !notificationsRef.current.contains(target)) {
+        setShowNotifications(false);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(target)) {
+        setShowProfileMenu(false);
+      }
+      if (quickAddRef.current && !quickAddRef.current.contains(target)) {
+        setShowQuickAddMenu(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowNotifications(false);
+        setShowProfileMenu(false);
+        setShowQuickAddMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Role resolution for Quick Add options
   const userRole = (currentUser?.role as string) || '';
@@ -128,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="header-right">
         {/* Quick Add Menu */}
-        <div style={{ position: 'relative' }}>
+        <div ref={quickAddRef} style={{ position: 'relative' }}>
           <button 
             className="header-quick-add-btn"
             onClick={() => {
@@ -380,7 +415,7 @@ export const Header: React.FC<HeaderProps> = ({
 
 
         {/* Notifications Circle Action Button (Matches Reference Bell Icon Button) */}
-        <div style={{ position: 'relative' }}>
+        <div ref={notificationsRef} style={{ position: 'relative' }}>
           <button 
             className="header-action-circle-btn" 
             onClick={() => {
@@ -389,69 +424,131 @@ export const Header: React.FC<HeaderProps> = ({
               setShowProfileMenu(false);
             }}
             title="Notifications"
+            aria-label="Notifications"
           >
             <Bell size={18} strokeWidth={2.2} />
             {unreadCount > 0 && <span className="badge-count">{unreadCount}</span>}
           </button>
 
           {showNotifications && (
-            <>
-              <div 
-                style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
-                onClick={() => setShowNotifications(false)} 
-              />
-              <div className="card" style={{
-                position: 'absolute',
-                top: 'calc(100% + 8px)',
-                right: 0,
-                width: '340px',
-                maxWidth: 'calc(100vw - 32px)',
-                padding: '16px',
-                zIndex: 50,
-                boxShadow: 'var(--shadow-xl)',
-                maxHeight: '420px',
-                overflowY: 'auto',
-                backgroundColor: '#ffffff',
-                borderRadius: '14px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0B1A2D' }}>Notifications ({notifications.length})</h4>
+            <div className="card" style={{
+              position: 'absolute',
+              top: 'calc(100% + 8px)',
+              right: 0,
+              width: '360px',
+              maxWidth: 'calc(100vw - 32px)',
+              padding: '16px',
+              zIndex: 100,
+              boxShadow: 'var(--shadow-xl)',
+              maxHeight: '440px',
+              overflowY: 'auto',
+              backgroundColor: '#ffffff',
+              borderRadius: '14px',
+              border: '1px solid #E2E8F0'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0B1A2D', margin: 0 }}>
+                  Notifications ({notifications.length})
+                </h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markAllNotificationsRead();
+                      }}
+                      style={{
+                        fontSize: '0.72rem',
+                        color: '#0E7490',
+                        fontWeight: 700,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px'
+                      }}
+                      title="Mark all notifications as read"
+                    >
+                      <CheckCheck size={13} /> Mark all read
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowNotifications(false)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#64748B',
+                      padding: '2px 4px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      borderRadius: '4px'
+                    }}
+                    title="Close notifications"
+                    aria-label="Close"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-
-                {notifications.length === 0 ? (
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>No notifications</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {notifications.map(n => (
-                      <div 
-                        key={n.id}
-                        onClick={() => markNotificationRead(n.id)}
-                        style={{
-                          padding: '10px',
-                          borderRadius: '8px',
-                          backgroundColor: n.read ? '#ffffff' : '#ECFEFF',
-                          border: '1px solid #E2E8F0',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 750, color: '#0B1A2D' }}>
-                            {n.title}
-                          </span>
-                          <span style={{ fontSize: '0.68rem', color: '#64748B' }}>{formatDateDDMMYYYY(n.createdAt || new Date())}</span>
-                        </div>
-                        <p style={{ fontSize: '0.78rem', color: '#64748B', margin: 0 }}>{n.message}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            </>
+
+              {notifications.length === 0 ? (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>No notifications</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {notifications.map(n => (
+                    <div 
+                      key={n.id}
+                      onClick={() => {
+                        markNotificationRead(n.id);
+                        setShowNotifications(false);
+                        const targetMod = n.link || (
+                          n.category === 'Leave' ? 'leaves' :
+                          n.category === 'Shift' ? 'shifts' :
+                          n.category === 'Task' ? 'tasks' :
+                          n.category === 'Payroll' ? 'payroll' :
+                          n.category === 'Attendance' ? 'attendance' : undefined
+                        );
+                        if (targetMod && typeof setActiveModule === 'function') {
+                          setActiveModule(targetMod as any);
+                        }
+                      }}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        backgroundColor: n.read ? '#ffffff' : '#ECFEFF',
+                        border: n.read ? '1px solid #E2E8F0' : '1px solid #A5F3FC',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = n.read ? '#F8FAFC' : '#E0F2FE';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = n.read ? '#ffffff' : '#ECFEFF';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 750, color: '#0B1A2D' }}>
+                          {n.title}
+                        </span>
+                        <span style={{ fontSize: '0.68rem', color: '#64748B' }}>{formatDateDDMMYYYY(n.createdAt || new Date())}</span>
+                      </div>
+                      <p style={{ fontSize: '0.78rem', color: '#64748B', margin: 0, lineHeight: 1.35 }}>{n.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
         {/* User Profile Pill with White Avatar (Matches Reference Header) */}
-        <div style={{ position: 'relative' }}>
+        <div ref={profileMenuRef} style={{ position: 'relative' }}>
           <div 
             className="user-profile-btn" 
             onClick={() => {
