@@ -778,31 +778,109 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         paddingRight: '20px'
                       }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-                          {/* Approval Actions */}
-                          {l.status === 'Pending' && canApprove ? (
+                          {/* 1. Pending Approval Actions */}
+                          {l.status === 'Pending' && canApprove && (
                             <>
                               <button 
+                                type="button"
                                 className="btn btn-success btn-sm"
                                 onClick={() => approveLeave(l.id, reviewerName)}
-                                style={{ padding: '6px 14px', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(34,197,94,0.2)' }}
-                                title={isWfh ? "Approve Work From Home (marks as [WFH] working day)" : "Approve Leave Request"}
+                                style={{ padding: '5px 12px', fontWeight: 700, fontSize: '0.78rem', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(34,197,94,0.2)' }}
+                                title={isWfh ? "Approve Work From Home" : "Approve Leave Request"}
                               >
                                 Approve
                               </button>
                               <button 
+                                type="button"
                                 className="btn btn-danger btn-sm"
                                 onClick={() => {
                                   setRejectModalTarget(l);
                                   setRejectComment('');
                                 }}
-                                style={{ padding: '6px 14px', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(239,68,68,0.2)' }}
+                                style={{ padding: '5px 12px', fontWeight: 700, fontSize: '0.78rem', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(239,68,68,0.2)' }}
+                                title="Reject Leave Request"
                               >
                                 Reject
                               </button>
                             </>
-                          ) : (
-                            <span style={{ color: '#94A3B8', fontSize: '0.82rem', fontWeight: 500, paddingRight: '8px' }}>—</span>
                           )}
+
+                          {/* 2. Re-Approve if Rejected (for HR/CEO) */}
+                          {l.status === 'Rejected' && canApprove && (
+                            <button
+                              type="button"
+                              onClick={() => approveLeave(l.id, reviewerName)}
+                              className="btn btn-sm"
+                              style={{
+                                padding: '5px 10px',
+                                borderRadius: '8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                backgroundColor: '#ECFDF5',
+                                color: '#059669',
+                                border: '1px solid #A7F3D0',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                              title="Re-approve this application"
+                            >
+                              ✓ Re-Approve
+                            </button>
+                          )}
+
+                          {/* 3. Revoke if Approved (for HR/CEO) */}
+                          {l.status === 'Approved' && canApprove && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRejectModalTarget(l);
+                                setRejectComment('Decision revoked by HR/CEO');
+                              }}
+                              className="btn btn-sm"
+                              style={{
+                                padding: '5px 10px',
+                                borderRadius: '8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                backgroundColor: '#FEF2F2',
+                                color: '#DC2626',
+                                border: '1px solid #FECACA',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                              title="Revoke / Cancel approval"
+                            >
+                              ✕ Revoke
+                            </button>
+                          )}
+
+                          {/* 4. View Details button - ALWAYS available for every application */}
+                          <button
+                            type="button"
+                            onClick={() => setInspectLeave(l)}
+                            className="btn btn-sm"
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              backgroundColor: '#F8FAFC',
+                              color: '#0E7490',
+                              border: '1px solid #CBD5E1',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+                            }}
+                            title="View Calculation & Breakdown Details"
+                          >
+                            <Eye size={13} /> View
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1295,9 +1373,67 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   </table>
                 </div>
               </div>
+              {/* Review Audit Box inside Detail Inspection Modal */}
+              <div style={{
+                backgroundColor: inspectLeave.status === 'Approved' ? '#F0FDF4' : inspectLeave.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
+                border: `1px solid ${inspectLeave.status === 'Approved' ? '#BBF7D0' : inspectLeave.status === 'Rejected' ? '#FECACA' : '#FDE68A'}`,
+                borderRadius: '10px',
+                padding: '12px 16px',
+                fontSize: '0.82rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <div style={{ fontWeight: 800, color: inspectLeave.status === 'Approved' ? '#166534' : inspectLeave.status === 'Rejected' ? '#DC2626' : '#D97706' }}>
+                    Status: {inspectLeave.status}
+                  </div>
+                  {inspectLeave.approvedAt && (
+                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                      {formatReviewDateTime(inspectLeave.approvedAt)}
+                    </div>
+                  )}
+                </div>
+                {inspectLeave.status !== 'Pending' && (
+                  <div style={{ color: '#1E293B', fontSize: '0.82rem' }}>
+                    <strong>Reviewed By:</strong> {inspectLeave.approvedBy || (inspectLeave.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}
+                  </div>
+                )}
+                {inspectLeave.comment && (
+                  <div style={{ color: '#DC2626', fontSize: '0.78rem', marginTop: '4px' }}>
+                    <strong>Remarks:</strong> {inspectLeave.comment}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {inspectLeave.status === 'Rejected' && canApprove && (
+                  <button
+                    type="button"
+                    className="btn btn-success btn-sm"
+                    onClick={() => {
+                      approveLeave(inspectLeave.id, reviewerName);
+                      setInspectLeave(null);
+                    }}
+                    style={{ borderRadius: '8px', padding: '6px 14px', fontWeight: 700 }}
+                  >
+                    ✓ Re-Approve Request
+                  </button>
+                )}
+                {inspectLeave.status === 'Approved' && canApprove && (
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={() => {
+                      setRejectModalTarget(inspectLeave);
+                      setRejectComment('Decision revoked by HR/CEO');
+                      setInspectLeave(null);
+                    }}
+                    style={{ borderRadius: '8px', padding: '6px 14px', fontWeight: 700 }}
+                  >
+                    ✕ Revoke Approval
+                  </button>
+                )}
+              </div>
               <button 
                 className="btn btn-secondary btn-sm"
                 onClick={() => setInspectLeave(null)}
