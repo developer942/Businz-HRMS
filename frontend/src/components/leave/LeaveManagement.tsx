@@ -123,6 +123,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   const [showModal, setShowModal] = useState<boolean>(openApplyModal || false);
   const [inspectLeave, setInspectLeave] = useState<LeaveRequest | null>(null);
   const [overrideLeave, setOverrideLeave] = useState<LeaveRequest | null>(null);
+  const [rejectModalTarget, setRejectModalTarget] = useState<LeaveRequest | null>(null);
+  const [rejectComment, setRejectComment] = useState<string>('');
 
   // Role-based data scoping for leave applications
   const roleScopedLeaves = isEmployeeRole
@@ -397,9 +399,11 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       sandwichDays: l.sandwichDays ?? 0,
       status: l.status,
       appliedDate: formatDateDDMMYYYY(l.appliedDate) || '-',
-      approvedBy: l.approvedBy || '-',
-      approvedAt: formatReviewDateTime(l.approvedAt) || '-',
-      reason: l.reason || '-'
+      approvedBy: l.status === 'Pending'
+        ? 'Pending Review'
+        : `${l.status === 'Approved' ? 'Approved by' : 'Rejected by'} ${l.approvedBy || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}`,
+      approvedAt: formatReviewDateTime(l.approvedAt) || (l.appliedDate ? formatDateDDMMYYYY(l.appliedDate) : '-'),
+      reason: l.comment ? `${l.reason || ''} [Rejection Note: ${l.comment}]` : (l.reason || '-')
     }));
 
     return { columns, data };
@@ -711,15 +715,59 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {l.status === 'Pending' ? (
-                          <span style={{ color: '#94A3B8', fontSize: '0.78rem', fontWeight: 600 }}>Awaiting review</span>
+                          <span style={{ 
+                            color: '#D97706', 
+                            backgroundColor: '#FEF3C7', 
+                            padding: '3px 8px', 
+                            borderRadius: '6px', 
+                            fontSize: '0.74rem', 
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            ⏳ Awaiting review
+                          </span>
                         ) : (
                           <div>
-                            <div style={{ fontSize: '0.82rem', color: '#0F172A', fontWeight: 800 }}>
-                              {l.approvedBy || 'Authorized Reviewer'}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '3px' }}>
+                              <span style={{
+                                fontSize: '0.68rem',
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                padding: '2px 7px',
+                                borderRadius: '4px',
+                                backgroundColor: l.status === 'Approved' ? '#DCFCE7' : '#FEE2E2',
+                                color: l.status === 'Approved' ? '#166534' : '#DC2626',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}>
+                                {l.status === 'Approved' ? '✓ Approved by' : '✕ Rejected by'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.84rem', color: '#0F172A', fontWeight: 800 }}>
+                              {l.approvedBy || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}
                             </div>
                             <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, marginTop: '2px' }}>
-                              {formatReviewDateTime(l.approvedAt) || '-'}
+                              {formatReviewDateTime(l.approvedAt) || (l.appliedDate ? formatDateDDMMYYYY(l.appliedDate) : '-')}
                             </div>
+                            {l.comment && (
+                              <div style={{ 
+                                fontSize: '0.72rem', 
+                                color: '#DC2626', 
+                                backgroundColor: '#FFF5F5',
+                                border: '1px solid #FED7D7',
+                                borderRadius: '4px',
+                                padding: '3px 7px',
+                                marginTop: '4px', 
+                                maxWidth: '240px', 
+                                whiteSpace: 'normal',
+                                lineHeight: '1.25'
+                              }}>
+                                <strong>Reason:</strong> {l.comment}
+                              </div>
+                            )}
                           </div>
                         )}
                       </td>
@@ -743,7 +791,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               </button>
                               <button 
                                 className="btn btn-danger btn-sm"
-                                onClick={() => rejectLeave(l.id, reviewerName)}
+                                onClick={() => {
+                                  setRejectModalTarget(l);
+                                  setRejectComment('');
+                                }}
                                 style={{ padding: '6px 14px', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(239,68,68,0.2)' }}
                               >
                                 Reject
@@ -808,6 +859,88 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           ) : undefined
         }
       />
+
+      {/* Rejection Reason Modal */}
+      {rejectModalTarget && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '480px', width: '92%', borderRadius: '18px', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '10px', marginBottom: '8px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#DC2626', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>✕</span> Reject Leave Request
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
+                  Please confirm rejection for <strong>{rejectModalTarget.employeeName}</strong> ({rejectModalTarget.employeeId})
+                </p>
+              </div>
+              <button 
+                onClick={() => setRejectModalTarget(null)}
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '8px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #E2E8F0',
+                  color: '#64748B',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="modal-body" style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '10px', border: '1px solid #E2E8F0', fontSize: '0.82rem' }}>
+                <div><strong>Leave Type:</strong> {rejectModalTarget.leaveType} ({rejectModalTarget.daysCount} days)</div>
+                <div style={{ marginTop: '3px' }}><strong>Duration:</strong> {formatDateDDMMYYYY(rejectModalTarget.startDate)} to {formatDateDDMMYYYY(rejectModalTarget.endDate)}</div>
+                {rejectModalTarget.reason && <div style={{ marginTop: '3px' }}><strong>Applicant Reason:</strong> {rejectModalTarget.reason}</div>}
+                <div style={{ marginTop: '6px', color: '#0E7490', fontWeight: 700 }}>
+                  <strong>Reviewer:</strong> {reviewerName}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Rejection Reason / Remarks (Optional)
+                </label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  value={rejectComment}
+                  onChange={e => setRejectComment(e.target.value)}
+                  placeholder="e.g. Critical project deadline / Insufficient leave balance / Reschedule required"
+                  style={{ borderRadius: '10px', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setRejectModalTarget(null)}
+                  style={{ borderRadius: '10px', padding: '8px 16px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => {
+                    rejectLeave(rejectModalTarget.id, reviewerName, rejectComment.trim() || undefined);
+                    setRejectModalTarget(null);
+                  }}
+                  style={{ borderRadius: '10px', padding: '8px 20px', fontWeight: 700 }}
+                >
+                  Confirm Rejection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ======================================================== */}
       {/* 1. APPLY LEAVE MODAL WITH REAL-TIME SANDWICH PREVIEW */}

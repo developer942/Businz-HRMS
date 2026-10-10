@@ -769,14 +769,14 @@ export const AttendanceHub: React.FC = () => {
                           <button 
                             className="btn btn-primary btn-sm"
                             style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#16a34a' }}
-                            onClick={() => approveLeave(l.id, currentUser.name)}
+                            onClick={() => approveLeave(l.id, `${currentUser.name} (${currentUser.role})`)}
                           >
                             Approve
                           </button>
                           <button 
                             className="btn btn-secondary btn-sm"
                             style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#ef4444' }}
-                            onClick={() => rejectLeave(l.id, currentUser.name, 'Rejected by CEO')}
+                            onClick={() => rejectLeave(l.id, `${currentUser.name} (${currentUser.role})`, 'Rejected by Reviewer')}
                           >
                             Reject
                           </button>

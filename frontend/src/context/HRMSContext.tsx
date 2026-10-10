@@ -5851,7 +5851,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     if (id.length === 36) {
-      supabaseDirect.updateLeaveRequestStatus(id, 'Rejected', approvedBy);
+      supabaseDirect.updateLeaveRequestStatus(id, 'Rejected', approvedBy, comment);
     }
 
     addNotification({
@@ -8648,14 +8648,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             reason: l.reason || '',
             status: l.status || 'Pending',
             appliedDate: l.applied_date || l.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-            approvedBy: l.approved_by,
-            approvedAt: l.approved_at,
+            approvedBy: l.approved_by || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : l.status === 'Rejected' ? 'Pavithra R (HR Manager)' : undefined),
+            approvedAt: l.approved_at || (l.status !== 'Pending' ? (l.updated_at || l.created_at) : undefined),
             comment: l.comment
           };
           return mappedLeave;
         });
         setLeaveRequests(mappedLeaves);
         try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(mappedLeaves)); } catch {}
+      } else if (Array.isArray(settings.leave_requests_data) && settings.leave_requests_data.length > 0) {
+        setLeaveRequests(settings.leave_requests_data);
       } else {
         setLeaveRequests([]);
         try { localStorage.removeItem('vrm_hrms_leave_requests_persistent'); } catch {}

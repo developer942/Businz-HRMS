@@ -1078,7 +1078,7 @@ export const Dashboard: React.FC = () => {
                           <button 
                             className="btn btn-success btn-sm" 
                             style={{ width: '28px', height: '24px', minWidth: '28px', padding: 0, borderRadius: '6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={() => approveLeave(l.id, currentUser.name)}
+                            onClick={() => approveLeave(l.id, `${currentUser.name} (${currentUser.role})`)}
                             title="Approve"
                             aria-label="Approve"
                           >
@@ -1087,7 +1087,7 @@ export const Dashboard: React.FC = () => {
                           <button 
                             className="btn btn-danger btn-sm" 
                             style={{ width: '28px', height: '24px', minWidth: '28px', padding: 0, borderRadius: '6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={() => rejectLeave(l.id, currentUser.name)}
+                            onClick={() => rejectLeave(l.id, `${currentUser.name} (${currentUser.role})`)}
                             title="Reject"
                             aria-label="Reject"
                           >

@@ -864,7 +864,7 @@ export const supabaseDirect = {
     }
   },
 
-  async updateLeaveRequestStatus(id: string, status: string, approvedBy?: string): Promise<boolean> {
+  async updateLeaveRequestStatus(id: string, status: string, approvedBy?: string, comment?: string): Promise<boolean> {
     try {
       // Map to PostgreSQL enum hr_request_status: ['Pending', 'Approved', 'Rejected']
       let normStatus = 'Pending';
@@ -877,6 +877,7 @@ export const supabaseDirect = {
         updated_at: new Date().toISOString(),
       };
       if (approvedBy) body.approved_by = approvedBy;
+      if (comment !== undefined) body.comment = comment;
 
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
