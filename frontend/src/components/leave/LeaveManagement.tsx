@@ -216,9 +216,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   const [pageSize, setPageSize] = useState<number>(10);
 
   const paginatedLeaves = useMemo(() => {
+    if (isEmployeeRole) return displayedLeaves;
     const startIndex = (currentPage - 1) * pageSize;
     return displayedLeaves.slice(startIndex, startIndex + pageSize);
-  }, [displayedLeaves, currentPage, pageSize]);
+  }, [displayedLeaves, currentPage, pageSize, isEmployeeRole]);
 
   const [form, setForm] = useState({
     employeeId: currentEmployeeId,
@@ -540,15 +541,17 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           <table className="hrms-table" style={{ width: '100%', minWidth: '980px', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={paginatedLeaves.length > 0 && paginatedLeaves.every(l => selectedLeaveIds.includes(l.id))}
-                    onChange={handleToggleSelectAll}
-                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                    aria-label="Select all applications"
-                  />
-                </th>
+                {!isEmployeeRole && (
+                  <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={paginatedLeaves.length > 0 && paginatedLeaves.every(l => selectedLeaveIds.includes(l.id))}
+                      onChange={handleToggleSelectAll}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                      aria-label="Select all applications"
+                    />
+                  </th>
+                )}
                 <th style={{ whiteSpace: 'nowrap', minWidth: '150px' }}>Applicant</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '140px' }}>Department & Type</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Duration</th>
@@ -570,7 +573,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
             <tbody>
               {paginatedLeaves.length === 0 ? (
                 <tr>
-                  <td colSpan={isEmployeeRole ? 7 : 8} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
+                  <td colSpan={isEmployeeRole ? 6 : 8} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
                     No applications found matching the selected filter.
                   </td>
                 </tr>
@@ -595,15 +598,17 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         cursor: isEmployeeRole ? 'pointer' : undefined
                       }}
                     >
-                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleLeave(l.id)}
-                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                          aria-label={`Select application for ${l.employeeName}`}
-                        />
-                      </td>
+                      {!isEmployeeRole && (
+                        <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleLeave(l.id)}
+                            style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                            aria-label={`Select application for ${l.employeeName}`}
+                          />
+                        </td>
+                      )}
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ fontWeight: 800, color: '#0F172A', fontSize: '0.9rem' }}>{l.employeeName}</div>
                         <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>{l.employeeId}</div>
@@ -944,52 +949,56 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           </table>
         </div>
 
-        {/* Standard Pagination Footer strictly [5, 10] */}
-        <StandardTablePagination
-          currentPage={currentPage}
-          totalEntries={displayedLeaves.length}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={size => {
-            setPageSize(size);
-            setCurrentPage(1);
-          }}
-          pageSizeOptions={[5, 10]}
-        />
+        {/* Standard Pagination Footer strictly [5, 10] - hidden in employee page view */}
+        {!isEmployeeRole && (
+          <StandardTablePagination
+            currentPage={currentPage}
+            totalEntries={displayedLeaves.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={size => {
+              setPageSize(size);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[5, 10]}
+          />
+        )}
       </div>
 
       {/* Floating Action Bar per AGENTS.md */}
-      <StandardFloatingActionBar
-        selectedCount={selectedLeaveIds.length}
-        onClearSelection={() => setSelectedLeaveIds([])}
-        customActions={
-          canApprove ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                type="button"
-                className="action-bar-btn"
-                onClick={() => {
-                  selectedLeaveIds.forEach(id => approveLeave(id, reviewerName));
-                  setSelectedLeaveIds([]);
-                }}
-                style={{ color: '#86EFAC' }}
-              >
-                ✓ Approve ({selectedLeaveIds.length})
-              </button>
-              <button
-                type="button"
-                className="action-bar-btn danger"
-                onClick={() => {
-                  selectedLeaveIds.forEach(id => rejectLeave(id, reviewerName));
-                  setSelectedLeaveIds([]);
-                }}
-              >
-                ✕ Reject ({selectedLeaveIds.length})
-              </button>
-            </div>
-          ) : undefined
-        }
-      />
+      {!isEmployeeRole && (
+        <StandardFloatingActionBar
+          selectedCount={selectedLeaveIds.length}
+          onClearSelection={() => setSelectedLeaveIds([])}
+          customActions={
+            canApprove ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="action-bar-btn"
+                  onClick={() => {
+                    selectedLeaveIds.forEach(id => approveLeave(id, reviewerName));
+                    setSelectedLeaveIds([]);
+                  }}
+                  style={{ color: '#86EFAC' }}
+                >
+                  ✓ Approve ({selectedLeaveIds.length})
+                </button>
+                <button
+                  type="button"
+                  className="action-bar-btn danger"
+                  onClick={() => {
+                    selectedLeaveIds.forEach(id => rejectLeave(id, reviewerName));
+                    setSelectedLeaveIds([]);
+                  }}
+                >
+                  ✕ Reject ({selectedLeaveIds.length})
+                </button>
+              </div>
+            ) : undefined
+          }
+        />
+      )}
 
       {/* Rejection Reason Modal */}
       {rejectModalTarget && (

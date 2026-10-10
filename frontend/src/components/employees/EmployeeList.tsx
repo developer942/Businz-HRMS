@@ -487,15 +487,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
         <table className="hrms-table" style={{ width: '100%', minWidth: '1000px' }}>
           <thead>
             <tr>
-              <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={filteredEmployees.length > 0 && filteredEmployees.every(e => selectedEmpIds.includes(e.id))}
-                  onChange={handleToggleSelectAll}
-                  style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                  aria-label="Select all employees"
-                />
-              </th>
+              {isCEO && (
+                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={filteredEmployees.length > 0 && filteredEmployees.every(e => selectedEmpIds.includes(e.id))}
+                    onChange={handleToggleSelectAll}
+                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                    aria-label="Select all employees"
+                  />
+                </th>
+              )}
               <th>Employee</th>
               <th>Department</th>
               <th>Designation</th>
@@ -509,7 +511,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
           <tbody>
             {filteredEmployees.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                <td colSpan={isCEO ? 9 : 8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                   No employees matched your criteria.
                 </td>
               </tr>
@@ -526,15 +528,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                       transition: 'background-color 0.15s ease'
                     }}
                   >
-                    <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleToggleEmp(emp.id)}
-                        style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                        aria-label={`Select employee ${emp.firstName}`}
-                      />
-                    </td>
+                    {isCEO && (
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleEmp(emp.id)}
+                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                          aria-label={`Select employee ${emp.firstName}`}
+                        />
+                      </td>
+                    )}
                     <td>
                       <div className="user-cell">
                         {emp.avatar ? (
@@ -690,38 +694,40 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
       </div>
 
       {/* Floating Action Bar per AGENTS.md */}
-      <StandardFloatingActionBar
-        selectedCount={selectedEmpIds.length}
-        onClearSelection={() => setSelectedEmpIds([])}
-        onEdit={selectedEmpIds.length === 1 ? () => {
-          const emp = filteredEmployees.find(e => e.id === selectedEmpIds[0]);
-          if (emp) setActiveProfileEmp(emp);
-        } : undefined}
-        onDelete={() => {
-          if (selectedEmpIds.length > 0) {
-            const emps = filteredEmployees.filter(e => selectedEmpIds.includes(e.id));
-            setDeleteTargetEmps(emps);
+      {isCEO && (
+        <StandardFloatingActionBar
+          selectedCount={selectedEmpIds.length}
+          onClearSelection={() => setSelectedEmpIds([])}
+          onEdit={selectedEmpIds.length === 1 ? () => {
+            const emp = filteredEmployees.find(e => e.id === selectedEmpIds[0]);
+            if (emp) setActiveProfileEmp(emp);
+          } : undefined}
+          onDelete={() => {
+            if (selectedEmpIds.length > 0) {
+              const emps = filteredEmployees.filter(e => selectedEmpIds.includes(e.id));
+              setDeleteTargetEmps(emps);
+            }
+          }}
+          customActions={
+            selectedEmpIds.length === 1 ? (
+              <button
+                type="button"
+                className="action-bar-btn"
+                onClick={() => {
+                  const emp = filteredEmployees.find(e => e.id === selectedEmpIds[0]);
+                  if (emp) {
+                    setOfferLetterEmp(emp);
+                    setShowOfferLetterModal(true);
+                  }
+                }}
+              >
+                <FileText size={14} />
+                <span>Offer Letter</span>
+              </button>
+            ) : undefined
           }
-        }}
-        customActions={
-          isCEO && selectedEmpIds.length === 1 ? (
-            <button
-              type="button"
-              className="action-bar-btn"
-              onClick={() => {
-                const emp = filteredEmployees.find(e => e.id === selectedEmpIds[0]);
-                if (emp) {
-                  setOfferLetterEmp(emp);
-                  setShowOfferLetterModal(true);
-                }
-              }}
-            >
-              <FileText size={14} />
-              <span>Offer Letter</span>
-            </button>
-          ) : undefined
-        }
-      />
+        />
+      )}
 
       {/* Add Employee Modal */}
       {isAddModalOpen && (
