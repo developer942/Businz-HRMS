@@ -1044,32 +1044,35 @@ export const Dashboard: React.FC = () => {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {pendingLeaves.map((l, idx) => (
-                    <div key={`${l.id}-${idx}`} style={{
-                      padding: '10px 12px',
-                      borderRadius: '10px',
-                      backgroundColor: '#F8FAFC',
-                      border: '1px solid #E2E8F0',
-                      transition: 'all 0.15s ease'
-                    }}>
+                    <div 
+                      key={`${l.id}-${idx}`} 
+                      onClick={() => setActiveModule('leaves')}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        backgroundColor: '#F8FAFC',
+                        border: '1px solid #E2E8F0',
+                        transition: 'all 0.15s ease',
+                        cursor: 'pointer'
+                      }}
+                      title="Click to open in Leave Management"
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#F1F5F9')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#F8FAFC')}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                         <span 
                           style={{ 
                             fontWeight: 700, 
                             fontSize: '0.86rem', 
-                            color: '#0E7490', 
-                            cursor: 'pointer'
+                            color: '#0E7490'
                           }}
-                          onClick={() => setProfileModalEmployee(getEmployeeForLeave(l))}
-                          title="Click to view profile"
                         >
                           {l.employeeName}
                         </span>
                         <span className="status-pill pending" style={{ fontSize: '0.68rem', padding: '1px 7px', border: 'none' }}>{l.leaveType}</span>
                       </div>
                       <p 
-                        style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 6px 0', cursor: 'pointer' }}
-                        onClick={() => setProfileModalEmployee(getEmployeeForLeave(l))}
-                        title="Click to view full leave history"
+                        style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 6px 0' }}
                       >
                         {formatDateDDMMYYYY(l.startDate)} to {formatDateDDMMYYYY(l.endDate)} ({l.daysCount} {l.daysCount === 1 ? 'day' : 'days'})
                       </p>
@@ -1078,7 +1081,10 @@ export const Dashboard: React.FC = () => {
                           <button 
                             className="btn btn-success btn-sm" 
                             style={{ width: '28px', height: '24px', minWidth: '28px', padding: 0, borderRadius: '6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={() => approveLeave(l.id, `${currentUser.name} (${currentUser.role})`)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              approveLeave(l.id, `${currentUser.name} (${currentUser.role})`);
+                            }}
                             title="Approve"
                             aria-label="Approve"
                           >
@@ -1087,7 +1093,10 @@ export const Dashboard: React.FC = () => {
                           <button 
                             className="btn btn-danger btn-sm" 
                             style={{ width: '28px', height: '24px', minWidth: '28px', padding: 0, borderRadius: '6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={() => rejectLeave(l.id, `${currentUser.name} (${currentUser.role})`)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              rejectLeave(l.id, `${currentUser.name} (${currentUser.role})`);
+                            }}
                             title="Reject"
                             aria-label="Reject"
                           >
