@@ -8794,12 +8794,32 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Synchronize Payroll Records
       if (Array.isArray(rawPayroll) && rawPayroll.length > 0) {
         const savedPayrollRows = Array.isArray(settings.payroll_records_data) ? settings.payroll_records_data : [];
+        const MONTH_NAMES = [
+          'January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+
         const mappedRecords: PayrollRecord[] = rawPayroll.map((p: any) => {
           const employeeId = p.employee?.employee_id || p.employee_id;
-          const year = Number(p.payroll_month ? String(p.payroll_month).slice(0, 4) : 2026);
+          const rawMonthStr = String(p.payroll_month || '');
+          let year = 2026;
+          let monthName = 'October';
+
+          if (rawMonthStr) {
+            const parts = rawMonthStr.split('-');
+            if (parts.length >= 2) {
+              year = Number(parts[0]) || 2026;
+              const mIdx = Number(parts[1]) - 1;
+              if (mIdx >= 0 && mIdx < 12) {
+                monthName = MONTH_NAMES[mIdx];
+              }
+            }
+          }
+
           const saved = savedPayrollRows.find((row: PayrollRecord) => (
-            row.employeeId === employeeId &&
-            (row.month === p.payroll_month || String(row.year) === String(year))
+            (row.employeeId === employeeId || row.id === p.id) &&
+            row.month?.toLowerCase() === monthName.toLowerCase() &&
+            Number(row.year) === year
           ));
           const employeeForScheme = employees.find(e => e.employeeId === employeeId || e.id === employeeId);
           const withPf = saved?.withPf ?? resolveEmployeeWithPf(employeeForScheme || {
@@ -8827,7 +8847,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             employeeName: p.employee ? `${p.employee.first_name || ''} ${p.employee.last_name || ''}`.trim() : 'Staff',
             department: resolvedDept,
             designation: p.employee?.designation || saved?.designation || 'Staff',
-            month: saved?.month || p.payroll_month,
+            month: monthName,
             year,
             basicSalary: Number(p.basic_salary) || saved?.basicSalary || 0,
             allowances: Number(p.allowances) || saved?.allowances || 0,
@@ -8858,9 +8878,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             status: p.status || saved?.status || 'Processed',
           };
         });
-        setPayrollRecords(mappedRecords);
+
+        // Strict deduplication by (employeeId, month, year)
+        const dedupedMap = new Map<string, PayrollRecord>();
+        for (const rec of mappedRecords) {
+          const key = `${rec.employeeId}_${rec.month}_${rec.year}`;
+          if (!dedupedMap.has(key)) {
+            dedupedMap.set(key, rec);
+          } else {
+            const existing = dedupedMap.get(key)!;
+            if ((Number(rec.netSalary) > 0 && Number(existing.netSalary) === 0) || String(rec.id) > String(existing.id)) {
+              dedupedMap.set(key, rec);
+            }
+          }
+        }
+        setPayrollRecords(Array.from(dedupedMap.values()));
       } else if (Array.isArray(settings.payroll_records_data) && settings.payroll_records_data.length > 0) {
-        setPayrollRecords(settings.payroll_records_data);
+        const dedupedMap = new Map<string, PayrollRecord>();
+        for (const rec of settings.payroll_records_data) {
+          const key = `${rec.employeeId}_${rec.month}_${rec.year}`;
+          if (!dedupedMap.has(key)) {
+            dedupedMap.set(key, rec);
+          }
+        }
+        setPayrollRecords(Array.from(dedupedMap.values()));
       } else {
         setPayrollRecords([]);
       }

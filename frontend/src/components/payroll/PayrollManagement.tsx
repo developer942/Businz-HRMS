@@ -90,13 +90,77 @@ export const PayrollManagement: React.FC = () => {
   const canMarkPaid = isAccountsUser;
 
   const myEmployeeId = (currentUser.employeeId || '').trim().toLowerCase();
-  const visibleRecords = canViewAllPayroll
-    ? payrollRecords
-    : payrollRecords.filter(p => {
-        const recEmpId = (p.employeeId || '').trim().toLowerCase();
-        if (myEmployeeId) return recEmpId === myEmployeeId;
-        return (p.employeeName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
+  const currentMonthInfo = useMemo(() => getMonthInfo(), []);
+
+  // Compute all available batches sorted by date
+  const availableBatches = useMemo(() => {
+    const batchMap = new Map<string, { month: string; year: number; label: string }>();
+    payrollRecords.forEach(r => {
+      if (r.month && r.year) {
+        const key = `${r.month} ${r.year}`;
+        if (!batchMap.has(key)) {
+          batchMap.set(key, { month: r.month, year: Number(r.year), label: key });
+        }
+      }
+    });
+    // Ensure current month is always present
+    const currKey = `${currentMonthInfo.monthLong} ${currentMonthInfo.year}`;
+    if (!batchMap.has(currKey)) {
+      batchMap.set(currKey, { month: currentMonthInfo.monthLong, year: currentMonthInfo.year, label: currKey });
+    }
+    return Array.from(batchMap.values());
+  }, [payrollRecords, currentMonthInfo]);
+
+  const [selectedBatch, setSelectedBatch] = useState<string>(() => `${currentMonthInfo.monthLong} ${currentMonthInfo.year}`);
+
+  const activeBatch = useMemo(() => {
+    const match = availableBatches.find(b => b.label === selectedBatch);
+    if (match) return match;
+    const currKey = `${currentMonthInfo.monthLong} ${currentMonthInfo.year}`;
+    const currMatch = availableBatches.find(b => b.label === currKey);
+    if (currMatch) return currMatch;
+    return availableBatches[0] || { month: currentMonthInfo.monthLong, year: currentMonthInfo.year, label: currKey };
+  }, [selectedBatch, availableBatches, currentMonthInfo]);
+
+  const activeMonthName = activeBatch.month;
+  const activeYear = activeBatch.year;
+
+  const visibleRecords = useMemo(() => {
+    // 1. Role-based visibility
+    let records = canViewAllPayroll
+      ? payrollRecords
+      : payrollRecords.filter(p => {
+          const recEmpId = (p.employeeId || '').trim().toLowerCase();
+          if (myEmployeeId) return recEmpId === myEmployeeId;
+          return (p.employeeName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
+        });
+
+    // 2. Filter to active batch month and year for full payroll view
+    if (canViewAllPayroll && activeBatch) {
+      records = records.filter(p => {
+        const m = (p.month || '').trim().toLowerCase();
+        const y = Number(p.year);
+        return m === activeBatch.month.toLowerCase() && (!y || y === activeBatch.year);
       });
+    }
+
+    // 3. STRICT DEDUPLICATION: within this batch, ensure each employee appears only ONCE!
+    const dedupedMap = new Map<string, PayrollRecord>();
+    for (const p of records) {
+      const empKey = (p.employeeId || p.id).trim().toLowerCase();
+      if (!dedupedMap.has(empKey)) {
+        dedupedMap.set(empKey, p);
+      } else {
+        const existing = dedupedMap.get(empKey)!;
+        // Keep the one with non-zero net salary or newer id
+        if ((toNum(p.netSalary) > 0 && toNum(existing.netSalary) === 0) || String(p.id) > String(existing.id)) {
+          dedupedMap.set(empKey, p);
+        }
+      }
+    }
+
+    return Array.from(dedupedMap.values());
+  }, [payrollRecords, canViewAllPayroll, myEmployeeId, currentUser.name, activeBatch]);
 
   const unpaidVisibleIds = visibleRecords.filter(p => p.status !== 'Paid').map(p => p.id);
   const selectedUnpaidIds = selectedPayslipIds.filter(id => unpaidVisibleIds.includes(id));
@@ -108,9 +172,6 @@ export const PayrollManagement: React.FC = () => {
   };
 
   const totalEntries = visibleRecords.length;
-  const currentMonthInfo = useMemo(() => getMonthInfo(), []);
-  const activeMonthName = visibleRecords[0]?.month || currentMonthInfo.monthLong;
-  const activeYear = visibleRecords[0]?.year || currentMonthInfo.year;
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedRecords = visibleRecords.slice(startIndex, startIndex + pageSize);
 
@@ -418,7 +479,7 @@ export const PayrollManagement: React.FC = () => {
       { key: 'status', label: 'Status' }
     ];
 
-    const data = payrollRecords.map(p => {
+    const data = visibleRecords.map(p => {
       const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
       const rowData: Record<string, any> = {
         employeeId: p.employeeId,
@@ -575,13 +636,41 @@ export const PayrollManagement: React.FC = () => {
       {/* Payroll Records Table */}
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h3 className="card-title" style={{ margin: 0 }}>
-              {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
-            </h3>
-            <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
-              {salaryFormulaText}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 className="card-title" style={{ margin: 0 }}>
+                {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
+              </h3>
+              <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                {salaryFormulaText}
+              </span>
+            </div>
+            {canViewAllPayroll && availableBatches.length > 1 && (
+              <select
+                value={selectedBatch}
+                onChange={e => {
+                  setSelectedBatch(e.target.value);
+                  setCurrentPage(1);
+                  setSelectedPayslipIds([]);
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#0E7490',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+                aria-label="Select Salary Batch Month"
+              >
+                {availableBatches.map(b => (
+                  <option key={b.label} value={b.label}>{b.label}</option>
+                ))}
+              </select>
+            )}
           </div>
           {canViewAllPayroll && (
             <ExportDropdown 
