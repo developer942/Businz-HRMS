@@ -804,8 +804,32 @@ ${documentProfile.phone || ''}`;
                 {/* Two Column Signatures */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '32px' }}>
+                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '8px' }}>
                       For {companyLegal}
+                    </div>
+                    <div style={{ minHeight: '80px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '14px', marginBottom: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', minHeight: '36px' }}>
+                        {documentProfile.signatureImageUrl ? (
+                          <img
+                            src={documentProfile.signatureImageUrl}
+                            alt="Authorized signature"
+                            style={{ width: 'auto', height: 'auto', maxHeight: '56px', maxWidth: '140px', objectFit: 'contain' }}
+                            onError={event => { event.currentTarget.style.display = 'none'; }}
+                          />
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: '0.74rem', fontStyle: 'italic', paddingBottom: '4px' }}>Authorized Signature</span>
+                        )}
+                      </div>
+                      {documentProfile.stampImageUrl && (
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'flex-end', flexShrink: 0 }}>
+                          <img
+                            src={documentProfile.stampImageUrl}
+                            alt="Company stamp"
+                            style={{ width: 'auto', height: 'auto', maxHeight: '92px', maxWidth: '115px', objectFit: 'contain' }}
+                            onError={event => { event.currentTarget.style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
                     </div>
                     <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '8px', fontSize: '0.8rem' }}>
                       <div style={{ fontWeight: 800, color: '#0f172a' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>

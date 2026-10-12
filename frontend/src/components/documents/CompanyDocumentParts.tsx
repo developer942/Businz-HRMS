@@ -307,30 +307,34 @@ export const NetPaySection: React.FC<{ netPay: number }> = ({ netPay }) => (
 );
 
 export const AuthorizedSignatory: React.FC<{ profile: CompanyDocumentProfile; showStamp?: boolean }> = ({ profile, showStamp = true }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', marginTop: '34px', pageBreakInside: 'avoid' }}>
-    <div style={{ minWidth: '220px' }}>
-      <div style={{ height: '62px', display: 'flex', alignItems: 'flex-end', gap: '14px' }}>
-        {profile.signatureImageUrl ? (
-          <img
-            src={profile.signatureImageUrl}
-            alt="Authorized signature"
-            style={{ width: 'auto', height: 'auto', maxHeight: '54px', maxWidth: '170px', objectFit: 'contain' }}
-            onError={event => { event.currentTarget.style.display = 'none'; }}
-          />
-        ) : (
-          <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Signature</span>
-        )}
+  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '18px', marginTop: '34px', pageBreakInside: 'avoid' }}>
+    <div style={{ minWidth: '280px', maxWidth: '340px' }}>
+      <div style={{ minHeight: '96px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px', paddingBottom: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', minHeight: '40px', flex: 1 }}>
+          {profile.signatureImageUrl ? (
+            <img
+              src={profile.signatureImageUrl}
+              alt="Authorized signature"
+              style={{ width: 'auto', height: 'auto', maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }}
+              onError={event => { event.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', paddingBottom: '4px' }}>Authorized Signature</span>
+          )}
+        </div>
         {showStamp && profile.stampImageUrl && (
-          <img
-            src={profile.stampImageUrl}
-            alt="Company stamp"
-            style={{ width: 'auto', height: 'auto', maxHeight: '54px', maxWidth: '96px', objectFit: 'contain' }}
-            onError={event => { event.currentTarget.style.display = 'none'; }}
-          />
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'flex-end', flexShrink: 0 }}>
+            <img
+              src={profile.stampImageUrl}
+              alt="Company stamp"
+              style={{ width: 'auto', height: 'auto', maxHeight: '96px', maxWidth: '120px', objectFit: 'contain' }}
+              onError={event => { event.currentTarget.style.display = 'none'; }}
+            />
+          </div>
         )}
       </div>
-      <div style={{ borderTop: '1px solid #334155', paddingTop: '6px', fontSize: '0.8rem' }}>
-        <div style={{ fontWeight: 800, color: '#0f172a' }}>{profile.authorizedSignatoryName}</div>
+      <div style={{ borderTop: '1.5px solid #334155', paddingTop: '6px', fontSize: '0.8rem' }}>
+        <div style={{ fontWeight: 800, color: '#0f172a' }}>{profile.authorizedSignatoryName || 'Authorized Signatory'}</div>
         <div style={{ color: '#64748b' }}>{profile.authorizedSignatoryDesignation}</div>
         <div style={{ color: '#64748b', fontSize: '0.72rem' }}>{profile.companyName}</div>
       </div>
