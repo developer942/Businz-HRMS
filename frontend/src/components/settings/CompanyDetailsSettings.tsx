@@ -407,6 +407,8 @@ export const CompanyDetailsSettings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'info' | 'branches' | 'org'>('info');
 
   // Edit states for Company Info
+  const lastSavedAtRef = React.useRef<string>('');
+
   const [infoForm, setInfoForm] = useState<CompanyInfo>(() => {
     let base = companyInfo;
     if (!base || (!base.companyName && !base.companyCode)) {
@@ -443,13 +445,15 @@ export const CompanyDetailsSettings: React.FC = () => {
 
   useEffect(() => {
     if (companyInfo && !isInfoDirty && !isSavingInfo) {
-      const parsedPhone = parsePhoneWithCountryCode(companyInfo.officialPhone);
-      setOfficialPhoneCountryCode(parsedPhone.countryCode);
-      setInfoForm({
-        ...companyInfo,
-        companyCode: companyInfo.companyCode || '',
-        officialPhone: parsedPhone.localNumber
-      });
+      if (!lastSavedAtRef.current || companyInfo.updatedAt !== lastSavedAtRef.current) {
+        const parsedPhone = parsePhoneWithCountryCode(companyInfo.officialPhone);
+        setOfficialPhoneCountryCode(parsedPhone.countryCode);
+        setInfoForm({
+          ...companyInfo,
+          companyCode: companyInfo.companyCode || '',
+          officialPhone: parsedPhone.localNumber
+        });
+      }
     }
   }, [companyInfo, isInfoDirty, isSavingInfo]);
 
@@ -583,12 +587,22 @@ export const CompanyDetailsSettings: React.FC = () => {
     setSaveSuccessState('saving');
 
     try {
-      updateCompanyInfo(normalized);
-      // Immediately cache in localStorage for instant retrieval across refreshes
+      const saved = await updateCompanyInfo(normalized);
+      lastSavedAtRef.current = saved.updatedAt || new Date().toISOString();
+
       try {
-        localStorage.setItem('vrm_hrms_company_info', JSON.stringify(normalized));
-        localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(normalized));
+        localStorage.setItem('vrm_hrms_company_info', JSON.stringify(saved));
+        localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(saved));
       } catch {}
+
+      const parsedPhone = parsePhoneWithCountryCode(saved.officialPhone);
+      setOfficialPhoneCountryCode(parsedPhone.countryCode);
+      setInfoForm({
+        ...saved,
+        companyCode: saved.companyCode || '',
+        officialPhone: parsedPhone.localNumber
+      });
+
       setIsInfoDirty(false);
       setSaveSuccessState('saved');
       setInfoSavedSuccess(true);
@@ -821,20 +835,19 @@ export const CompanyDetailsSettings: React.FC = () => {
   };
 
   const handleCompanyNameChange = (val: string) => {
-    const cleaned = cleanCompanyText(val);
     setIsInfoDirty(true);
     setInfoForm(prev => {
-      const words = cleaned.trim().split(/\s+/).filter(Boolean);
+      const words = val.trim().split(/\s+/).filter(Boolean);
       let suggested = '';
       if (words.length > 1) {
         suggested = words.map(w => w[0]).join('').slice(0, 4).toUpperCase();
       } else if (words.length === 1) {
         suggested = words[0].slice(0, 4).toUpperCase();
       }
-      const shouldAuto = !prev.companyCode || prev.companyCode === 'CMP' || prev.companyCode === 'EMP';
+      const shouldAuto = !prev.companyCode || prev.companyCode === 'CMP' || prev.companyCode === 'EMP' || prev.companyCode === 'VRM';
       return {
         ...prev,
-        companyName: cleaned,
+        companyName: val,
         companyCode: (shouldAuto && suggested) ? suggested : prev.companyCode
       };
     });
@@ -1023,67 +1036,6 @@ export const CompanyDetailsSettings: React.FC = () => {
                 Enter registered legal details, tax identifiers, and official corporate channels
               </p>
             </div>
-
-            {/* Top Quick Action Buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={handleResetChanges}
-                disabled={!isInfoDirty || isSavingInfo}
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: '10px',
-                  border: '1px solid #CBD5E1',
-                  backgroundColor: '#FFFFFF',
-                  color: '#475569',
-                  fontSize: '0.84rem',
-                  fontWeight: 600,
-                  cursor: isInfoDirty ? 'pointer' : 'not-allowed',
-                  opacity: isInfoDirty ? 1 : 0.6
-                }}
-              >
-                Reset
-              </button>
-              <button
-                type="submit"
-                form="company-info-form"
-                disabled={isSavingInfo}
-                style={{
-                  backgroundColor: saveSuccessState === 'saved' ? '#16A34A' : '#0E7490',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '10px',
-                  padding: '9px 20px',
-                  fontSize: '0.86rem',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: isSavingInfo ? 'not-allowed' : 'pointer',
-                  boxShadow: saveSuccessState === 'saved'
-                    ? '0 4px 12px rgba(22, 163, 74, 0.3)'
-                    : '0 4px 12px rgba(14, 116, 144, 0.25)',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {saveSuccessState === 'saving' ? (
-                  <>
-                    <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
-                    Saving...
-                  </>
-                ) : saveSuccessState === 'saved' ? (
-                  <>
-                    <CheckCircle2 size={15} />
-                    Saved Successfully!
-                  </>
-                ) : (
-                  <>
-                    <Save size={15} />
-                    Save Company Details
-                  </>
-                )}
-              </button>
-            </div>
           </div>
 
           <form id="company-info-form" noValidate onSubmit={handleSaveInfo} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
@@ -1114,7 +1066,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     value={infoForm.companyName}
                     onChange={e => handleCompanyNameChange(e.target.value)}
                     style={getInfoInputStyle('companyName')}
-                    placeholder="e.g. Acme Corporation Private Limited"
+                    placeholder="Enter company brand name"
                   />
                   {renderInfoError('companyName')}
                 </div>
@@ -1131,7 +1083,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     value={infoForm.legalCompanyName}
                     onChange={e => setInfoField('legalCompanyName', cleanCompanyText(e.target.value))}
                     style={getInfoInputStyle('legalCompanyName')}
-                    placeholder="e.g. Acme Corporation Pvt. Ltd."
+                    placeholder="Enter legal registered entity name"
                   />
                   {renderInfoError('legalCompanyName')}
                 </div>
@@ -1147,7 +1099,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.companyCode || ''}
                     onChange={e => setInfoField('companyCode', cleanAlphaNumeric(e.target.value, 10))}
-                    placeholder="e.g. ACM, HDFC, SBI, KVB"
+                    placeholder="Enter company code (e.g. ABC)"
                     maxLength={10}
                     style={{
                       ...getInfoInputStyle('companyCode'),
@@ -1170,7 +1122,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <select
                     className="form-control"
                     value={infoForm.companyType}
-                    onChange={e => setInfoForm({ ...infoForm, companyType: e.target.value })}
+                    onChange={e => setInfoField('companyType', e.target.value)}
                   >
                     <option value="">Select company type</option>
                     <option value="Private Limited">Private Limited (Pvt. Ltd.)</option>
@@ -1190,7 +1142,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.industry}
                     onChange={e => setInfoField('industry', cleanCompanyText(e.target.value))}
-                    placeholder="e.g. Information Technology, Manufacturing, Retail"
+                    placeholder="Enter industry sector"
                   />
                 </div>
 
@@ -1207,7 +1159,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     onChange={e => setInfoField('registrationNumber', cleanRocNumber(e.target.value))}
                     style={getInfoInputStyle('registrationNumber')}
                     maxLength={30}
-                    placeholder="e.g. ROC-CHENNAI-150000"
+                    placeholder="Enter ROC registration number (optional)"
                   />
                   {renderInfoError('registrationNumber')}
                 </div>
@@ -1241,7 +1193,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     onChange={e => setInfoField('gstNumber', cleanAlphaNumeric(e.target.value, 15))}
                     style={getInfoInputStyle('gstNumber')}
                     maxLength={15}
-                    placeholder="33ABCDE1234F1Z5"
+                    placeholder="Enter 15-digit GSTIN (optional)"
                   />
                   {renderInfoError('gstNumber')}
                 </div>
@@ -1259,7 +1211,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     onChange={e => setInfoField('panNumber', cleanAlphaNumeric(e.target.value, 10))}
                     style={getInfoInputStyle('panNumber')}
                     maxLength={10}
-                    placeholder="ABCDE1234F"
+                    placeholder="Enter 10-digit PAN (optional)"
                   />
                   {renderInfoError('panNumber')}
                 </div>
@@ -1277,7 +1229,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     onChange={e => setInfoField('cinNumber', cleanAlphaNumeric(e.target.value, 21))}
                     style={getInfoInputStyle('cinNumber')}
                     maxLength={21}
-                    placeholder="U12345TN2020PTC123456"
+                    placeholder="Enter 21-digit CIN (optional)"
                   />
                   {renderInfoError('cinNumber')}
                 </div>
@@ -1312,7 +1264,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                       style={getInfoInputStyle('officialEmail', { paddingLeft: '34px' })}
                       value={infoForm.officialEmail}
                       onChange={e => setInfoField('officialEmail', e.target.value.trim().toLowerCase())}
-                      placeholder="contact@company.com"
+                      placeholder="Enter corporate email (optional)"
                     />
                   </div>
                   {renderInfoError('officialEmail')}
@@ -1348,7 +1300,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                       onChange={e => setInfoField('officialPhone', cleanPhoneNumber(e.target.value).slice(0, officialPhoneCountryCode === '+91' ? 10 : 15))}
                       inputMode="numeric"
                       maxLength={officialPhoneCountryCode === '+91' ? 10 : 15}
-                      placeholder="9876543210"
+                      placeholder="Enter phone number (optional)"
                     />
                   </div>
                   {renderInfoError('officialPhone')}
@@ -1368,7 +1320,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                       style={getInfoInputStyle('website', { paddingLeft: '34px' })}
                       value={infoForm.website}
                       onChange={e => setInfoField('website', e.target.value.trim())}
-                      placeholder="https://company.com"
+                      placeholder="https://yourcompany.com (optional)"
                     />
                   </div>
                   {renderInfoError('website')}
@@ -1399,7 +1351,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.registeredAddress || ''}
                     onChange={e => setInfoField('registeredAddress', e.target.value)}
-                    placeholder="e.g. 123 Corporate Park, Tech Corridor, City, State — 600001"
+                    placeholder="Enter registered office address (optional)"
                   />
                 </div>
 
@@ -1412,7 +1364,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.branchAddress || ''}
                     onChange={e => setInfoField('branchAddress', e.target.value)}
-                    placeholder="e.g. Phase 2 Industrial Area, City, State — 560100"
+                    placeholder="Enter branch or corporate address (optional)"
                   />
                 </div>
               </div>
@@ -1441,7 +1393,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.ownerName || ''}
                     onChange={e => setInfoField('ownerName', cleanCompanyText(e.target.value))}
-                    placeholder="e.g. John Doe"
+                    placeholder="Enter owner / MD name (optional)"
                   />
                 </div>
 
@@ -1454,7 +1406,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.authorizedSignatoryName || ''}
                     onChange={e => setInfoField('authorizedSignatoryName', cleanCompanyText(e.target.value))}
-                    placeholder="e.g. John Doe"
+                    placeholder="Enter authorized signatory name (optional)"
                   />
                 </div>
 
@@ -1467,7 +1419,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     className="form-control"
                     value={infoForm.authorizedSignatoryDesignation || ''}
                     onChange={e => setInfoField('authorizedSignatoryDesignation', cleanCompanyText(e.target.value))}
-                    placeholder="e.g. Chief Executive Officer & Director"
+                    placeholder="Enter signatory designation (optional)"
                   />
                 </div>
               </div>
@@ -1595,38 +1547,15 @@ export const CompanyDetailsSettings: React.FC = () => {
               </div>
             )}
 
-            {/* Bottom Action Bar with Save and Clear Buttons */}
+            {/* Bottom Action Bar: Single Save Button */}
             <div style={{
               display: 'flex',
               justifyContent: 'flex-end',
               alignItems: 'center',
-              gap: '12px',
-              marginTop: '24px',
+              marginTop: '28px',
               paddingTop: '20px',
               borderTop: '1px solid #F1F5F9'
             }}>
-              <button
-                id="clear-company-details-btn"
-                type="button"
-                onClick={handleClearInfoClick}
-                disabled={isSavingInfo}
-                style={{
-                  padding: '10px 18px',
-                  borderRadius: '12px',
-                  border: '1px solid #FCA5A5',
-                  backgroundColor: '#FEF2F2',
-                  color: '#B91C1C',
-                  fontSize: '0.88rem',
-                  fontWeight: 700,
-                  cursor: isSavingInfo ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-                onMouseOver={e => !isSavingInfo && (e.currentTarget.style.backgroundColor = '#FEE2E2')}
-                onMouseOut={e => !isSavingInfo && (e.currentTarget.style.backgroundColor = '#FEF2F2')}
-              >
-                Clear Saved Details
-              </button>
-
               <button
                 id="save-company-details-btn"
                 type="submit"
@@ -1636,12 +1565,12 @@ export const CompanyDetailsSettings: React.FC = () => {
                   color: '#FFFFFF',
                   border: 'none',
                   borderRadius: '12px',
-                  padding: '11px 26px',
-                  fontSize: '0.9rem',
+                  padding: '12px 32px',
+                  fontSize: '0.92rem',
                   fontWeight: 700,
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '10px',
                   cursor: isSavingInfo ? 'not-allowed' : 'pointer',
                   boxShadow: saveSuccessState === 'saved'
                     ? '0 4px 14px rgba(22, 163, 74, 0.35)'
@@ -1679,73 +1608,6 @@ export const CompanyDetailsSettings: React.FC = () => {
               </button>
             </div>
           </form>
-        </div>
-      )}
-
-      {/* Floating Save Action Bar for Tab 1 */}
-      {isInfoDirty && activeTab === 'info' && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 999,
-          backgroundColor: '#0F172A',
-          color: '#FFFFFF',
-          padding: '10px 20px',
-          borderRadius: '9999px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.35), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-          border: '1px solid #334155'
-        }}>
-          <span style={{ fontSize: '0.84rem', fontWeight: 600 }}>
-            Unsaved Changes in Company Details
-          </span>
-          <button
-            type="button"
-            onClick={handleResetChanges}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#94A3B8',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const form = document.getElementById('company-info-form') as HTMLFormElement;
-              if (form) {
-                if (form.requestSubmit) {
-                  form.requestSubmit();
-                } else {
-                  form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-                }
-              }
-            }}
-            disabled={isSavingInfo}
-            style={{
-              backgroundColor: '#0E7490',
-              color: '#FFFFFF',
-              border: 'none',
-              borderRadius: '99px',
-              padding: '7px 18px',
-              fontSize: '0.82rem',
-              fontWeight: 700,
-              cursor: isSavingInfo ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <Save size={14} /> Save Now
-          </button>
         </div>
       )}
 

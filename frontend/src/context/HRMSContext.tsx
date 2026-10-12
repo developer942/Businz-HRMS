@@ -998,7 +998,7 @@ interface HRMSContextType {
   allEmployees?: Employee[];
   allPayrollRecords?: PayrollRecord[];
   companyInfo: CompanyInfo;
-  updateCompanyInfo: (info: Partial<CompanyInfo>) => void;
+  updateCompanyInfo: (info: Partial<CompanyInfo>) => Promise<CompanyInfo>;
 
   companyBranches: CompanyBranch[];
   addCompanyBranch: (branch: Omit<CompanyBranch, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -3697,48 +3697,56 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
-  const updateCompanyInfo = (info: Partial<CompanyInfo>) => {
+  const updateCompanyInfo = async (info: Partial<CompanyInfo>): Promise<CompanyInfo> => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
     const isCompB = (currentUser.company_id === 'company-b' || info.company_id === 'company-b');
     const settingKey = isCompB ? 'company_info_company-b' : 'company_info';
     const localKey = isCompB ? 'vrm_hrms_company_info_company-b' : 'vrm_hrms_company_info';
 
-    setCompanyInfo(prev => {
-      const updated = {
-        ...prev,
-        ...info,
-        updatedAt: new Date().toISOString(),
-        updatedBy: userDisplayName
-      };
-      try {
-        localStorage.setItem(localKey, JSON.stringify(updated));
-        localStorage.setItem('vrm_hrms_company_info', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('Failed to save company info to localStorage:', e);
-      }
-      addPolicyAuditLog({
-        policyCategory: 'Company Details',
-        policyId: 'COMP-ROOT',
-        policyName: updated.companyName || 'Company Details',
-        action: 'EDIT',
-        performedBy: currentUser.name,
-        performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-        changeSummary: 'Company general details and profile updated.',
-        oldValues: prev,
-        newValues: updated
-      });
-      supabaseDirect.saveCompanySetting(settingKey, updated).catch(err => {
-        console.warn('Failed to save company setting to VPS database:', err);
-      });
-      if (updated.companyCode) {
-        setBusinessSettings(bPrev => ({
-          ...bPrev,
-          employeeCodePrefix: updated.companyCode!,
-          employeeCodeSample: `${updated.companyCode}-001`
-        }));
-      }
-      return updated;
+    const currentBase = companyInfo || (isCompB ? COMPANY_B_PROFILE : COMPANY_A_PROFILE);
+    const updated: CompanyInfo = {
+      ...currentBase,
+      ...info,
+      updatedAt: new Date().toISOString(),
+      updatedBy: userDisplayName
+    };
+
+    setCompanyInfo(updated);
+
+    try {
+      localStorage.setItem(localKey, JSON.stringify(updated));
+      localStorage.setItem('vrm_hrms_company_info', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save company info to localStorage:', e);
+    }
+
+    addPolicyAuditLog({
+      policyCategory: 'Company Details',
+      policyId: 'COMP-ROOT',
+      policyName: updated.companyName || 'Company Details',
+      action: 'EDIT',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: 'Company general details and profile updated.',
+      oldValues: currentBase,
+      newValues: updated
     });
+
+    try {
+      await supabaseDirect.saveCompanySetting(settingKey, updated);
+    } catch (err) {
+      console.warn('Failed to save company setting to VPS database:', err);
+    }
+
+    if (updated.companyCode) {
+      setBusinessSettings(bPrev => ({
+        ...bPrev,
+        employeeCodePrefix: updated.companyCode!,
+        employeeCodeSample: `${updated.companyCode}-001`
+      }));
+    }
+
+    return updated;
   };
 
   const switchCompany = (companyId: string) => {
