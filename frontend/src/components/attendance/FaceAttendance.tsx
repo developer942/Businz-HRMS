@@ -134,6 +134,7 @@ export const FaceAttendance: React.FC = () => {
 
   const isCheckedIn = Boolean(todayAttendance?.checkIn && todayAttendance.checkIn.trim() !== '' && todayAttendance.checkIn !== '--:--');
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
+  const isCompletedToday = Boolean(isCheckedIn && isCheckedOut);
 
   const isCEO = currentUser.role === 'CEO' || currentUser.designation === 'CEO' || currentUser.employeeId === 'EMP-000';
 
@@ -883,7 +884,7 @@ export const FaceAttendance: React.FC = () => {
           }}>
             <MapPin size={12} color="#ffffff" strokeWidth={2.8} />
           </div>
-          <span>GPS CLOCK-IN</span>
+          <span>{hasActiveCheckIn ? 'GPS CLOCK-OUT' : 'GPS CLOCK-IN'}</span>
         </button>
       </div>
 
@@ -1057,50 +1058,38 @@ export const FaceAttendance: React.FC = () => {
             </div>
           </div>
 
-          {/* Punch Type Selector (Clock-In vs Clock-Out) */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
-            <button
-              type="button"
-              onClick={() => setPunchType('Check-In')}
-              disabled={hasActiveCheckIn || isScanning}
-              title={!hasActiveCheckIn ? 'Click to switch to Check-In' : 'Already checked in for this shift'}
-              style={{
-                padding: '6px 20px',
-                borderRadius: '99px',
-                border: punchType === 'Check-In' ? '1.5px solid #0e7490' : '1px solid #cbd5e1',
-                backgroundColor: punchType === 'Check-In' ? '#ecfeff' : '#ffffff',
-                color: punchType === 'Check-In' ? '#0e7490' : !hasActiveCheckIn ? '#64748b' : '#cbd5e1',
-                fontWeight: 700,
-                fontSize: '0.8rem',
-                cursor: !hasActiveCheckIn ? 'pointer' : 'not-allowed',
-                opacity: !hasActiveCheckIn ? 1 : 0.6,
-                transition: 'all 0.15s ease',
-                boxShadow: punchType === 'Check-In' ? '0 2px 6px rgba(14, 116, 144, 0.15)' : 'none'
-              }}
-            >
-              Clock-In
-            </button>
-            <button
-              type="button"
-              onClick={() => setPunchType('Check-Out')}
-              disabled={!hasActiveCheckIn || isCheckedOut || isScanning}
-              title={!hasActiveCheckIn ? 'Check-Out is available only after Check-In' : isCheckedOut ? 'Already checked out for today' : 'Click to switch to Check-Out'}
-              style={{
-                padding: '6px 20px',
-                borderRadius: '99px',
-                border: punchType === 'Check-Out' ? '1.5px solid #0e7490' : '1px solid #cbd5e1',
-                backgroundColor: punchType === 'Check-Out' ? '#ecfeff' : '#ffffff',
-                color: punchType === 'Check-Out' ? '#0e7490' : (hasActiveCheckIn && !isCheckedOut) ? '#64748b' : '#cbd5e1',
-                fontWeight: 700,
-                fontSize: '0.8rem',
-                cursor: (hasActiveCheckIn && !isCheckedOut) ? 'pointer' : 'not-allowed',
-                opacity: (hasActiveCheckIn && !isCheckedOut) ? 1 : 0.6,
-                transition: 'all 0.15s ease',
-                boxShadow: punchType === 'Check-Out' ? '0 2px 6px rgba(14, 116, 144, 0.15)' : 'none'
-              }}
-            >
-              Clock-Out
-            </button>
+          {/* Automatic Attendance State Indicator */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 18px',
+              borderRadius: '99px',
+              fontSize: '0.8rem',
+              fontWeight: 800,
+              backgroundColor: isCompletedToday ? '#dcfce7' : punchType === 'Check-Out' ? '#fef3c7' : '#ecfeff',
+              color: isCompletedToday ? '#15803d' : punchType === 'Check-Out' ? '#b45309' : '#0e7490',
+              border: `1.5px solid ${isCompletedToday ? '#86efac' : punchType === 'Check-Out' ? '#fde68a' : '#a5f3fc'}`,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.04)'
+            }}>
+              {isCompletedToday ? (
+                <>
+                  <CheckCircle2 size={14} />
+                  <span>Today's Attendance Completed</span>
+                </>
+              ) : punchType === 'Check-Out' ? (
+                <>
+                  <LogOut size={14} />
+                  <span>Next Action: Clock-Out</span>
+                </>
+              ) : (
+                <>
+                  <LogIn size={14} />
+                  <span>Next Action: Clock-In</span>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Primary Action Button */}
@@ -1109,32 +1098,35 @@ export const FaceAttendance: React.FC = () => {
               type="button"
               disabled={
                 isScanning || 
-                (punchType === 'Check-In' ? hasActiveCheckIn || !shiftEval.canCheckIn : !hasActiveCheckIn || isCheckedOut || !shiftEval.canCheckOut)
+                (isCompletedToday ? true : punchType === 'Check-In' ? !shiftEval.canCheckIn : !shiftEval.canCheckOut)
               }
               onClick={async () => {
+                if (isCompletedToday) return;
                 if (!isCameraActive) {
                   await startCamera();
                 } else {
-                  triggerFaceScan(punchType);
+                  triggerFaceScan(hasActiveCheckIn ? 'Check-Out' : 'Check-In');
                 }
               }}
               style={{
                 width: '100%',
                 padding: '14px 28px',
                 borderRadius: '12px',
-                background: (punchType === 'Check-In' ? !hasActiveCheckIn && shiftEval.canCheckIn : hasActiveCheckIn && !isCheckedOut && shiftEval.canCheckOut)
-                  ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)'
-                  : '#cbd5e1',
+                background: isCompletedToday
+                  ? '#cbd5e1'
+                  : (punchType === 'Check-In' ? shiftEval.canCheckIn : shiftEval.canCheckOut)
+                    ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)'
+                    : '#cbd5e1',
                 color: '#ffffff',
                 fontWeight: 800,
                 fontSize: '0.94rem',
                 border: 'none',
-                cursor: (punchType === 'Check-In' ? !hasActiveCheckIn && shiftEval.canCheckIn : hasActiveCheckIn && !isCheckedOut && shiftEval.canCheckOut) ? 'pointer' : 'not-allowed',
+                cursor: (!isCompletedToday && (punchType === 'Check-In' ? shiftEval.canCheckIn : shiftEval.canCheckOut)) ? 'pointer' : 'not-allowed',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '10px',
-                boxShadow: (punchType === 'Check-In' ? !hasActiveCheckIn && shiftEval.canCheckIn : hasActiveCheckIn && !isCheckedOut && shiftEval.canCheckOut)
+                boxShadow: (!isCompletedToday && (punchType === 'Check-In' ? shiftEval.canCheckIn : shiftEval.canCheckOut))
                   ? '0 6px 20px rgba(14, 116, 144, 0.35)'
                   : 'none',
                 transition: 'all 0.2s ease'
@@ -1145,10 +1137,15 @@ export const FaceAttendance: React.FC = () => {
                   <RefreshCw size={18} className="spin" />
                   <span>Verifying Face & GPS...</span>
                 </>
+              ) : isCompletedToday ? (
+                <>
+                  <CheckCircle2 size={18} />
+                  <span>Shift Completed for Today</span>
+                </>
               ) : (
                 <>
                   <ScanFace size={18} />
-                  <span>{isCameraActive ? `Confirm ${punchType} Scan` : 'Start Face Scan'}</span>
+                  <span>{isCameraActive ? `Confirm ${punchType === 'Check-In' ? 'Clock-In' : 'Clock-Out'} Scan` : `Start Face Scan (${punchType === 'Check-In' ? 'Clock-In' : 'Clock-Out'})`}</span>
                 </>
               )}
             </button>
@@ -1619,7 +1616,7 @@ export const FaceAttendance: React.FC = () => {
                 </div>
                 <div>
                   <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                    GPS Geofence Clock-In
+                    {hasActiveCheckIn ? 'GPS Geofence Clock-Out' : 'GPS Geofence Clock-In'}
                   </h2>
                   <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
                     Live GPS Geolocation Attendance Verification
@@ -1695,53 +1692,79 @@ export const FaceAttendance: React.FC = () => {
                 </div>
               </div>
 
-              {/* Punch Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  disabled={gpsLoading || hasActiveCheckIn || !shiftEval.canCheckIn}
-                  onClick={() => handleGpsPunch('Check-In')}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: '10px',
-                    backgroundColor: (!hasActiveCheckIn && shiftEval.canCheckIn) ? '#10b981' : '#cbd5e1',
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: '0.88rem',
-                    border: 'none',
-                    cursor: (!hasActiveCheckIn && shiftEval.canCheckIn && !gpsLoading) ? 'pointer' : 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    boxShadow: (!hasActiveCheckIn && shiftEval.canCheckIn) ? '0 4px 12px rgba(16, 185, 129, 0.3)' : 'none'
-                  }}
-                >
-                  <CheckCircle2 size={18} /> GPS Clock-In
-                </button>
-
-                <button
-                  type="button"
-                  disabled={gpsLoading || !hasActiveCheckIn || isCheckedOut || !shiftEval.canCheckOut}
-                  onClick={() => handleGpsPunch('Check-Out')}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: '10px',
-                    backgroundColor: (hasActiveCheckIn && !isCheckedOut && shiftEval.canCheckOut) ? '#0e7490' : '#cbd5e1',
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: '0.88rem',
-                    border: 'none',
-                    cursor: (hasActiveCheckIn && !isCheckedOut && shiftEval.canCheckOut && !gpsLoading) ? 'pointer' : 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    boxShadow: (hasActiveCheckIn && !isCheckedOut && shiftEval.canCheckOut) ? '0 4px 12px rgba(14, 116, 144, 0.3)' : 'none'
-                  }}
-                >
-                  <Clock size={18} /> GPS Clock-Out
-                </button>
+              {/* Smart GPS Punch Button */}
+              <div style={{ marginTop: '6px' }}>
+                {isCompletedToday ? (
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      width: '100%',
+                      padding: '13px 20px',
+                      borderRadius: '10px',
+                      backgroundColor: '#e2e8f0',
+                      color: '#64748b',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                      border: 'none',
+                      cursor: 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <CheckCircle2 size={18} /> Today's GPS Attendance Completed
+                  </button>
+                ) : hasActiveCheckIn ? (
+                  <button
+                    type="button"
+                    disabled={gpsLoading || isCheckedOut || !shiftEval.canCheckOut}
+                    onClick={() => handleGpsPunch('Check-Out')}
+                    style={{
+                      width: '100%',
+                      padding: '13px 20px',
+                      borderRadius: '10px',
+                      backgroundColor: (!isCheckedOut && shiftEval.canCheckOut) ? '#0e7490' : '#cbd5e1',
+                      color: '#ffffff',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                      border: 'none',
+                      cursor: (!isCheckedOut && shiftEval.canCheckOut && !gpsLoading) ? 'pointer' : 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      boxShadow: (!isCheckedOut && shiftEval.canCheckOut) ? '0 4px 14px rgba(14, 116, 144, 0.35)' : 'none'
+                    }}
+                  >
+                    <Clock size={18} /> Confirm GPS Clock-Out
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={gpsLoading || !shiftEval.canCheckIn}
+                    onClick={() => handleGpsPunch('Check-In')}
+                    style={{
+                      width: '100%',
+                      padding: '13px 20px',
+                      borderRadius: '10px',
+                      backgroundColor: shiftEval.canCheckIn ? '#10b981' : '#cbd5e1',
+                      color: '#ffffff',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                      border: 'none',
+                      cursor: (shiftEval.canCheckIn && !gpsLoading) ? 'pointer' : 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      boxShadow: shiftEval.canCheckIn ? '0 4px 14px rgba(16, 185, 129, 0.35)' : 'none'
+                    }}
+                  >
+                    <CheckCircle2 size={18} /> Confirm GPS Clock-In
+                  </button>
+                )}
               </div>
 
               {/* Portal link */}
