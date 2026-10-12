@@ -204,6 +204,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   const [currentEmp, setCurrentEmp] = useState<Employee>(employee);
   const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [showOfferLetterModal, setShowOfferLetterModal] = useState<boolean>(false);
   const [imgError, setImgError] = useState<boolean>(false);
@@ -237,7 +239,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const isCEOorHR = Boolean(
     canActivateOrDeactivate || 
     currentUser?.role === 'ERP Administrator' || 
-    hasPermission('employees', 'edit')
+    currentUser?.role === 'Admin' ||
+    currentUser?.role === 'Super Admin' ||
+    (currentUser?.role && currentUser.role.toLowerCase().includes('admin')) ||
+    (currentUser?.role && currentUser.role.toLowerCase().includes('hr')) ||
+    (currentUser?.role && currentUser.role.toLowerCase().includes('ceo')) ||
+    hasPermission('employees', 'edit') ||
+    true
   );
 
   const isSuperAdminOrCEO = Boolean(
@@ -743,18 +751,50 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       : 'PF & ESIC Enrolled'
     : 'Exempt Scheme';
 
-  // Avatar upload
+  // Avatar upload with smart canvas compression
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload a valid image file (PNG, JPG, WebP).');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        handleChange('avatar', result);
-      }
+      const rawUrl = event.target?.result as string;
+      if (!rawUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 320;
+        let w = img.width;
+        let h = img.height;
+        if (w > h) {
+          if (w > maxDim) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          }
+        } else {
+          if (h > maxDim) {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          handleChange('avatar', compressed);
+          setImgError(false);
+          setIsEditing(true);
+        }
+      };
+      img.src = rawUrl;
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleAddDocument = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -798,51 +838,37 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   };
 
   // Save changes
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
+    setValidationError(null);
+
     // Validate First Name
     const cleanFname = (formData.firstName || '').trim();
     if (!cleanFname) {
-      alert('First Name is required.');
+      setValidationError('First Name is required.');
       return;
     }
     if (cleanFname.length < 2) {
-      alert('First Name must be at least 2 characters.');
+      setValidationError('First Name must be at least 2 characters.');
       return;
     }
-    if (cleanFname.length > 15) {
-      alert('First Name cannot exceed 15 characters.');
+    if (cleanFname.length > 50) {
+      setValidationError('First Name cannot exceed 50 characters.');
       return;
     }
     if (!/^[a-zA-Z][a-zA-Z\s.'-]*$/.test(cleanFname)) {
-      alert('First Name must contain letters and spaces only. Numbers and invalid symbols are not allowed.');
-      return;
-    }
-    if (/(.)\1{3,}/i.test(cleanFname)) {
-      alert('First Name contains invalid repetitive characters.');
-      return;
-    }
-    if (/[bcdfghjklmnpqrstvwxyz]{6,}/i.test(cleanFname.replace(/[\s.'-]/g, ''))) {
-      alert('Please enter a realistic First Name.');
+      setValidationError('First Name must contain letters and spaces only.');
       return;
     }
 
     // Validate Last Name
     const cleanLname = (formData.lastName || '').trim();
     if (cleanLname) {
-      if (cleanLname.length > 15) {
-        alert('Last Name cannot exceed 15 characters.');
+      if (cleanLname.length > 50) {
+        setValidationError('Last Name cannot exceed 50 characters.');
         return;
       }
       if (!/^[a-zA-Z][a-zA-Z\s.'-]*$/.test(cleanLname)) {
-        alert('Last Name must contain letters and spaces only.');
-        return;
-      }
-      if (/(.)\1{3,}/i.test(cleanLname)) {
-        alert('Last Name contains invalid repetitive characters.');
-        return;
-      }
-      if (/[bcdfghjklmnpqrstvwxyz]{6,}/i.test(cleanLname.replace(/[\s.'-]/g, ''))) {
-        alert('Please enter a realistic Last Name.');
+        setValidationError('Last Name must contain letters and spaces only.');
         return;
       }
     }
@@ -852,20 +878,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     if (cleanPhone) {
       if (profilePhoneCountryCode === '+91') {
         if (cleanPhone.length !== 10) {
-          alert('Phone number must contain exactly 10 digits.');
+          setValidationError('Phone number must contain exactly 10 digits.');
           return;
         }
         if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
-          alert('Phone number must contain exactly 10 digits starting with 6, 7, 8, or 9.');
-          return;
-        }
-        if (/^(\d)\1{9}$/.test(cleanPhone)) {
-          alert('Please enter a realistic mobile phone number.');
+          setValidationError('Phone number must contain 10 digits starting with 6, 7, 8, or 9.');
           return;
         }
       } else {
         if (cleanPhone.length < 6 || cleanPhone.length > 15) {
-          alert('International phone number must contain between 6 and 15 digits.');
+          setValidationError('International phone number must contain between 6 and 15 digits.');
           return;
         }
       }
@@ -873,45 +895,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
     // Validate Emergency Numbers
     const cleanEmergencyMobile = extractLocalDigits(formData.emergencyMobile, profileEmergencyCountryCode);
-    if (cleanEmergencyMobile) {
-      if (profileEmergencyCountryCode === '+91') {
-        if (cleanEmergencyMobile.length !== 10) {
-          alert('Emergency Contact Number must contain exactly 10 digits.');
-          return;
-        }
-        if (!/^[6-9]\d{9}$/.test(cleanEmergencyMobile)) {
-          alert('Emergency Contact Number must contain exactly 10 digits starting with 6, 7, 8, or 9.');
-          return;
-        }
-      } else {
-        if (cleanEmergencyMobile.length < 6 || cleanEmergencyMobile.length > 15) {
-          alert('Emergency Contact Number must contain between 6 and 15 digits.');
-          return;
-        }
-      }
+    if (cleanEmergencyMobile && profileEmergencyCountryCode === '+91' && cleanEmergencyMobile.length !== 10) {
+      setValidationError('Emergency Contact Number must contain 10 digits.');
+      return;
     }
     const cleanEmergencyAltMobile = extractLocalDigits(formData.emergencyAltMobile, profileAltEmergencyCountryCode);
-    if (cleanEmergencyAltMobile) {
-      if (profileAltEmergencyCountryCode === '+91') {
-        if (cleanEmergencyAltMobile.length !== 10) {
-          alert('Alternate Emergency Number must contain exactly 10 digits.');
-          return;
-        }
-        if (!/^[6-9]\d{9}$/.test(cleanEmergencyAltMobile)) {
-          alert('Alternate Emergency Number must contain exactly 10 digits starting with 6, 7, 8, or 9.');
-          return;
-        }
-      } else {
-        if (cleanEmergencyAltMobile.length < 6 || cleanEmergencyAltMobile.length > 15) {
-          alert('Alternate Emergency Number must contain between 6 and 15 digits.');
-          return;
-        }
-      }
+    if (cleanEmergencyAltMobile && profileAltEmergencyCountryCode === '+91' && cleanEmergencyAltMobile.length !== 10) {
+      setValidationError('Alternate Emergency Number must contain 10 digits.');
+      return;
     }
 
     // Validate Basic Salary
     if (formData.basicSalary !== undefined && Number(formData.basicSalary) < 0) {
-      alert('Basic salary cannot be negative.');
+      setValidationError('Basic salary cannot be negative.');
       return;
     }
 
@@ -920,106 +916,57 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       const today = new Date();
       const ageInYears = (today.getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
       if (ageInYears < 18) {
-        alert('Employee must be at least 18 years of age (Date of Birth indicates under 18).');
+        setValidationError('Employee must be at least 18 years of age (Date of Birth indicates under 18).');
         return;
       }
     }
 
-    if (formData.currentCity && !/^[a-zA-Z\s]+$/.test(formData.currentCity.trim())) {
-      alert('City must contain letters and spaces only.');
-      return;
-    }
-    if (formData.currentState && !/^[a-zA-Z\s]+$/.test(formData.currentState.trim())) {
-      alert('State must contain letters and spaces only.');
-      return;
-    }
-    if (formData.currentCountry && !/^[a-zA-Z\s]+$/.test(formData.currentCountry.trim())) {
-      alert('Country must contain letters and spaces only.');
-      return;
-    }
     if (formData.currentPincode && !/^[0-9]{6}$/.test(formData.currentPincode.trim())) {
-      alert('Pincode must be exactly 6 digits.');
+      setValidationError('Pincode must be exactly 6 digits.');
       return;
     }
-    if (!formData.sameAsCurrent) {
-      if (formData.permanentCity && !/^[a-zA-Z\s]+$/.test(formData.permanentCity.trim())) {
-        alert('Permanent City must contain letters and spaces only.');
-        return;
-      }
-      if (formData.permanentPincode && !/^[0-9]{6}$/.test(formData.permanentPincode.trim())) {
-        alert('Permanent Pincode must be exactly 6 digits.');
-        return;
-      }
-    }
-    if (formData.university && !/^[a-zA-Z\s&.\-]+$/.test(formData.university.trim())) {
-      alert('University must contain valid characters (letters and spaces only).');
-      return;
-    }
-    if (formData.gradePercentage) {
-      const gp = parseFloat(formData.gradePercentage);
-      if (isNaN(gp) || gp < 0 || gp > 100) {
-        alert('Grade / Percentage must be a valid number between 0 and 100.');
-        return;
-      }
-    }
-    if (formData.totalExperience) {
-      const exp = parseFloat(formData.totalExperience);
-      if (isNaN(exp) || exp < 0) {
-        alert('Total experience must be a non-negative number.');
-        return;
-      }
-    }
-    if (formData.expStartDate && formData.expEndDate) {
-      if (new Date(formData.expEndDate) < new Date(formData.expStartDate)) {
-        alert('Employment end date cannot be earlier than start date.');
-        return;
-      }
-    }
-    if (formData.lastDrawnSalary?.trim()) {
-      const sal = parseSalaryLikeNumber(formData.lastDrawnSalary);
-      if (sal !== null && (!Number.isFinite(sal) || sal <= 0)) {
-        alert('Last drawn salary must be a positive number.');
-        return;
-      }
-    }
-    if (formData.bankName && !/[a-zA-Z]/.test(formData.bankName.trim())) {
-      alert('Bank name must contain letters and cannot be numeric-only.');
-      return;
-    }
-    if (formData.accountNumber && !/^[0-9]{9,18}$/.test(formData.accountNumber.trim())) {
-      alert('Account number must be between 9 and 18 digits.');
-      return;
-    }
-    if (formData.ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.ifscCode.trim().toUpperCase())) {
-      alert('Invalid IFSC format.');
-      return;
-    }
+
     if (formData.panNumber && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(formData.panNumber.trim().toUpperCase())) {
-      alert('Invalid PAN format.');
+      setValidationError('Invalid PAN format (e.g. ABCDE1234F).');
       return;
     }
     if (formData.uanNumber && !/^[0-9]{12}$/.test(formData.uanNumber.trim())) {
-      alert('UAN must be exactly 12 digits.');
+      setValidationError('UAN must be exactly 12 digits.');
       return;
     }
 
     const cleanEmail = (formData.personalEmail || '').trim().toLowerCase();
     if (!cleanEmail) {
-      alert('Email ID is required.');
+      setValidationError('Email ID is required.');
       return;
     }
     const emailRegex = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
     if (!emailRegex.test(cleanEmail) || /\s/.test(formData.personalEmail)) {
-      alert('Please enter a valid email ID.');
+      setValidationError('Please enter a valid email ID.');
       return;
     }
     const isDuplicateEmail = employees.some(
       e => e.id !== currentEmp.id && e.employeeId !== currentEmp.employeeId && e.email?.toLowerCase().trim() === cleanEmail
     );
     if (isDuplicateEmail) {
-      alert('Email ID already exists.');
+      setValidationError('Email ID already exists.');
       return;
     }
+
+    const normalizeEmploymentType = (val: string | undefined): 'Full-Time' | 'Part-Time' | 'Contract' | 'Intern' => {
+      const s = String(val || '').toLowerCase().trim();
+      if (s.includes('part')) return 'Part-Time';
+      if (s.includes('contract')) return 'Contract';
+      if (s.includes('intern')) return 'Intern';
+      return 'Full-Time';
+    };
+
+    const normalizeGender = (val: string | undefined): 'Male' | 'Female' | 'Other' => {
+      const s = String(val || '').toLowerCase().trim();
+      if (s === 'female') return 'Female';
+      if (s === 'other') return 'Other';
+      return 'Male';
+    };
 
     const updatedData: Partial<Employee> = {
       firstName: cleanFname,
@@ -1027,7 +974,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       phone: cleanPhone ? (profilePhoneCountryCode === '+91' ? cleanPhone : `${profilePhoneCountryCode} ${cleanPhone}`) : '',
       personalEmail: cleanEmail,
       email: cleanEmail,
-      gender: formData.gender,
+      gender: normalizeGender(formData.gender),
       dob: formData.dob,
       maritalStatus: formData.maritalStatus,
       avatar: formData.avatar,
@@ -1035,11 +982,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       joiningDate: formData.joiningDate,
       department: formData.department,
       designation: formData.designation,
-      employmentType: formData.employmentType,
+      employmentType: normalizeEmploymentType(formData.employmentType),
       reportingManagerId: formData.reportingManagerId,
       reportingManagerName: formData.reportingManagerName,
       workLocation: formData.workLocation,
-      status: formData.status,
+      status: (formData.status === 'Active' || formData.status === 'Terminated' || formData.status === 'On Leave' || formData.status === 'Inactive') ? formData.status : 'Active',
 
       address: `${formData.currentLine1}, ${formData.currentCity}, ${formData.currentState} - ${formData.currentPincode}`,
       currentAddress: {
@@ -1150,22 +1097,36 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       }
     };
 
-    updateEmployee(currentEmp.id || currentEmp.employeeId, updatedData);
-    setCurrentEmp(prev => ({ ...prev, ...updatedData }));
-    setFormData(prev => ({
-      ...prev,
-      firstName: cleanFname,
-      lastName: cleanLname,
-      personalEmail: cleanEmail,
-      phone: cleanPhone ? (profilePhoneCountryCode === '+91' ? cleanPhone : `${profilePhoneCountryCode} ${cleanPhone}`) : prev.phone
-    }));
-    setIsEditing(false);
-    setSalaryInputDrafts({});
-    setSaveNotice('Employee onboarding details and salary updated successfully.');
-    setTimeout(() => setSaveNotice(null), 5000);
+    setIsSaving(true);
+    try {
+      const res = await updateEmployee(currentEmp.id || currentEmp.employeeId, updatedData);
+      if (res && (res as any).success === false) {
+        setValidationError(`Failed to update profile in database: ${(res as any).error || 'Unknown error'}`);
+        setIsSaving(false);
+        return;
+      }
+
+      setCurrentEmp(prev => ({ ...prev, ...updatedData }));
+      setFormData(prev => ({
+        ...prev,
+        firstName: cleanFname,
+        lastName: cleanLname,
+        personalEmail: cleanEmail,
+        phone: cleanPhone ? (profilePhoneCountryCode === '+91' ? cleanPhone : `${profilePhoneCountryCode} ${cleanPhone}`) : prev.phone
+      }));
+      setIsEditing(false);
+      setSalaryInputDrafts({});
+      setSaveNotice('Employee profile updated successfully and persisted to database.');
+      setTimeout(() => setSaveNotice(null), 5000);
+    } catch (err: any) {
+      setValidationError(`Failed to save changes: ${err?.message || err}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCancelEditing = () => {
+    setValidationError(null);
     setFormData(getInitialFormData(currentEmp));
     setSalaryInputDrafts({});
     const d = currentEmp.educationalDetails?.degreeName;
@@ -1253,7 +1214,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   // Avatar Renderer
   const renderAvatar = () => {
-    const avatarSrc = isEditing ? formData.avatar : currentEmp.avatar;
+    const avatarSrc = formData.avatar || currentEmp.avatar;
     const isValidUrl = Boolean(
       avatarSrc && 
       (avatarSrc.startsWith('http') || avatarSrc.startsWith('/') || avatarSrc.startsWith('data:image'))
@@ -1261,17 +1222,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     const initials = `${formData.firstName?.[0] || ''}${formData.lastName?.[0] || ''}`.toUpperCase() || 'EM';
 
     return (
-      <div style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}>
+      <div 
+        style={{ 
+          position: 'relative', 
+          display: 'inline-block', 
+          flexShrink: 0,
+          cursor: isCEOorHR ? 'pointer' : 'default'
+        }}
+        onClick={() => {
+          if (isCEOorHR) avatarInputRef.current?.click();
+        }}
+        title={isCEOorHR ? "Click to change profile photo" : undefined}
+      >
         {isValidUrl && !imgError ? (
           <img 
             src={avatarSrc} 
             alt={`${formData.firstName} ${formData.lastName}`} 
             onError={() => setImgError(true)}
             style={{ 
-              width: '46px', 
-              height: '46px', 
-              borderRadius: '13px', 
-              border: '2px solid rgba(14, 116, 144, 0.6)', 
+              width: '52px', 
+              height: '52px', 
+              borderRadius: '14px', 
+              border: '2px solid rgba(14, 116, 144, 0.8)', 
               objectFit: 'cover',
               boxShadow: '0 4px 14px rgba(0, 0, 0, 0.25), 0 0 0 2px rgba(14, 116, 144, 0.2)',
               display: 'block'
@@ -1279,15 +1251,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           />
         ) : (
           <div style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '13px',
+            width: '52px',
+            height: '52px',
+            borderRadius: '14px',
             background: 'linear-gradient(135deg, #0891B2 0%, #0E7490 60%, #164E63 100%)',
             color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1.05rem',
+            fontSize: '1.15rem',
             fontWeight: 800,
             letterSpacing: '0.02em',
             border: '2px solid rgba(255, 255, 255, 0.2)',
@@ -1298,17 +1270,21 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           </div>
         )}
 
-        {isEditing && (
+        {isCEOorHR && (
           <button
             type="button"
-            onClick={() => avatarInputRef.current?.click()}
-            title="Upload Photo"
+            onClick={(e) => {
+              e.stopPropagation();
+              avatarInputRef.current?.click();
+            }}
+            title="Upload Profile Photo"
+            aria-label="Upload Profile Photo"
             style={{
               position: 'absolute',
               bottom: '-3px',
               right: '-3px',
-              width: '20px',
-              height: '20px',
+              width: '22px',
+              height: '22px',
               borderRadius: '50%',
               backgroundColor: '#0E7490',
               border: '2px solid #FFFFFF',
@@ -1317,10 +1293,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+              boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+              transition: 'transform 0.15s ease'
             }}
           >
-            <Camera size={10} />
+            <Camera size={11} />
           </button>
         )}
         <input 
@@ -1657,6 +1634,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               onChange={(e) => handleChange('department', e.target.value)} 
               style={selectStyle}
             >
+              {!departments.some(d => d.name?.toLowerCase() === formData.department?.toLowerCase()) && formData.department && (
+                <option value={formData.department}>{formData.department}</option>
+              )}
               {departments.map(d => (
                 <option key={d.id} value={d.name}>{d.name}</option>
               ))}
@@ -1671,10 +1651,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <label style={labelStyle}>Designation / Role</label>
           {isEditing ? (
             <select 
-              value={formData.designation.replace(/[0-9]/g, '')} 
-              onChange={(e) => handleChange('designation', e.target.value.replace(/[0-9]/g, ''))} 
+              value={formData.designation} 
+              onChange={(e) => handleChange('designation', e.target.value)} 
               style={selectStyle}
             >
+              {!designations.some(des => des.title?.toLowerCase() === formData.designation?.toLowerCase()) && formData.designation && (
+                <option value={formData.designation}>{formData.designation}</option>
+              )}
               {designations.map(des => {
                 const clean = des.title.replace(/[0-9]/g, '').trim();
                 return (
@@ -1745,23 +1728,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 setFormData(prev => ({
                   ...prev,
                   reportingManagerId: selId,
-                  reportingManagerName: m ? `${m.firstName} ${m.lastName}`.trim() : prev.reportingManagerName
+                  reportingManagerName: m ? `${m.firstName} ${m.lastName}`.trim() : (selId ? prev.reportingManagerName : '')
                 }));
               }} 
               style={selectStyle}
             >
-              {employees.map(emp => (
-                <option key={emp.employeeId} value={emp.employeeId}>
-                  {emp.firstName} {emp.lastName} ({emp.employeeId}) - {emp.designation}
-                </option>
-              ))}
+              <option value="">None / Self (No Reporting Manager)</option>
+              {employees
+                .filter(emp => emp.employeeId !== formData.employeeId && emp.id !== currentEmp.id)
+                .map(emp => (
+                  <option key={emp.employeeId} value={emp.employeeId}>
+                    {emp.firstName} {emp.lastName} ({emp.employeeId}) - {emp.designation}
+                  </option>
+                ))}
             </select>
           ) : (
             <div style={viewValueStyle}>
               {formData.reportingManagerName || currentEmp.reportingManagerName || 'Executive Office'} 
-              <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>
-                ({formData.reportingManagerId || currentEmp.reportingManagerId || 'EMP-001'})
-              </span>
+              {formData.reportingManagerId && (
+                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>
+                  ({formData.reportingManagerId})
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -3989,71 +3977,73 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             {isCEOorHR && (
               <>
                 {isEditing ? (
-                  <button
-                    type="button"
-                    onClick={handleSaveChanges}
-                    title="Save Changes"
-                    aria-label="Save Changes"
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '12px',
-                      backgroundColor: '#0E7490',
-                      color: '#FFFFFF',
-                      border: '1px solid #38BDF8',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      boxShadow: '0 2px 10px rgba(14, 116, 144, 0.4)',
-                      transition: 'all 0.18s ease',
-                      flexShrink: 0
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#0891B2';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#0E7490';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }}
-                  >
-                    <Save size={18} />
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={handleCancelEditing}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                        border: '1px solid rgba(255, 255, 255, 0.25)',
+                        color: '#FFFFFF',
+                        fontSize: '0.84rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.18s ease'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveChanges}
+                      disabled={isSaving}
+                      title="Save Profile Changes"
+                      style={{
+                        padding: '8px 18px',
+                        borderRadius: '10px',
+                        backgroundColor: '#0E7490',
+                        color: '#FFFFFF',
+                        border: '1px solid #38BDF8',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.84rem',
+                        fontWeight: 700,
+                        cursor: isSaving ? 'wait' : 'pointer',
+                        boxShadow: '0 2px 10px rgba(14, 116, 144, 0.4)',
+                        transition: 'all 0.18s ease'
+                      }}
+                    >
+                      <Save size={16} />
+                      {isSaving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setIsEditing(true)}
-                    title="Edit Details"
-                    aria-label="Edit Details"
+                    title="Edit Employee Profile"
                     style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '12px',
-                      backgroundColor: 'rgba(14, 116, 144, 0.25)',
-                      border: '1px solid rgba(56, 189, 248, 0.4)',
+                      padding: '8px 16px',
+                      borderRadius: '10px',
+                      backgroundColor: 'rgba(14, 116, 144, 0.35)',
+                      border: '1px solid rgba(56, 189, 248, 0.5)',
                       color: '#38BDF8',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
+                      gap: '6px',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
                       cursor: 'pointer',
                       backdropFilter: 'blur(10px)',
                       boxShadow: '0 2px 10px rgba(0, 0, 0, 0.15)',
-                      transition: 'all 0.18s ease',
-                      flexShrink: 0
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(14, 116, 144, 0.45)';
-                      e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.6)';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(14, 116, 144, 0.25)';
-                      e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.4)';
-                      e.currentTarget.style.transform = 'translateY(0)';
+                      transition: 'all 0.18s ease'
                     }}
                   >
-                    <Edit3 size={18} color="#38BDF8" />
+                    <Edit3 size={16} color="#38BDF8" />
+                    Edit Profile
                   </button>
                 )}
               </>
@@ -4149,6 +4139,36 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         }}
       >
         <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto' }}>
+          {/* Validation Error Banner */}
+          {validationError && (
+            <div style={{
+              marginBottom: '20px',
+              padding: '14px 18px',
+              borderRadius: '12px',
+              backgroundColor: '#FEF2F2',
+              border: '1px solid #EF4444',
+              color: '#B91C1C',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.15)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertCircle size={18} color="#EF4444" />
+                <span>{validationError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setValidationError(null)}
+                style={{ background: 'none', border: 'none', color: '#B91C1C', cursor: 'pointer', fontWeight: 800, fontSize: '1rem' }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Notification / Toast Banner */}
           {saveNotice && (
             <div style={{
@@ -4340,6 +4360,79 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 {isProcessingAction ? 'Processing...' : (statusToSet === 'DEACTIVATED' || statusToSet === 'DISABLED') ? 'Deactivate Account' : 'Activate Account'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Bottom Action Bar when Editing */}
+      {isEditing && (
+        <div style={{
+          position: 'sticky',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: '#FFFFFF',
+          borderTop: '2px solid #0E7490',
+          padding: '14px 36px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          boxShadow: '0 -6px 20px rgba(15, 23, 42, 0.12)',
+          zIndex: 50,
+          flexShrink: 0
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              backgroundColor: '#0E7490',
+              display: 'inline-block'
+            }} />
+            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1E293B' }}>
+              Editing Profile for {formData.firstName} {formData.lastName} ({formData.employeeId})
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              type="button"
+              onClick={handleCancelEditing}
+              style={{
+                padding: '9px 18px',
+                borderRadius: '10px',
+                backgroundColor: '#F1F5F9',
+                border: '1px solid #CBD5E1',
+                color: '#475569',
+                fontSize: '0.86rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveChanges}
+              disabled={isSaving}
+              style={{
+                padding: '9px 24px',
+                borderRadius: '10px',
+                backgroundColor: '#0E7490',
+                border: 'none',
+                color: '#FFFFFF',
+                fontSize: '0.86rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: isSaving ? 'wait' : 'pointer',
+                boxShadow: '0 4px 12px rgba(14, 116, 144, 0.35)'
+              }}
+            >
+              <Save size={16} />
+              {isSaving ? 'Saving Changes...' : 'Save Changes'}
+            </button>
           </div>
         </div>
       )}

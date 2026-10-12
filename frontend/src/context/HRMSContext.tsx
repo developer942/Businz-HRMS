@@ -717,7 +717,7 @@ interface HRMSContextType {
 
   employees: Employee[];
   addEmployee: (emp: Omit<Employee, 'id'>, options?: { persistToCloud?: boolean }) => void;
-  updateEmployee: (id: string, empData: Partial<Employee>) => void;
+  updateEmployee: (id: string, empData: Partial<Employee>) => Promise<{ success: boolean; error?: any }> | void;
   deleteEmployee: (id: string) => Promise<{ success: boolean; message?: string }> | any;
   deleteMultipleEmployees: (ids: string[]) => Promise<{ success: boolean; deletedCount: number; message?: string }>;
   refreshEmployees: () => Promise<void>;
@@ -1304,14 +1304,51 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dob: d.dob || '1995-01-01',
     gender: (d.gender as any) || 'Male',
     address: d.address || 'Chennai, Tamil Nadu',
+    currentAddress: {
+      line1: d.currentAddress?.line1 || d.address_line1 || '',
+      line2: d.currentAddress?.line2 || d.address_line2 || '',
+      city: d.currentAddress?.city || d.city || '',
+      state: d.currentAddress?.state || d.state || '',
+      country: d.currentAddress?.country || d.country || '',
+      pincode: d.currentAddress?.pincode || d.pincode || '',
+    },
+    permanentAddress: d.permanentAddress || {
+      sameAsCurrent: true,
+      line1: d.address_line1 || '',
+      line2: d.address_line2 || '',
+      city: d.city || '',
+      state: d.state || '',
+      country: d.country || '',
+      pincode: d.pincode || '',
+    },
+    educationalDetails: {
+      highestQualification: d.educationalDetails?.highestQualification || d.highest_qualification || '',
+      degreeName: d.educationalDetails?.degreeName || d.degree_name || '',
+      specialization: d.educationalDetails?.specialization || d.specialization || '',
+      university: d.educationalDetails?.university || d.university || '',
+      yearOfPassing: d.educationalDetails?.yearOfPassing || (d.year_of_passing != null ? String(d.year_of_passing) : ''),
+      gradePercentage: d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
+    },
+    experienceDetails: {
+      experienceType: d.experienceDetails?.experienceType || (d.previous_company ? 'Experienced' : 'Fresher'),
+      totalExperience: d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : ''),
+      previousCompany: d.experienceDetails?.previousCompany || d.previous_company || '',
+      previousDesignation: d.experienceDetails?.previousDesignation || d.previous_designation || '',
+      previousDepartment: d.experienceDetails?.previousDepartment || d.previous_department || '',
+      startDate: d.experienceDetails?.startDate || d.employment_start_date || '',
+      endDate: d.experienceDetails?.endDate || d.employment_end_date || '',
+      lastDrawnSalary: d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : ''),
+      companyLocation: d.experienceDetails?.companyLocation || d.previous_company_location || '',
+    },
     department: resolveEmployeeDepartmentName(d, depts),
     designation: d.designation || 'Staff',
     reportingManagerId: d.reportingManagerId || d.reporting_manager_id || '',
     reportingManagerName: d.reportingManagerName || d.reporting_manager_name || '',
-    joiningDate: d.joiningDate || d.created_at?.split('T')[0] || '2026-01-01',
+    joiningDate: d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01',
     employmentType: (d.employmentType || d.employment_type || 'Full-Time') as any,
-    status: (d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave') ? d.status : 'Active',
+    status: (d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active',
     avatar: d.avatar || d.avatar_url || '',
+    workLocation: d.workLocation || d.work_location || d.branch || '',
     basicSalary: Number(d.basicSalary || d.basic_salary) || 15000,
     allowances: {
       hra: Number(d.hra || d.allowances_hra) || 0,
@@ -1329,7 +1366,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       da: d.salaryDetails?.da ?? d.salary_details?.da ?? d.da,
       conveyance: d.salaryDetails?.conveyance ?? d.salary_details?.conveyance ?? d.conveyance,
       withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf,
-      salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme
+      salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme,
+      panNumber: d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
+      uanNumber: d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
     },
     withPf: resolveEmployeeWithPf({
       withPf: d.withPf,
@@ -1340,10 +1379,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } as Employee),
     bankDetails: {
-      bankName: d.bankName || d.bank_name || '',
-      accountNumber: d.accountNumber || d.account_number || '',
-      ifscCode: d.ifscCode || d.ifsc_code || '',
-      branch: d.branch || '',
+      bankName: d.bankDetails?.bankName || d.bankName || d.bank_name || '',
+      accountNumber: d.bankDetails?.accountNumber || d.accountNumber || d.account_number || '',
+      ifscCode: d.bankDetails?.ifscCode || d.ifscCode || d.ifsc_code || '',
+      branch: d.bankDetails?.branch || d.branch || '',
     },
     attendanceMethod: (d.attendanceMethod || d.attendance_method || (d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan')) as any,
     gpsAllowed: d.gpsAllowed ?? (d.designation === 'CEO' ? false : true),
@@ -1365,21 +1404,190 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     password: d.password,
   });
 
-  const employeeToDbUpdates = (emp: Partial<Employee>): Record<string, any> => {
+  const employeeToDbUpdates = (emp: Partial<Employee>, deptList?: DepartmentItem[], empList?: Employee[]): Record<string, any> => {
     const updates: Record<string, any> = {};
     if (emp.employeeId !== undefined) updates.employee_id = emp.employeeId;
-    if (emp.firstName !== undefined) updates.first_name = emp.firstName;
-    if (emp.lastName !== undefined) updates.last_name = emp.lastName;
-    if (emp.email !== undefined) updates.email = emp.email.toLowerCase().trim();
-    if (emp.phone !== undefined) updates.phone = emp.phone;
-    if (emp.designation !== undefined) updates.designation = emp.designation;
-    if (emp.basicSalary !== undefined) updates.basic_salary = Number(emp.basicSalary) || 0;
-    if (emp.status !== undefined && (emp.status === 'Active' || emp.status === 'On Leave' || emp.status === 'Terminated')) {
-      updates.status = emp.status;
+    if (emp.firstName !== undefined) updates.first_name = (emp.firstName || '').trim();
+    if (emp.lastName !== undefined) updates.last_name = (emp.lastName || '').trim();
+    if (emp.email !== undefined) updates.email = (emp.email || '').toLowerCase().trim();
+
+    // Phone: DB check constraint requires null OR 10 digits starting with 6-9
+    if (emp.phone !== undefined) {
+      const raw = String(emp.phone || '').trim();
+      let digits = raw.replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+      if (digits && /^[6-9]\d{9}$/.test(digits)) {
+        updates.phone = digits;
+      } else {
+        updates.phone = null;
+      }
     }
+
+    if (emp.designation !== undefined) updates.designation = emp.designation || 'Staff';
+    if (emp.basicSalary !== undefined) updates.basic_salary = Math.max(0, Number(emp.basicSalary) || 0);
+
+    // Status Enum: 'Active' | 'On Leave' | 'Terminated' | 'Inactive'
+    if (emp.status !== undefined) {
+      const s = String(emp.status).toLowerCase();
+      if (s.includes('leave')) updates.status = 'On Leave';
+      else if (s.includes('term')) updates.status = 'Terminated';
+      else if (s.includes('inact')) updates.status = 'Inactive';
+      else updates.status = 'Active';
+    }
+
+    // Gender Enum: 'Male' | 'Female' | 'Other'
+    if (emp.gender !== undefined) {
+      const g = String(emp.gender).toLowerCase();
+      if (g === 'female') updates.gender = 'Female';
+      else if (g === 'other') updates.gender = 'Other';
+      else updates.gender = 'Male';
+    }
+
+    // Employment Type Enum: 'Full-Time' | 'Part-Time' | 'Contract' | 'Intern'
+    if (emp.employmentType !== undefined) {
+      const et = String(emp.employmentType).toLowerCase();
+      if (et.includes('part')) updates.employment_type = 'Part-Time';
+      else if (et.includes('contract')) updates.employment_type = 'Contract';
+      else if (et.includes('intern')) updates.employment_type = 'Intern';
+      else updates.employment_type = 'Full-Time';
+    }
+
+    // Date helper: ensure 'YYYY-MM-DD' or null
+    const normalizeDate = (raw: any): string | null => {
+      if (!raw) return null;
+      const str = String(raw).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      if (/^\d{2}-\d{2}-\d{4}$/.test(str)) {
+        const [d, m, y] = str.split('-');
+        return `${y}-${m}-${d}`;
+      }
+      const parsed = Date.parse(str);
+      if (!isNaN(parsed)) {
+        return new Date(parsed).toISOString().split('T')[0];
+      }
+      return null;
+    };
+
+    if (emp.dob !== undefined) updates.dob = normalizeDate(emp.dob);
+    if (emp.joiningDate !== undefined) updates.joining_date = normalizeDate(emp.joiningDate);
+
+    // Department resolving: must be a valid UUID in departments table or null
+    const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+
+    if (emp.departmentId !== undefined && isUuid(emp.departmentId)) {
+      updates.department_id = emp.departmentId;
+    } else if (emp.department !== undefined) {
+      const activeDepts = deptList || (typeof departments !== 'undefined' ? departments : []);
+      const matchedDept = activeDepts.find((d: any) =>
+        d.id === emp.department ||
+        d.name?.toLowerCase() === emp.department?.toLowerCase() ||
+        d.code?.toLowerCase() === emp.department?.toLowerCase()
+      );
+      if (matchedDept && isUuid(matchedDept.id)) {
+        updates.department_id = matchedDept.id;
+      } else {
+        updates.department_id = null;
+      }
+    }
+
+    // Reporting Manager resolving: must be a valid UUID in employees table or null
+    if (emp.reportingManagerId !== undefined) {
+      const mgrId = String(emp.reportingManagerId).trim();
+      if (isUuid(mgrId)) {
+        updates.reporting_manager_id = mgrId;
+      } else {
+        const activeEmps = empList || (typeof employees !== 'undefined' ? employees : []);
+        const matchedMgr = activeEmps.find((e: any) => e.employeeId === mgrId || e.id === mgrId);
+        if (matchedMgr && isUuid(matchedMgr.id)) {
+          updates.reporting_manager_id = matchedMgr.id;
+        } else {
+          updates.reporting_manager_id = null;
+        }
+      }
+    }
+    if (emp.reportingManagerName !== undefined) updates.reporting_manager_name = emp.reportingManagerName || null;
+
+    // Work location / branch
+    if (emp.workLocation !== undefined) {
+      updates.branch = emp.workLocation || null;
+    } else if (emp.branchId !== undefined) {
+      updates.branch = emp.branchId || null;
+    }
+
+    // Address
+    if (emp.currentAddress) {
+      if (emp.currentAddress.line1 !== undefined) updates.address_line1 = emp.currentAddress.line1 || null;
+      if (emp.currentAddress.line2 !== undefined) updates.address_line2 = emp.currentAddress.line2 || null;
+      if (emp.currentAddress.city !== undefined) updates.city = emp.currentAddress.city || null;
+      if (emp.currentAddress.state !== undefined) updates.state = emp.currentAddress.state || null;
+      if (emp.currentAddress.country !== undefined) updates.country = emp.currentAddress.country || null;
+      if (emp.currentAddress.pincode !== undefined) updates.pincode = emp.currentAddress.pincode || null;
+    }
+    if (emp.address !== undefined) updates.address = emp.address || null;
+
+    // Bank Details
+    if (emp.bankDetails) {
+      if (emp.bankDetails.bankName !== undefined) updates.bank_name = emp.bankDetails.bankName || null;
+      if (emp.bankDetails.accountNumber !== undefined) updates.account_number = emp.bankDetails.accountNumber || null;
+      if (emp.bankDetails.ifscCode !== undefined) updates.ifsc_code = emp.bankDetails.ifscCode ? emp.bankDetails.ifscCode.toUpperCase().trim() : null;
+      if (emp.bankDetails.branch !== undefined && !updates.branch) updates.branch = emp.bankDetails.branch || null;
+    }
+
+    // PAN & UAN
+    const pan = emp.salaryDetails?.panNumber ?? (emp as any).panNumber;
+    if (pan !== undefined) updates.pan_number = pan ? String(pan).toUpperCase().trim() : null;
+    const uan = emp.salaryDetails?.uanNumber ?? (emp as any).uanNumber;
+    if (uan !== undefined) updates.uan_number = uan ? String(uan).trim() : null;
+
+    // Allowances
+    if (emp.allowances) {
+      if (emp.allowances.hra !== undefined) updates.allowances_hra = Number(emp.allowances.hra) || 0;
+      if (emp.allowances.transport !== undefined) updates.allowances_transport = Number(emp.allowances.transport) || 0;
+      if (emp.allowances.medical !== undefined) updates.allowances_medical = Number(emp.allowances.medical) || 0;
+      if (emp.allowances.special !== undefined) updates.allowances_special = Number(emp.allowances.special) || 0;
+    }
+
+    // Educational Details
+    if (emp.educationalDetails) {
+      if (emp.educationalDetails.highestQualification !== undefined) updates.highest_qualification = emp.educationalDetails.highestQualification || null;
+      if (emp.educationalDetails.degreeName !== undefined) updates.degree_name = emp.educationalDetails.degreeName || null;
+      if (emp.educationalDetails.specialization !== undefined) updates.specialization = emp.educationalDetails.specialization || null;
+      if (emp.educationalDetails.university !== undefined) updates.university = emp.educationalDetails.university || null;
+      if (emp.educationalDetails.yearOfPassing !== undefined) {
+        const y = parseInt(String(emp.educationalDetails.yearOfPassing), 10);
+        updates.year_of_passing = isNaN(y) ? null : y;
+      }
+      if (emp.educationalDetails.gradePercentage !== undefined) {
+        const g = parseFloat(String(emp.educationalDetails.gradePercentage));
+        updates.grade_percentage = isNaN(g) ? null : g;
+      }
+    }
+
+    // Experience Details
+    if (emp.experienceDetails) {
+      if (emp.experienceDetails.totalExperience !== undefined) {
+        const exp = parseFloat(String(emp.experienceDetails.totalExperience));
+        updates.total_experience = isNaN(exp) ? null : exp;
+      }
+      if (emp.experienceDetails.previousCompany !== undefined) updates.previous_company = emp.experienceDetails.previousCompany || null;
+      if (emp.experienceDetails.previousDesignation !== undefined) updates.previous_designation = emp.experienceDetails.previousDesignation || null;
+      if (emp.experienceDetails.previousDepartment !== undefined) updates.previous_department = emp.experienceDetails.previousDepartment || null;
+      if (emp.experienceDetails.startDate !== undefined) updates.employment_start_date = normalizeDate(emp.experienceDetails.startDate);
+      if (emp.experienceDetails.endDate !== undefined) updates.employment_end_date = normalizeDate(emp.experienceDetails.endDate);
+      if (emp.experienceDetails.lastDrawnSalary !== undefined) {
+        const sal = parseFloat(String(emp.experienceDetails.lastDrawnSalary));
+        updates.last_drawn_salary = isNaN(sal) ? null : sal;
+      }
+      if (emp.experienceDetails.companyLocation !== undefined) updates.previous_company_location = emp.experienceDetails.companyLocation || null;
+    }
+
+    // Work shift & attendance
+    if (emp.workShift !== undefined) updates.work_shift = emp.workShift || null;
+    if (emp.attendanceMethod !== undefined) updates.attendance_method = emp.attendanceMethod;
     if (emp.mustChangePassword !== undefined) updates.must_change_password = emp.mustChangePassword;
     if (emp.accountStatus !== undefined) updates.account_status = emp.accountStatus;
-    if (emp.attendanceMethod !== undefined) updates.attendance_method = emp.attendanceMethod;
+    if (emp.avatar !== undefined) updates.avatar_url = emp.avatar || null;
+
     return updates;
   };
 
@@ -5308,7 +5516,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true, message: 'Password updated successfully' };
   };
 
-  const updateEmployee = (id: string, empData: Partial<Employee>) => {
+  const updateEmployee = async (id: string, empData: Partial<Employee>): Promise<{ success: boolean; error?: any }> => {
     const normalizedEmpData = { ...empData };
     if (normalizedEmpData.email !== undefined) {
       normalizedEmpData.email = normalizedEmpData.email ? normalizedEmpData.email.trim().toLowerCase() : '';
@@ -5339,14 +5547,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    const dbUpdates = employeeToDbUpdates(normalizedEmpData);
+    const dbUpdates = employeeToDbUpdates(normalizedEmpData, departments, employees);
     if (Object.keys(dbUpdates).length > 0) {
-      supabaseDirect.updateEmployee(id, dbUpdates).then(res => {
+      try {
+        const res = await supabaseDirect.updateEmployee(id, dbUpdates);
         if (!res.success) {
           console.warn('[HRMSContext] updateEmployee cloud save failed:', res.error);
+          return { success: false, error: res.error };
         }
-      });
+        return { success: true };
+      } catch (err: any) {
+        console.warn('[HRMSContext] updateEmployee cloud save error:', err);
+        return { success: false, error: err?.message || err };
+      }
     }
+    return { success: true };
   };
 
   const deleteEmployee = async (id: string): Promise<{ success: boolean; message?: string }> => {

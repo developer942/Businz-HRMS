@@ -435,6 +435,24 @@ export const supabaseDirect = {
       }
 
       const data = await res.json();
+      if (Array.isArray(data) && data.length === 0 && isUuid) {
+        // Fallback: try by employee_id or email
+        const fallbackFilter = `or=(employee_id.ilike.${encodeURIComponent(cleanId)},email.ilike.${encodeURIComponent(cleanId)})`;
+        const fallbackRes = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${fallbackFilter}`, {
+          method: 'PATCH',
+          headers: {
+            ...getHeaders(),
+            'Prefer': 'return=representation',
+          },
+          body: JSON.stringify(updates),
+        });
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          if (Array.isArray(fallbackData) && fallbackData.length > 0) {
+            return { success: true, data: fallbackData[0] };
+          }
+        }
+      }
       return { success: true, data: Array.isArray(data) ? data[0] : data };
     } catch (err: any) {
       return { success: false, error: err?.message || err };
