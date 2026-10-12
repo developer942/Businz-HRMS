@@ -97,13 +97,8 @@ const createBlankCompanyInfo = (): CompanyInfo => ({
   updatedBy: 'Admin'
 });
 
-const optimizeImageFile = (file: File, maxSizeMb: number = 2): Promise<string> => {
+const optimizeImageFile = (file: File, maxDimension: number = 600): Promise<string> => {
   return new Promise((resolve, reject) => {
-    if (file.size > maxSizeMb * 1024 * 1024) {
-      reject(new Error(`File size exceeds ${maxSizeMb}MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a file under ${maxSizeMb}MB.`));
-      return;
-    }
-
     if (file.type === 'image/svg+xml') {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -122,7 +117,6 @@ const optimizeImageFile = (file: File, maxSizeMb: number = 2): Promise<string> =
 
       const img = new Image();
       img.onload = () => {
-        const maxDimension = 1200;
         let { width, height } = img;
         if (width > maxDimension || height > maxDimension) {
           if (width > height) {
@@ -135,18 +129,35 @@ const optimizeImageFile = (file: File, maxSizeMb: number = 2): Promise<string> =
         }
 
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           resolve(rawDataUrl);
           return;
         }
 
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-        const quality = outputType === 'image/jpeg' ? 0.9 : undefined;
-        resolve(canvas.toDataURL(outputType, quality));
+
+        try {
+          if (file.type === 'image/png') {
+            const pngData = canvas.toDataURL('image/png');
+            if (pngData.length < 250000) {
+              resolve(pngData);
+              return;
+            }
+          }
+          const webpData = canvas.toDataURL('image/webp', 0.88);
+          if (webpData.startsWith('data:image/webp')) {
+            resolve(webpData);
+            return;
+          }
+          resolve(canvas.toDataURL('image/jpeg', 0.88));
+        } catch {
+          resolve(rawDataUrl);
+        }
       };
       img.onerror = () => resolve(rawDataUrl);
       img.src = rawDataUrl;
@@ -162,16 +173,14 @@ interface CompanyImageUploadFieldProps {
   onChange: (dataUrl: string) => void;
   helperText?: string;
   accept?: string;
-  maxSizeMb?: number;
 }
 
 const CompanyImageUploadField: React.FC<CompanyImageUploadFieldProps> = ({
   label,
   value,
   onChange,
-  helperText = 'PNG, JPG, WEBP, SVG (Max 2MB)',
-  accept = 'image/png,image/jpeg,image/jpg,image/webp,image/svg+xml',
-  maxSizeMb = 2
+  helperText = 'No size limit • Auto-optimized • PNG, JPG, WEBP, SVG',
+  accept = 'image/png,image/jpeg,image/jpg,image/webp,image/svg+xml'
 }) => {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,14 +194,9 @@ const CompanyImageUploadField: React.FC<CompanyImageUploadFieldProps> = ({
       return;
     }
 
-    if (file.size > maxSizeMb * 1024 * 1024) {
-      setError(`File size exceeds ${maxSizeMb}MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a file under ${maxSizeMb}MB.`);
-      return;
-    }
-
     try {
       setIsProcessing(true);
-      const optimizedUrl = await optimizeImageFile(file, maxSizeMb);
+      const optimizedUrl = await optimizeImageFile(file);
       onChange(optimizedUrl);
     } catch (err: any) {
       setError(err?.message || 'Failed to process image.');
@@ -640,18 +644,27 @@ export const CompanyDetailsSettings: React.FC = () => {
     setShowClearConfirmModal(true);
   };
 
-  const handleConfirmClearInfo = () => {
+  const handleConfirmClearInfo = async () => {
     const blank = createBlankCompanyInfo();
     setInfoErrors({});
     setValidationSummary(null);
     setOfficialPhoneCountryCode('+91');
     setInfoForm(blank);
     setIsInfoDirty(false);
-    updateCompanyInfo(blank);
-    setShowClearConfirmModal(false);
-    setResetNotice('All saved company details have been cleared.');
-    showCloudNotice('Company details cleared from database.');
-    setTimeout(() => setResetNotice(null), 3500);
+    try {
+      const saved = await updateCompanyInfo(blank);
+      lastSavedAtRef.current = saved.updatedAt || new Date().toISOString();
+      try {
+        localStorage.setItem('vrm_hrms_company_info', JSON.stringify(blank));
+        localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(blank));
+      } catch {}
+      setShowClearConfirmModal(false);
+      setResetNotice('All saved company details have been cleared.');
+      showCloudNotice('Company details cleared from database.');
+      setTimeout(() => setResetNotice(null), 3500);
+    } catch (err: any) {
+      setValidationSummary(`Clear failed: ${err?.message || 'Error'}`);
+    }
   };
 
   const openAddBranchModal = () => {
@@ -1487,7 +1500,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                   borderRadius: '9999px',
                   border: '1px solid #CFFAFE'
                 }}>
-                  Maximum 2 MB per file • PNG / JPG / WEBP / SVG
+                  No Size Limit • Auto-Optimized • PNG / JPG / WEBP / SVG
                 </span>
               </div>
 
@@ -1496,24 +1509,21 @@ export const CompanyDetailsSettings: React.FC = () => {
                   label="Company Logo"
                   value={infoForm.logoUrl || ''}
                   onChange={dataUrl => setInfoField('logoUrl', dataUrl)}
-                  helperText="PNG, JPG, WEBP, SVG (Max 2MB)"
-                  maxSizeMb={2}
+                  helperText="No size limit • Auto-optimized (PNG, JPG, WEBP, SVG)"
                 />
 
                 <CompanyImageUploadField
                   label="Authorized Signature Image"
                   value={infoForm.signatureImageUrl || ''}
                   onChange={dataUrl => setInfoField('signatureImageUrl', dataUrl)}
-                  helperText="PNG, JPG, WEBP, SVG (Max 2MB)"
-                  maxSizeMb={2}
+                  helperText="No size limit • Auto-optimized (PNG, JPG, WEBP, SVG)"
                 />
 
                 <CompanyImageUploadField
                   label="Company Stamp Image"
                   value={infoForm.stampImageUrl || ''}
                   onChange={dataUrl => setInfoField('stampImageUrl', dataUrl)}
-                  helperText="PNG, JPG, WEBP, SVG (Max 2MB)"
-                  maxSizeMb={2}
+                  helperText="No size limit • Auto-optimized (PNG, JPG, WEBP, SVG)"
                 />
               </div>
             </div>
@@ -1585,15 +1595,48 @@ export const CompanyDetailsSettings: React.FC = () => {
               </div>
             )}
 
-            {/* Bottom Action Bar: Single Save Button */}
+            {/* Bottom Action Bar: Clear & Save Buttons */}
             <div style={{
               display: 'flex',
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
               alignItems: 'center',
               marginTop: '28px',
               paddingTop: '20px',
-              borderTop: '1px solid #F1F5F9'
+              borderTop: '1px solid #F1F5F9',
+              flexWrap: 'wrap',
+              gap: '12px'
             }}>
+              <button
+                id="clear-company-details-btn"
+                type="button"
+                onClick={handleClearInfoClick}
+                disabled={isSavingInfo}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  color: '#DC2626',
+                  border: '1px solid #FECACA',
+                  borderRadius: '12px',
+                  padding: '12px 24px',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: isSavingInfo ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  opacity: isSavingInfo ? 0.6 : 1
+                }}
+                onMouseOver={e => {
+                  e.currentTarget.style.backgroundColor = '#FEF2F2';
+                }}
+                onMouseOut={e => {
+                  e.currentTarget.style.backgroundColor = '#FFFFFF';
+                }}
+              >
+                <Trash2 size={16} />
+                Clear All Fields
+              </button>
+
               <button
                 id="save-company-details-btn"
                 type="button"

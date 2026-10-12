@@ -466,11 +466,9 @@ export const supabaseDirect = {
    */
   async saveCompanySetting(key: string, val: any): Promise<boolean> {
     try {
-      if ((key === 'company_info' || key === 'company_info_company-b') && val && typeof val === 'object') {
-        if (!val.companyName && !val.companyCode) {
-          console.warn(`[DatabaseRest] Prevented overwriting ${key} with blank company details!`);
-          return false;
-        }
+      if ((key === 'company_info' || key === 'company_info_company-b') && (!val || typeof val !== 'object')) {
+        console.warn(`[DatabaseRest] Prevented saving invalid payload for ${key}`);
+        return false;
       }
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?on_conflict=setting_key`, {
         method: 'POST',
