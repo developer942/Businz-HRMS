@@ -534,11 +534,11 @@ export const Header: React.FC<HeaderProps> = ({
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                         <span style={{ fontSize: '0.8rem', fontWeight: 750, color: '#0B1A2D' }}>
-                          {n.title}
+                          {(n.title || '').replace(/⚠️\s*/g, '')}
                         </span>
                         <span style={{ fontSize: '0.68rem', color: '#64748B' }}>{formatDateDDMMYYYY(n.createdAt || new Date())}</span>
                       </div>
-                      <p style={{ fontSize: '0.78rem', color: '#64748B', margin: 0, lineHeight: 1.35 }}>{n.message}</p>
+                      <p style={{ fontSize: '0.78rem', color: '#64748B', margin: 0, lineHeight: 1.35 }}>{(n.message || '').replace(/⚠️\s*/g, '')}</p>
                     </div>
                   ))}
                 </div>

@@ -2803,6 +2803,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const cutoff = Date.now() - SHARED_NOTIFICATIONS_TTL_MS;
       const merged = Array.from(map.values())
         .filter(n => !n.createdAt || new Date(n.createdAt).getTime() >= cutoff)
+        .map(n => ({
+          ...n,
+          title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
+          message: (n.message || '').replace(/⚠️\s*/g, '').trim()
+        }))
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
         .slice(0, SHARED_NOTIFICATIONS_LIMIT);
       await supabaseDirect.saveCompanySetting(SHARED_NOTIFICATIONS_KEY, merged);
@@ -2817,6 +2822,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   ) => {
     const newNote: NotificationItem = {
       ...note,
+      title: (note.title || '').replace(/⚠️\s*/g, '').trim(),
+      message: (note.message || '').replace(/⚠️\s*/g, '').trim(),
       id: `SN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: 'Just now',
       read: false,
@@ -2857,6 +2864,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const addNotification = (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => {
     const newNote: NotificationItem = {
       ...note,
+      title: (note.title || '').replace(/⚠️\s*/g, '').trim(),
+      message: (note.message || '').replace(/⚠️\s*/g, '').trim(),
       id: `NOT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: 'Just now',
       read: false,
@@ -9114,7 +9123,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Shared cross-user notifications
         if (Array.isArray(settings.shared_notifications_data)) {
-          const cloudNotes = settings.shared_notifications_data as NotificationItem[];
+          const cloudNotes = (settings.shared_notifications_data as NotificationItem[]).map(n => ({
+            ...n,
+            title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
+            message: (n.message || '').replace(/⚠️\s*/g, '').trim()
+          }));
           setSharedNotifications(prev => {
             const cloudIds = new Set(cloudNotes.map(n => n.id));
             const recentCutoff = Date.now() - 2 * 60 * 1000;
@@ -9357,10 +9370,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .map(n => ({
         ...n,
+        title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
+        message: (n.message || '').replace(/⚠️\s*/g, '').trim(),
         read: (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())),
         timestamp: formatNotificationTime(n.createdAt)
       }));
-    return [...shared, ...notifications];
+    const local = notifications.map(n => ({
+      ...n,
+      title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
+      message: (n.message || '').replace(/⚠️\s*/g, '').trim()
+    }));
+    return [...shared, ...local];
   }, [sharedNotifications, notifications, currentUser]);
 
   return (

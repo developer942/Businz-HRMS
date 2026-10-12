@@ -85,8 +85,8 @@ export const NotificationCenter: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {n.priority === 'Urgent' ? <AlertTriangle size={20} color="var(--accent-rose)" /> : <Info size={20} color="var(--primary-600)" />}
                   <div>
-                    <h4 style={{ fontSize: '0.95rem', fontWeight: 700 }}>{n.title}</h4>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '2px 0 0' }}>{n.message}</p>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 700 }}>{(n.title || '').replace(/⚠️\s*/g, '')}</h4>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '2px 0 0' }}>{(n.message || '').replace(/⚠️\s*/g, '')}</p>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
