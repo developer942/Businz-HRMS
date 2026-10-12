@@ -2913,16 +2913,37 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } catch {}
     }
-    return isCompB ? { ...COMPANY_B_PROFILE } : { ...COMPANY_A_PROFILE };
+    const defaultProfile = isCompB ? { ...COMPANY_B_PROFILE } : { ...COMPANY_A_PROFILE };
+    const savedKey = isCompB ? 'vrm_hrms_company_info_company-b' : 'vrm_hrms_company_info';
+    try {
+      const cached = localStorage.getItem(savedKey) || localStorage.getItem('vrm_hrms_company_info');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object' && (parsed.companyName || parsed.companyCode)) {
+          return { ...defaultProfile, ...parsed };
+        }
+      }
+    } catch {}
+    return defaultProfile;
   });
 
   // Keep company branding in sync when user logs in or switches company context
   useEffect(() => {
     const cId = currentUser.company_id || currentUser.companyId || 'company-a';
     if (cId === 'company-b' && companyInfo.company_id !== 'company-b') {
-      setCompanyInfo({ ...COMPANY_B_PROFILE });
+      try {
+        const cached = localStorage.getItem('vrm_hrms_company_info_company-b');
+        setCompanyInfo(cached ? { ...COMPANY_B_PROFILE, ...JSON.parse(cached) } : { ...COMPANY_B_PROFILE });
+      } catch {
+        setCompanyInfo({ ...COMPANY_B_PROFILE });
+      }
     } else if (cId === 'company-a' && companyInfo.company_id !== 'company-a') {
-      setCompanyInfo({ ...COMPANY_A_PROFILE });
+      try {
+        const cached = localStorage.getItem('vrm_hrms_company_info');
+        setCompanyInfo(cached ? { ...COMPANY_A_PROFILE, ...JSON.parse(cached) } : { ...COMPANY_A_PROFILE });
+      } catch {
+        setCompanyInfo({ ...COMPANY_A_PROFILE });
+      }
     }
   }, [currentUser.company_id, currentUser.companyId]);
 
@@ -3678,6 +3699,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateCompanyInfo = (info: Partial<CompanyInfo>) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
+    const isCompB = (currentUser.company_id === 'company-b' || info.company_id === 'company-b');
+    const settingKey = isCompB ? 'company_info_company-b' : 'company_info';
+    const localKey = isCompB ? 'vrm_hrms_company_info_company-b' : 'vrm_hrms_company_info';
+
     setCompanyInfo(prev => {
       const updated = {
         ...prev,
@@ -3685,6 +3710,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updatedAt: new Date().toISOString(),
         updatedBy: userDisplayName
       };
+      try {
+        localStorage.setItem(localKey, JSON.stringify(updated));
+        localStorage.setItem('vrm_hrms_company_info', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to save company info to localStorage:', e);
+      }
       addPolicyAuditLog({
         policyCategory: 'Company Details',
         policyId: 'COMP-ROOT',
@@ -3696,10 +3727,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         oldValues: prev,
         newValues: updated
       });
-      const settingKey = (currentUser.company_id === 'company-b' || updated.company_id === 'company-b')
-        ? 'company_info_company-b'
-        : 'company_info';
-      supabaseDirect.saveCompanySetting(settingKey, updated);
+      supabaseDirect.saveCompanySetting(settingKey, updated).catch(err => {
+        console.warn('Failed to save company setting to VPS database:', err);
+      });
       if (updated.companyCode) {
         setBusinessSettings(bPrev => ({
           ...bPrev,
@@ -3727,6 +3757,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         employeeId: !currentUser.employeeId.startsWith('EMP-B') ? currentUser.employeeId : 'EMP-000'
       })
     });
+    try {
+      const cached = localStorage.getItem(isCompanyB ? 'vrm_hrms_company_info_company-b' : 'vrm_hrms_company_info');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object') {
+          setCompanyInfo({ ...(isCompanyB ? COMPANY_B_PROFILE : COMPANY_A_PROFILE), ...parsed });
+          return;
+        }
+      }
+    } catch {}
     setCompanyInfo(isCompanyB ? { ...COMPANY_B_PROFILE } : { ...COMPANY_A_PROFILE });
   };
 

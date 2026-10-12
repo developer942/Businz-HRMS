@@ -408,11 +408,23 @@ export const CompanyDetailsSettings: React.FC = () => {
 
   // Edit states for Company Info
   const [infoForm, setInfoForm] = useState<CompanyInfo>(() => {
-    const base = companyInfo || INITIAL_COMPANY_INFO;
-    const parsedPhone = parsePhoneWithCountryCode(base.officialPhone);
+    let base = companyInfo;
+    if (!base || (!base.companyName && !base.companyCode)) {
+      try {
+        const cached = localStorage.getItem('vrm_hrms_company_info');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === 'object') {
+            base = { ...(base || INITIAL_COMPANY_INFO), ...parsed };
+          }
+        }
+      } catch {}
+    }
+    const finalBase = base || INITIAL_COMPANY_INFO;
+    const parsedPhone = parsePhoneWithCountryCode(finalBase.officialPhone);
     return {
-      ...base,
-      companyCode: base.companyCode || '',
+      ...finalBase,
+      companyCode: finalBase.companyCode || '',
       officialPhone: parsedPhone.localNumber
     };
   });
@@ -503,24 +515,34 @@ export const CompanyDetailsSettings: React.FC = () => {
     setResetNotice(null);
     setValidationSummary(null);
 
-    const normalizedWebsite = infoForm.website.trim() 
+    const normalizedWebsite = infoForm.website?.trim() 
       ? normalizeWebsite(infoForm.website)
       : '';
-    const officialPhoneDigits = cleanPhoneNumber(infoForm.officialPhone).slice(0, officialPhoneCountryCode === '+91' ? 10 : 15);
+    const officialPhoneDigits = cleanPhoneNumber(infoForm.officialPhone || '').slice(0, officialPhoneCountryCode === '+91' ? 10 : 15);
+
+    // Auto-generate company code if missing from company name
+    let genCode = cleanAlphaNumeric(infoForm.companyCode || '', 10);
+    if (!genCode && infoForm.companyName?.trim()) {
+      const words = infoForm.companyName.trim().split(/\s+/).filter(Boolean);
+      genCode = words.length > 1 
+        ? words.map(w => w[0]).join('').slice(0, 4).toUpperCase()
+        : words[0].slice(0, 4).toUpperCase();
+      if (!genCode) genCode = 'CMP';
+    }
 
     const normalized: CompanyInfo = {
       ...infoForm,
-      companyName: cleanText(infoForm.companyName),
-      legalCompanyName: cleanText(infoForm.legalCompanyName),
-      companyCode: cleanAlphaNumeric(infoForm.companyCode || '', 10),
-      industry: cleanText(infoForm.industry),
-      registrationNumber: cleanRocNumber(infoForm.registrationNumber),
-      gstNumber: cleanAlphaNumeric(infoForm.gstNumber, 15),
-      panNumber: cleanAlphaNumeric(infoForm.panNumber, 10),
-      cinNumber: cleanAlphaNumeric(infoForm.cinNumber, 21),
+      companyName: cleanText(infoForm.companyName || ''),
+      legalCompanyName: cleanText(infoForm.legalCompanyName || ''),
+      companyCode: genCode || 'CMP',
+      industry: cleanText(infoForm.industry || ''),
+      registrationNumber: cleanRocNumber(infoForm.registrationNumber || ''),
+      gstNumber: cleanAlphaNumeric(infoForm.gstNumber || '', 15),
+      panNumber: cleanAlphaNumeric(infoForm.panNumber || '', 10),
+      cinNumber: cleanAlphaNumeric(infoForm.cinNumber || '', 21),
       logoUrl: (infoForm.logoUrl || '').trim(),
       website: normalizedWebsite,
-      officialEmail: infoForm.officialEmail.trim().toLowerCase(),
+      officialEmail: (infoForm.officialEmail || '').trim().toLowerCase(),
       officialPhone: formatPhoneWithCountryCode(officialPhoneCountryCode, officialPhoneDigits),
       registeredAddress: (infoForm.registeredAddress || '').trim(),
       branchAddress: (infoForm.branchAddress || '').trim(),
@@ -535,37 +557,11 @@ export const CompanyDetailsSettings: React.FC = () => {
     if (!normalized.companyName.trim()) {
       errors.companyName = 'Company Name (Brand) is required.';
     }
-    if (!normalized.companyCode?.trim()) {
-      errors.companyCode = 'Company Code / Short Form is required (e.g. ACM, HDFC, SBI).';
-    }
-    if (normalized.registrationNumber && !/^[A-Z0-9/-]{3,30}$/.test(normalized.registrationNumber)) {
-      errors.registrationNumber = 'ROC number must contain only letters, numbers, / or -.';
-    }
-    if (normalized.gstNumber && !isValidGstin(normalized.gstNumber)) {
-      errors.gstNumber = 'Enter valid 15-character GSTIN, e.g. 33ABCDE1234F1Z5.';
-    }
-    if (normalized.panNumber && !isValidPan(normalized.panNumber)) {
-      errors.panNumber = 'Enter valid PAN, e.g. ABCDE1234F.';
-    }
-    if (normalized.cinNumber && !isValidCin(normalized.cinNumber)) {
-      errors.cinNumber = 'Enter valid 21-character CIN.';
+    if (normalized.officialEmail && !isValidEmail(normalized.officialEmail)) {
+      errors.officialEmail = 'Enter a valid corporate email address (e.g. contact@company.com).';
     }
     if (normalized.website && !isValidWebsite(normalized.website)) {
-      errors.website = 'Enter a valid website URL, e.g. https://company.com or company.com.';
-    }
-    if (normalized.officialEmail && !isValidEmail(normalized.officialEmail)) {
-      errors.officialEmail = 'Enter a valid corporate email address.';
-    }
-    if (officialPhoneDigits) {
-      if (officialPhoneCountryCode === '+91') {
-        if (officialPhoneDigits.length !== 10) {
-          errors.officialPhone = 'India phone number must be exactly 10 digits.';
-        } else if (!/^[6-9]\d{9}$/.test(officialPhoneDigits)) {
-          errors.officialPhone = 'India phone number must start with 6, 7, 8, or 9.';
-        }
-      } else if (officialPhoneDigits.length < 6 || officialPhoneDigits.length > 15) {
-        errors.officialPhone = 'Phone number must contain 6 to 15 digits.';
-      }
+      errors.website = 'Enter a valid website URL, e.g. https://company.com.';
     }
 
     setInfoForm({ ...normalized, officialPhone: officialPhoneDigits });
@@ -574,7 +570,7 @@ export const CompanyDetailsSettings: React.FC = () => {
     if (Object.keys(errors).length > 0) {
       const errorCount = Object.keys(errors).length;
       const firstKey = Object.keys(errors)[0] as keyof CompanyInfo;
-      setValidationSummary(`Cannot save: ${errorCount} error${errorCount > 1 ? 's' : ''} found (${errors[firstKey]}). Please check highlighted fields above.`);
+      setValidationSummary(`Cannot save: ${errors[firstKey] || `${errorCount} error(s) found`}. Please check highlighted fields.`);
       const el = document.querySelector(`[data-field="${firstKey}"]`) || document.querySelector(`[name="${firstKey}"]`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -588,6 +584,11 @@ export const CompanyDetailsSettings: React.FC = () => {
 
     try {
       updateCompanyInfo(normalized);
+      // Immediately cache in localStorage for instant retrieval across refreshes
+      try {
+        localStorage.setItem('vrm_hrms_company_info', JSON.stringify(normalized));
+        localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(normalized));
+      } catch {}
       setIsInfoDirty(false);
       setSaveSuccessState('saved');
       setInfoSavedSuccess(true);
@@ -595,7 +596,7 @@ export const CompanyDetailsSettings: React.FC = () => {
       setTimeout(() => {
         setSaveSuccessState('idle');
         setInfoSavedSuccess(false);
-      }, 3000);
+      }, 4000);
     } catch (err: any) {
       setValidationSummary(`Save failed: ${err?.message || 'Unexpected error'}`);
       setSaveSuccessState('idle');
@@ -819,6 +820,32 @@ export const CompanyDetailsSettings: React.FC = () => {
     });
   };
 
+  const handleCompanyNameChange = (val: string) => {
+    const cleaned = cleanCompanyText(val);
+    setIsInfoDirty(true);
+    setInfoForm(prev => {
+      const words = cleaned.trim().split(/\s+/).filter(Boolean);
+      let suggested = '';
+      if (words.length > 1) {
+        suggested = words.map(w => w[0]).join('').slice(0, 4).toUpperCase();
+      } else if (words.length === 1) {
+        suggested = words[0].slice(0, 4).toUpperCase();
+      }
+      const shouldAuto = !prev.companyCode || prev.companyCode === 'CMP' || prev.companyCode === 'EMP';
+      return {
+        ...prev,
+        companyName: cleaned,
+        companyCode: (shouldAuto && suggested) ? suggested : prev.companyCode
+      };
+    });
+    setInfoErrors(prev => {
+      if (!prev.companyName) return prev;
+      const next = { ...prev };
+      delete next.companyName;
+      return next;
+    });
+  };
+
   const getInfoInputStyle = (field: keyof CompanyInfo, extra?: React.CSSProperties): React.CSSProperties => ({
     ...(extra || {}),
     borderColor: infoErrors[field] ? '#EF4444' : undefined,
@@ -901,19 +928,55 @@ export const CompanyDetailsSettings: React.FC = () => {
         </button>
       </div>
 
-      {infoSavedSuccess && (
+      {/* Success Notification Banner */}
+      {(infoSavedSuccess || cloudSaveNotice) && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          padding: '12px 16px',
+          gap: '10px',
+          padding: '12px 18px',
           backgroundColor: '#DCFCE7',
-          color: '#166534',
+          color: '#15803D',
           borderRadius: '12px',
+          border: '1px solid #86EFAC',
           fontSize: '0.88rem',
-          fontWeight: 600
+          fontWeight: 700,
+          boxShadow: '0 2px 8px rgba(22, 163, 74, 0.12)',
+          marginBottom: '16px'
         }}>
-          <CheckCircle2 size={18} /> Company details saved and logged into audit history successfully!
+          <CheckCircle2 size={18} />
+          <span>{cloudSaveNotice || 'Company details saved and synchronized across HRMS!'}</span>
+        </div>
+      )}
+
+      {/* Validation Error Banner */}
+      {validationSummary && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '10px',
+          padding: '12px 18px',
+          backgroundColor: '#FEE2E2',
+          color: '#B91C1C',
+          borderRadius: '12px',
+          border: '1px solid #FCA5A5',
+          fontSize: '0.88rem',
+          fontWeight: 700,
+          boxShadow: '0 2px 8px rgba(239, 68, 68, 0.12)',
+          marginBottom: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={18} />
+            <span>{validationSummary}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setValidationSummary(null)}
+            style={{ background: 'none', border: 'none', color: '#B91C1C', cursor: 'pointer', padding: 0 }}
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 
@@ -926,13 +989,101 @@ export const CompanyDetailsSettings: React.FC = () => {
           padding: '24px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
         }}>
-          <div style={{ marginBottom: '22px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0F172A' }}>
-              Corporate Legal & Identity Profile
-            </h3>
-            <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#64748B' }}>
-              Enter registered legal details, tax identifiers, and official corporate channels
-            </p>
+          {/* Section Header with Top Save Action */}
+          <div style={{
+            marginBottom: '22px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '14px',
+            paddingBottom: '16px',
+            borderBottom: '1px solid #F1F5F9'
+          }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                  Corporate Legal & Identity Profile
+                </h3>
+                {isInfoDirty && (
+                  <span style={{
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    padding: '3px 10px',
+                    borderRadius: '99px',
+                    backgroundColor: '#FEF3C7',
+                    color: '#B45309',
+                    border: '1px solid #FDE68A'
+                  }}>
+                    ● Unsaved Changes
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#64748B' }}>
+                Enter registered legal details, tax identifiers, and official corporate channels
+              </p>
+            </div>
+
+            {/* Top Quick Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={handleResetChanges}
+                disabled={!isInfoDirty || isSavingInfo}
+                style={{
+                  padding: '9px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#475569',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  cursor: isInfoDirty ? 'pointer' : 'not-allowed',
+                  opacity: isInfoDirty ? 1 : 0.6
+                }}
+              >
+                Reset
+              </button>
+              <button
+                type="submit"
+                form="company-info-form"
+                disabled={isSavingInfo}
+                style={{
+                  backgroundColor: saveSuccessState === 'saved' ? '#16A34A' : '#0E7490',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '9px 20px',
+                  fontSize: '0.86rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: isSavingInfo ? 'not-allowed' : 'pointer',
+                  boxShadow: saveSuccessState === 'saved'
+                    ? '0 4px 12px rgba(22, 163, 74, 0.3)'
+                    : '0 4px 12px rgba(14, 116, 144, 0.25)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {saveSuccessState === 'saving' ? (
+                  <>
+                    <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                    Saving...
+                  </>
+                ) : saveSuccessState === 'saved' ? (
+                  <>
+                    <CheckCircle2 size={15} />
+                    Saved Successfully!
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} />
+                    Save Company Details
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <form id="company-info-form" noValidate onSubmit={handleSaveInfo} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
@@ -961,7 +1112,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                     id="company-name-input"
                     className="form-control"
                     value={infoForm.companyName}
-                    onChange={e => setInfoField('companyName', cleanCompanyText(e.target.value))}
+                    onChange={e => handleCompanyNameChange(e.target.value)}
                     style={getInfoInputStyle('companyName')}
                     placeholder="e.g. Acme Corporation Private Limited"
                   />
@@ -1528,6 +1679,73 @@ export const CompanyDetailsSettings: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Floating Save Action Bar for Tab 1 */}
+      {isInfoDirty && activeTab === 'info' && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 999,
+          backgroundColor: '#0F172A',
+          color: '#FFFFFF',
+          padding: '10px 20px',
+          borderRadius: '9999px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.35), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
+          border: '1px solid #334155'
+        }}>
+          <span style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+            Unsaved Changes in Company Details
+          </span>
+          <button
+            type="button"
+            onClick={handleResetChanges}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94A3B8',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const form = document.getElementById('company-info-form') as HTMLFormElement;
+              if (form) {
+                if (form.requestSubmit) {
+                  form.requestSubmit();
+                } else {
+                  form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                }
+              }
+            }}
+            disabled={isSavingInfo}
+            style={{
+              backgroundColor: '#0E7490',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '99px',
+              padding: '7px 18px',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              cursor: isSavingInfo ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Save size={14} /> Save Now
+          </button>
         </div>
       )}
 
