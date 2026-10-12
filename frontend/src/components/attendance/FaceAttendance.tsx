@@ -17,7 +17,8 @@ import {
   LogIn,
   LogOut,
   User,
-  Users
+  Users,
+  FlipHorizontal
 } from 'lucide-react';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import type { FaceLog } from '../../types/hrms';
@@ -98,6 +99,14 @@ export const FaceAttendance: React.FC = () => {
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [isMirrored, setIsMirrored] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_camera_mirrored');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanResult, setScanResult] = useState<{ status: 'success' | 'error' | null; message: string }>({ status: null, message: '' });
   const [punchType, setPunchType] = useState<'Check-In' | 'Check-Out'>('Check-In');
@@ -285,6 +294,10 @@ export const FaceAttendance: React.FC = () => {
         canvas.height = videoRef.current.videoHeight;
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          if (isMirrored) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+          }
           ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
           return canvas.toDataURL('image/jpeg', 0.85);
         }
@@ -1003,8 +1016,51 @@ export const FaceAttendance: React.FC = () => {
                     autoPlay
                     playsInline
                     muted
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)',
+                      transition: 'transform 0.2s ease'
+                    }}
                   />
+                  
+                  {/* Camera Mirror / Flip Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMirrored(prev => {
+                        const next = !prev;
+                        try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch {}
+                        return next;
+                      });
+                    }}
+                    title={isMirrored ? "Click to switch to standard view (Mirror Off)" : "Click to switch to selfie view (Mirror On)"}
+                    style={{
+                      position: 'absolute',
+                      top: '14px',
+                      right: '14px',
+                      zIndex: 30,
+                      padding: '6px 12px',
+                      borderRadius: '99px',
+                      backgroundColor: 'rgba(15, 23, 42, 0.8)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid rgba(255, 255, 255, 0.25)',
+                      color: '#ffffff',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <FlipHorizontal size={14} />
+                    <span>{isMirrored ? 'Mirror: On' : 'Mirror: Off'}</span>
+                  </button>
+
                   {/* Laser Scanning Overlay */}
                   <div className="face-scanning-overlay" />
                 </>
