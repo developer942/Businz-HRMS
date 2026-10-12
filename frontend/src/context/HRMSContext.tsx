@@ -2919,12 +2919,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const cached = localStorage.getItem(savedKey) || localStorage.getItem('vrm_hrms_company_info');
       if (cached) {
         const parsed = JSON.parse(cached);
-        const isDummy = parsed?.companyName?.toLowerCase()?.includes('businz') || parsed?.companyCode === 'BUS';
-        if (isDummy) {
-          localStorage.removeItem(savedKey);
-          localStorage.removeItem('vrm_hrms_company_info');
-          localStorage.removeItem('vrm_hrms_company_info_company-a');
-        } else if (parsed && typeof parsed === 'object' && (parsed.companyName || parsed.companyCode)) {
+        if (parsed && typeof parsed === 'object' && (parsed.companyName || parsed.companyCode)) {
           return { ...defaultProfile, ...parsed };
         }
       }
@@ -2947,8 +2942,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const cached = localStorage.getItem('vrm_hrms_company_info');
         if (cached) {
           const parsed = JSON.parse(cached);
-          const isDummy = parsed?.companyName?.toLowerCase()?.includes('businz') || parsed?.companyCode === 'BUS';
-          if (!isDummy) {
+          if (parsed && typeof parsed === 'object' && (parsed.companyName || parsed.companyCode)) {
             setCompanyInfo({ ...COMPANY_A_PROFILE, ...parsed });
             return;
           }
@@ -3044,17 +3038,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch {}
   }, [designations]);
-
-  useEffect(() => {
-    try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-        const cKey = (currentUser.company_id === 'company-b' || companyInfo.company_id === 'company-b')
-          ? 'company_info_company-b'
-          : 'company_info';
-        supabaseDirect.saveCompanySetting(cKey, companyInfo);
-      }
-    } catch {}
-  }, [companyInfo]);
 
 
   useEffect(() => {
@@ -9153,22 +9136,36 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const activeCId = currentUser.company_id || currentUser.companyId || 'company-a';
         if (activeCId === 'company-b') {
           if (hasSetting('company_info_company-b') && settings['company_info_company-b'] && typeof settings['company_info_company-b'] === 'object') {
-            setCompanyInfo({ ...COMPANY_B_PROFILE, ...settings['company_info_company-b'] });
-          } else {
-            setCompanyInfo({ ...COMPANY_B_PROFILE });
+            const dbInfoB = settings['company_info_company-b'];
+            if (dbInfoB && (dbInfoB.companyName || dbInfoB.companyCode)) {
+              setCompanyInfo({ ...COMPANY_B_PROFILE, ...dbInfoB });
+            }
           }
         } else {
           if (hasSetting('company_info') && settings.company_info && typeof settings.company_info === 'object') {
             const dbInfo = settings.company_info;
             const isCompBData = dbInfo.company_id === 'company-b' || dbInfo.companyName?.toLowerCase().includes('nexus');
-            const merged = { ...COMPANY_A_PROFILE, ...(isCompBData ? {} : dbInfo) };
-            setCompanyInfo(merged);
-            try {
-              localStorage.setItem('vrm_hrms_company_info', JSON.stringify(merged));
-              localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(merged));
-            } catch {}
-          } else {
-            setCompanyInfo({ ...COMPANY_A_PROFILE });
+            if (!isCompBData && (dbInfo.companyName || dbInfo.companyCode)) {
+              const merged = { ...COMPANY_A_PROFILE, ...dbInfo };
+              setCompanyInfo(merged);
+              try {
+                localStorage.setItem('vrm_hrms_company_info', JSON.stringify(merged));
+                localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(merged));
+              } catch {}
+            } else {
+              // If DB was empty/blank for company_info, check if localStorage has valid saved data to preserve and restore to DB!
+              try {
+                const localCached = localStorage.getItem('vrm_hrms_company_info') || localStorage.getItem('vrm_hrms_company_info_company-a');
+                if (localCached) {
+                  const parsed = JSON.parse(localCached);
+                  if (parsed && (parsed.companyName || parsed.companyCode)) {
+                    const merged = { ...COMPANY_A_PROFILE, ...parsed };
+                    setCompanyInfo(merged);
+                    supabaseDirect.saveCompanySetting('company_info', merged).catch(() => {});
+                  }
+                }
+              } catch {}
+            }
           }
         }
 

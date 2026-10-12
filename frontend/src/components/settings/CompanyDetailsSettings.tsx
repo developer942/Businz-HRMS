@@ -410,7 +410,19 @@ export const CompanyDetailsSettings: React.FC = () => {
   const lastSavedAtRef = React.useRef<string>('');
 
   const [infoForm, setInfoForm] = useState<CompanyInfo>(() => {
-    const finalBase = companyInfo || INITIAL_COMPANY_INFO;
+    let base = companyInfo;
+    if (!base || (!base.companyName && !base.companyCode)) {
+      try {
+        const cached = localStorage.getItem('vrm_hrms_company_info') || localStorage.getItem('vrm_hrms_company_info_company-a');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && (parsed.companyName || parsed.companyCode)) {
+            base = { ...(companyInfo || INITIAL_COMPANY_INFO), ...parsed };
+          }
+        }
+      } catch {}
+    }
+    const finalBase = base || INITIAL_COMPANY_INFO;
     const parsedPhone = parsePhoneWithCountryCode(finalBase.officialPhone);
     return {
       ...finalBase,
@@ -433,14 +445,19 @@ export const CompanyDetailsSettings: React.FC = () => {
 
   useEffect(() => {
     if (companyInfo && !isInfoDirty && !isSavingInfo) {
-      if (!lastSavedAtRef.current || companyInfo.updatedAt !== lastSavedAtRef.current) {
-        const parsedPhone = parsePhoneWithCountryCode(companyInfo.officialPhone);
-        setOfficialPhoneCountryCode(parsedPhone.countryCode);
-        setInfoForm({
-          ...companyInfo,
-          companyCode: companyInfo.companyCode || '',
-          officialPhone: parsedPhone.localNumber
-        });
+      const hasDataInCompanyInfo = Boolean(companyInfo.companyName || companyInfo.companyCode);
+      const isFormEmpty = !infoForm.companyName && !infoForm.companyCode;
+
+      if (hasDataInCompanyInfo || isFormEmpty) {
+        if (!lastSavedAtRef.current || companyInfo.updatedAt !== lastSavedAtRef.current) {
+          const parsedPhone = parsePhoneWithCountryCode(companyInfo.officialPhone);
+          setOfficialPhoneCountryCode(parsedPhone.countryCode);
+          setInfoForm({
+            ...companyInfo,
+            companyCode: companyInfo.companyCode || '',
+            officialPhone: parsedPhone.localNumber
+          });
+        }
       }
     }
   }, [companyInfo, isInfoDirty, isSavingInfo]);
