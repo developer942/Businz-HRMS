@@ -1,5 +1,7 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
 import { memoryCache } from '../services/cacheService.js';
+import { encryptCredential } from '../utils/crypto.js';
+const inMemorySmtpConfigs = {};
 const SETTINGS_CACHE_KEY = 'payroll_settings_global';
 const SETTINGS_TTL_MS = 60000; // 60 seconds
 export class SettingsRepository {
@@ -194,29 +196,29 @@ export class SettingsRepository {
         }
         return {
             company_id: 'company-a',
-            companyCode: 'BUSINZ',
-            companyName: 'Businz Technologies Private Limited',
-            legalCompanyName: 'Businz Technologies Pvt. Ltd.',
-            legalEntity: 'Businz Technologies Pvt. Ltd.',
-            logoUrl: '/logo.png',
-            address: 'Businz Corporate Park, Tech Corridor, OMR, Chennai, Tamil Nadu — 600096',
-            registeredAddress: 'Businz Corporate Park, Tech Corridor, OMR, Chennai, Tamil Nadu — 600096',
-            branchAddress: 'Phase 2 Electronic City, Bengaluru, Karnataka — 560100',
-            contactEmail: 'contact@businz.com',
-            officialEmail: 'contact@businz.com',
-            contactPhone: '9876543210',
-            officialPhone: '9876543210',
-            website: 'https://businz.com',
-            taxIdGst: '33ABCDE1234F1Z5',
-            gstNumber: '33ABCDE1234F1Z5',
-            panNumber: 'AAACB1234F',
-            cinNumber: 'U72900TN2022PTC150000',
-            registrationNumber: 'ROC-CHENNAI-150000',
-            ownerName: 'Velmurukan P',
-            authorizedSignatoryName: 'Velmurukan P',
-            authorizedSignatoryDesignation: 'Chief Executive Officer & Director',
-            signatureImageUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=200&q=80',
-            stampImageUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=200&q=80',
+            companyCode: '',
+            companyName: '',
+            legalCompanyName: '',
+            legalEntity: '',
+            logoUrl: '',
+            address: '',
+            registeredAddress: '',
+            branchAddress: '',
+            contactEmail: '',
+            officialEmail: '',
+            contactPhone: '',
+            officialPhone: '',
+            website: '',
+            taxIdGst: '',
+            gstNumber: '',
+            panNumber: '',
+            cinNumber: '',
+            registrationNumber: '',
+            ownerName: '',
+            authorizedSignatoryName: '',
+            authorizedSignatoryDesignation: '',
+            signatureImageUrl: '',
+            stampImageUrl: '',
         };
     }
     async updateCompanySettings(updates, companyId) {
@@ -341,6 +343,92 @@ export class SettingsRepository {
             }
         }
         return updates;
+    }
+    async getCompanySmtpConfig(companyId) {
+        const isCompanyB = companyId === 'company-b' || companyId?.toLowerCase()?.includes('nexus');
+        const cId = isCompanyB ? 'company-b' : 'company-a';
+        const settingKey = isCompanyB ? 'smtp_config_company-b' : 'smtp_config_company-a';
+        if (isRealSupabaseConfigured()) {
+            try {
+                const supabase = getSupabaseAdmin();
+                const { data } = await supabase
+                    .from('company_settings')
+                    .select('setting_val')
+                    .eq('setting_key', settingKey)
+                    .maybeSingle();
+                if (data?.setting_val && typeof data.setting_val === 'object') {
+                    const val = data.setting_val;
+                    const config = {
+                        companyId: cId,
+                        smtpHost: val.smtpHost || (val.senderEmail?.includes('@gmail.com') || val.senderEmail?.includes('businz.com') ? 'smtp.gmail.com' : 'smtp.gmail.com'),
+                        smtpPort: Number(val.smtpPort) || 587,
+                        secure: val.secure ?? (Number(val.smtpPort) === 465),
+                        senderEmail: val.senderEmail || '',
+                        senderName: val.senderName || '',
+                        appPasswordEncrypted: val.appPasswordEncrypted || '',
+                        updatedAt: val.updatedAt || new Date().toISOString(),
+                    };
+                    inMemorySmtpConfigs[cId] = config;
+                    return config;
+                }
+            }
+            catch (err) {
+                console.warn('Database error in getCompanySmtpConfig:', err);
+            }
+        }
+        return inMemorySmtpConfigs[cId] || null;
+    }
+    async saveCompanySmtpConfig(companyId, updates) {
+        const isCompanyB = companyId === 'company-b' || companyId?.toLowerCase()?.includes('nexus');
+        const cId = isCompanyB ? 'company-b' : 'company-a';
+        const settingKey = isCompanyB ? 'smtp_config_company-b' : 'smtp_config_company-a';
+        const existing = await this.getCompanySmtpConfig(cId);
+        const cleanHost = (updates.smtpHost || '').trim() || (updates.senderEmail?.includes('gmail') || updates.senderEmail?.includes('businz') ? 'smtp.gmail.com' : 'smtp.gmail.com');
+        const cleanPort = Number(updates.smtpPort) || (cleanHost.includes('gmail') ? 587 : 465);
+        const isSecure = updates.secure !== undefined ? Boolean(updates.secure) : cleanPort === 465;
+        const cleanEmail = (updates.senderEmail || '').trim();
+        let encryptedPassword = existing?.appPasswordEncrypted || '';
+        if (updates.appPassword && updates.appPassword.trim()) {
+            // Strip any spaces from Google App Password
+            const normalizedPassword = updates.appPassword.replace(/\s+/g, '').trim();
+            encryptedPassword = encryptCredential(normalizedPassword);
+        }
+        const newConfig = {
+            companyId: cId,
+            smtpHost: cleanHost,
+            smtpPort: cleanPort,
+            secure: isSecure,
+            senderEmail: cleanEmail,
+            senderName: updates.senderName || (isCompanyB ? 'Nexus Industrial Solutions' : 'Businz HRMS'),
+            appPasswordEncrypted: encryptedPassword,
+            updatedAt: new Date().toISOString(),
+        };
+        inMemorySmtpConfigs[cId] = newConfig;
+        if (isRealSupabaseConfigured()) {
+            try {
+                const supabase = getSupabaseAdmin();
+                const { data: dbExisting } = await supabase
+                    .from('company_settings')
+                    .select('id')
+                    .eq('setting_key', settingKey)
+                    .maybeSingle();
+                if (dbExisting?.id) {
+                    await supabase
+                        .from('company_settings')
+                        .update({ setting_val: newConfig, updated_at: new Date().toISOString() })
+                        .eq('id', dbExisting.id);
+                }
+                else {
+                    await supabase
+                        .from('company_settings')
+                        .insert({ setting_key: settingKey, setting_val: newConfig });
+                }
+            }
+            catch (err) {
+                console.warn('Could not save company SMTP config to Supabase:', err);
+            }
+        }
+        return newConfig;
     }
 }
 export const settingsRepository = new SettingsRepository();

@@ -410,19 +410,7 @@ export const CompanyDetailsSettings: React.FC = () => {
   const lastSavedAtRef = React.useRef<string>('');
 
   const [infoForm, setInfoForm] = useState<CompanyInfo>(() => {
-    let base = companyInfo;
-    if (!base || (!base.companyName && !base.companyCode)) {
-      try {
-        const cached = localStorage.getItem('vrm_hrms_company_info');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && typeof parsed === 'object') {
-            base = { ...(base || INITIAL_COMPANY_INFO), ...parsed };
-          }
-        }
-      } catch {}
-    }
-    const finalBase = base || INITIAL_COMPANY_INFO;
+    const finalBase = companyInfo || INITIAL_COMPANY_INFO;
     const parsedPhone = parsePhoneWithCountryCode(finalBase.officialPhone);
     return {
       ...finalBase,
@@ -514,8 +502,8 @@ export const CompanyDetailsSettings: React.FC = () => {
     setTimeout(() => setIsSyncing(false), 500);
   };
 
-  const handleSaveInfo = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveInfo = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e && e.preventDefault) e.preventDefault();
     setResetNotice(null);
     setValidationSummary(null);
 
@@ -1038,7 +1026,7 @@ export const CompanyDetailsSettings: React.FC = () => {
             </div>
           </div>
 
-          <form id="company-info-form" noValidate onSubmit={handleSaveInfo} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          <form id="company-info-form" noValidate onSubmit={handleSaveInfo} autoComplete="off" spellCheck={false} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
             
             {/* SUB-SECTION 1: Legal & Brand Identity */}
             <div style={{
@@ -1063,6 +1051,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="companyName"
                     id="company-name-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.companyName}
                     onChange={e => handleCompanyNameChange(e.target.value)}
                     style={getInfoInputStyle('companyName')}
@@ -1080,6 +1070,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="legalCompanyName"
                     id="legal-company-name-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.legalCompanyName}
                     onChange={e => setInfoField('legalCompanyName', cleanCompanyText(e.target.value))}
                     style={getInfoInputStyle('legalCompanyName')}
@@ -1097,6 +1089,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="companyCode"
                     id="company-code-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.companyCode || ''}
                     onChange={e => setInfoField('companyCode', cleanAlphaNumeric(e.target.value, 10))}
                     placeholder="Enter company code (e.g. ABC)"
@@ -1122,6 +1116,7 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <select
                     className="form-control"
                     value={infoForm.companyType}
+                    autoComplete="off"
                     onChange={e => setInfoField('companyType', e.target.value)}
                   >
                     <option value="">Select company type</option>
@@ -1140,6 +1135,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.industry}
                     onChange={e => setInfoField('industry', cleanCompanyText(e.target.value))}
                     placeholder="Enter industry sector"
@@ -1155,6 +1152,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="registrationNumber"
                     id="roc-number-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.registrationNumber}
                     onChange={e => setInfoField('registrationNumber', cleanRocNumber(e.target.value))}
                     style={getInfoInputStyle('registrationNumber')}
@@ -1189,6 +1188,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="gstNumber"
                     id="gst-number-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.gstNumber}
                     onChange={e => setInfoField('gstNumber', cleanAlphaNumeric(e.target.value, 15))}
                     style={getInfoInputStyle('gstNumber')}
@@ -1207,6 +1208,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="panNumber"
                     id="pan-number-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.panNumber}
                     onChange={e => setInfoField('panNumber', cleanAlphaNumeric(e.target.value, 10))}
                     style={getInfoInputStyle('panNumber')}
@@ -1225,6 +1228,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                     data-field="cinNumber"
                     id="cin-number-input"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.cinNumber}
                     onChange={e => setInfoField('cinNumber', cleanAlphaNumeric(e.target.value, 21))}
                     style={getInfoInputStyle('cinNumber')}
@@ -1261,6 +1266,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                       data-field="officialEmail"
                       id="official-email-input"
                       className="form-control"
+                      autoComplete="off"
+                      spellCheck={false}
                       style={getInfoInputStyle('officialEmail', { paddingLeft: '34px' })}
                       value={infoForm.officialEmail}
                       onChange={e => setInfoField('officialEmail', e.target.value.trim().toLowerCase())}
@@ -1291,6 +1298,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                       data-field="officialPhone"
                       id="official-phone-input"
                       className="form-control"
+                      autoComplete="off"
+                      spellCheck={false}
                       style={getInfoInputStyle('officialPhone', {
                         paddingLeft: '34px',
                         borderTopLeftRadius: 0,
@@ -1317,6 +1326,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                       data-field="website"
                       id="official-website-input"
                       className="form-control"
+                      autoComplete="off"
+                      spellCheck={false}
                       style={getInfoInputStyle('website', { paddingLeft: '34px' })}
                       value={infoForm.website}
                       onChange={e => setInfoField('website', e.target.value.trim())}
@@ -1349,6 +1360,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.registeredAddress || ''}
                     onChange={e => setInfoField('registeredAddress', e.target.value)}
                     placeholder="Enter registered office address (optional)"
@@ -1362,6 +1375,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.branchAddress || ''}
                     onChange={e => setInfoField('branchAddress', e.target.value)}
                     placeholder="Enter branch or corporate address (optional)"
@@ -1391,6 +1406,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.ownerName || ''}
                     onChange={e => setInfoField('ownerName', cleanCompanyText(e.target.value))}
                     placeholder="Enter owner / MD name (optional)"
@@ -1404,6 +1421,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.authorizedSignatoryName || ''}
                     onChange={e => setInfoField('authorizedSignatoryName', cleanCompanyText(e.target.value))}
                     placeholder="Enter authorized signatory name (optional)"
@@ -1417,6 +1436,8 @@ export const CompanyDetailsSettings: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={infoForm.authorizedSignatoryDesignation || ''}
                     onChange={e => setInfoField('authorizedSignatoryDesignation', cleanCompanyText(e.target.value))}
                     placeholder="Enter signatory designation (optional)"
@@ -1558,7 +1579,8 @@ export const CompanyDetailsSettings: React.FC = () => {
             }}>
               <button
                 id="save-company-details-btn"
-                type="submit"
+                type="button"
+                onClick={handleSaveInfo}
                 disabled={isSavingInfo}
                 style={{
                   backgroundColor: saveSuccessState === 'saved' ? '#16A34A' : '#0E7490',

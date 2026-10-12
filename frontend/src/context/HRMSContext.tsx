@@ -2919,7 +2919,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const cached = localStorage.getItem(savedKey) || localStorage.getItem('vrm_hrms_company_info');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && typeof parsed === 'object' && (parsed.companyName || parsed.companyCode)) {
+        const isDummy = parsed?.companyName?.toLowerCase()?.includes('businz') || parsed?.companyCode === 'BUS';
+        if (isDummy) {
+          localStorage.removeItem(savedKey);
+          localStorage.removeItem('vrm_hrms_company_info');
+          localStorage.removeItem('vrm_hrms_company_info_company-a');
+        } else if (parsed && typeof parsed === 'object' && (parsed.companyName || parsed.companyCode)) {
           return { ...defaultProfile, ...parsed };
         }
       }
@@ -2940,7 +2945,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } else if (cId === 'company-a' && companyInfo.company_id !== 'company-a') {
       try {
         const cached = localStorage.getItem('vrm_hrms_company_info');
-        setCompanyInfo(cached ? { ...COMPANY_A_PROFILE, ...JSON.parse(cached) } : { ...COMPANY_A_PROFILE });
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const isDummy = parsed?.companyName?.toLowerCase()?.includes('businz') || parsed?.companyCode === 'BUS';
+          if (!isDummy) {
+            setCompanyInfo({ ...COMPANY_A_PROFILE, ...parsed });
+            return;
+          }
+        }
+        setCompanyInfo({ ...COMPANY_A_PROFILE });
       } catch {
         setCompanyInfo({ ...COMPANY_A_PROFILE });
       }
@@ -9148,7 +9161,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (hasSetting('company_info') && settings.company_info && typeof settings.company_info === 'object') {
             const dbInfo = settings.company_info;
             const isCompBData = dbInfo.company_id === 'company-b' || dbInfo.companyName?.toLowerCase().includes('nexus');
-            setCompanyInfo({ ...COMPANY_A_PROFILE, ...(isCompBData ? {} : dbInfo) });
+            const merged = { ...COMPANY_A_PROFILE, ...(isCompBData ? {} : dbInfo) };
+            setCompanyInfo(merged);
+            try {
+              localStorage.setItem('vrm_hrms_company_info', JSON.stringify(merged));
+              localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(merged));
+            } catch {}
           } else {
             setCompanyInfo({ ...COMPANY_A_PROFILE });
           }
