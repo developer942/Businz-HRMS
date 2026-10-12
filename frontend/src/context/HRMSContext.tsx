@@ -223,6 +223,7 @@ const DEPRECATED_DEFAULT_LOAN_POLICY_NAMES = new Set([
   'standard advance salary',
   'long term employee welfare loan'
 ]);
+const EMPLOYEE_PROFILES_SETTING_KEY = 'employee_profiles_data';
 
 // Default RBAC Permission Matrix for remaining 5 roles
 const DEFAULT_PERMISSIONS: PermissionMatrix = {
@@ -717,7 +718,7 @@ interface HRMSContextType {
 
   employees: Employee[];
   addEmployee: (emp: Omit<Employee, 'id'>, options?: { persistToCloud?: boolean }) => void;
-  updateEmployee: (id: string, empData: Partial<Employee>) => Promise<{ success: boolean; error?: any }> | void;
+  updateEmployee: (id: string, empData: Partial<Employee>) => Promise<{ success: boolean; error?: any; data?: Employee }> | void;
   deleteEmployee: (id: string) => Promise<{ success: boolean; message?: string }> | any;
   deleteMultipleEmployees: (ids: string[]) => Promise<{ success: boolean; deletedCount: number; message?: string }>;
   refreshEmployees: () => Promise<void>;
@@ -1303,6 +1304,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     phone: d.phone || '',
     dob: d.dob || '1995-01-01',
     gender: (d.gender as any) || 'Male',
+    personalEmail: d.personalEmail || d.personal_email || d.email || '',
+    maritalStatus: d.maritalStatus || d.marital_status || 'Single',
     address: d.address || 'Chennai, Tamil Nadu',
     currentAddress: {
       line1: d.currentAddress?.line1 || d.address_line1 || '',
@@ -1385,7 +1388,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       branch: d.bankDetails?.branch || d.branch || '',
     },
     attendanceMethod: (d.attendanceMethod || d.attendance_method || (d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan')) as any,
-    gpsAllowed: d.gpsAllowed ?? (d.designation === 'CEO' ? false : true),
+    gpsAllowed: d.gpsAllowed ?? d.gps_allowed ?? (d.designation === 'CEO' ? false : true),
     faceRegistered: d.faceRegistered ?? false,
     facePhotoUrl: d.facePhotoUrl || d.face_photo_url || '',
     workShift: d.workShift || d.work_shift || 'SH-01',
@@ -1584,6 +1587,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Work shift & attendance
     if (emp.workShift !== undefined) updates.work_shift = emp.workShift || null;
     if (emp.attendanceMethod !== undefined) updates.attendance_method = emp.attendanceMethod;
+    if (emp.gpsAllowed !== undefined) updates.gps_allowed = Boolean(emp.gpsAllowed);
     if (emp.mustChangePassword !== undefined) updates.must_change_password = emp.mustChangePassword;
     if (emp.accountStatus !== undefined) updates.account_status = emp.accountStatus;
     if (emp.avatar !== undefined) updates.avatar_url = emp.avatar || null;
@@ -5516,8 +5520,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true, message: 'Password updated successfully' };
   };
 
-  const updateEmployee = async (id: string, empData: Partial<Employee>): Promise<{ success: boolean; error?: any }> => {
+  const updateEmployee = async (id: string, empData: Partial<Employee>): Promise<{ success: boolean; error?: any; data?: Employee }> => {
     const normalizedEmpData = { ...empData };
+    const existingEmployee = employees.find(e =>
+      e.id === id ||
+      e.employeeId === id ||
+      (empData.employeeId && e.employeeId === empData.employeeId) ||
+      (empData.id && e.id === empData.id)
+    );
     if (normalizedEmpData.email !== undefined) {
       normalizedEmpData.email = normalizedEmpData.email ? normalizedEmpData.email.trim().toLowerCase() : '';
     }
@@ -5547,6 +5557,43 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
+    const extensionKeys: (keyof Employee)[] = [
+      'personalEmail',
+      'maritalStatus',
+      'currentAddress',
+      'permanentAddress',
+      'emergencyContact',
+      'documents',
+      'professionalDetails',
+      'shiftDetails',
+      'systemAccess',
+      'salaryDetails',
+      'withPf',
+      'workLocation',
+      'gpsAllowed'
+    ];
+    const extensionData = extensionKeys.reduce<Partial<Employee>>((acc, key) => {
+      if (normalizedEmpData[key] !== undefined) {
+        (acc as any)[key] = normalizedEmpData[key];
+      }
+      return acc;
+    }, {});
+    const persistProfileExtension = async (savedEmployee?: Employee): Promise<boolean> => {
+      if (Object.keys(extensionData).length === 0) return true;
+      const profileKey = savedEmployee?.employeeId || normalizedEmpData.employeeId || existingEmployee?.employeeId || id;
+      if (!profileKey) return true;
+      const existingProfiles = await supabaseDirect.getCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY);
+      const profiles = existingProfiles && typeof existingProfiles === 'object' && !Array.isArray(existingProfiles)
+        ? existingProfiles
+        : {};
+      profiles[profileKey] = {
+        ...(profiles[profileKey] || {}),
+        ...extensionData,
+        updatedAt: new Date().toISOString()
+      };
+      return supabaseDirect.saveCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY, profiles);
+    };
+
     const dbUpdates = employeeToDbUpdates(normalizedEmpData, departments, employees);
     if (Object.keys(dbUpdates).length > 0) {
       try {
@@ -5555,13 +5602,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           console.warn('[HRMSContext] updateEmployee cloud save failed:', res.error);
           return { success: false, error: res.error };
         }
-        return { success: true };
+        const savedEmployee = res.data ? mapEmployeeFromDb(res.data, departments) : undefined;
+        if (savedEmployee) {
+          setEmployees(prev => prev.map(e => (
+            e.id === savedEmployee.id ||
+            e.employeeId === savedEmployee.employeeId ||
+            e.id === id ||
+            e.employeeId === id
+          ) ? { ...e, ...savedEmployee, ...normalizedEmpData } : e));
+        }
+        const extensionSaved = await persistProfileExtension(savedEmployee);
+        if (!extensionSaved) {
+          return { success: false, error: 'Profile details were not saved to company settings.' };
+        }
+        return { success: true, data: savedEmployee ? { ...savedEmployee, ...normalizedEmpData } : undefined };
       } catch (err: any) {
         console.warn('[HRMSContext] updateEmployee cloud save error:', err);
         return { success: false, error: err?.message || err };
       }
     }
-    return { success: true };
+    const extensionSaved = await persistProfileExtension(existingEmployee);
+    if (!extensionSaved) {
+      return { success: false, error: 'Profile details were not saved to company settings.' };
+    }
+    return { success: true, data: existingEmployee ? { ...existingEmployee, ...normalizedEmpData } : undefined };
   };
 
   const deleteEmployee = async (id: string): Promise<{ success: boolean; message?: string }> => {
@@ -8954,11 +9018,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         supabaseDirect.getAllCompanySettings().catch(() => ({})),
         supabaseDirect.getDepartments().catch(() => [])
       ]);
+      const settings: Record<string, any> = (cloudSettings || {}) as Record<string, any>;
 
       // 1. Synchronize Employees
       if (Array.isArray(rawEmployees) && rawEmployees.length > 0) {
         const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
-        const mapped = rawEmployees.map(e => mapEmployeeFromDb(e, currentDepts));
+        const profileExtensions = settings[EMPLOYEE_PROFILES_SETTING_KEY] || {};
+        const mapped = rawEmployees.map(e => {
+          const base = mapEmployeeFromDb(e, currentDepts);
+          const extension = profileExtensions[base.employeeId] || profileExtensions[base.id] || {};
+          return { ...base, ...extension, id: base.id, employeeId: base.employeeId };
+        });
         setEmployees(mapped);
       } else {
         setEmployees([]);
@@ -8978,8 +9048,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       // 3. Synchronize All Company Settings & Core Modules
-      const settings: Record<string, any> = (cloudSettings || {}) as Record<string, any>;
-
       // Synchronize Shifts (DB table primary, settings fallback)
       if (Array.isArray(rawShifts) && rawShifts.length > 0) {
         setShifts(rawShifts.map((s: any) => ({

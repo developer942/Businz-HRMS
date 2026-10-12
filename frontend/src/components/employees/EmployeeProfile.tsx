@@ -1106,7 +1106,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         return;
       }
 
-      setCurrentEmp(prev => ({ ...prev, ...updatedData }));
+      const savedEmployee = (res as any)?.data ? { ...(res as any).data, ...updatedData } : { ...currentEmp, ...updatedData };
+      setCurrentEmp(savedEmployee as Employee);
       setFormData(prev => ({
         ...prev,
         firstName: cleanFname,
