@@ -681,16 +681,21 @@ ${documentProfile.phone || ''}`;
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '14px' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div style={{ width: '4px', height: '38px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '16px' }}>
+                    <div style={{ width: '4px', height: '48px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
-                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
                   {documentProfile.logoUrl && (
-                    <img src={documentProfile.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    <img
+                      src={documentProfile.logoUrl}
+                      alt="Logo"
+                      style={{ maxHeight: '78px', maxWidth: '240px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
                   )}
                 </div>
 
@@ -767,16 +772,21 @@ ${documentProfile.phone || ''}`;
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '14px' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div style={{ width: '4px', height: '38px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '16px' }}>
+                    <div style={{ width: '4px', height: '48px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
-                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
                   {documentProfile.logoUrl && (
-                    <img src={documentProfile.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    <img
+                      src={documentProfile.logoUrl}
+                      alt="Logo"
+                      style={{ maxHeight: '78px', maxWidth: '240px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
                   )}
                 </div>
 
@@ -878,16 +888,21 @@ ${documentProfile.phone || ''}`;
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '14px' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div style={{ width: '4px', height: '38px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '16px' }}>
+                    <div style={{ width: '4px', height: '48px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
-                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
                   {documentProfile.logoUrl && (
-                    <img src={documentProfile.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    <img
+                      src={documentProfile.logoUrl}
+                      alt="Logo"
+                      style={{ maxHeight: '78px', maxWidth: '240px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
                   )}
                 </div>
 

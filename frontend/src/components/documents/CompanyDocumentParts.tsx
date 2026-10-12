@@ -110,7 +110,7 @@ export const CompanyHeader: React.FC<{
             src={profile.logoUrl}
             alt={`${profile.companyName} logo`}
             className="company-doc-header-logo"
-            style={{ width: 'auto', height: 'auto', maxWidth: '200px', maxHeight: '72px', objectFit: 'contain', flexShrink: 0 }}
+            style={{ width: 'auto', height: 'auto', maxWidth: '240px', maxHeight: '80px', objectFit: 'contain', flexShrink: 0 }}
             onError={event => { event.currentTarget.style.display = 'none'; }}
           />
         )}
