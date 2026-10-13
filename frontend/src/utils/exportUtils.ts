@@ -541,8 +541,8 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
     // If company logo is available, render on the top right
     if (logoImg) {
       try {
-        const maxLogoH = 30;
-        const maxLogoW = 120;
+        const maxLogoH = 44;
+        const maxLogoW = 160;
         let logoW = maxLogoH * logoImg.aspectRatio;
         let logoH = maxLogoH;
         if (logoW > maxLogoW) {
@@ -550,7 +550,7 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
           logoH = logoW / logoImg.aspectRatio;
         }
         const logoX = pageWidth - margin - logoW;
-        const logoY = 36 + (maxLogoH - logoH) / 2;
+        const logoY = 28 + (maxLogoH - logoH) / 2;
         docInstance.addImage(logoImg.dataUrl, logoImg.format, logoX, logoY, logoW, logoH, undefined, 'FAST');
       } catch (err) {
         console.warn('Could not add logo to PDF:', err);

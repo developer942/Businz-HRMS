@@ -580,7 +580,7 @@ export async function sendOfferLetterEmail(payload: OfferLetterEmailPayload): Pr
                 </td>
                 ${logoSrc ? `
                 <td style="text-align: right; vertical-align: middle;">
-                  <img src="${logoSrc}" alt="Company Logo" style="max-height: 48px; max-width: 170px; object-fit: contain; display: inline-block;" />
+                  <img src="${logoSrc}" alt="Company Logo" style="max-height: 72px; max-width: 250px; object-fit: contain; display: inline-block;" />
                 </td>
                 ` : ''}
               </tr>
