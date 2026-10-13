@@ -3838,56 +3838,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               </div>
             </div>
 
-            {/* Automatically applied permissions for selected role */}
-            {(() => {
-              const rbacStore = getInitialRBACState();
-              const roleKey = Object.keys(rbacStore.permissionsByRole).find(k => 
-                rbacStore.permissionsByRole[k].roleName.toLowerCase() === (formData.role || 'Employee').toLowerCase()
-              );
-              const config = roleKey ? rbacStore.permissionsByRole[roleKey] : undefined;
-              const dataAccessScope = config ? config.dataAccess : ((formData.role === 'CEO' || formData.role === 'Super Admin' || formData.role === 'HR') ? 'all' : (formData.role === 'Manager' || formData.role === 'Team Leader' ? 'team' : 'own'));
-              const activeModCount = config ? Object.keys(config.modulePermissions).filter(m => config.modulePermissions[m].length > 0).length : 6;
-              const specialCount = config ? config.specialPermissions.length : 0;
-
-              return (
-                <div style={{
-                  marginTop: '12px',
-                  padding: '12px 14px',
-                  backgroundColor: '#FFFFFF',
-                  borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '10px'
-                }}>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1E293B', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <CheckCircle2 size={15} color="#0E7490" />
-                      <span>Role Permissions Configured: <strong>{activeModCount} HRMS Modules Authorized</strong></span>
-                      {specialCount > 0 && <span style={{ color: '#0E7490' }}>• {specialCount} Special Authorities</span>}
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
-                      Selecting role automatically applies the security permissions & policies configured in Settings &gt; Roles &amp; Permissions.
-                    </div>
-                  </div>
-
-                  <div>
-                    <span style={{
-                      fontSize: '0.74rem',
-                      fontWeight: 800,
-                      padding: '3px 10px',
-                      borderRadius: '9999px',
-                      backgroundColor: dataAccessScope === 'all' ? '#DCFCE7' : (dataAccessScope === 'team' ? '#FEF3C7' : '#F1F5F9'),
-                      color: dataAccessScope === 'all' ? '#15803D' : (dataAccessScope === 'team' ? '#B45309' : '#475569')
-                    }}>
-                      Data Access: {dataAccessScope === 'all' ? 'All Employee Data' : (dataAccessScope === 'team' ? 'Own + Team Data' : (dataAccessScope === 'department' ? 'Department Data' : 'Own Data Only'))}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
 
           {/* Credential Dispatch Status */}
