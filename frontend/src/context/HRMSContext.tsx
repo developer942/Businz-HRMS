@@ -1338,17 +1338,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       yearOfPassing: d.educationalDetails?.yearOfPassing || (d.year_of_passing != null ? String(d.year_of_passing) : ''),
       gradePercentage: d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
     },
-    experienceDetails: {
-      experienceType: d.experienceDetails?.experienceType || (d.previous_company ? 'Experienced' : 'Fresher'),
-      totalExperience: d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : ''),
-      previousCompany: d.experienceDetails?.previousCompany || d.previous_company || '',
-      previousDesignation: d.experienceDetails?.previousDesignation || d.previous_designation || '',
-      previousDepartment: d.experienceDetails?.previousDepartment || d.previous_department || '',
-      startDate: d.experienceDetails?.startDate || d.employment_start_date || '',
-      endDate: d.experienceDetails?.endDate || d.employment_end_date || '',
-      lastDrawnSalary: d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : ''),
-      companyLocation: d.experienceDetails?.companyLocation || d.previous_company_location || '',
-    },
+    experienceDetails: (() => {
+      const expType = d.experienceDetails?.experienceType || (d.previous_company ? 'Experienced' : 'Fresher');
+      const isFresher = expType === 'Fresher';
+      return {
+        experienceType: expType,
+        totalExperience: isFresher ? '0' : (d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : '')),
+        previousCompany: isFresher ? '' : (d.experienceDetails?.previousCompany || d.previous_company || ''),
+        previousDesignation: isFresher ? '' : (d.experienceDetails?.previousDesignation || d.previous_designation || ''),
+        previousDepartment: isFresher ? '' : (d.experienceDetails?.previousDepartment || d.previous_department || ''),
+        startDate: isFresher ? '' : (d.experienceDetails?.startDate || d.employment_start_date || ''),
+        endDate: isFresher ? '' : (d.experienceDetails?.endDate || d.employment_end_date || ''),
+        lastDrawnSalary: isFresher ? '' : (d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : '')),
+        companyLocation: isFresher ? '' : (d.experienceDetails?.companyLocation || d.previous_company_location || ''),
+      };
+    })(),
     department: resolveEmployeeDepartmentName(d, depts),
     designation: d.designation || 'Staff',
     reportingManagerId: d.reportingManagerId || d.reporting_manager_id || '',
@@ -5342,6 +5346,75 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { canDelete: true };
   };
 
+  const EMPLOYEE_PROFILE_EXTENSION_KEYS: (keyof Employee)[] = [
+    'department',
+    'designation',
+    'reportingManagerId',
+    'reportingManagerName',
+    'personalEmail',
+    'maritalStatus',
+    'dob',
+    'gender',
+    'phone',
+    'joiningDate',
+    'employmentType',
+    'status',
+    'avatar',
+    'currentAddress',
+    'permanentAddress',
+    'emergencyContact',
+    'educationalDetails',
+    'experienceDetails',
+    'professionalDetails',
+    'documents',
+    'shiftDetails',
+    'systemAccess',
+    'salaryDetails',
+    'bankDetails',
+    'allowances',
+    'withPf',
+    'workLocation',
+    'basicSalary',
+    'attendanceMethod',
+    'workShift',
+    'gpsAllowed',
+    'mustChangePassword',
+    'accountStatus',
+    'password',
+    'skills'
+  ];
+
+  const persistEmployeeProfileExtension = async (targetEmployee: Employee): Promise<boolean> => {
+    try {
+      const profileKey = targetEmployee.employeeId || targetEmployee.id;
+      if (!profileKey) return true;
+      const existingProfiles = await supabaseDirect.getCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY);
+      const profiles = existingProfiles && typeof existingProfiles === 'object' && !Array.isArray(existingProfiles)
+        ? existingProfiles
+        : {};
+      const currentEntry = profiles[profileKey] || (targetEmployee.id ? profiles[targetEmployee.id] : {}) || {};
+      const extensionData: Partial<Employee> = {};
+      for (const key of EMPLOYEE_PROFILE_EXTENSION_KEYS) {
+        if ((targetEmployee as any)[key] !== undefined) {
+          (extensionData as any)[key] = (targetEmployee as any)[key];
+        }
+      }
+      const mergedEntry = {
+        ...currentEntry,
+        ...extensionData,
+        updatedAt: new Date().toISOString()
+      };
+      profiles[profileKey] = mergedEntry;
+      if (targetEmployee.id && targetEmployee.id !== profileKey) {
+        profiles[targetEmployee.id] = mergedEntry;
+      }
+      return await supabaseDirect.saveCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY, profiles);
+    } catch (err) {
+      console.warn('[HRMSContext] persistEmployeeProfileExtension error:', err);
+      return false;
+    }
+  };
+
   // Actions
   const addEmployee = (empData: Omit<Employee, 'id'>, options: { persistToCloud?: boolean } = {}) => {
     const rawPrefix = companyInfo?.companyCode || businessSettings?.employeeCodePrefix || employeeConfig?.idFormatPrefix || 'EMP';
@@ -5369,6 +5442,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setEmployees(prev => [newEmp, ...prev]);
 
+    // Always persist profile extension to company settings so all extended fields are preserved
+    persistEmployeeProfileExtension(newEmp).catch(err => {
+      console.warn('[HRMSContext] addEmployee profile extension save warning:', err);
+    });
+
     if (options.persistToCloud === false) {
       addNotification({
         title: 'New Employee Onboarded',
@@ -5379,7 +5457,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
+    const dbUpdates = employeeToDbUpdates(newEmp, departments, employees);
     supabaseDirect.insertEmployee({
+      ...dbUpdates,
       employee_id: newEmp.employeeId,
       first_name: newEmp.firstName,
       last_name: newEmp.lastName,
@@ -5397,7 +5477,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       attendance_method: newEmp.attendanceMethod,
     }).then(res => {
       if (res.success && res.data) {
-        setEmployees(prev => prev.map(e => e.id === newId ? mapEmployeeFromDb(res.data) : e));
+        const mapped = mapEmployeeFromDb(res.data, departments);
+        setEmployees(prev => prev.map(e => e.id === newId ? { ...newEmp, ...mapped } : e));
         syncAllModulesFromDatabase(false);
         return;
       }
@@ -5570,73 +5651,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    const extensionKeys: (keyof Employee)[] = [
-      'department',
-      'designation',
-      'reportingManagerId',
-      'reportingManagerName',
-      'personalEmail',
-      'maritalStatus',
-      'dob',
-      'gender',
-      'phone',
-      'joiningDate',
-      'employmentType',
-      'status',
-      'avatar',
-      'currentAddress',
-      'permanentAddress',
-      'emergencyContact',
-      'educationalDetails',
-      'experienceDetails',
-      'professionalDetails',
-      'documents',
-      'shiftDetails',
-      'systemAccess',
-      'salaryDetails',
-      'bankDetails',
-      'allowances',
-      'withPf',
-      'workLocation',
-      'basicSalary',
-      'attendanceMethod',
-      'workShift',
-      'gpsAllowed',
-      'mustChangePassword',
-      'accountStatus',
-      'password',
-      'skills'
-    ];
-    const extensionData = extensionKeys.reduce<Partial<Employee>>((acc, key) => {
-      if (normalizedEmpData[key] !== undefined) {
-        (acc as any)[key] = normalizedEmpData[key];
-      }
-      return acc;
-    }, {});
-    const persistProfileExtension = async (targetEmployee?: Employee): Promise<boolean> => {
-      if (Object.keys(extensionData).length === 0) return true;
-      const profileKey = targetEmployee?.employeeId || normalizedEmpData.employeeId || existingEmployee?.employeeId || id;
-      if (!profileKey) return true;
-      const existingProfiles = await supabaseDirect.getCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY);
-      const profiles = existingProfiles && typeof existingProfiles === 'object' && !Array.isArray(existingProfiles)
-        ? existingProfiles
-        : {};
-      const currentEntry = profiles[profileKey] || (targetEmployee?.id ? profiles[targetEmployee.id] : {}) || {};
-      const mergedEntry = {
-        ...currentEntry,
-        ...extensionData,
-        updatedAt: new Date().toISOString()
-      };
-      profiles[profileKey] = mergedEntry;
-      if (targetEmployee?.id && targetEmployee.id !== profileKey) {
-        profiles[targetEmployee.id] = mergedEntry;
-      }
-      if (existingEmployee?.id && existingEmployee.id !== profileKey) {
-        profiles[existingEmployee.id] = mergedEntry;
-      }
-      return supabaseDirect.saveCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY, profiles);
-    };
-
     const dbUpdates = employeeToDbUpdates(normalizedEmpData, departments, employees);
     if (Object.keys(dbUpdates).length > 0) {
       try {
@@ -5661,9 +5675,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           e.employeeId === id
         ) ? mergedEmployee : e));
 
-        const extensionSaved = await persistProfileExtension(mergedEmployee);
+        const extensionSaved = await persistEmployeeProfileExtension(mergedEmployee);
         if (!extensionSaved) {
-          console.warn('[HRMSContext] persistProfileExtension returned false, but local state updated.');
+          console.warn('[HRMSContext] persistEmployeeProfileExtension returned false, but local state updated.');
         }
         return { success: true, data: mergedEmployee };
       } catch (err: any) {
@@ -5677,7 +5691,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: (existingEmployee?.id || id) as string,
       employeeId: (existingEmployee?.employeeId || normalizedEmpData.employeeId || id) as string,
     };
-    const extensionSaved = await persistProfileExtension(mergedFallback);
+    const extensionSaved = await persistEmployeeProfileExtension(mergedFallback);
     if (!extensionSaved) {
       return { success: false, error: 'Profile details were not saved to company settings.' };
     }

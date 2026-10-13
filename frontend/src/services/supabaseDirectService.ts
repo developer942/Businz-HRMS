@@ -127,32 +127,51 @@ export const supabaseDirect = {
   async insertEmployee(emp: {
     employee_id: string;
     first_name: string;
-    last_name?: string;
+    last_name?: string | null;
     email: string;
-    password?: string;
-    designation?: string;
-    department?: string;
-    department_id?: string;
-    reporting_manager_name?: string;
-    basic_salary?: number;
-    phone?: string;
-    status?: string;
-    role_id?: string;
-    must_change_password?: boolean;
-    account_status?: string;
-    attendance_method?: string;
+    password?: string | null;
+    designation?: string | null;
+    department?: string | null;
+    department_id?: string | null;
+    reporting_manager_id?: string | null;
+    reporting_manager_name?: string | null;
+    basic_salary?: number | null;
+    phone?: string | null;
+    status?: string | null;
+    role_id?: string | null;
+    must_change_password?: boolean | null;
+    account_status?: string | null;
+    attendance_method?: string | null;
+    [key: string]: any;
   }): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
-      const departmentId = await resolveDepartmentId(emp.department, emp.department_id);
+      const departmentId = await resolveDepartmentId(emp.department || undefined, emp.department_id || undefined);
 
-      const payload = {
+      const allowedDbColumns = new Set([
+        'employee_id', 'first_name', 'last_name', 'email', 'password',
+        'department_id', 'designation', 'reporting_manager_id', 'reporting_manager_name',
+        'basic_salary', 'phone', 'status', 'role_id', 'must_change_password',
+        'account_status', 'attendance_method', 'dob', 'gender', 'joining_date',
+        'employment_type', 'branch', 'address', 'address_line1', 'address_line2',
+        'city', 'state', 'country', 'pincode', 'bank_name', 'account_number',
+        'ifsc_code', 'pan_number', 'uan_number', 'work_shift', 'gps_allowed',
+        'highest_qualification', 'degree_name', 'specialization', 'university',
+        'year_of_passing', 'grade_percentage', 'experience_profile', 'total_experience',
+        'previous_company', 'previous_designation', 'previous_department',
+        'employment_start_date', 'employment_end_date', 'last_drawn_salary',
+        'previous_company_location', 'avatar_url', 'allowances_hra',
+        'allowances_transport', 'allowances_medical', 'allowances_special'
+      ]);
+
+      const payload: Record<string, any> = {
         employee_id: emp.employee_id,
         first_name: emp.first_name,
         last_name: emp.last_name || '',
-        email: emp.email.toLowerCase().trim(),
+        email: (emp.email || '').toLowerCase().trim(),
         password: emp.password || 'Password@123',
-        department_id: departmentId || null,
+        department_id: departmentId || emp.department_id || null,
         designation: emp.designation || 'Staff',
+        reporting_manager_id: emp.reporting_manager_id || null,
         reporting_manager_name: emp.reporting_manager_name || null,
         basic_salary: Number(emp.basic_salary) || 15000,
         phone: emp.phone || null,
@@ -164,6 +183,12 @@ export const supabaseDirect = {
         account_status: emp.account_status || 'ACTIVE',
         attendance_method: emp.attendance_method || (emp.designation === 'CEO' || (emp.designation && emp.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan'),
       };
+
+      for (const [key, val] of Object.entries(emp)) {
+        if (allowedDbColumns.has(key) && val !== undefined) {
+          payload[key] = val;
+        }
+      }
 
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees`, {
         method: 'POST',

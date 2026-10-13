@@ -290,7 +290,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     } else if (!isEditing) {
       // Same employee updated externally (e.g. from parent re-render or save):
       // Merge with current state without wiping out saved values
-      const merged: Employee = { ...currentEmp, ...employee };
+      const merged: Employee = {
+        ...currentEmp,
+        ...employee,
+        dob: employee.dob || currentEmp.dob,
+        gender: employee.gender || currentEmp.gender,
+        maritalStatus: employee.maritalStatus || currentEmp.maritalStatus,
+      };
       setCurrentEmp(merged);
       setFormData(getInitialFormData(merged));
       const d = merged.educationalDetails?.degreeName;
@@ -328,6 +334,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   // Form State initialized from employee data
   const getInitialFormData = (emp: Employee) => {
     const isEmpCEO = emp.role === 'CEO' || emp.department === 'CEO' || emp.designation === 'CEO';
+    const isEmpFresher = (emp.experienceDetails?.experienceType || (emp as any).experienceType || 'Fresher') === 'Fresher' && !isEmpCEO;
     const initialPhoneCode = emp.phone?.startsWith('+') 
       ? (COUNTRY_CODES.find(c => emp.phone?.startsWith(c.dialCode))?.dialCode || '+91')
       : '+91';
@@ -388,16 +395,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       gradePercentage: emp.educationalDetails?.gradePercentage || '',
 
       // 5. Work Experience & Skills
-      experienceType: (emp.experienceDetails?.experienceType || 'Fresher') as 'Fresher' | 'Experienced',
-      totalExperience: isEmpCEO ? (emp.experienceDetails?.totalExperience || 'Executive Leadership') : (emp.experienceDetails?.totalExperience || emp.professionalDetails?.totalExperience || ''),
-      relevantExperience: isEmpCEO ? 'Executive Leadership' : (emp.professionalDetails?.relevantExperience || ''),
-      previousCompany: isEmpCEO ? (emp.experienceDetails?.previousCompany || 'N/A') : (emp.experienceDetails?.previousCompany || emp.professionalDetails?.previousCompany || ''),
-      previousDesignation: isEmpCEO ? (emp.experienceDetails?.previousDesignation || 'Director / Executive') : (emp.experienceDetails?.previousDesignation || ''),
-      previousDepartment: isEmpCEO ? (emp.experienceDetails?.previousDepartment || 'Executive') : (emp.experienceDetails?.previousDepartment || ''),
-      expStartDate: isEmpCEO ? '' : (emp.experienceDetails?.startDate || ''),
-      expEndDate: isEmpCEO ? '' : (emp.experienceDetails?.endDate || ''),
-      lastDrawnSalary: isEmpCEO ? 'Exempt' : (emp.experienceDetails?.lastDrawnSalary || ''),
-      previousCompanyLocation: isEmpCEO ? 'N/A' : (emp.experienceDetails?.companyLocation || ''),
+      experienceType: (isEmpFresher ? 'Fresher' : (emp.experienceDetails?.experienceType || 'Experienced')) as 'Fresher' | 'Experienced',
+      totalExperience: isEmpCEO ? (emp.experienceDetails?.totalExperience || 'Executive Leadership') : (isEmpFresher ? '0' : (emp.experienceDetails?.totalExperience || emp.professionalDetails?.totalExperience || '')),
+      relevantExperience: isEmpCEO ? 'Executive Leadership' : (isEmpFresher ? '' : (emp.professionalDetails?.relevantExperience || '')),
+      previousCompany: isEmpCEO ? (emp.experienceDetails?.previousCompany || 'N/A') : (isEmpFresher ? '' : (emp.experienceDetails?.previousCompany || emp.professionalDetails?.previousCompany || '')),
+      previousDesignation: isEmpCEO ? (emp.experienceDetails?.previousDesignation || 'Director / Executive') : (isEmpFresher ? '' : (emp.experienceDetails?.previousDesignation || '')),
+      previousDepartment: isEmpCEO ? (emp.experienceDetails?.previousDepartment || 'Executive') : (isEmpFresher ? '' : (emp.experienceDetails?.previousDepartment || '')),
+      expStartDate: (isEmpCEO || isEmpFresher) ? '' : (emp.experienceDetails?.startDate || ''),
+      expEndDate: (isEmpCEO || isEmpFresher) ? '' : (emp.experienceDetails?.endDate || ''),
+      lastDrawnSalary: isEmpCEO ? 'Exempt' : (isEmpFresher ? '' : (emp.experienceDetails?.lastDrawnSalary || '')),
+      previousCompanyLocation: isEmpCEO ? 'N/A' : (isEmpFresher ? '' : (emp.experienceDetails?.companyLocation || '')),
       skills: Array.isArray(emp.professionalDetails?.skills) 
         ? emp.professionalDetails.skills.join(', ') 
         : (emp.skills ? emp.skills.join(', ') : (isEmpCEO ? 'Enterprise Strategy, Executive Leadership, Corporate Governance' : '')),
@@ -499,6 +506,27 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   // Handle Form Change
   const handleChange = (field: string, value: any) => {
     let sanitizedValue = value;
+
+    // Experience Profile Switcher (Fresher vs Experienced)
+    if (field === 'experienceType') {
+      if (value === 'Fresher') {
+        setFormData(prev => ({
+          ...prev,
+          experienceType: 'Fresher',
+          totalExperience: '0',
+          previousCompany: '',
+          previousDesignation: '',
+          previousDepartment: '',
+          expStartDate: '',
+          expEndDate: '',
+          lastDrawnSalary: '',
+          previousCompanyLocation: '',
+          relevantExperience: ''
+        }));
+        if (validationError) setValidationError(null);
+        return;
+      }
+    }
 
     // Names (Letters, spaces, '.', "'", '-' allowed)
     if (['firstName', 'lastName'].includes(field)) {
@@ -979,6 +1007,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       return 'Male';
     };
 
+    const isSavingFresher = formData.experienceType === 'Fresher';
+
     const updatedData: Partial<Employee> = {
       firstName: cleanFname,
       lastName: cleanLname,
@@ -1035,19 +1065,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       experienceDetails: {
         experienceType: formData.experienceType,
-        totalExperience: formData.totalExperience,
-        previousCompany: formData.previousCompany,
-        previousDesignation: formData.previousDesignation,
-        previousDepartment: formData.previousDepartment,
-        startDate: formData.expStartDate,
-        endDate: formData.expEndDate,
-        lastDrawnSalary: formData.lastDrawnSalary,
-        companyLocation: formData.previousCompanyLocation
+        totalExperience: isSavingFresher ? '0' : formData.totalExperience,
+        previousCompany: isSavingFresher ? '' : formData.previousCompany,
+        previousDesignation: isSavingFresher ? '' : formData.previousDesignation,
+        previousDepartment: isSavingFresher ? '' : formData.previousDepartment,
+        startDate: isSavingFresher ? '' : formData.expStartDate,
+        endDate: isSavingFresher ? '' : formData.expEndDate,
+        lastDrawnSalary: isSavingFresher ? '' : formData.lastDrawnSalary,
+        companyLocation: isSavingFresher ? '' : formData.previousCompanyLocation
       },
       professionalDetails: {
-        previousCompany: formData.previousCompany,
-        totalExperience: formData.totalExperience,
-        relevantExperience: formData.relevantExperience,
+        previousCompany: isSavingFresher ? '' : formData.previousCompany,
+        totalExperience: isSavingFresher ? '0' : formData.totalExperience,
+        relevantExperience: isSavingFresher ? '' : formData.relevantExperience,
         skills: formData.skills.split(',').map((s: string) => s.trim()).filter(Boolean),
         qualification: formData.qualification,
         specialization: formData.specialization
@@ -1120,7 +1150,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       const savedEmployee = {
         ...(currentEmp || {}),
         ...updatedData,
-        ...((res as any)?.data ? (res as any).data : {})
+        ...((res as any)?.data ? (res as any).data : {}),
+        dob: updatedData.dob || currentEmp.dob,
+        gender: updatedData.gender || currentEmp.gender,
+        maritalStatus: updatedData.maritalStatus || currentEmp.maritalStatus,
+        experienceDetails: updatedData.experienceDetails,
+        professionalDetails: updatedData.professionalDetails,
       } as Employee;
 
       setCurrentEmp(savedEmployee);
@@ -2433,9 +2468,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           ) : (
             <div style={viewValueStyle}>
               <span style={{
-                backgroundColor: formData.experienceType === 'Experienced' ? '#ECFEFF' : '#FEF3C7',
-                color: formData.experienceType === 'Experienced' ? '#0E7490' : '#B45309',
-                border: `1px solid ${formData.experienceType === 'Experienced' ? '#CFFAFE' : '#FDE68A'}`,
+                backgroundColor: formData.experienceType === 'Experienced' ? '#ECFEFF' : '#DCFCE7',
+                color: formData.experienceType === 'Experienced' ? '#0E7490' : '#15803D',
+                border: `1px solid ${formData.experienceType === 'Experienced' ? '#CFFAFE' : '#BBF7D0'}`,
                 padding: '3px 10px',
                 borderRadius: '9999px',
                 fontSize: '0.8rem',
@@ -2447,111 +2482,151 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           )}
         </div>
 
-        <div>
-          <label style={labelStyle}>Total Experience (Years)</label>
-          {isEditing ? (
+        {formData.experienceType === 'Fresher' ? (
+          <>
             <div>
-              <input 
-                type="text" 
-                inputMode="decimal"
-                maxLength={5}
-                value={formData.totalExperience ? formData.totalExperience.toString() : ''} 
-                onChange={(e) => handleChange('totalExperience', e.target.value)} 
-                onKeyDown={handleDecimalKeyDown(formData.totalExperience)}
-                style={inputStyle} 
-                placeholder="e.g. 2.5 (Years)"
-              />
+              <label style={labelStyle}>Total Experience (Years)</label>
+              <div style={viewValueStyle}>Fresher (0 Years)</div>
             </div>
-          ) : (
-            <div style={viewValueStyle}>
-              {formData.totalExperience 
-                ? `${formData.totalExperience} Years`
-                : '—'}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label style={labelStyle}>Previous Company / Employer</label>
-          {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.previousCompany} 
-              onChange={(e) => handleChange('previousCompany', e.target.value)} 
-              onKeyDown={handleCompanyKeyDown}
-              style={inputStyle} 
-              placeholder="Company name"
-            />
-          ) : (
-            <div style={viewValueStyle}>{formData.previousCompany || '—'}</div>
-          )}
-        </div>
-
-        <div>
-          <label style={labelStyle}>Previous Designation</label>
-          {isEditing ? (
+            {isEditing && (
+              <div style={{
+                gridColumn: '1 / -1',
+                padding: '16px 20px',
+                background: '#ECFEFF',
+                border: '1px solid #CFFAFE',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                color: '#0E7490'
+              }}>
+                <CheckCircle2 size={24} style={{ color: '#0E7490', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Candidate Registered as Fresher</div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                    No prior employment history or previous company records required. Core technical skills can be updated below.
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
             <div>
-              <input 
-                type="text" 
-                value={formData.previousDesignation} 
-                onChange={(e) => handleChange('previousDesignation', e.target.value)} 
-                onKeyDown={handleCompanyKeyDown}
-                style={inputStyle} 
-                placeholder="e.g. Site Engineer"
-              />
+              <label style={labelStyle}>Total Experience (Years)</label>
+              {isEditing ? (
+                <div>
+                  <input 
+                    type="text" 
+                    inputMode="decimal"
+                    maxLength={5}
+                    value={formData.totalExperience ? formData.totalExperience.toString() : ''} 
+                    onChange={(e) => handleChange('totalExperience', e.target.value)} 
+                    onKeyDown={handleDecimalKeyDown(formData.totalExperience)}
+                    style={inputStyle} 
+                    placeholder="e.g. 2.5 (Years)"
+                  />
+                </div>
+              ) : (
+                <div style={viewValueStyle}>
+                  {(() => {
+                    const cleanExp = String(formData.totalExperience || '').replace(/years?/gi, '').trim();
+                    return cleanExp ? `${cleanExp} Years` : '—';
+                  })()}
+                </div>
+              )}
             </div>
-          ) : (
-            <div style={viewValueStyle}>{formData.previousDesignation || '—'}</div>
-          )}
-        </div>
 
-        <div>
-          <label style={labelStyle}>Previous Department</label>
-          {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.previousDepartment} 
-              onChange={(e) => handleChange('previousDepartment', e.target.value)} 
-              style={inputStyle} 
-              placeholder="Department"
-            />
-          ) : (
-            <div style={viewValueStyle}>{formData.previousDepartment || '—'}</div>
-          )}
-        </div>
+            <div>
+              <label style={labelStyle}>Previous Company / Employer</label>
+              {isEditing ? (
+                <input 
+                  type="text" 
+                  value={formData.previousCompany} 
+                  onChange={(e) => handleChange('previousCompany', e.target.value)} 
+                  onKeyDown={handleCompanyKeyDown}
+                  style={inputStyle} 
+                  placeholder="Company name"
+                />
+              ) : (
+                <div style={viewValueStyle}>{formData.previousCompany || '—'}</div>
+              )}
+            </div>
 
-        <div>
-          <label style={labelStyle}>Last Drawn Monthly Salary</label>
-          {isEditing ? (
-            <input 
-              type="text" 
-              inputMode="decimal"
-              maxLength={12}
-              value={formData.lastDrawnSalary} 
-              onChange={(e) => handleChange('lastDrawnSalary', e.target.value)} 
-              onKeyDown={handleDecimalKeyDown(formData.lastDrawnSalary)}
-              style={inputStyle} 
-              placeholder="e.g. 35000"
-            />
-          ) : (
-            <div style={viewValueStyle}>{formData.lastDrawnSalary || '—'}</div>
-          )}
-        </div>
+            <div>
+              <label style={labelStyle}>Previous Designation</label>
+              {isEditing ? (
+                <div>
+                  <input 
+                    type="text" 
+                    value={formData.previousDesignation} 
+                    onChange={(e) => handleChange('previousDesignation', e.target.value)} 
+                    onKeyDown={handleCompanyKeyDown}
+                    style={inputStyle} 
+                    placeholder="e.g. Site Engineer"
+                  />
+                </div>
+              ) : (
+                <div style={viewValueStyle}>{formData.previousDesignation || '—'}</div>
+              )}
+            </div>
 
-        <div>
-          <label style={labelStyle}>Previous Company Location</label>
-          {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.previousCompanyLocation} 
-              onChange={(e) => handleChange('previousCompanyLocation', e.target.value)} 
-              style={inputStyle} 
-              placeholder="City, State"
-            />
-          ) : (
-            <div style={viewValueStyle}>{formData.previousCompanyLocation || '—'}</div>
-          )}
-        </div>
+            <div>
+              <label style={labelStyle}>Previous Department</label>
+              {isEditing ? (
+                <input 
+                  type="text" 
+                  value={formData.previousDepartment} 
+                  onChange={(e) => handleChange('previousDepartment', e.target.value)} 
+                  style={inputStyle} 
+                  placeholder="Department"
+                />
+              ) : (
+                <div style={viewValueStyle}>{formData.previousDepartment || '—'}</div>
+              )}
+            </div>
+
+            <div>
+              <label style={labelStyle}>Last Drawn Monthly Salary</label>
+              {isEditing ? (
+                <input 
+                  type="text" 
+                  inputMode="decimal"
+                  maxLength={12}
+                  value={formData.lastDrawnSalary} 
+                  onChange={(e) => handleChange('lastDrawnSalary', e.target.value)} 
+                  onKeyDown={handleDecimalKeyDown(formData.lastDrawnSalary)}
+                  style={inputStyle} 
+                  placeholder="e.g. 35000"
+                />
+              ) : (
+                <div style={viewValueStyle}>
+                  {(() => {
+                    const rawSal = String(formData.lastDrawnSalary || '').trim();
+                    if (!rawSal || rawSal === '—') return '—';
+                    const numSal = Number(rawSal.replace(/[^0-9.]/g, ''));
+                    return !isNaN(numSal) && numSal > 0 ? `₹${numSal.toLocaleString('en-IN')} / month` : rawSal;
+                  })()}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label style={labelStyle}>Previous Company Location</label>
+              {isEditing ? (
+                <input 
+                  type="text" 
+                  value={formData.previousCompanyLocation} 
+                  onChange={(e) => handleChange('previousCompanyLocation', e.target.value)} 
+                  style={inputStyle} 
+                  placeholder="City, State"
+                />
+              ) : (
+                <div style={viewValueStyle}>{formData.previousCompanyLocation || '—'}</div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Skills Pill List */}

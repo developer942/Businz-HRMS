@@ -806,6 +806,27 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       }
     }
 
+    // Experience Profile Switcher (Fresher vs Experienced)
+    if (field === 'experienceType') {
+      if (value === 'Fresher') {
+        setFormData(prev => ({
+          ...prev,
+          experienceType: 'Fresher',
+          totalExperience: '0',
+          previousCompany: '',
+          previousDesignation: '',
+          previousDepartment: '',
+          expStartDate: '',
+          expEndDate: '',
+          lastDrawnSalary: '',
+          previousCompanyLocation: '',
+          relevantExperience: ''
+        }));
+        if (validationError) setValidationError(null);
+        return;
+      }
+    }
+
     // Total Experience (non-negative decimal allowed e.g. 2.5)
     if (field === 'totalExperience' || field === 'relevantExperience') {
       if (typeof value === 'string') {
@@ -1348,6 +1369,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     const resolvedRole = accessProfile.role;
     const resolvedPermissions = accessProfile.permissions;
     const isCEOEmp = accessProfile.role === 'CEO' || formData.designation?.toUpperCase() === 'CEO';
+    const isFresher = formData.experienceType === 'Fresher';
 
     const newEmp: Employee = {
       id: cleanEmpCode,
@@ -1446,21 +1468,21 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       },
       experienceDetails: {
         experienceType: formData.experienceType,
-        totalExperience: formData.totalExperience,
-        previousCompany: formData.previousCompany,
-        previousDesignation: formData.previousDesignation,
-        previousDepartment: formData.previousDepartment,
-        startDate: formData.expStartDate,
-        endDate: formData.expEndDate,
-        lastDrawnSalary: formData.lastDrawnSalary,
-        companyLocation: formData.previousCompanyLocation,
-        experienceCertificateUrl: documents.find(d => d.category === 'Experience Certificates')?.name,
-        relievingLetterUrl: documents.find(d => d.category === 'Relieving Letter')?.name
+        totalExperience: isFresher ? '0' : formData.totalExperience,
+        previousCompany: isFresher ? '' : formData.previousCompany,
+        previousDesignation: isFresher ? '' : formData.previousDesignation,
+        previousDepartment: isFresher ? '' : formData.previousDepartment,
+        startDate: isFresher ? '' : formData.expStartDate,
+        endDate: isFresher ? '' : formData.expEndDate,
+        lastDrawnSalary: isFresher ? '' : formData.lastDrawnSalary,
+        companyLocation: isFresher ? '' : formData.previousCompanyLocation,
+        experienceCertificateUrl: isFresher ? undefined : documents.find(d => d.category === 'Experience Certificates')?.name,
+        relievingLetterUrl: isFresher ? undefined : documents.find(d => d.category === 'Relieving Letter')?.name
       },
       professionalDetails: {
-        previousCompany: formData.previousCompany,
-        totalExperience: formData.totalExperience,
-        relevantExperience: formData.relevantExperience,
+        previousCompany: isFresher ? '' : formData.previousCompany,
+        totalExperience: isFresher ? '0' : formData.totalExperience,
+        relevantExperience: isFresher ? '' : formData.relevantExperience,
         skills: formData.skills.split(',').map(s => s.trim()).filter(Boolean),
         qualification: formData.qualification,
         specialization: formData.specialization
@@ -1541,6 +1563,8 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           department: newEmp.department,
           designation: newEmp.designation,
           role: newEmp.role,
+          dob: newEmp.dob,
+          gender: newEmp.gender,
           basicSalary: newEmp.basicSalary,
           grossSalary: newEmp.salaryDetails?.monthlyCtc || newEmp.basicSalary * 2.5
         })
@@ -1557,7 +1581,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       // Backend not running, proceed directly to VPS database
     }
 
-    // 2. Direct VPS database insert
+    // 2. Direct VPS database insert with complete data
     if (!dbSaved) {
       try {
         const sbRes = await supabaseDirect.insertEmployee({
@@ -1569,12 +1593,48 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           department: newEmp.department,
           department_id: newEmp.departmentId,
           designation: newEmp.designation,
-          reporting_manager_name: newEmp.reportingManagerName,
+          reporting_manager_id: newEmp.reportingManagerId || null,
+          reporting_manager_name: newEmp.reportingManagerName || null,
           role_id: assignedRoleId,
           basic_salary: newEmp.basicSalary,
-          phone: newEmp.phone,
-          status: newEmp.status,
+          phone: newEmp.phone || null,
+          dob: newEmp.dob || null,
+          gender: newEmp.gender || 'Male',
+          joining_date: newEmp.joiningDate || null,
+          employment_type: newEmp.employmentType || 'Full-Time',
+          status: newEmp.status || 'Active',
           attendance_method: newEmp.attendanceMethod,
+          branch: newEmp.workLocation || null,
+          address_line1: formData.currentLine1 || null,
+          address_line2: formData.currentLine2 || null,
+          city: formData.currentCity || null,
+          state: formData.currentState || null,
+          country: formData.currentCountry || 'India',
+          pincode: formData.currentPincode || null,
+          bank_name: formData.bankName || null,
+          account_number: formData.accountNumber || null,
+          ifsc_code: formData.ifscCode ? formData.ifscCode.toUpperCase().trim() : null,
+          pan_number: formData.panNumber ? formData.panNumber.toUpperCase().trim() : null,
+          uan_number: formData.uanNumber || null,
+          highest_qualification: formData.qualification || null,
+          degree_name: formData.degreeName || null,
+          specialization: formData.specialization || null,
+          university: formData.university || null,
+          year_of_passing: formData.yearOfPassing ? parseInt(formData.yearOfPassing, 10) : null,
+          grade_percentage: formData.gradePercentage ? parseFloat(formData.gradePercentage) : null,
+          experience_profile: isFresher ? 'Fresher' : 'Experienced',
+          total_experience: isFresher ? 0 : (formData.totalExperience ? parseFloat(formData.totalExperience) : null),
+          previous_company: isFresher ? null : (formData.previousCompany || null),
+          previous_designation: isFresher ? null : (formData.previousDesignation || null),
+          previous_department: isFresher ? null : (formData.previousDepartment || null),
+          employment_start_date: isFresher ? null : (formData.expStartDate || null),
+          employment_end_date: isFresher ? null : (formData.expEndDate || null),
+          last_drawn_salary: isFresher ? null : (formData.lastDrawnSalary ? parseFloat(formData.lastDrawnSalary) : null),
+          previous_company_location: isFresher ? null : (formData.previousCompanyLocation || null),
+          allowances_hra: Number(formData.hra) || 0,
+          allowances_transport: Number(formData.conveyance) || 0,
+          work_shift: formData.shift || null,
+          gps_allowed: formData.gpsAllowed ?? true,
         });
 
         if (sbRes.success) {
