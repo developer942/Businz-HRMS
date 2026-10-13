@@ -299,17 +299,20 @@ ${documentProfile.phone || '+91 9876543210'}`;
   };
 
   // Download PDF Document
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const candidateFullName = `${currentEmployee?.firstName || ''} ${currentEmployee?.lastName || ''}`.trim();
     const joiningDateStr = (currentEmployee?.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || formatDateDDMMYYYY(new Date());
     const formattedDeadline = formatDateDDMMYYYY(new Date(Date.now() + 7 * 86400000));
 
-    downloadOfferLetterPdf({
+    await downloadOfferLetterPdf({
       companyName: documentProfile.legalName || documentProfile.companyName,
       companyAddress: documentProfile.address,
       companyEmail: documentProfile.email,
       companyPhone: documentProfile.phone,
       companyWebsite: documentProfile.website,
+      logoUrl: documentProfile.logoUrl,
+      signatureImageUrl: documentProfile.signatureImageUrl,
+      stampImageUrl: documentProfile.stampImageUrl,
       candidateName: candidateFullName,
       employeeId: currentEmployee?.employeeId,
       designation: currentEmployee?.designation || 'Specialist',
@@ -357,15 +360,18 @@ ${documentProfile.phone || '+91 9876543210'}`;
     const joiningDateStr = (currentEmployee.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || formatDateDDMMYYYY(new Date());
 
     try {
-      // 1. Generate the official 3-page Offer Letter PDF in memory
+      // 1. Generate the official 3-page Offer Letter PDF in memory with Logo, Signature, and Stamp
       let pdfBase64 = '';
       try {
         pdfBase64 = await generateOfferLetterPdfBase64({
-          companyName: documentProfile.companyName,
+          companyName: documentProfile.legalName || documentProfile.companyName,
           companyAddress: documentProfile.address,
           companyEmail: documentProfile.email,
           companyPhone: documentProfile.phone,
           companyWebsite: documentProfile.website,
+          logoUrl: documentProfile.logoUrl,
+          signatureImageUrl: documentProfile.signatureImageUrl,
+          stampImageUrl: documentProfile.stampImageUrl,
           candidateName: candidateFullName,
           employeeId: currentEmployee.employeeId,
           designation: currentEmployee.designation,
@@ -391,11 +397,11 @@ ${documentProfile.phone || '+91 9876543210'}`;
       // 2. Format the official Cover Email Body matching the template
       const coverEmailBody = `Dear ${candidateFullName},
 
-We are pleased to welcome you to ${documentProfile.companyName}.
+We are pleased to welcome you to ${companyLegal}.
 
 Please find attached your Offer Letter for the position of ${currentEmployee.designation}, with a proposed joining date of ${joiningDateStr}.
 
-Kindly review the attached document and confirm your acceptance within ${formattedDeadline}.
+Kindly review the attached document and confirm your acceptance by ${formattedDeadline}.
 
 For any clarification, please feel free to contact our HR department.
 
@@ -404,9 +410,15 @@ We look forward to welcoming you to our team.
 Warm regards,
 ${documentProfile.authorizedSignatoryName || 'HR Department'}
 ${documentProfile.authorizedSignatoryDesignation || 'HR Management'}
-${documentProfile.companyName}
+${companyLegal}
 ${documentProfile.email || 'developer@businz.com'}
 ${documentProfile.phone || ''}`;
+
+      const resolveFullUrl = (url?: string) => {
+        if (!url) return '';
+        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+        return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+      };
 
       const response = await fetch(`${API_BASE_URL}/employees/send-offer-letter`, {
         method: 'POST',
@@ -420,7 +432,12 @@ ${documentProfile.phone || ''}`;
           employeeCode: currentEmployee.employeeId,
           subject: `Offer Letter – Confirmation of Employment - ${currentEmployee.designation || 'Employment'}`,
           letterBody: coverEmailBody,
-          companyName: documentProfile.companyName,
+          companyName: documentProfile.legalName || documentProfile.companyName,
+          logoUrl: resolveFullUrl(documentProfile.logoUrl),
+          signatureImageUrl: documentProfile.signatureImageUrl,
+          stampImageUrl: documentProfile.stampImageUrl,
+          signatoryName: documentProfile.authorizedSignatoryName,
+          signatoryDesignation: documentProfile.authorizedSignatoryDesignation,
           pdfAttachment: pdfBase64 ? {
             filename: `Offer_Letter_${(currentEmployee.firstName || 'Candidate').replace(/\s+/g, '_')}_${currentEmployee.employeeId || 'EMP'}.pdf`,
             base64: pdfBase64,
@@ -808,12 +825,12 @@ ${documentProfile.phone || ''}`;
                 </div>
 
                 <div style={{ fontSize: '0.82rem', color: '#334155', lineHeight: 1.6, marginBottom: '28px' }}>
-                  Please confirm your acceptance of the terms above by signing and returning this letter by <strong>{formattedDeadline}</strong>. We look forward to welcoming you to <strong>{companyLegal}</strong>.
+                  Please confirm your acceptance of the terms above by <strong>{formattedDeadline}</strong>. We look forward to welcoming you to <strong>{companyLegal}</strong>.
                 </div>
 
-                {/* Two Column Signatures */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
-                  <div>
+                {/* Company Authorization Section (Employee acceptance removed) */}
+                <div style={{ paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+                  <div style={{ maxWidth: '380px' }}>
                     <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '8px' }}>
                       For {companyLegal}
                     </div>
@@ -845,17 +862,6 @@ ${documentProfile.phone || ''}`;
                       <div style={{ fontWeight: 800, color: '#0f172a' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>
                       <div style={{ color: '#64748b' }}>{documentProfile.authorizedSignatoryDesignation || 'HR Management'}</div>
                       <div style={{ color: '#94a3b8', fontSize: '0.74rem', marginTop: '4px' }}>Official Seal / Digital Stamp</div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '32px' }}>
-                      Employee acceptance
-                    </div>
-                    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '8px', fontSize: '0.8rem' }}>
-                      <div style={{ color: '#64748b' }}>Signature: __________________________</div>
-                      <div style={{ fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>Name: {candidateFullName}</div>
-                      <div style={{ color: '#64748b', fontSize: '0.74rem', marginTop: '4px' }}>Date: {formattedDeadline}</div>
                     </div>
                   </div>
                 </div>
@@ -1013,13 +1019,65 @@ ${documentProfile.phone || ''}`;
                   </span>
                 </div>
 
-                <div style={{ marginBottom: '18px', fontSize: '0.9rem', fontWeight: 700, color: '#f4f4f5' }}>
+                <div style={{ marginBottom: '14px', fontSize: '0.9rem', fontWeight: 700, color: '#f4f4f5' }}>
                   Offer Letter &ndash; Confirmation of Employment - {currentEmployee?.designation || 'Specialist'}
                 </div>
 
+                {/* Brand Header with Company Logo */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #27272a', paddingTop: '16px', marginBottom: '16px' }}>
+                  <div>
+                    <div style={{ fontSize: '1.02rem', fontWeight: 800, color: '#fafafa' }}>{companyLegal}</div>
+                    <div style={{ fontSize: '0.76rem', color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '2px' }}>
+                      Official Offer of Employment
+                    </div>
+                  </div>
+                  {documentProfile.logoUrl && (
+                    <img 
+                      src={documentProfile.logoUrl} 
+                      alt="Logo" 
+                      style={{ maxHeight: '42px', maxWidth: '140px', objectFit: 'contain' }}
+                      onError={e => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  )}
+                </div>
+
                 {/* Email Body */}
-                <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: '#d4d4d8', whiteSpace: 'pre-line', borderTop: '1px solid #27272a', paddingTop: '18px', marginBottom: '22px' }}>
+                <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: '#d4d4d8', whiteSpace: 'pre-line', marginBottom: '18px' }}>
                   {coverEmailBodyText}
+                </div>
+
+                {/* Authorized Signature & Official Seal Preview Strip */}
+                <div style={{ borderTop: '1px solid #27272a', paddingTop: '16px', marginBottom: '22px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '16px', marginBottom: '8px' }}>
+                    {documentProfile.signatureImageUrl ? (
+                      <div style={{ backgroundColor: '#ffffff', borderRadius: '6px', padding: '4px 8px', display: 'inline-flex' }}>
+                        <img 
+                          src={documentProfile.signatureImageUrl} 
+                          alt="Signature" 
+                          style={{ maxHeight: '46px', maxWidth: '130px', objectFit: 'contain' }}
+                          onError={e => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.74rem', color: '#71717a', fontStyle: 'italic' }}>Authorized Signatory</span>
+                    )}
+
+                    {documentProfile.stampImageUrl && (
+                      <div style={{ backgroundColor: '#ffffff', borderRadius: '6px', padding: '4px 8px', display: 'inline-flex' }}>
+                        <img 
+                          src={documentProfile.stampImageUrl} 
+                          alt="Company Seal" 
+                          style={{ maxHeight: '64px', maxWidth: '90px', objectFit: 'contain' }}
+                          onError={e => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ borderTop: '1px solid #3f3f46', maxWidth: '280px', paddingTop: '6px' }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fafafa' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>
+                    <div style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>{documentProfile.authorizedSignatoryDesignation || 'HR Management'}</div>
+                    <div style={{ fontSize: '0.74rem', color: '#38bdf8', fontWeight: 600, marginTop: '2px' }}>{companyLegal}</div>
+                  </div>
                 </div>
 
                 {/* Attachment Card */}

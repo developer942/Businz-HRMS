@@ -368,6 +368,9 @@ export interface GenerateOfferLetterPdfOptions {
   companyEmail?: string;
   companyPhone?: string;
   companyWebsite?: string;
+  logoUrl?: string;
+  signatureImageUrl?: string;
+  stampImageUrl?: string;
   candidateName: string;
   employeeId?: string;
   designation: string;
@@ -390,10 +393,119 @@ export interface GenerateOfferLetterPdfOptions {
   customizedClauses?: string;
 }
 
+interface LoadedImageInfo {
+  dataUrl: string;
+  format: 'PNG' | 'JPEG';
+  width: number;
+  height: number;
+  aspectRatio: number;
+}
+
+async function safeLoadImage(src?: string): Promise<LoadedImageInfo | null> {
+  if (!src || typeof src !== 'string' || !src.trim()) return null;
+  const cleanSrc = src.trim();
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    const timer = setTimeout(() => {
+      if (cleanSrc.startsWith('data:image/')) {
+        const isJpeg = cleanSrc.includes('image/jpeg') || cleanSrc.includes('image/jpg');
+        resolve({
+          dataUrl: cleanSrc,
+          format: isJpeg ? 'JPEG' : 'PNG',
+          width: 100,
+          height: 100,
+          aspectRatio: 1,
+        });
+      } else {
+        resolve(null);
+      }
+    }, 2500);
+
+    img.onload = () => {
+      clearTimeout(timer);
+      try {
+        const naturalW = img.naturalWidth || img.width || 100;
+        const naturalH = img.naturalHeight || img.height || 100;
+        const canvas = document.createElement('canvas');
+        canvas.width = naturalW;
+        canvas.height = naturalH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          if (cleanSrc.startsWith('data:image/')) {
+            const isJpeg = cleanSrc.includes('image/jpeg') || cleanSrc.includes('image/jpg');
+            resolve({
+              dataUrl: cleanSrc,
+              format: isJpeg ? 'JPEG' : 'PNG',
+              width: naturalW,
+              height: naturalH,
+              aspectRatio: naturalW / naturalH,
+            });
+          } else {
+            resolve(null);
+          }
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const isJpeg = cleanSrc.toLowerCase().endsWith('.jpg') || cleanSrc.toLowerCase().endsWith('.jpeg') || cleanSrc.startsWith('data:image/jpeg');
+        const format: 'PNG' | 'JPEG' = isJpeg ? 'JPEG' : 'PNG';
+        const mime = isJpeg ? 'image/jpeg' : 'image/png';
+        const dataUrl = canvas.toDataURL(mime);
+        resolve({
+          dataUrl,
+          format,
+          width: naturalW,
+          height: naturalH,
+          aspectRatio: naturalW / naturalH,
+        });
+      } catch (e) {
+        if (cleanSrc.startsWith('data:image/')) {
+          const isJpeg = cleanSrc.includes('image/jpeg') || cleanSrc.includes('image/jpg');
+          resolve({
+            dataUrl: cleanSrc,
+            format: isJpeg ? 'JPEG' : 'PNG',
+            width: img.naturalWidth || 100,
+            height: img.naturalHeight || 100,
+            aspectRatio: (img.naturalWidth || 100) / (img.naturalHeight || 100),
+          });
+        } else {
+          resolve(null);
+        }
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timer);
+      if (cleanSrc.startsWith('data:image/')) {
+        const isJpeg = cleanSrc.includes('image/jpeg') || cleanSrc.includes('image/jpg');
+        resolve({
+          dataUrl: cleanSrc,
+          format: isJpeg ? 'JPEG' : 'PNG',
+          width: 100,
+          height: 100,
+          aspectRatio: 1,
+        });
+      } else {
+        resolve(null);
+      }
+    };
+
+    img.src = cleanSrc;
+  });
+}
+
 /**
  * Builds the official 3-page Offer Letter jsPDF instance matching corporate template
  */
-export function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): jsPDF {
+export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): Promise<jsPDF> {
+  const [logoImg, sigImg, stampImg] = await Promise.all([
+    safeLoadImage(opts.logoUrl),
+    safeLoadImage(opts.signatureImageUrl),
+    safeLoadImage(opts.stampImageUrl),
+  ]);
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
@@ -425,6 +537,25 @@ export function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): jsPD
     docInstance.setFont('helvetica', 'normal');
     docInstance.setTextColor(100, 116, 139);
     docInstance.text(opts.companyAddress || 'Corporate Headquarters & Registered Office', margin + 12, 62);
+
+    // If company logo is available, render on the top right
+    if (logoImg) {
+      try {
+        const maxLogoH = 30;
+        const maxLogoW = 120;
+        let logoW = maxLogoH * logoImg.aspectRatio;
+        let logoH = maxLogoH;
+        if (logoW > maxLogoW) {
+          logoW = maxLogoW;
+          logoH = logoW / logoImg.aspectRatio;
+        }
+        const logoX = pageWidth - margin - logoW;
+        const logoY = 36 + (maxLogoH - logoH) / 2;
+        docInstance.addImage(logoImg.dataUrl, logoImg.format, logoX, logoY, logoW, logoH, undefined, 'FAST');
+      } catch (err) {
+        console.warn('Could not add logo to PDF:', err);
+      }
+    }
 
     docInstance.setDrawColor(226, 232, 240);
     docInstance.line(margin, 76, pageWidth - margin, 76);
@@ -568,40 +699,78 @@ export function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): jsPD
   doc.setFontSize(8.2);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(30, 41, 59);
-  const acceptNote = `Please confirm your acceptance of the terms above by signing and returning this letter by ${deadlineStr}. We look forward to welcoming you to ${opts.companyName}.`;
+  const acceptNote = `Please confirm your acceptance of the terms above by ${deadlineStr}. We look forward to welcoming you to ${opts.companyName}.`;
   const acceptLines = doc.splitTextToSize(acceptNote, contentWidth);
   doc.text(acceptLines, margin, y);
-  y += acceptLines.length * 11 + 24;
+  y += acceptLines.length * 11 + 20;
 
-  // Signatory & Candidate columns
-  const colWidth = (contentWidth - 40) / 2;
-  const col2X = margin + colWidth + 40;
-
-  // Left column: Company
+  // Company Authorization Block (Employee acceptance removed as requested)
   doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 23, 42);
   doc.text(`For ${opts.companyName}`, margin, y);
-  doc.text('Employee acceptance', col2X, y);
+  y += 10;
 
-  y += 36;
+  // Render Signature and Stamp / Seal images if available
+  const sigStampY = y;
+  const sigStampH = 50;
+
+  if (sigImg) {
+    try {
+      const maxSigH = 44;
+      const maxSigW = 130;
+      let sigW = maxSigH * sigImg.aspectRatio;
+      let sigH = maxSigH;
+      if (sigW > maxSigW) {
+        sigW = maxSigW;
+        sigH = sigW / sigImg.aspectRatio;
+      }
+      const sigX = margin;
+      const sigY = sigStampY + (sigStampH - sigH);
+      doc.addImage(sigImg.dataUrl, sigImg.format, sigX, sigY, sigW, sigH, undefined, 'FAST');
+    } catch (err) {
+      console.warn('Could not add signature to PDF:', err);
+    }
+  }
+
+  if (stampImg) {
+    try {
+      const maxStampH = 50;
+      const maxStampW = 85;
+      let stampW = maxStampH * stampImg.aspectRatio;
+      let stampH = maxStampH;
+      if (stampW > maxStampW) {
+        stampW = maxStampW;
+        stampH = stampW / stampImg.aspectRatio;
+      }
+      const stampX = margin + 160;
+      const stampY = sigStampY + (sigStampH - stampH);
+      doc.addImage(stampImg.dataUrl, stampImg.format, stampX, stampY, stampW, stampH, undefined, 'FAST');
+    } catch (err) {
+      console.warn('Could not add stamp to PDF:', err);
+    }
+  }
+
+  y = sigStampY + sigStampH + 6;
+
+  // Divider line under signature
   doc.setDrawColor(203, 213, 225);
-  doc.line(margin, y, margin + colWidth, y);
-  doc.line(col2X, y, col2X + colWidth, y);
+  doc.line(margin, y, margin + 260, y);
 
   y += 12;
-  doc.setFontSize(8);
+  doc.setFontSize(8.2);
   doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
   doc.text(opts.signatoryName || 'Authorized Signatory', margin, y);
-  doc.text(`Signature: __________________________`, col2X, y);
 
   y += 11;
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
   doc.text(opts.signatoryDesignation || 'HR Management', margin, y);
-  doc.text(`Name: ${opts.candidateName}`, col2X, y);
 
   y += 11;
+  doc.setFontSize(7.5);
   doc.text('Official Seal / Digital Stamp', margin, y);
-  doc.text(`Date: ______________________________`, col2X, y);
 
   drawFooter(doc, 2);
 
@@ -625,8 +794,8 @@ export function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): jsPD
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(51, 65, 85);
   doc.text(`Employee: ${opts.candidateName}   |   Designation: ${opts.designation}   |   Effective from: ${opts.joiningDate || todayStr}`, margin, y);
-
   y += 12;
+
   const tableHead = [['Salary Component', 'Monthly (INR)', 'Annual (INR)']];
   const tableBody = opts.compensationRows.map(r => [
     r.label,
@@ -682,7 +851,24 @@ export function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): jsPD
   y += 12;
   doc.text(`This annexure forms part of the offer letter issued on ${todayStr}.`, margin, y);
 
-  y += 30;
+  y += 24;
+  if (sigImg) {
+    try {
+      const maxSigH = 34;
+      let sigW = maxSigH * sigImg.aspectRatio;
+      let sigH = maxSigH;
+      if (sigW > 100) {
+        sigW = 100;
+        sigH = sigW / sigImg.aspectRatio;
+      }
+      doc.addImage(sigImg.dataUrl, sigImg.format, margin, y, sigW, sigH, undefined, 'FAST');
+      y += sigH + 6;
+    } catch (err) {
+      y += 10;
+    }
+  } else {
+    y += 10;
+  }
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
   doc.text(`Authorized Signatory: ${opts.signatoryName || 'Authorized Signatory'}`, margin, y);
@@ -700,7 +886,7 @@ export function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): jsPD
  * Returns Base64 encoded PDF string
  */
 export async function generateOfferLetterPdfBase64(opts: GenerateOfferLetterPdfOptions): Promise<string> {
-  const doc = buildOfferLetterJsPdf(opts);
+  const doc = await buildOfferLetterJsPdf(opts);
   const dataUri = doc.output('datauristring');
   const base64 = dataUri.split(',')[1];
   return base64;
@@ -709,8 +895,8 @@ export async function generateOfferLetterPdfBase64(opts: GenerateOfferLetterPdfO
 /**
  * Triggers direct vector PDF download of the official 3-page Offer Letter
  */
-export function downloadOfferLetterPdf(opts: GenerateOfferLetterPdfOptions, filename?: string): void {
-  const doc = buildOfferLetterJsPdf(opts);
+export async function downloadOfferLetterPdf(opts: GenerateOfferLetterPdfOptions, filename?: string): Promise<void> {
+  const doc = await buildOfferLetterJsPdf(opts);
   const targetName = (filename || `Offer_Letter_${opts.candidateName.replace(/\s+/g, '_')}_${opts.employeeId || 'EMP'}`).replace(/\.pdf$/i, '') + '.pdf';
   doc.save(targetName);
 }

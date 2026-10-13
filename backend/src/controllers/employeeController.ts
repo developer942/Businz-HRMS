@@ -17,6 +17,11 @@ const sendOfferLetterSchema = z.object({
   letterBody: z.string().trim().min(1),
   companyName: z.string().trim().optional(),
   companyId: z.string().trim().optional(),
+  logoUrl: z.string().trim().optional(),
+  signatureImageUrl: z.string().trim().optional(),
+  stampImageUrl: z.string().trim().optional(),
+  signatoryName: z.string().trim().optional(),
+  signatoryDesignation: z.string().trim().optional(),
   pdfAttachment: z.object({
     filename: z.string().trim().min(1),
     base64: z.string().min(1),

@@ -385,12 +385,73 @@ export async function sendOfferLetterEmail(payload) {
     }
     const { transporter, senderEmail, senderName } = smtpDetails;
     const mailFrom = `"${payload.companyName || senderName || 'Businz HRMS'}" <${senderEmail}>`;
-    // 2. Prepare PDF attachment if present
-    const attachments = payload.pdfAttachment && payload.pdfAttachment.base64 ? [{
+    // 2. Prepare attachments and CIDs for inline images
+    const attachments = [];
+    let logoSrc = '';
+    if (payload.logoUrl && payload.logoUrl.trim()) {
+        const rawLogo = payload.logoUrl.trim();
+        if (rawLogo.startsWith('data:image/')) {
+            const match = rawLogo.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+            if (match) {
+                attachments.push({
+                    filename: 'company-logo.png',
+                    content: Buffer.from(match[2], 'base64'),
+                    contentType: match[1],
+                    cid: 'company-logo@businz-hrms',
+                });
+                logoSrc = 'cid:company-logo@businz-hrms';
+            }
+        }
+        else {
+            logoSrc = rawLogo;
+        }
+    }
+    let signatureSrc = '';
+    if (payload.signatureImageUrl && payload.signatureImageUrl.trim()) {
+        const rawSig = payload.signatureImageUrl.trim();
+        if (rawSig.startsWith('data:image/')) {
+            const match = rawSig.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+            if (match) {
+                attachments.push({
+                    filename: 'authorized-signature.png',
+                    content: Buffer.from(match[2], 'base64'),
+                    contentType: match[1],
+                    cid: 'authorized-signature@businz-hrms',
+                });
+                signatureSrc = 'cid:authorized-signature@businz-hrms';
+            }
+        }
+        else {
+            signatureSrc = rawSig;
+        }
+    }
+    let stampSrc = '';
+    if (payload.stampImageUrl && payload.stampImageUrl.trim()) {
+        const rawStamp = payload.stampImageUrl.trim();
+        if (rawStamp.startsWith('data:image/')) {
+            const match = rawStamp.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+            if (match) {
+                attachments.push({
+                    filename: 'company-stamp.png',
+                    content: Buffer.from(match[2], 'base64'),
+                    contentType: match[1],
+                    cid: 'company-stamp@businz-hrms',
+                });
+                stampSrc = 'cid:company-stamp@businz-hrms';
+            }
+        }
+        else {
+            stampSrc = rawStamp;
+        }
+    }
+    // 3. Prepare PDF attachment if present
+    if (payload.pdfAttachment && payload.pdfAttachment.base64) {
+        attachments.push({
             filename: payload.pdfAttachment.filename || `Offer_Letter_${(payload.candidateName || 'Candidate').replace(/\s+/g, '_')}.pdf`,
             content: Buffer.from(payload.pdfAttachment.base64, 'base64'),
-            contentType: 'application/pdf'
-        }] : [];
+            contentType: 'application/pdf',
+        });
+    }
     const safeBody = payload.letterBody || '';
     const htmlBody = safeBody
         .replace(/&/g, '&amp;')
@@ -405,18 +466,60 @@ export async function sendOfferLetterEmail(payload) {
             text: safeBody,
             html: `
         <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 680px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; color: #1e293b;">
-          <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 14px; margin-bottom: 18px;">
-            <h2 style="color: #0E7490; margin: 0; font-size: 22px;">${payload.companyName || senderName || 'Businz HRMS'}</h2>
-            <p style="color: #64748B; font-size: 13px; margin: 4px 0 0;">Official Offer Letter</p>
+          <!-- Top Header Strip with Logo and Brand -->
+          <div style="border-bottom: 2px solid #0E7490; padding-bottom: 16px; margin-bottom: 20px;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="vertical-align: middle;">
+                  <h2 style="color: #0F172A; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.2px;">${payload.companyName || senderName || 'Businz HRMS'}</h2>
+                  <p style="color: #0E7490; font-size: 12px; font-weight: 700; margin: 4px 0 0; text-transform: uppercase; letter-spacing: 0.5px;">Formal Offer of Employment</p>
+                </td>
+                ${logoSrc ? `
+                <td style="text-align: right; vertical-align: middle;">
+                  <img src="${logoSrc}" alt="Company Logo" style="max-height: 48px; max-width: 170px; object-fit: contain; display: inline-block;" />
+                </td>
+                ` : ''}
+              </tr>
+            </table>
           </div>
-          <div style="font-size: 14px; line-height: 1.7;">${htmlBody}</div>
-          ${attachments.length > 0 ? `
-            <div style="margin-top: 18px; padding: 12px 16px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; font-size: 13px; color: #166534;">
-              📎 <strong>Attached:</strong> ${attachments[0].filename} (Official Employment Offer Document)
+
+          <!-- Message Body -->
+          <div style="font-size: 14px; line-height: 1.7; color: #334155; margin-bottom: 20px;">
+            ${htmlBody}
+          </div>
+
+          <!-- Authorized Signature & Seal Strip -->
+          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #E2E8F0;">
+            <table style="border-collapse: collapse; margin-bottom: 6px;">
+              <tr>
+                ${signatureSrc ? `
+                <td style="vertical-align: bottom; padding-right: 20px;">
+                  <img src="${signatureSrc}" alt="Authorized Signature" style="max-height: 52px; max-width: 140px; object-fit: contain; display: block;" />
+                </td>
+                ` : ''}
+                ${stampSrc ? `
+                <td style="vertical-align: bottom;">
+                  <img src="${stampSrc}" alt="Official Stamp" style="max-height: 76px; max-width: 105px; object-fit: contain; display: block;" />
+                </td>
+                ` : ''}
+              </tr>
+            </table>
+            <div style="border-top: 1px solid #CBD5E1; max-width: 280px; padding-top: 6px;">
+              <div style="font-size: 13px; font-weight: 700; color: #0F172A;">${payload.signatoryName || 'Authorized Signatory'}</div>
+              <div style="font-size: 12px; color: #64748B;">${payload.signatoryDesignation || 'HR Management'}</div>
+              <div style="font-size: 12px; color: #0E7490; font-weight: 600; margin-top: 2px;">${payload.companyName || senderName || 'Businz HRMS'}</div>
+            </div>
+          </div>
+
+          <!-- PDF Attachment Box -->
+          ${payload.pdfAttachment ? `
+            <div style="margin-top: 22px; padding: 12px 16px; background-color: #ECFEFF; border: 1px solid #A5F3FC; border-radius: 8px; font-size: 13px; color: #0E7490;">
+              📎 <strong>Attached Official Document:</strong> ${payload.pdfAttachment.filename} (Complete Verified Employment Offer with Annexure A)
             </div>
           ` : ''}
-          <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 22px; font-size: 12px; color: #64748B;">
-            This offer letter was sent from Businz Enterprise HRMS.
+
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 22px; font-size: 12px; color: #94A3B8; text-align: center;">
+            This offer letter was issued and dispatched from Businz Enterprise HRMS.
           </div>
         </div>
       `,
