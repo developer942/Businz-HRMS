@@ -420,6 +420,46 @@ ${documentProfile.phone || ''}`;
         return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
       };
 
+      const optimizeBase64ForPayload = async (src?: string, maxDim = 500): Promise<string> => {
+        if (!src || !src.startsWith('data:image/')) return src || '';
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              let w = img.naturalWidth || img.width || 100;
+              let h = img.naturalHeight || img.height || 100;
+              if (w > maxDim || h > maxDim) {
+                if (w > h) {
+                  h = Math.round((h * maxDim) / w);
+                  w = maxDim;
+                } else {
+                  w = Math.round((w * maxDim) / h);
+                  h = maxDim;
+                }
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) return resolve(src);
+              ctx.drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL('image/png', 0.85));
+            } catch {
+              resolve(src);
+            }
+          };
+          img.onerror = () => resolve(src);
+          img.src = src;
+        });
+      };
+
+      const [optimizedSig, optimizedStamp, optimizedLogo] = await Promise.all([
+        optimizeBase64ForPayload(documentProfile.signatureImageUrl, 450),
+        optimizeBase64ForPayload(documentProfile.stampImageUrl, 400),
+        optimizeBase64ForPayload(documentProfile.logoUrl, 500),
+      ]);
+
       const response = await fetch(`${API_BASE_URL}/employees/send-offer-letter`, {
         method: 'POST',
         headers: {
@@ -433,9 +473,9 @@ ${documentProfile.phone || ''}`;
           subject: `Offer Letter – Confirmation of Employment - ${currentEmployee.designation || 'Employment'}`,
           letterBody: coverEmailBody,
           companyName: documentProfile.legalName || documentProfile.companyName,
-          logoUrl: resolveFullUrl(documentProfile.logoUrl),
-          signatureImageUrl: documentProfile.signatureImageUrl,
-          stampImageUrl: documentProfile.stampImageUrl,
+          logoUrl: resolveFullUrl(optimizedLogo),
+          signatureImageUrl: optimizedSig,
+          stampImageUrl: optimizedStamp,
           signatoryName: documentProfile.authorizedSignatoryName,
           signatoryDesignation: documentProfile.authorizedSignatoryDesignation,
           pdfAttachment: pdfBase64 ? {
@@ -445,9 +485,17 @@ ${documentProfile.phone || ''}`;
         }),
       });
 
-      const body = await response.json().catch(() => ({}));
+      let responseText = '';
+      let body: any = {};
+      try {
+        responseText = await response.text();
+        body = JSON.parse(responseText);
+      } catch {
+        // Not JSON
+      }
+
       if (!response.ok || body?.success === false) {
-        throw new Error(body?.error?.message || 'Offer letter email could not be sent.');
+        throw new Error(body?.error?.message || responseText || `Server responded with status ${response.status}`);
       }
 
       setSendStatus({ type: 'success', message: `Offer letter with PDF attachment sent to ${currentEmployee.email}` });

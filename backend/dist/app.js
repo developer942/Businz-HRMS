@@ -47,9 +47,9 @@ export const createApp = () => {
             'x-internal-benchmark',
         ],
     }));
-    // 4. Request Body Parsing with size limits
-    app.use(express.json({ limit: '1mb' }));
-    app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+    // 4. Request Body Parsing with size limits (supports document & PDF attachments)
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '50mb' }));
     // 5. Root health check endpoint (unlimited rate)
     app.use(healthRouter);
     // 6. General API routes with high-throughput rate limiter
