@@ -4071,16 +4071,46 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const dedupeStringList = (list?: string[]): string[] => {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set<string>();
+    const res: string[] = [];
+    for (const item of list) {
+      const clean = String(item || '').trim();
+      if (!clean) continue;
+      const lower = clean.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        res.push(clean);
+      }
+    }
+    return res;
+  };
+
   const updateOrgStructure = (structure: Partial<OrganizationStructure>) => {
+    const cleanedDepartments = structure.departments ? dedupeStringList(structure.departments) : undefined;
+    const cleanedDesignations = structure.designations ? dedupeStringList(structure.designations) : undefined;
+    const cleanedEmpTypes = structure.employmentTypes ? dedupeStringList(structure.employmentTypes) : undefined;
+    const cleanedLocations = structure.workLocations ? dedupeStringList(structure.workLocations) : undefined;
+
     setOrgStructure(prev => {
-      const nextOrg = { ...prev, ...structure };
+      const nextOrg: OrganizationStructure = {
+        ...prev,
+        ...structure,
+        departments: dedupeStringList(cleanedDepartments ?? prev.departments),
+        designations: dedupeStringList(cleanedDesignations ?? prev.designations),
+        employmentTypes: dedupeStringList(cleanedEmpTypes ?? prev.employmentTypes),
+        workLocations: dedupeStringList(cleanedLocations ?? prev.workLocations),
+        reportingManagers: structure.reportingManagers ?? prev.reportingManagers,
+        teams: structure.teams ?? prev.teams
+      };
       supabaseDirect.saveCompanySetting('org_structure', nextOrg);
       return nextOrg;
     });
 
     // Cloud-persist newly added departments to Supabase departments table
-    if (structure.departments && Array.isArray(structure.departments)) {
-      structure.departments.forEach(deptName => {
+    if (cleanedDepartments && Array.isArray(cleanedDepartments)) {
+      cleanedDepartments.forEach(deptName => {
         if (deptName && deptName.trim()) {
           supabaseDirect.insertDepartment(deptName.trim());
         }
@@ -4088,13 +4118,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     // Synchronize departments (DepartmentItem[]) with orgStructure.departments
-    if (structure.departments) {
+    if (cleanedDepartments) {
       setDepartments(prev => {
-        const existingMap = new Map(prev.map(d => [d.name, d]));
-        return structure.departments!.map(name => {
-          if (existingMap.has(name)) return existingMap.get(name)!;
+        const existingMap = new Map(prev.map(d => [d.name.trim().toLowerCase(), d]));
+        const updated = cleanedDepartments.map(name => {
+          const lower = name.trim().toLowerCase();
+          if (existingMap.has(lower)) return existingMap.get(lower)!;
           return {
-            id: `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            id: `dept-${lower.replace(/[^a-z0-9]/g, '-')}`,
             name,
             code: name.substring(0, 4).toUpperCase(),
             headName: 'Unassigned',
@@ -4103,17 +4134,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             budget: 0
           };
         });
+        supabaseDirect.saveCompanySetting('departments_data', updated);
+        return updated;
       });
     }
 
     // Synchronize designations (DesignationItem[]) with orgStructure.designations
-    if (structure.designations) {
+    if (cleanedDesignations) {
       setDesignations(prev => {
-        const existingMap = new Map(prev.map(d => [d.title, d]));
-        return structure.designations!.map(title => {
-          if (existingMap.has(title)) return existingMap.get(title)!;
+        const existingMap = new Map(prev.map(d => [d.title.trim().toLowerCase(), d]));
+        return cleanedDesignations.map(title => {
+          const lower = title.trim().toLowerCase();
+          if (existingMap.has(lower)) return existingMap.get(lower)!;
           return {
-            id: `desig-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            id: `desig-${lower.replace(/[^a-z0-9]/g, '-')}`,
             title,
             department: 'General',
             level: 'Staff'
@@ -4126,17 +4160,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const editDepartment = (oldName: string, newName: string) => {
     if (!newName.trim() || oldName === newName) return;
     const cleanNew = newName.trim();
+    const oldTarget = oldName.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        departments: prev.departments.map(d => d === oldName ? cleanNew : d)
+        departments: dedupeStringList(prev.departments.map(d => d.trim().toLowerCase() === oldTarget ? cleanNew : d))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
     });
-    setDepartments(prev => prev.map(d => d.name === oldName ? { ...d, name: cleanNew, code: cleanNew.substring(0, 4).toUpperCase() } : d));
+    setDepartments(prev => {
+      const updated = prev.map(d => d.name.trim().toLowerCase() === oldTarget ? { ...d, name: cleanNew, code: cleanNew.substring(0, 4).toUpperCase() } : d);
+      supabaseDirect.saveCompanySetting('departments_data', updated);
+      return updated;
+    });
     // Cascade to existing employees
-    setEmployees(prev => prev.map(emp => emp.department === oldName ? { ...emp, department: cleanNew } : emp));
+    setEmployees(prev => prev.map(emp => (emp.department || '').trim().toLowerCase() === oldTarget ? { ...emp, department: cleanNew } : emp));
     supabaseDirect.updateDepartment(oldName, cleanNew);
     addPolicyAuditLog({
       policyCategory: 'Company Details',
@@ -4150,19 +4189,25 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const removeOrgDepartment = (name: string) => {
+    const targetClean = name.trim().toLowerCase();
     setOrgStructure(prev => {
+      const filtered = prev.departments.filter(d => d.trim().toLowerCase() !== targetClean);
       const updated = {
         ...prev,
-        departments: prev.departments.filter(d => d !== name)
+        departments: dedupeStringList(filtered)
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
     });
-    setDepartments(prev => prev.filter(d => d.name !== name));
+    setDepartments(prev => {
+      const filtered = prev.filter(d => d.name.trim().toLowerCase() !== targetClean);
+      supabaseDirect.saveCompanySetting('departments_data', filtered);
+      return filtered;
+    });
     supabaseDirect.deleteDepartment(name);
     addPolicyAuditLog({
       policyCategory: 'Company Details',
-      policyId: `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      policyId: `dept-${targetClean.replace(/[^a-z0-9]/g, '-')}`,
       policyName: `Department: ${name}`,
       action: 'DEACTIVATE',
       performedBy: currentUser.name,
@@ -4174,17 +4219,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const editDesignation = (oldTitle: string, newTitle: string) => {
     if (!newTitle.trim() || oldTitle === newTitle) return;
     const cleanNew = newTitle.trim();
+    const oldTarget = oldTitle.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        designations: prev.designations.map(d => d === oldTitle ? cleanNew : d)
+        designations: dedupeStringList(prev.designations.map(d => d.trim().toLowerCase() === oldTarget ? cleanNew : d))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
     });
-    setDesignations(prev => prev.map(d => d.title === oldTitle ? { ...d, title: cleanNew } : d));
+    setDesignations(prev => prev.map(d => d.title.trim().toLowerCase() === oldTarget ? { ...d, title: cleanNew } : d));
     // Cascade to existing employees
-    setEmployees(prev => prev.map(emp => emp.designation === oldTitle ? { ...emp, designation: cleanNew } : emp));
+    setEmployees(prev => prev.map(emp => (emp.designation || '').trim().toLowerCase() === oldTarget ? { ...emp, designation: cleanNew } : emp));
     addPolicyAuditLog({
       policyCategory: 'Company Details',
       policyId: `desig-${cleanNew.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
@@ -4197,18 +4243,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const removeOrgDesignation = (title: string) => {
+    const cleanTitle = title.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        designations: prev.designations.filter(d => d !== title)
+        designations: dedupeStringList(prev.designations.filter(d => d.trim().toLowerCase() !== cleanTitle))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
     });
-    setDesignations(prev => prev.filter(d => d.title !== title));
+    setDesignations(prev => prev.filter(d => d.title.trim().toLowerCase() !== cleanTitle));
     addPolicyAuditLog({
       policyCategory: 'Company Details',
-      policyId: `desig-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      policyId: `desig-${cleanTitle.replace(/[^a-z0-9]/g, '-')}`,
       policyName: `Designation: ${title}`,
       action: 'DEACTIVATE',
       performedBy: currentUser.name,
@@ -4220,22 +4267,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const editEmploymentType = (oldType: string, newType: string) => {
     if (!newType.trim() || oldType === newType) return;
     const cleanNew = newType.trim();
+    const oldTarget = oldType.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        employmentTypes: prev.employmentTypes.map(t => t === oldType ? cleanNew : t)
+        employmentTypes: dedupeStringList(prev.employmentTypes.map(t => t.trim().toLowerCase() === oldTarget ? cleanNew : t))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
     });
-    setEmployees(prev => prev.map(emp => emp.employmentType === oldType ? { ...emp, employmentType: cleanNew as any } : emp));
+    setEmployees(prev => prev.map(emp => (emp.employmentType || '').trim().toLowerCase() === oldTarget ? { ...emp, employmentType: cleanNew as any } : emp));
   };
 
   const removeOrgEmploymentType = (type: string) => {
+    const cleanType = type.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        employmentTypes: prev.employmentTypes.filter(t => t !== type)
+        employmentTypes: dedupeStringList(prev.employmentTypes.filter(t => t.trim().toLowerCase() !== cleanType))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
@@ -4245,10 +4294,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const editWorkLocation = (oldLoc: string, newLoc: string) => {
     if (!newLoc.trim() || oldLoc === newLoc) return;
     const cleanNew = newLoc.trim();
+    const oldTarget = oldLoc.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        workLocations: prev.workLocations.map(l => l === oldLoc ? cleanNew : l)
+        workLocations: dedupeStringList(prev.workLocations.map(l => l.trim().toLowerCase() === oldTarget ? cleanNew : l))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
@@ -4256,10 +4306,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const removeOrgWorkLocation = (loc: string) => {
+    const cleanLoc = loc.trim().toLowerCase();
     setOrgStructure(prev => {
       const updated = {
         ...prev,
-        workLocations: prev.workLocations.filter(l => l !== loc)
+        workLocations: dedupeStringList(prev.workLocations.filter(l => l.trim().toLowerCase() !== cleanLoc))
       };
       supabaseDirect.saveCompanySetting('org_structure', updated);
       return updated;
@@ -9454,12 +9505,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Organization Structure & Departments
         const cloudOrg = settings.org_structure;
         if (hasSetting('org_structure') && cloudOrg && typeof cloudOrg === 'object') {
-          const deptNames = Array.isArray(cloudOrg.departments) ? [...cloudOrg.departments] : [];
+          const deptNames = dedupeStringList(cloudOrg.departments);
           const mergedOrg: OrganizationStructure = {
             departments: deptNames,
-            designations: Array.isArray(cloudOrg.designations) ? cloudOrg.designations : [],
-            employmentTypes: Array.isArray(cloudOrg.employmentTypes) ? cloudOrg.employmentTypes : [],
-            workLocations: Array.isArray(cloudOrg.workLocations) ? cloudOrg.workLocations : [],
+            designations: dedupeStringList(cloudOrg.designations),
+            employmentTypes: dedupeStringList(cloudOrg.employmentTypes),
+            workLocations: dedupeStringList(cloudOrg.workLocations),
             reportingManagers: Array.isArray(cloudOrg.reportingManagers) ? cloudOrg.reportingManagers : [],
             teams: Array.isArray(cloudOrg.teams) ? cloudOrg.teams : []
           };
@@ -9475,7 +9526,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             budget: 0
           })));
         } else if (Array.isArray(cloudDepts) && cloudDepts.length > 0) {
-          const loadedNames = cloudDepts.map(d => d.name);
+          const loadedNames = dedupeStringList(cloudDepts.map(d => d.name));
           setOrgStructure(prev => ({ ...prev, departments: loadedNames }));
           setDepartments(loadedNames.map(name => {
             const match = cloudDepts.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
@@ -9688,12 +9739,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Designations
         if (hasSetting('designations_data') && Array.isArray(settings.designations_data)) {
-          setDesignations(settings.designations_data);
+          const seenDesig = new Set<string>();
+          const dedupedDesigs: any[] = [];
+          for (const d of settings.designations_data) {
+            const key = (d?.title || '').trim().toLowerCase();
+            if (key && !seenDesig.has(key)) {
+              seenDesig.add(key);
+              dedupedDesigs.push(d);
+            }
+          }
+          setDesignations(dedupedDesigs);
         }
 
         // Departments
         if (hasSetting('departments_data') && Array.isArray(settings.departments_data)) {
-          setDepartments(settings.departments_data);
+          const seenDept = new Set<string>();
+          const dedupedDepts: any[] = [];
+          for (const d of settings.departments_data) {
+            const key = (d?.name || '').trim().toLowerCase();
+            if (key && !seenDept.has(key)) {
+              seenDept.add(key);
+              dedupedDepts.push(d);
+            }
+          }
+          setDepartments(dedupedDepts);
         }
 
         // Rewards & Recognition

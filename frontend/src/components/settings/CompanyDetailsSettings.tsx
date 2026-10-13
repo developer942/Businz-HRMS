@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { CompanyBranch, CompanyInfo } from '../../types/settings';
 import { INITIAL_COMPANY_INFO } from '../../data/settingsInitialData';
@@ -775,36 +775,81 @@ export const CompanyDetailsSettings: React.FC = () => {
     setEditingItem(null);
   };
 
+  const cleanUniqueList = (list?: string[]): string[] => {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const item of list) {
+      const clean = String(item || '').trim();
+      if (!clean) continue;
+      const lower = clean.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        result.push(clean);
+      }
+    }
+    return result;
+  };
+
+  const displayDepartments: string[] = useMemo(() => cleanUniqueList(orgStructure.departments), [orgStructure.departments]);
+  const displayDesignations: string[] = useMemo(() => cleanUniqueList(orgStructure.designations), [orgStructure.designations]);
+  const displayEmpTypes: string[] = useMemo(() => cleanUniqueList(orgStructure.employmentTypes), [orgStructure.employmentTypes]);
+  const displayLocations: string[] = useMemo(() => cleanUniqueList(orgStructure.workLocations), [orgStructure.workLocations]);
+
   const handleAddDept = () => {
-    if (!newDept.trim() || orgStructure.departments.includes(newDept.trim())) return;
-    const added = newDept.trim();
-    updateOrgStructure({ departments: [...orgStructure.departments, added] });
+    const clean = newDept.trim();
+    if (!clean) return;
+    if (displayDepartments.some((d: string) => d.toLowerCase() === clean.toLowerCase())) {
+      showCloudNotice(`Department "${clean}" already exists!`);
+      setNewDept('');
+      return;
+    }
+    const updated = [...displayDepartments, clean];
+    updateOrgStructure({ departments: updated });
     setNewDept('');
-    showCloudNotice(`Department "${added}" saved to VPS database!`);
+    showCloudNotice(`Department "${clean}" saved to VPS database!`);
   };
 
   const handleAddDesig = () => {
-    if (!newDesig.trim() || orgStructure.designations.includes(newDesig.trim())) return;
-    const added = newDesig.trim();
-    updateOrgStructure({ designations: [...orgStructure.designations, added] });
+    const clean = newDesig.replace(/[0-9]/g, '').trim();
+    if (!clean) return;
+    if (displayDesignations.some((d: string) => d.toLowerCase() === clean.toLowerCase())) {
+      showCloudNotice(`Designation "${clean}" already exists!`);
+      setNewDesig('');
+      return;
+    }
+    const updated = [...displayDesignations, clean];
+    updateOrgStructure({ designations: updated });
     setNewDesig('');
-    showCloudNotice(`Designation "${added}" saved to VPS database!`);
+    showCloudNotice(`Designation "${clean}" saved to VPS database!`);
   };
 
   const handleAddEmpType = () => {
-    if (!newEmpType.trim() || orgStructure.employmentTypes.includes(newEmpType.trim())) return;
-    const added = newEmpType.trim();
-    updateOrgStructure({ employmentTypes: [...orgStructure.employmentTypes, added] });
+    const clean = newEmpType.trim();
+    if (!clean) return;
+    if (displayEmpTypes.some((t: string) => t.toLowerCase() === clean.toLowerCase())) {
+      showCloudNotice(`Employment type "${clean}" already exists!`);
+      setNewEmpType('');
+      return;
+    }
+    const updated = [...displayEmpTypes, clean];
+    updateOrgStructure({ employmentTypes: updated });
     setNewEmpType('');
-    showCloudNotice(`Employment Type "${added}" saved to VPS database!`);
+    showCloudNotice(`Employment Type "${clean}" saved to VPS database!`);
   };
 
   const handleAddLocation = () => {
-    if (!newLocation.trim() || orgStructure.workLocations.includes(newLocation.trim())) return;
-    const added = newLocation.trim();
-    updateOrgStructure({ workLocations: [...orgStructure.workLocations, added] });
+    const clean = newLocation.trim();
+    if (!clean) return;
+    if (displayLocations.some((l: string) => l.toLowerCase() === clean.toLowerCase())) {
+      showCloudNotice(`Work Location "${clean}" already exists!`);
+      setNewLocation('');
+      return;
+    }
+    const updated = [...displayLocations, clean];
+    updateOrgStructure({ workLocations: updated });
     setNewLocation('');
-    showCloudNotice(`Work Location "${added}" saved to VPS database!`);
+    showCloudNotice(`Work Location "${clean}" saved to VPS database!`);
   };
 
   const handleRemoveLocation = (locToRemove: string) => {
@@ -1871,7 +1916,7 @@ export const CompanyDetailsSettings: React.FC = () => {
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', border: '1px solid #E7ECF3', padding: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Layers size={16} color="#0E7490" /> Departments ({orgStructure.departments.length})
+                  <Layers size={16} color="#0E7490" /> Departments ({displayDepartments.length})
                 </h4>
               </div>
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
@@ -1886,14 +1931,14 @@ export const CompanyDetailsSettings: React.FC = () => {
                 <button className="btn btn-primary btn-sm" onClick={handleAddDept}>Add</button>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {orgStructure.departments.length === 0 ? (
+                {displayDepartments.length === 0 ? (
                   <div style={{ fontSize: '0.8rem', color: '#94A3B8', fontStyle: 'italic', padding: '6px 0' }}>
                     No departments added yet. Type above and click Add to create one.
                   </div>
                 ) : (
-                  orgStructure.departments.map(d => (
+                  displayDepartments.map((d: string, idx: number) => (
                     <span
-                      key={d}
+                      key={`dept-${d}-${idx}`}
                       style={{
                         fontSize: '0.78rem',
                         fontWeight: 600,
@@ -1951,7 +1996,7 @@ export const CompanyDetailsSettings: React.FC = () => {
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', border: '1px solid #E7ECF3', padding: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Briefcase size={16} color="#0E7490" /> Designations ({orgStructure.designations.length})
+                  <Briefcase size={16} color="#0E7490" /> Designations ({displayDesignations.length})
                 </h4>
               </div>
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
@@ -1975,14 +2020,14 @@ export const CompanyDetailsSettings: React.FC = () => {
                 <button className="btn btn-primary btn-sm" onClick={handleAddDesig}>Add</button>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {orgStructure.designations.length === 0 ? (
+                {displayDesignations.length === 0 ? (
                   <div style={{ fontSize: '0.8rem', color: '#94A3B8', fontStyle: 'italic', padding: '6px 0' }}>
                     No designations added yet. Type above and click Add to create one.
                   </div>
                 ) : (
-                  orgStructure.designations.map(d => (
+                  displayDesignations.map((d: string, idx: number) => (
                     <span
-                      key={d}
+                      key={`desig-${d}-${idx}`}
                       style={{
                         fontSize: '0.78rem',
                         fontWeight: 600,
@@ -2040,7 +2085,7 @@ export const CompanyDetailsSettings: React.FC = () => {
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', border: '1px solid #E7ECF3', padding: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <User size={16} color="#0E7490" /> Employment Types ({orgStructure.employmentTypes.length})
+                  <User size={16} color="#0E7490" /> Employment Types ({displayEmpTypes.length})
                 </h4>
               </div>
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
@@ -2055,14 +2100,14 @@ export const CompanyDetailsSettings: React.FC = () => {
                 <button className="btn btn-primary btn-sm" onClick={handleAddEmpType}>Add</button>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {orgStructure.employmentTypes.length === 0 ? (
+                {displayEmpTypes.length === 0 ? (
                   <div style={{ fontSize: '0.8rem', color: '#94A3B8', fontStyle: 'italic', padding: '6px 0' }}>
                     No employment types added yet. Type above and click Add to create one.
                   </div>
                 ) : (
-                  orgStructure.employmentTypes.map(e => (
+                  displayEmpTypes.map((e: string, idx: number) => (
                     <span
-                      key={e}
+                      key={`emptype-${e}-${idx}`}
                       style={{
                         fontSize: '0.78rem',
                         fontWeight: 600,
@@ -2120,7 +2165,7 @@ export const CompanyDetailsSettings: React.FC = () => {
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', border: '1px solid #E7ECF3', padding: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <MapPin size={16} color="#0E7490" /> Work Locations ({orgStructure.workLocations.length})
+                  <MapPin size={16} color="#0E7490" /> Work Locations ({displayLocations.length})
                 </h4>
               </div>
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
@@ -2135,14 +2180,14 @@ export const CompanyDetailsSettings: React.FC = () => {
                 <button className="btn btn-primary btn-sm" onClick={handleAddLocation}>Add</button>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {orgStructure.workLocations.length === 0 ? (
+                {displayLocations.length === 0 ? (
                   <div style={{ fontSize: '0.8rem', color: '#94A3B8', fontStyle: 'italic', padding: '6px 0' }}>
                     No work locations added yet. Type above and click Add to create one.
                   </div>
                 ) : (
-                  orgStructure.workLocations.map(l => (
+                  displayLocations.map((l: string, idx: number) => (
                     <span
-                      key={l}
+                      key={`loc-${l}-${idx}`}
                       style={{
                         fontSize: '0.78rem',
                         fontWeight: 600,
@@ -2216,10 +2261,10 @@ export const CompanyDetailsSettings: React.FC = () => {
                 value={newTeamDept}
                 onChange={e => setNewTeamDept(e.target.value)}
               >
-                {orgStructure.departments.length === 0 ? (
+                {displayDepartments.length === 0 ? (
                   <option value="">No departments (Add dept first)</option>
                 ) : (
-                  orgStructure.departments.map(d => <option key={d} value={d}>{d}</option>)
+                  displayDepartments.map((d: string) => <option key={d} value={d}>{d}</option>)
                 )}
               </select>
               <input

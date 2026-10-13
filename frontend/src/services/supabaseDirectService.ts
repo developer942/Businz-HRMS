@@ -581,11 +581,24 @@ export const supabaseDirect = {
   },
 
   /**
-   * Inserts a new department into Supabase table
+   * Inserts a new department into Supabase table (checks for existing first to prevent duplicates)
    */
   async insertDepartment(name: string, code?: string): Promise<{ success: boolean; data?: any }> {
     try {
       const cleanName = name.trim();
+      if (!cleanName) return { success: false };
+
+      // 1. Prevent duplicate insertion - check if department already exists (case-insensitive)
+      const existingRes = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?select=*&name=ilike.${encodeURIComponent(cleanName)}&limit=1`, {
+        headers: getHeaders(),
+      });
+      if (existingRes.ok) {
+        const existingRows = await existingRes.json();
+        if (Array.isArray(existingRows) && existingRows.length > 0) {
+          return { success: true, data: existingRows[0] };
+        }
+      }
+
       const cleanCode = (code || cleanName.substring(0, 4)).toUpperCase().replace(/[^A-Z0-9]/g, '');
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
         method: 'POST',
@@ -629,7 +642,7 @@ export const supabaseDirect = {
    */
   async updateDepartment(oldName: string, newName: string): Promise<boolean> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?name=eq.${encodeURIComponent(oldName.trim())}`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?name=ilike.${encodeURIComponent(oldName.trim())}`, {
         method: 'PATCH',
         headers: {
           ...getHeaders(),
@@ -650,9 +663,14 @@ export const supabaseDirect = {
   /**
    * Removes a department from Supabase table
    */
-  async deleteDepartment(name: string): Promise<boolean> {
+  async deleteDepartment(nameOrId: string): Promise<boolean> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?name=eq.${encodeURIComponent(name.trim())}`, {
+      const clean = nameOrId.trim();
+      if (!clean) return false;
+      const filter = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean)
+        ? `id=eq.${clean}`
+        : `name=ilike.${encodeURIComponent(clean)}`;
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?${filter}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
