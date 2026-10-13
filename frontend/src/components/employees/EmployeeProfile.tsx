@@ -1022,6 +1022,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       joiningDate: formData.joiningDate,
       department: formData.department,
+      departmentId: departments.find(d => d.name?.toLowerCase() === formData.department?.toLowerCase() || d.id === formData.department)?.id,
       designation: formData.designation,
       employmentType: normalizeEmploymentType(formData.employmentType),
       reportingManagerId: formData.reportingManagerId,

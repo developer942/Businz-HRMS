@@ -26,41 +26,68 @@ const getHeaders = () => ({
 });
 
 const resolveDepartmentId = async (departmentName?: string, departmentId?: string): Promise<string | undefined> => {
-  if (departmentId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentId)) {
-    return departmentId;
-  }
-  const cleanName = departmentName?.trim();
-  if (!cleanName) return undefined;
-
   try {
-    const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?select=id,name&name=ilike.${encodeURIComponent(cleanName)}&limit=1`, {
+    // 1. Fetch current live departments from DB to verify IDs and names
+    const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?select=id,name,code`, {
       headers: getHeaders(),
     });
     if (res.ok) {
-      const rows = await res.json();
-      const match = Array.isArray(rows) ? rows[0] : null;
-      if (match?.id) return match.id;
-    }
+      const dbDepts: Array<{ id: string; name: string; code?: string }> = await res.json();
+      if (Array.isArray(dbDepts) && dbDepts.length > 0) {
+        // A. If departmentId is provided and valid UUID, verify it exists in DB
+        if (departmentId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentId)) {
+          const matchById = dbDepts.find(d => d.id === departmentId);
+          if (matchById) return matchById.id;
+        }
 
-    const cleanCode = cleanName.substring(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'DEPT';
-    const createRes = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
-      method: 'POST',
-      headers: {
-        ...getHeaders(),
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify({
-        name: cleanName,
-        code: cleanCode,
-      }),
-    });
-    if (createRes.ok) {
-      const created = await createRes.json();
-      const row = Array.isArray(created) ? created[0] : created;
-      return row?.id;
+        // B. If departmentId was not in DB, match by departmentName (case-insensitive)
+        const cleanName = departmentName?.trim().toLowerCase();
+        if (cleanName) {
+          const matchByName = dbDepts.find(d =>
+            (d.name && d.name.trim().toLowerCase() === cleanName) ||
+            (d.code && d.code.trim().toLowerCase() === cleanName)
+          );
+          if (matchByName) return matchByName.id;
+        }
+      }
     }
   } catch (err) {
-    console.warn('[DatabaseRest] resolveDepartmentId notice:', err);
+    console.warn('[DatabaseRest] resolveDepartmentId check notice:', err);
+  }
+
+  // C. Fallback: query by name directly if departmentName exists
+  const cleanName = departmentName?.trim();
+  if (cleanName) {
+    try {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?select=id,name&name=ilike.${encodeURIComponent(cleanName)}&limit=1`, {
+        headers: getHeaders(),
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows[0]?.id) return rows[0].id;
+      }
+
+      // If department does not exist in DB at all, insert it cleanly
+      const cleanCode = cleanName.substring(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'DEPT';
+      const createRes = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
+        method: 'POST',
+        headers: {
+          ...getHeaders(),
+          'Prefer': 'return=representation',
+        },
+        body: JSON.stringify({
+          name: cleanName,
+          code: cleanCode,
+        }),
+      });
+      if (createRes.ok) {
+        const created = await createRes.json();
+        const row = Array.isArray(created) ? created[0] : created;
+        if (row?.id) return row.id;
+      }
+    } catch (err) {
+      console.warn('[DatabaseRest] resolveDepartmentId fallback create notice:', err);
+    }
   }
 
   return undefined;
@@ -445,18 +472,48 @@ export const supabaseDirect = {
         ? `id=eq.${encodeURIComponent(cleanId)}`
         : `or=(employee_id.ilike.${encodeURIComponent(cleanId)},email.ilike.${encodeURIComponent(cleanId)})`;
 
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${filter}`, {
+      const safeUpdates = { ...updates };
+
+      // Pre-validate department_id against database to guarantee no 23503 FK error
+      if (safeUpdates.department_id !== undefined && safeUpdates.department_id !== null) {
+        const verifiedDeptId = await resolveDepartmentId(safeUpdates.department, safeUpdates.department_id);
+        safeUpdates.department_id = verifiedDeptId || null;
+      } else if (safeUpdates.department && !safeUpdates.department_id) {
+        const verifiedDeptId = await resolveDepartmentId(safeUpdates.department);
+        if (verifiedDeptId) safeUpdates.department_id = verifiedDeptId;
+      }
+      if (safeUpdates.department_id === undefined) {
+        delete safeUpdates.department_id;
+      }
+      delete safeUpdates.department;
+
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${filter}`, {
         method: 'PATCH',
         headers: {
           ...getHeaders(),
           'Prefer': 'return=representation',
         },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(safeUpdates),
       });
 
+      // Self-healing retry: if foreign key error 23503 on department_id occurs, nullify department_id and retry
       if (!res.ok) {
         const errText = await res.text();
-        return { success: false, error: errText };
+        if (errText.includes('23503') && (errText.includes('department_id') || errText.includes('employees_department_id_fkey'))) {
+          console.warn('[DatabaseRest] Foreign key constraint hit on department_id, retrying with department_id=null...');
+          const retryUpdates = { ...safeUpdates, department_id: null };
+          res = await fetch(`${DATABASE_REST_URL}/rest/v1/employees?${filter}`, {
+            method: 'PATCH',
+            headers: {
+              ...getHeaders(),
+              'Prefer': 'return=representation',
+            },
+            body: JSON.stringify(retryUpdates),
+          });
+        }
+        if (!res.ok) {
+          return { success: false, error: errText };
+        }
       }
 
       const data = await res.json();
@@ -469,7 +526,7 @@ export const supabaseDirect = {
             ...getHeaders(),
             'Prefer': 'return=representation',
           },
-          body: JSON.stringify(updates),
+          body: JSON.stringify(safeUpdates),
         });
         if (fallbackRes.ok) {
           const fallbackData = await fallbackRes.json();

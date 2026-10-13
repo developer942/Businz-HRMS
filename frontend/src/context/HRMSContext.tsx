@@ -1488,25 +1488,33 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (emp.dob !== undefined) updates.dob = normalizeDate(emp.dob);
     if (emp.joiningDate !== undefined) updates.joining_date = normalizeDate(emp.joiningDate);
 
-    // Department resolving: must be a valid UUID in departments table or null
+    // Department resolving: must be a valid UUID in active departments table or null
     const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+    const activeDepts = deptList || (typeof departments !== 'undefined' ? departments : []);
 
-    if (emp.departmentId !== undefined && isUuid(emp.departmentId)) {
-      updates.department_id = emp.departmentId;
-    } else if (emp.department !== undefined) {
-      if (!emp.department) {
-        updates.department_id = null;
-      } else {
-        const activeDepts = deptList || (typeof departments !== 'undefined' ? departments : []);
-        const matchedDept = activeDepts.find((d: any) =>
-          d.id === emp.department ||
-          d.name?.toLowerCase() === emp.department?.toLowerCase() ||
-          d.code?.toLowerCase() === emp.department?.toLowerCase()
-        );
-        if (matchedDept && isUuid(matchedDept.id)) {
-          updates.department_id = matchedDept.id;
-        }
+    let resolvedDeptId: string | null = null;
+    if (emp.departmentId && isUuid(emp.departmentId)) {
+      const match = activeDepts.find((d: any) => d.id === emp.departmentId);
+      if (match) {
+        resolvedDeptId = match.id;
       }
+    }
+
+    if (!resolvedDeptId && emp.department) {
+      const cleanDept = String(emp.department).trim().toLowerCase();
+      const matchedDept = activeDepts.find((d: any) =>
+        d.id === emp.department ||
+        (d.name && d.name.trim().toLowerCase() === cleanDept) ||
+        (d.code && d.code.trim().toLowerCase() === cleanDept)
+      );
+      if (matchedDept && isUuid(matchedDept.id)) {
+        resolvedDeptId = matchedDept.id;
+      }
+    }
+
+    if (emp.departmentId !== undefined || emp.department !== undefined) {
+      updates.department_id = resolvedDeptId;
+      if (emp.department) updates.department = emp.department;
     }
 
     // Reporting Manager resolving: must be a valid UUID in employees table or null
@@ -9516,15 +9524,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           };
           setOrgStructure(mergedOrg);
 
-          setDepartments(mergedOrg.departments.map(name => ({
-            id: `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-            name,
-            code: name.substring(0, 4).toUpperCase(),
-            headName: 'Unassigned',
-            headId: '',
-            employeeCount: 0,
-            budget: 0
-          })));
+          setDepartments(mergedOrg.departments.map(name => {
+            const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === name.toLowerCase()) : null;
+            return {
+              id: liveMatch?.id || `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+              name,
+              code: liveMatch?.code || name.substring(0, 4).toUpperCase(),
+              headName: 'Unassigned',
+              headId: liveMatch?.head_id || '',
+              employeeCount: 0,
+              budget: liveMatch?.budget || 0
+            };
+          }));
         } else if (Array.isArray(cloudDepts) && cloudDepts.length > 0) {
           const loadedNames = dedupeStringList(cloudDepts.map(d => d.name));
           setOrgStructure(prev => ({ ...prev, departments: loadedNames }));
@@ -9759,7 +9770,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const key = (d?.name || '').trim().toLowerCase();
             if (key && !seenDept.has(key)) {
               seenDept.add(key);
-              dedupedDepts.push(d);
+              const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === key) : null;
+              dedupedDepts.push({
+                ...d,
+                id: liveMatch?.id || d.id
+              });
             }
           }
           setDepartments(dedupedDepts);
