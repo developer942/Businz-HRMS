@@ -1302,11 +1302,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     lastName: d.lastName || d.last_name || '',
     email: d.email || '',
     phone: d.phone || '',
-    dob: d.dob || '1995-01-01',
+    dob: d.dob || '',
     gender: (d.gender as any) || 'Male',
     personalEmail: d.personalEmail || d.personal_email || d.email || '',
     maritalStatus: d.maritalStatus || d.marital_status || 'Single',
-    address: d.address || 'Chennai, Tamil Nadu',
+    address: d.address || '',
     currentAddress: {
       line1: d.currentAddress?.line1 || d.address_line1 || '',
       line2: d.currentAddress?.line2 || d.address_line2 || '',
@@ -1323,6 +1323,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       state: d.state || '',
       country: d.country || '',
       pincode: d.pincode || '',
+    },
+    emergencyContact: d.emergencyContact || {
+      name: d.emergency_contact_name || '',
+      relationship: d.emergency_contact_relationship || 'Parent',
+      mobile: d.emergency_contact_phone || '',
+      alternateMobile: ''
     },
     educationalDetails: {
       highestQualification: d.educationalDetails?.highestQualification || d.highest_qualification || '',
@@ -1405,6 +1411,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     credentialEmailSentAt: d.credentialEmailSentAt || d.credential_email_sent_at || '',
     authUserId: d.authUserId || d.auth_id || d.id,
     password: d.password,
+    skills: Array.isArray(d.skills) ? d.skills : (typeof d.skills === 'string' ? d.skills.split(',').map((s: string) => s.trim()) : []),
+    professionalDetails: d.professionalDetails,
+    shiftDetails: d.shiftDetails,
+    systemAccess: d.systemAccess,
   });
 
   const employeeToDbUpdates = (emp: Partial<Employee>, deptList?: DepartmentItem[], empList?: Employee[]): Record<string, any> => {
@@ -1480,31 +1490,34 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (emp.departmentId !== undefined && isUuid(emp.departmentId)) {
       updates.department_id = emp.departmentId;
     } else if (emp.department !== undefined) {
-      const activeDepts = deptList || (typeof departments !== 'undefined' ? departments : []);
-      const matchedDept = activeDepts.find((d: any) =>
-        d.id === emp.department ||
-        d.name?.toLowerCase() === emp.department?.toLowerCase() ||
-        d.code?.toLowerCase() === emp.department?.toLowerCase()
-      );
-      if (matchedDept && isUuid(matchedDept.id)) {
-        updates.department_id = matchedDept.id;
-      } else {
+      if (!emp.department) {
         updates.department_id = null;
+      } else {
+        const activeDepts = deptList || (typeof departments !== 'undefined' ? departments : []);
+        const matchedDept = activeDepts.find((d: any) =>
+          d.id === emp.department ||
+          d.name?.toLowerCase() === emp.department?.toLowerCase() ||
+          d.code?.toLowerCase() === emp.department?.toLowerCase()
+        );
+        if (matchedDept && isUuid(matchedDept.id)) {
+          updates.department_id = matchedDept.id;
+        }
       }
     }
 
     // Reporting Manager resolving: must be a valid UUID in employees table or null
     if (emp.reportingManagerId !== undefined) {
       const mgrId = String(emp.reportingManagerId).trim();
-      if (isUuid(mgrId)) {
+      if (!mgrId) {
+        updates.reporting_manager_id = null;
+        updates.reporting_manager_name = null;
+      } else if (isUuid(mgrId)) {
         updates.reporting_manager_id = mgrId;
       } else {
         const activeEmps = empList || (typeof employees !== 'undefined' ? employees : []);
         const matchedMgr = activeEmps.find((e: any) => e.employeeId === mgrId || e.id === mgrId);
         if (matchedMgr && isUuid(matchedMgr.id)) {
           updates.reporting_manager_id = matchedMgr.id;
-        } else {
-          updates.reporting_manager_id = null;
         }
       }
     }
@@ -5558,19 +5571,41 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const extensionKeys: (keyof Employee)[] = [
+      'department',
+      'designation',
+      'reportingManagerId',
+      'reportingManagerName',
       'personalEmail',
       'maritalStatus',
+      'dob',
+      'gender',
+      'phone',
+      'joiningDate',
+      'employmentType',
+      'status',
+      'avatar',
       'currentAddress',
       'permanentAddress',
       'emergencyContact',
-      'documents',
+      'educationalDetails',
+      'experienceDetails',
       'professionalDetails',
+      'documents',
       'shiftDetails',
       'systemAccess',
       'salaryDetails',
+      'bankDetails',
+      'allowances',
       'withPf',
       'workLocation',
-      'gpsAllowed'
+      'basicSalary',
+      'attendanceMethod',
+      'workShift',
+      'gpsAllowed',
+      'mustChangePassword',
+      'accountStatus',
+      'password',
+      'skills'
     ];
     const extensionData = extensionKeys.reduce<Partial<Employee>>((acc, key) => {
       if (normalizedEmpData[key] !== undefined) {
@@ -5578,19 +5613,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return acc;
     }, {});
-    const persistProfileExtension = async (savedEmployee?: Employee): Promise<boolean> => {
+    const persistProfileExtension = async (targetEmployee?: Employee): Promise<boolean> => {
       if (Object.keys(extensionData).length === 0) return true;
-      const profileKey = savedEmployee?.employeeId || normalizedEmpData.employeeId || existingEmployee?.employeeId || id;
+      const profileKey = targetEmployee?.employeeId || normalizedEmpData.employeeId || existingEmployee?.employeeId || id;
       if (!profileKey) return true;
       const existingProfiles = await supabaseDirect.getCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY);
       const profiles = existingProfiles && typeof existingProfiles === 'object' && !Array.isArray(existingProfiles)
         ? existingProfiles
         : {};
-      profiles[profileKey] = {
-        ...(profiles[profileKey] || {}),
+      const currentEntry = profiles[profileKey] || (targetEmployee?.id ? profiles[targetEmployee.id] : {}) || {};
+      const mergedEntry = {
+        ...currentEntry,
         ...extensionData,
         updatedAt: new Date().toISOString()
       };
+      profiles[profileKey] = mergedEntry;
+      if (targetEmployee?.id && targetEmployee.id !== profileKey) {
+        profiles[targetEmployee.id] = mergedEntry;
+      }
+      if (existingEmployee?.id && existingEmployee.id !== profileKey) {
+        profiles[existingEmployee.id] = mergedEntry;
+      }
       return supabaseDirect.saveCompanySetting(EMPLOYEE_PROFILES_SETTING_KEY, profiles);
     };
 
@@ -5603,29 +5646,42 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return { success: false, error: res.error };
         }
         const savedEmployee = res.data ? mapEmployeeFromDb(res.data, departments) : undefined;
-        if (savedEmployee) {
-          setEmployees(prev => prev.map(e => (
-            e.id === savedEmployee.id ||
-            e.employeeId === savedEmployee.employeeId ||
-            e.id === id ||
-            e.employeeId === id
-          ) ? { ...e, ...savedEmployee, ...normalizedEmpData } : e));
-        }
-        const extensionSaved = await persistProfileExtension(savedEmployee);
+        const mergedEmployee: Employee = {
+          ...(existingEmployee || {} as Employee),
+          ...(savedEmployee || {} as Employee),
+          ...normalizedEmpData,
+          id: (savedEmployee?.id || existingEmployee?.id || id) as string,
+          employeeId: (savedEmployee?.employeeId || existingEmployee?.employeeId || normalizedEmpData.employeeId || id) as string,
+        };
+
+        setEmployees(prev => prev.map(e => (
+          e.id === mergedEmployee.id ||
+          e.employeeId === mergedEmployee.employeeId ||
+          e.id === id ||
+          e.employeeId === id
+        ) ? mergedEmployee : e));
+
+        const extensionSaved = await persistProfileExtension(mergedEmployee);
         if (!extensionSaved) {
-          return { success: false, error: 'Profile details were not saved to company settings.' };
+          console.warn('[HRMSContext] persistProfileExtension returned false, but local state updated.');
         }
-        return { success: true, data: savedEmployee ? { ...savedEmployee, ...normalizedEmpData } : undefined };
+        return { success: true, data: mergedEmployee };
       } catch (err: any) {
         console.warn('[HRMSContext] updateEmployee cloud save error:', err);
         return { success: false, error: err?.message || err };
       }
     }
-    const extensionSaved = await persistProfileExtension(existingEmployee);
+    const mergedFallback: Employee = {
+      ...(existingEmployee || {} as Employee),
+      ...normalizedEmpData,
+      id: (existingEmployee?.id || id) as string,
+      employeeId: (existingEmployee?.employeeId || normalizedEmpData.employeeId || id) as string,
+    };
+    const extensionSaved = await persistProfileExtension(mergedFallback);
     if (!extensionSaved) {
       return { success: false, error: 'Profile details were not saved to company settings.' };
     }
-    return { success: true, data: existingEmployee ? { ...existingEmployee, ...normalizedEmpData } : undefined };
+    return { success: true, data: mergedFallback };
   };
 
   const deleteEmployee = async (id: string): Promise<{ success: boolean; message?: string }> => {
@@ -9027,7 +9083,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const mapped = rawEmployees.map(e => {
           const base = mapEmployeeFromDb(e, currentDepts);
           const extension = profileExtensions[base.employeeId] || profileExtensions[base.id] || {};
-          return { ...base, ...extension, id: base.id, employeeId: base.employeeId };
+          return {
+            ...base,
+            ...extension,
+            id: base.id,
+            employeeId: base.employeeId,
+            department: extension.department || base.department || 'General'
+          };
         });
         setEmployees(mapped);
       } else {

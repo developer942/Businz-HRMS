@@ -53,6 +53,7 @@ interface EmployeeProfileProps {
   employee: Employee;
   onClose: () => void;
   initialTab?: string;
+  onUpdate?: (updatedEmployee: Employee) => void;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -136,7 +137,8 @@ const extractLocalDigits = (raw: string | undefined | null, dialCode: string = '
 export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({ 
   employee, 
   onClose, 
-  initialTab = 'all' 
+  initialTab = 'all',
+  onUpdate
 }) => {
   const { 
     currentUser, 
@@ -272,9 +274,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   // Super Admin, CEO, and HR can see all passwords; employees can see their own password
   const canViewPassword = isSuperAdminOrCEO || isHR || isCEOorHR || isSelf;
 
+  const lastEmployeeKeyRef = useRef<string | null>(null);
+
   // Sync internal state if prop employee updates
   useEffect(() => {
-    setCurrentEmp(employee);
+    const currentKey = employee.id || employee.employeeId;
+    const isNewEmployee = lastEmployeeKeyRef.current !== currentKey;
+    lastEmployeeKeyRef.current = currentKey;
+
+    if (isNewEmployee) {
+      setCurrentEmp(employee);
+      setFormData(getInitialFormData(employee));
+      const d = employee.educationalDetails?.degreeName;
+      setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
+    } else if (!isEditing) {
+      // Same employee updated externally (e.g. from parent re-render or save):
+      // Merge with current state without wiping out saved values
+      const merged: Employee = { ...currentEmp, ...employee };
+      setCurrentEmp(merged);
+      setFormData(getInitialFormData(merged));
+      const d = merged.educationalDetails?.degreeName;
+      setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
+    }
 
     // Parse country codes from employee contact data if available
     if (employee.phone?.startsWith('+')) {
@@ -295,11 +316,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     } else {
       setProfileAltEmergencyCountryCode('+91');
     }
-
-    setFormData(getInitialFormData(employee));
-    const d = employee.educationalDetails?.degreeName;
-    setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
-  }, [employee]);
+  }, [employee, isEditing]);
 
   // 18+ DOB constraint
   const maxDobDate = useMemo(() => {
@@ -327,7 +344,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       lastName: emp.lastName || '',
       employeeId: emp.employeeId || emp.id || '',
       gender: (emp.gender || 'Male') as 'Male' | 'Female' | 'Other',
-      dob: emp.dob || '1996-05-15',
+      dob: emp.dob || '',
       phone: extractLocalDigits(emp.phone, initialPhoneCode),
       personalEmail: emp.personalEmail || emp.email || '',
       maritalStatus: (emp.maritalStatus || 'Single') as 'Single' | 'Married' | 'Divorced' | 'Widowed',
@@ -336,27 +353,27 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       // 2. Employment & Organization
       joiningDate: emp.joiningDate || new Date().toISOString().split('T')[0],
       department: emp.department || (isEmpCEO ? 'CEO' : (departments[0]?.name || 'HR')),
-      designation: emp.designation || (isEmpCEO ? 'CEO' : (designations[0]?.title || 'HR Manager')),
+      designation: emp.designation || (isEmpCEO ? 'CEO' : (designations[0]?.title || 'Staff')),
       employmentType: emp.employmentType || defaultEmploymentType,
-      reportingManagerId: isEmpCEO ? '' : (emp.reportingManagerId || employees[0]?.employeeId || 'EMP-001'),
-      reportingManagerName: isEmpCEO ? 'Self / Board of Directors' : (emp.reportingManagerName || (employees[0] ? `${employees[0].firstName} ${employees[0].lastName}`.trim() : 'Executive Office')),
+      reportingManagerId: isEmpCEO ? '' : (emp.reportingManagerId ?? ''),
+      reportingManagerName: isEmpCEO ? 'Self / Board of Directors' : (emp.reportingManagerName ?? ''),
       workLocation: emp.workLocation || defaultWorkLocation,
       status: (emp.status || 'Active') as Employee['status'],
 
       // 3. Address & Emergency Contacts
       currentLine1: emp.currentAddress?.line1 || (typeof emp.address === 'string' ? emp.address.split(',')[0] || '' : ''),
       currentLine2: emp.currentAddress?.line2 || '',
-      currentCity: emp.currentAddress?.city || 'Chennai',
-      currentState: emp.currentAddress?.state || 'Tamil Nadu',
-      currentCountry: emp.currentAddress?.country || 'India',
-      currentPincode: emp.currentAddress?.pincode || '600001',
+      currentCity: emp.currentAddress?.city || '',
+      currentState: emp.currentAddress?.state || '',
+      currentCountry: emp.currentAddress?.country || '',
+      currentPincode: emp.currentAddress?.pincode || '',
       sameAsCurrent: emp.permanentAddress?.sameAsCurrent ?? true,
       permanentLine1: emp.permanentAddress?.line1 || emp.currentAddress?.line1 || '',
       permanentLine2: emp.permanentAddress?.line2 || emp.currentAddress?.line2 || '',
-      permanentCity: emp.permanentAddress?.city || emp.currentAddress?.city || 'Chennai',
-      permanentState: emp.permanentAddress?.state || emp.currentAddress?.state || 'Tamil Nadu',
-      permanentCountry: emp.permanentAddress?.country || emp.currentAddress?.country || 'India',
-      permanentPincode: emp.permanentAddress?.pincode || emp.currentAddress?.pincode || '600001',
+      permanentCity: emp.permanentAddress?.city || emp.currentAddress?.city || '',
+      permanentState: emp.permanentAddress?.state || emp.currentAddress?.state || '',
+      permanentCountry: emp.permanentAddress?.country || emp.currentAddress?.country || '',
+      permanentPincode: emp.permanentAddress?.pincode || emp.currentAddress?.pincode || '',
       emergencyName: emp.emergencyContact?.name || '',
       emergencyRelationship: emp.emergencyContact?.relationship || 'Parent',
       emergencyMobile: extractLocalDigits(emp.emergencyContact?.mobile, initialEmCode),
@@ -364,46 +381,46 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       // 4. Educational Details
       qualification: normalizeQualification(emp.educationalDetails?.highestQualification || emp.professionalDetails?.qualification),
-      degreeName: emp.educationalDetails?.degreeName || 'B.E / B.Tech (Engineering / Technology)',
-      specialization: emp.educationalDetails?.specialization || emp.professionalDetails?.specialization || 'Structural Engineering',
-      university: emp.educationalDetails?.university || 'Anna University',
-      yearOfPassing: emp.educationalDetails?.yearOfPassing || '2023',
-      gradePercentage: emp.educationalDetails?.gradePercentage || '8.4 CGPA',
+      degreeName: emp.educationalDetails?.degreeName || '',
+      specialization: emp.educationalDetails?.specialization || emp.professionalDetails?.specialization || '',
+      university: emp.educationalDetails?.university || '',
+      yearOfPassing: emp.educationalDetails?.yearOfPassing || '',
+      gradePercentage: emp.educationalDetails?.gradePercentage || '',
 
       // 5. Work Experience & Skills
-      experienceType: (emp.experienceDetails?.experienceType || 'Experienced') as 'Fresher' | 'Experienced',
-      totalExperience: isEmpCEO ? (emp.experienceDetails?.totalExperience || 'Executive Leadership') : (emp.experienceDetails?.totalExperience || emp.professionalDetails?.totalExperience || '3 Years'),
-      relevantExperience: isEmpCEO ? 'Executive Leadership' : (emp.professionalDetails?.relevantExperience || '3 Years'),
-      previousCompany: isEmpCEO ? (emp.experienceDetails?.previousCompany || 'N/A') : (emp.experienceDetails?.previousCompany || emp.professionalDetails?.previousCompany || 'L&T Construction'),
-      previousDesignation: isEmpCEO ? (emp.experienceDetails?.previousDesignation || 'Director / Executive') : (emp.experienceDetails?.previousDesignation || 'Project Engineer'),
-      previousDepartment: isEmpCEO ? (emp.experienceDetails?.previousDepartment || 'Executive') : (emp.experienceDetails?.previousDepartment || 'Civil & Structural'),
-      expStartDate: isEmpCEO ? '' : (emp.experienceDetails?.startDate || '2023-06-01'),
-      expEndDate: isEmpCEO ? '' : (emp.experienceDetails?.endDate || '2026-08-31'),
-      lastDrawnSalary: isEmpCEO ? 'Exempt' : (emp.experienceDetails?.lastDrawnSalary || '₹45,000 / month'),
-      previousCompanyLocation: isEmpCEO ? 'N/A' : (emp.experienceDetails?.companyLocation || 'Chennai, Tamil Nadu'),
+      experienceType: (emp.experienceDetails?.experienceType || 'Fresher') as 'Fresher' | 'Experienced',
+      totalExperience: isEmpCEO ? (emp.experienceDetails?.totalExperience || 'Executive Leadership') : (emp.experienceDetails?.totalExperience || emp.professionalDetails?.totalExperience || ''),
+      relevantExperience: isEmpCEO ? 'Executive Leadership' : (emp.professionalDetails?.relevantExperience || ''),
+      previousCompany: isEmpCEO ? (emp.experienceDetails?.previousCompany || 'N/A') : (emp.experienceDetails?.previousCompany || emp.professionalDetails?.previousCompany || ''),
+      previousDesignation: isEmpCEO ? (emp.experienceDetails?.previousDesignation || 'Director / Executive') : (emp.experienceDetails?.previousDesignation || ''),
+      previousDepartment: isEmpCEO ? (emp.experienceDetails?.previousDepartment || 'Executive') : (emp.experienceDetails?.previousDepartment || ''),
+      expStartDate: isEmpCEO ? '' : (emp.experienceDetails?.startDate || ''),
+      expEndDate: isEmpCEO ? '' : (emp.experienceDetails?.endDate || ''),
+      lastDrawnSalary: isEmpCEO ? 'Exempt' : (emp.experienceDetails?.lastDrawnSalary || ''),
+      previousCompanyLocation: isEmpCEO ? 'N/A' : (emp.experienceDetails?.companyLocation || ''),
       skills: Array.isArray(emp.professionalDetails?.skills) 
         ? emp.professionalDetails.skills.join(', ') 
-        : (emp.skills ? emp.skills.join(', ') : (isEmpCEO ? 'Enterprise Strategy, Executive Leadership, Corporate Governance' : 'Civil Engineering, AutoCAD, Project Management, Quality Control')),
+        : (emp.skills ? emp.skills.join(', ') : (isEmpCEO ? 'Enterprise Strategy, Executive Leadership, Corporate Governance' : '')),
 
       // 6. Salary & Bank Details
       salaryStructure: isEmpCEO ? 'Exempt (CEO)' : (emp.salaryDetails?.salaryStructure || 'Standard Industrial CTC'),
       salaryScheme: (emp.salaryDetails?.salaryScheme || (emp.withPf ? 'WITH_PF' : 'WITHOUT_PF')) as 'WITH_PF' | 'WITHOUT_PF',
       withPf: isEmpCEO ? false : Boolean(emp.withPf ?? emp.salaryDetails?.withPf),
-      monthlyCtc: isEmpCEO ? (emp.salaryDetails?.monthlyCtc ?? 0) : Number(emp.salaryDetails?.monthlyCtc || (emp.basicSalary ? emp.basicSalary * 2.5 : 25000)),
-      basicSalary: isEmpCEO ? (emp.salaryDetails?.basicSalary ?? 0) : Number(emp.salaryDetails?.basicSalary || emp.basicSalary || 10000),
-      da: isEmpCEO ? (emp.salaryDetails?.da ?? 0) : Number(emp.salaryDetails?.da ?? emp.allowances?.da ?? 5000),
-      conveyance: isEmpCEO ? (emp.salaryDetails?.conveyance ?? 0) : Number(emp.salaryDetails?.conveyance ?? emp.allowances?.conveyance ?? 1250),
-      hra: isEmpCEO ? (emp.salaryDetails?.hra ?? 0) : Number(emp.salaryDetails?.hra ?? emp.allowances?.hra ?? 8750),
+      monthlyCtc: isEmpCEO ? (emp.salaryDetails?.monthlyCtc ?? 0) : Number(emp.salaryDetails?.monthlyCtc || 0),
+      basicSalary: isEmpCEO ? (emp.salaryDetails?.basicSalary ?? 0) : Number(emp.salaryDetails?.basicSalary || emp.basicSalary || 0),
+      da: isEmpCEO ? (emp.salaryDetails?.da ?? 0) : Number(emp.salaryDetails?.da ?? emp.allowances?.da ?? 0),
+      conveyance: isEmpCEO ? (emp.salaryDetails?.conveyance ?? 0) : Number(emp.salaryDetails?.conveyance ?? emp.allowances?.conveyance ?? 0),
+      hra: isEmpCEO ? (emp.salaryDetails?.hra ?? 0) : Number(emp.salaryDetails?.hra ?? emp.allowances?.hra ?? 0),
       transport: Number(emp.allowances?.transport || 0),
       medical: Number(emp.allowances?.medical || 0),
       special: Number(emp.allowances?.special || 0),
       customComponents: ((emp.allowances as any) || {}) as Record<string, number>,
-      panNumber: emp.salaryDetails?.panNumber || (isEmpCEO ? '' : 'ABCDE1234F'),
-      uanNumber: emp.salaryDetails?.uanNumber || (isEmpCEO ? '' : '101492817261'),
-      bankName: emp.bankDetails?.bankName || (isEmpCEO ? '' : 'HDFC Bank'),
-      accountNumber: emp.bankDetails?.accountNumber || (isEmpCEO ? '' : '50100492817261'),
-      ifscCode: emp.bankDetails?.ifscCode || (isEmpCEO ? '' : 'HDFC0001234'),
-      branch: emp.bankDetails?.branch || (isEmpCEO ? '' : 'Mount Road Branch'),
+      panNumber: emp.salaryDetails?.panNumber || '',
+      uanNumber: emp.salaryDetails?.uanNumber || '',
+      bankName: emp.bankDetails?.bankName || '',
+      accountNumber: emp.bankDetails?.accountNumber || '',
+      ifscCode: emp.bankDetails?.ifscCode || '',
+      branch: emp.bankDetails?.branch || '',
 
       // 7. Shift & Attendance Policies
       attendanceMethod: (isEmpCEO ? 'Exempt' : (emp.attendanceMethod || 'Face Scan')) as Employee['attendanceMethod'],
@@ -414,13 +431,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       gpsAllowed: Boolean(emp.gpsAllowed ?? true),
 
       // 8. Documents
-      documents: emp.documents && emp.documents.length > 0 ? emp.documents : (isEmpCEO ? [] : [
-        { name: '10th_Marksheet_SSLC.pdf', type: 'PDF', uploadDate: '2026-09-04', url: '#' },
-        { name: '12th_Diploma_Certificate.pdf', type: 'PDF', uploadDate: '2026-09-04', url: '#' },
-        { name: 'Degree_Certificate_Civil.pdf', type: 'PDF', uploadDate: '2026-09-04', url: '#' },
-        { name: 'PAN_Card_Verified.pdf', type: 'PDF', uploadDate: '2026-09-04', url: '#' },
-        { name: 'Aadhaar_Card_Front_Back.pdf', type: 'PDF', uploadDate: '2026-09-04', url: '#' }
-      ]),
+      documents: Array.isArray(emp.documents) ? emp.documents : [],
 
       // 9. System Access & Security
       officialUsername: (emp as any).officialUsername || emp.employeeId || emp.id,
@@ -1106,15 +1117,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         return;
       }
 
-      const savedEmployee = (res as any)?.data ? { ...(res as any).data, ...updatedData } : { ...currentEmp, ...updatedData };
-      setCurrentEmp(savedEmployee as Employee);
-      setFormData(prev => ({
-        ...prev,
-        firstName: cleanFname,
-        lastName: cleanLname,
-        personalEmail: cleanEmail,
-        phone: cleanPhone ? (profilePhoneCountryCode === '+91' ? cleanPhone : `${profilePhoneCountryCode} ${cleanPhone}`) : prev.phone
-      }));
+      const savedEmployee = {
+        ...(currentEmp || {}),
+        ...updatedData,
+        ...((res as any)?.data ? (res as any).data : {})
+      } as Employee;
+
+      setCurrentEmp(savedEmployee);
+      setFormData(getInitialFormData(savedEmployee));
+      if (onUpdate) {
+        onUpdate(savedEmployee);
+      }
       setIsEditing(false);
       setSalaryInputDrafts({});
       setSaveNotice('Employee profile updated successfully and persisted to database.');
@@ -1500,7 +1513,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </div>
           ) : (
             <div style={viewValueStyle}>
-              {currentEmp.dob ? formatDateDDMMYYYY(currentEmp.dob) : '—'}
+              {currentEmp.dob ? formatDateDDMMYYYY(currentEmp.dob) : (formData.dob ? formatDateDDMMYYYY(formData.dob) : '—')}
             </div>
           )}
         </div>
@@ -1520,7 +1533,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <option value="Widowed">Widowed</option>
             </select>
           ) : (
-            <div style={viewValueStyle}>{currentEmp.maritalStatus || '—'}</div>
+            <div style={viewValueStyle}>{currentEmp.maritalStatus || formData.maritalStatus || '—'}</div>
           )}
         </div>
 
@@ -1572,7 +1585,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </div>
           ) : (
             <div style={viewValueStyle}>
-              {currentEmp.phone ? (currentEmp.phone.startsWith('+') ? currentEmp.phone : `+91 ${currentEmp.phone}`) : '—'}
+              {(currentEmp.phone || formData.phone) ? ((currentEmp.phone || formData.phone).startsWith('+') ? (currentEmp.phone || formData.phone) : `+91 ${currentEmp.phone || formData.phone}`) : '—'}
             </div>
           )}
         </div>
@@ -1643,7 +1656,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               ))}
             </select>
           ) : (
-            <div style={viewValueStyle}>{currentEmp.department}</div>
+            <div style={viewValueStyle}>{currentEmp.department || formData.department || '—'}</div>
           )}
         </div>
 
@@ -1667,7 +1680,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               })}
             </select>
           ) : (
-            <div style={viewValueStyle}>{currentEmp.designation}</div>
+            <div style={viewValueStyle}>{currentEmp.designation || formData.designation || '—'}</div>
           )}
         </div>
 
@@ -1694,7 +1707,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 fontSize: '0.82rem',
                 fontWeight: 700
               }}>
-                {currentEmp.employmentType || 'Full-Time'}
+                {currentEmp.employmentType || formData.employmentType || 'Full-Time'}
               </span>
             </div>
           )}
@@ -1712,7 +1725,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             />
           ) : (
             <div style={viewValueStyle}>
-              {currentEmp.joiningDate ? formatDateDDMMYYYY(currentEmp.joiningDate) : '—'}
+              {currentEmp.joiningDate ? formatDateDDMMYYYY(currentEmp.joiningDate) : (formData.joiningDate ? formatDateDDMMYYYY(formData.joiningDate) : '—')}
             </div>
           )}
         </div>
@@ -1745,10 +1758,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </select>
           ) : (
             <div style={viewValueStyle}>
-              {formData.reportingManagerName || currentEmp.reportingManagerName || 'Executive Office'} 
-              {formData.reportingManagerId && (
+              {formData.reportingManagerName || currentEmp.reportingManagerName || (formData.reportingManagerId || currentEmp.reportingManagerId ? 'Reporting Manager' : 'None / Self')} 
+              {(formData.reportingManagerId || currentEmp.reportingManagerId) && (
                 <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>
-                  ({formData.reportingManagerId})
+                  ({formData.reportingManagerId || currentEmp.reportingManagerId})
                 </span>
               )}
             </div>
@@ -1775,7 +1788,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </select>
           ) : (
             <div style={viewValueStyle}>
-              {formData.workLocation || currentEmp.workLocation || '—'}
+              {currentEmp.workLocation || formData.workLocation || '—'}
             </div>
           )}
         </div>
@@ -1799,9 +1812,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                backgroundColor: currentEmp.status === 'Active' ? '#DCFCE7' : '#FEE2E2',
-                color: currentEmp.status === 'Active' ? '#15803D' : '#DC2626',
-                border: `1px solid ${currentEmp.status === 'Active' ? '#BBF7D0' : '#FECACA'}`,
+                backgroundColor: (currentEmp.status || formData.status) === 'Active' ? '#DCFCE7' : '#FEE2E2',
+                color: (currentEmp.status || formData.status) === 'Active' ? '#15803D' : '#DC2626',
+                border: `1px solid ${(currentEmp.status || formData.status) === 'Active' ? '#BBF7D0' : '#FECACA'}`,
                 padding: '3px 10px',
                 borderRadius: '9999px',
                 fontSize: '0.8rem',
@@ -1811,9 +1824,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   width: '6px',
                   height: '6px',
                   borderRadius: '50%',
-                  backgroundColor: currentEmp.status === 'Active' ? '#22C55E' : '#EF4444'
+                  backgroundColor: (currentEmp.status || formData.status) === 'Active' ? '#22C55E' : '#EF4444'
                 }} />
-                {currentEmp.status}
+                {currentEmp.status || formData.status}
               </span>
             </div>
           )}

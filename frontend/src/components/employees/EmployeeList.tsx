@@ -753,6 +753,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
           <EmployeeProfile 
             employee={liveEmp} 
             onClose={() => setActiveProfileEmp(null)} 
+            onUpdate={(updatedEmp) => setActiveProfileEmp(updatedEmp)}
           />
         );
       })()}

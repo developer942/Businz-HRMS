@@ -1268,6 +1268,7 @@ export const Dashboard: React.FC = () => {
           <EmployeeProfile
             employee={liveEmp}
             onClose={() => setProfileModalEmployee(null)}
+            onUpdate={(updatedEmp) => setProfileModalEmployee(updatedEmp)}
             initialTab="leave"
           />
         );
