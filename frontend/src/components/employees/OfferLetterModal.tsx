@@ -53,6 +53,92 @@ const formatComponentLabel = (key: string) =>
     .trim()
     .replace(/\b\w/g, char => char.toUpperCase());
 
+const trimImageWhitespace = async (src?: string, maxDim = 1000): Promise<string> => {
+  if (!src || !src.trim()) return '';
+  const cleanSrc = src.trim();
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const naturalW = img.naturalWidth || img.width;
+        const naturalH = img.naturalHeight || img.height;
+        if (!naturalW || !naturalH) return resolve(cleanSrc);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = naturalW;
+        canvas.height = naturalH;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return resolve(cleanSrc);
+
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, naturalW, naturalH);
+        const data = imgData.data;
+
+        let minX = naturalW;
+        let minY = naturalH;
+        let maxX = -1;
+        let maxY = -1;
+
+        for (let y = 0; y < naturalH; y++) {
+          for (let x = 0; x < naturalW; x++) {
+            const idx = (y * naturalW + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            const a = data[idx + 3];
+
+            const isTransparent = a < 25;
+            const isPureWhite = r > 248 && g > 248 && b > 248 && a > 230;
+
+            if (!isTransparent && !isPureWhite) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (maxX < minX || maxY < minY) {
+          return resolve(cleanSrc);
+        }
+
+        const pad = 4;
+        const cropX = Math.max(0, minX - pad);
+        const cropY = Math.max(0, minY - pad);
+        const cropW = Math.min(naturalW - cropX, (maxX - minX + 1) + pad * 2);
+        const cropH = Math.min(naturalH - cropY, (maxY - minY + 1) + pad * 2);
+
+        let targetW = cropW;
+        let targetH = cropH;
+        if (targetW > maxDim || targetH > maxDim) {
+          if (targetW > targetH) {
+            targetH = Math.round((targetH * maxDim) / targetW);
+            targetW = maxDim;
+          } else {
+            targetW = Math.round((targetW * maxDim) / targetH);
+            targetH = maxDim;
+          }
+        }
+
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = targetW;
+        cropCanvas.height = targetH;
+        const cropCtx = cropCanvas.getContext('2d');
+        if (!cropCtx) return resolve(cleanSrc);
+
+        cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+        resolve(cropCanvas.toDataURL('image/png', 0.92));
+      } catch {
+        resolve(cleanSrc);
+      }
+    };
+    img.onerror = () => resolve(cleanSrc);
+    img.src = cleanSrc;
+  });
+};
+
 export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
   isOpen,
   onClose,
@@ -63,6 +149,20 @@ export const OfferLetterModal: React.FC<OfferLetterModalProps> = ({
     () => buildCompanyDocumentProfile(companyInfo, businessSettings, companyBranches),
     [companyInfo, businessSettings, companyBranches]
   );
+  const [trimmedLogo, setTrimmedLogo] = useState<string>(documentProfile.logoUrl || '');
+
+  useEffect(() => {
+    if (documentProfile.logoUrl) {
+      trimImageWhitespace(documentProfile.logoUrl, 1000).then((res) => {
+        setTrimmedLogo(res || documentProfile.logoUrl);
+      });
+    } else {
+      setTrimmedLogo('');
+    }
+  }, [documentProfile.logoUrl]);
+
+  const activeLogo = trimmedLogo || documentProfile.logoUrl;
+
   const initialTemplates = useMemo(
     () => INITIAL_OFFER_LETTER_TEMPLATES.length > 0 ? INITIAL_OFFER_LETTER_TEMPLATES : [DEFAULT_OFFER_TEMPLATE],
     []
@@ -310,7 +410,7 @@ ${documentProfile.phone || '+91 9876543210'}`;
       companyEmail: documentProfile.email,
       companyPhone: documentProfile.phone,
       companyWebsite: documentProfile.website,
-      logoUrl: documentProfile.logoUrl,
+      logoUrl: activeLogo,
       signatureImageUrl: documentProfile.signatureImageUrl,
       stampImageUrl: documentProfile.stampImageUrl,
       candidateName: candidateFullName,
@@ -369,7 +469,7 @@ ${documentProfile.phone || '+91 9876543210'}`;
           companyEmail: documentProfile.email,
           companyPhone: documentProfile.phone,
           companyWebsite: documentProfile.website,
-          logoUrl: documentProfile.logoUrl,
+          logoUrl: activeLogo,
           signatureImageUrl: documentProfile.signatureImageUrl,
           stampImageUrl: documentProfile.stampImageUrl,
           candidateName: candidateFullName,
@@ -457,7 +557,7 @@ ${documentProfile.phone || ''}`;
       const [optimizedSig, optimizedStamp, optimizedLogo] = await Promise.all([
         optimizeBase64ForPayload(documentProfile.signatureImageUrl, 450),
         optimizeBase64ForPayload(documentProfile.stampImageUrl, 400),
-        optimizeBase64ForPayload(documentProfile.logoUrl, 1000),
+        optimizeBase64ForPayload(activeLogo || documentProfile.logoUrl, 1000),
       ]);
 
       const response = await fetch(`${API_BASE_URL}/employees/send-offer-letter`, {
@@ -746,19 +846,19 @@ ${documentProfile.phone || ''}`;
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '85px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '92px' }}>
                   <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '20px' }}>
-                    <div style={{ width: '4px', height: '52px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                    <div style={{ width: '4px', height: '56px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
                       <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
                       <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
-                  {documentProfile.logoUrl && (
+                  {activeLogo && (
                     <img
-                      src={documentProfile.logoUrl}
+                      src={activeLogo}
                       alt="Logo"
-                      style={{ maxHeight: '110px', maxWidth: '340px', minHeight: '60px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      style={{ maxHeight: '82px', maxWidth: '340px', height: '70px', width: 'auto', objectFit: 'contain', flexShrink: 0 }}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}
@@ -837,19 +937,19 @@ ${documentProfile.phone || ''}`;
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '85px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '92px' }}>
                   <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '20px' }}>
-                    <div style={{ width: '4px', height: '52px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                    <div style={{ width: '4px', height: '56px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
                       <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
                       <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
-                  {documentProfile.logoUrl && (
+                  {activeLogo && (
                     <img
-                      src={documentProfile.logoUrl}
+                      src={activeLogo}
                       alt="Logo"
-                      style={{ maxHeight: '110px', maxWidth: '340px', minHeight: '60px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      style={{ maxHeight: '82px', maxWidth: '340px', height: '70px', width: 'auto', objectFit: 'contain', flexShrink: 0 }}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}
@@ -942,19 +1042,19 @@ ${documentProfile.phone || ''}`;
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '85px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '92px' }}>
                   <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '20px' }}>
-                    <div style={{ width: '4px', height: '52px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                    <div style={{ width: '4px', height: '56px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
                       <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
                       <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
-                  {documentProfile.logoUrl && (
+                  {activeLogo && (
                     <img
-                      src={documentProfile.logoUrl}
+                      src={activeLogo}
                       alt="Logo"
-                      style={{ maxHeight: '110px', maxWidth: '340px', minHeight: '60px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      style={{ maxHeight: '82px', maxWidth: '340px', height: '70px', width: 'auto', objectFit: 'contain', flexShrink: 0 }}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}
@@ -1079,11 +1179,11 @@ ${documentProfile.phone || ''}`;
                       Official Offer of Employment
                     </div>
                   </div>
-                  {documentProfile.logoUrl && (
+                  {activeLogo && (
                     <img 
-                      src={documentProfile.logoUrl} 
+                      src={activeLogo} 
                       alt="Logo" 
-                      style={{ maxHeight: '68px', maxWidth: '240px', objectFit: 'contain' }}
+                      style={{ maxHeight: '72px', maxWidth: '280px', height: '58px', width: 'auto', objectFit: 'contain' }}
                       onError={e => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}

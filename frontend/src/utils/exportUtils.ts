@@ -401,7 +401,7 @@ interface LoadedImageInfo {
   aspectRatio: number;
 }
 
-async function safeLoadImage(src?: string): Promise<LoadedImageInfo | null> {
+async function safeLoadImage(src?: string, trimWhitespace = false): Promise<LoadedImageInfo | null> {
   if (!src || typeof src !== 'string' || !src.trim()) return null;
   const cleanSrc = src.trim();
 
@@ -432,7 +432,7 @@ async function safeLoadImage(src?: string): Promise<LoadedImageInfo | null> {
         const canvas = document.createElement('canvas');
         canvas.width = naturalW;
         canvas.height = naturalH;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
           if (cleanSrc.startsWith('data:image/')) {
             const isJpeg = cleanSrc.includes('image/jpeg') || cleanSrc.includes('image/jpg');
@@ -449,16 +449,73 @@ async function safeLoadImage(src?: string): Promise<LoadedImageInfo | null> {
           return;
         }
         ctx.drawImage(img, 0, 0);
+
+        let exportCanvas = canvas;
+        let exportW = naturalW;
+        let exportH = naturalH;
+
+        if (trimWhitespace) {
+          try {
+            const imgData = ctx.getImageData(0, 0, naturalW, naturalH);
+            const data = imgData.data;
+            let minX = naturalW;
+            let minY = naturalH;
+            let maxX = -1;
+            let maxY = -1;
+
+            for (let y = 0; y < naturalH; y++) {
+              for (let x = 0; x < naturalW; x++) {
+                const idx = (y * naturalW + x) * 4;
+                const r = data[idx];
+                const g = data[idx + 1];
+                const b = data[idx + 2];
+                const a = data[idx + 3];
+
+                const isTransparent = a < 25;
+                const isPureWhite = r > 248 && g > 248 && b > 248 && a > 230;
+
+                if (!isTransparent && !isPureWhite) {
+                  if (x < minX) minX = x;
+                  if (x > maxX) maxX = x;
+                  if (y < minY) minY = y;
+                  if (y > maxY) maxY = y;
+                }
+              }
+            }
+
+            if (maxX >= minX && maxY >= minY) {
+              const pad = 4;
+              const cropX = Math.max(0, minX - pad);
+              const cropY = Math.max(0, minY - pad);
+              const cropW = Math.min(naturalW - cropX, (maxX - minX + 1) + pad * 2);
+              const cropH = Math.min(naturalH - cropY, (maxY - minY + 1) + pad * 2);
+
+              const croppedCanvas = document.createElement('canvas');
+              croppedCanvas.width = cropW;
+              croppedCanvas.height = cropH;
+              const croppedCtx = croppedCanvas.getContext('2d');
+              if (croppedCtx) {
+                croppedCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                exportCanvas = croppedCanvas;
+                exportW = cropW;
+                exportH = cropH;
+              }
+            }
+          } catch {
+            // fallback gracefully to standard uncropped canvas
+          }
+        }
+
         const isJpeg = cleanSrc.toLowerCase().endsWith('.jpg') || cleanSrc.toLowerCase().endsWith('.jpeg') || cleanSrc.startsWith('data:image/jpeg');
         const format: 'PNG' | 'JPEG' = isJpeg ? 'JPEG' : 'PNG';
         const mime = isJpeg ? 'image/jpeg' : 'image/png';
-        const dataUrl = canvas.toDataURL(mime);
+        const dataUrl = exportCanvas.toDataURL(mime);
         resolve({
           dataUrl,
           format,
-          width: naturalW,
-          height: naturalH,
-          aspectRatio: naturalW / naturalH,
+          width: exportW,
+          height: exportH,
+          aspectRatio: exportW / exportH,
         });
       } catch (e) {
         if (cleanSrc.startsWith('data:image/')) {
@@ -501,9 +558,9 @@ async function safeLoadImage(src?: string): Promise<LoadedImageInfo | null> {
  */
 export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): Promise<jsPDF> {
   const [logoImg, sigImg, stampImg] = await Promise.all([
-    safeLoadImage(opts.logoUrl),
-    safeLoadImage(opts.signatureImageUrl),
-    safeLoadImage(opts.stampImageUrl),
+    safeLoadImage(opts.logoUrl, true),
+    safeLoadImage(opts.signatureImageUrl, true),
+    safeLoadImage(opts.stampImageUrl, true),
   ]);
 
   const doc = new jsPDF({
@@ -538,11 +595,11 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
     docInstance.setTextColor(100, 116, 139);
     docInstance.text(opts.companyAddress || 'Corporate Headquarters & Registered Office', margin + 12, 62);
 
-    // If company logo is available, render on the top right
+    // If company logo is available, render large and crisp on top right
     if (logoImg) {
       try {
-        const maxLogoH = 44;
-        const maxLogoW = 160;
+        const maxLogoH = 46;
+        const maxLogoW = 185;
         let logoW = maxLogoH * logoImg.aspectRatio;
         let logoH = maxLogoH;
         if (logoW > maxLogoW) {
@@ -550,7 +607,7 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
           logoH = logoW / logoImg.aspectRatio;
         }
         const logoX = pageWidth - margin - logoW;
-        const logoY = 28 + (maxLogoH - logoH) / 2;
+        const logoY = 26 + (maxLogoH - logoH) / 2;
         docInstance.addImage(logoImg.dataUrl, logoImg.format, logoX, logoY, logoW, logoH, undefined, 'FAST');
       } catch (err) {
         console.warn('Could not add logo to PDF:', err);
