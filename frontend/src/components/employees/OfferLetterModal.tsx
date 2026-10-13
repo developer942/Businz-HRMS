@@ -1124,23 +1124,23 @@ ${documentProfile.phone || ''}`;
             </div>
           )}
 
-          {/* MODE 1.5: EMAIL COVER PREVIEW (MATCHING USER SCREENSHOT) */}
+          {/* MODE 1.5: EMAIL COVER PREVIEW (CLEAN WHITE BACKGROUND FOR HIGH CONTRAST) */}
           {activeMode === 'email' && (
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
               <div 
                 style={{ 
-                  backgroundColor: '#18181b', 
-                  color: '#f4f4f5', 
+                  backgroundColor: '#ffffff', 
+                  color: '#1e293b', 
                   borderRadius: '12px', 
-                  padding: '24px 28px', 
-                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
-                  border: '1px solid #27272a',
+                  padding: '32px 36px', 
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.06)',
+                  border: '1px solid #e2e8f0',
                   fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif"
                 }}
               >
                 {/* Header Strip */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #27272a', paddingBottom: '14px', marginBottom: '18px' }}>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fafafa' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '18px' }}>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
                     Offer Letter &ndash; Confirmation of Employment
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1148,11 +1148,11 @@ ${documentProfile.phone || ''}`;
                       type="button"
                       onClick={handleCopyEmailCover}
                       title="Copy email body"
-                      style={{ background: 'transparent', border: '1px solid #3f3f46', color: '#a1a1aa', borderRadius: '6px', padding: '5px 10px', fontSize: '0.76rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#475569', borderRadius: '6px', padding: '5px 12px', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                       <Copy size={13} /> Copy
                     </button>
-                    <span style={{ fontSize: '0.72rem', backgroundColor: '#064e3b', color: '#6ee7b7', padding: '4px 10px', borderRadius: '999px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #047857' }}>
+                    <span style={{ fontSize: '0.72rem', backgroundColor: '#ecfdf5', color: '#065f46', padding: '4px 10px', borderRadius: '999px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #a7f3d0' }}>
                       <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} />
                       Google Workspace (Connected)
                     </span>
@@ -1160,22 +1160,22 @@ ${documentProfile.phone || ''}`;
                 </div>
 
                 {/* Recipients */}
-                <div style={{ marginBottom: '14px', fontSize: '0.84rem' }}>
-                  <div style={{ color: '#a1a1aa', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>Recipients</div>
-                  <span style={{ backgroundColor: '#27272a', color: '#38bdf8', padding: '4px 12px', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, display: 'inline-block' }}>
+                <div style={{ marginBottom: '16px', fontSize: '0.84rem' }}>
+                  <div style={{ color: '#64748b', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px', fontWeight: 700 }}>Recipients</div>
+                  <span style={{ backgroundColor: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', padding: '5px 14px', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, display: 'inline-block' }}>
                     {candidateFullName} &lt;{currentEmployee?.email}&gt;
                   </span>
                 </div>
 
-                <div style={{ marginBottom: '14px', fontSize: '0.9rem', fontWeight: 700, color: '#f4f4f5' }}>
-                  Offer Letter &ndash; Confirmation of Employment - {currentEmployee?.designation || 'Specialist'}
+                <div style={{ marginBottom: '16px', fontSize: '0.92rem', fontWeight: 700, color: '#0f172a' }}>
+                  Subject: Offer Letter &ndash; Confirmation of Employment - {currentEmployee?.designation || 'Specialist'}
                 </div>
 
                 {/* Brand Header with Company Logo */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #27272a', paddingTop: '16px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #0E7490', borderBottom: '1px solid #e2e8f0', padding: '16px 0', marginBottom: '18px' }}>
                   <div>
-                    <div style={{ fontSize: '1.02rem', fontWeight: 800, color: '#fafafa' }}>{companyLegal}</div>
-                    <div style={{ fontSize: '0.76rem', color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '2px' }}>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>{companyLegal}</div>
+                    <div style={{ fontSize: '0.76rem', color: '#0E7490', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '2px' }}>
                       Official Offer of Employment
                     </div>
                   </div>
@@ -1183,62 +1183,62 @@ ${documentProfile.phone || ''}`;
                     <img 
                       src={activeLogo} 
                       alt="Logo" 
-                      style={{ maxHeight: '72px', maxWidth: '280px', height: '58px', width: 'auto', objectFit: 'contain' }}
+                      style={{ maxHeight: '75px', maxWidth: '300px', height: '60px', width: 'auto', objectFit: 'contain' }}
                       onError={e => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}
                 </div>
 
                 {/* Email Body */}
-                <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: '#d4d4d8', whiteSpace: 'pre-line', marginBottom: '18px' }}>
+                <div style={{ fontSize: '0.88rem', lineHeight: 1.75, color: '#334155', whiteSpace: 'pre-line', marginBottom: '22px' }}>
                   {coverEmailBodyText}
                 </div>
 
                 {/* Authorized Signature & Official Seal Preview Strip */}
-                <div style={{ borderTop: '1px solid #27272a', paddingTop: '16px', marginBottom: '22px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '16px', marginBottom: '8px' }}>
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '18px', marginBottom: '22px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '20px', marginBottom: '10px' }}>
                     {documentProfile.signatureImageUrl ? (
-                      <div style={{ backgroundColor: '#ffffff', borderRadius: '6px', padding: '4px 8px', display: 'inline-flex' }}>
+                      <div style={{ display: 'inline-flex' }}>
                         <img 
                           src={documentProfile.signatureImageUrl} 
                           alt="Signature" 
-                          style={{ maxHeight: '46px', maxWidth: '130px', objectFit: 'contain' }}
+                          style={{ maxHeight: '52px', maxWidth: '140px', objectFit: 'contain' }}
                           onError={e => { e.currentTarget.style.display = 'none'; }}
                         />
                       </div>
                     ) : (
-                      <span style={{ fontSize: '0.74rem', color: '#71717a', fontStyle: 'italic' }}>Authorized Signatory</span>
+                      <span style={{ fontSize: '0.76rem', color: '#94a3b8', fontStyle: 'italic' }}>Authorized Signatory</span>
                     )}
 
                     {documentProfile.stampImageUrl && (
-                      <div style={{ backgroundColor: '#ffffff', borderRadius: '6px', padding: '4px 8px', display: 'inline-flex' }}>
+                      <div style={{ display: 'inline-flex' }}>
                         <img 
                           src={documentProfile.stampImageUrl} 
                           alt="Company Seal" 
-                          style={{ maxHeight: '64px', maxWidth: '90px', objectFit: 'contain' }}
+                          style={{ maxHeight: '68px', maxWidth: '96px', objectFit: 'contain' }}
                           onError={e => { e.currentTarget.style.display = 'none'; }}
                         />
                       </div>
                     )}
                   </div>
-                  <div style={{ borderTop: '1px solid #3f3f46', maxWidth: '280px', paddingTop: '6px' }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fafafa' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>
-                    <div style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>{documentProfile.authorizedSignatoryDesignation || 'HR Management'}</div>
-                    <div style={{ fontSize: '0.74rem', color: '#38bdf8', fontWeight: 600, marginTop: '2px' }}>{companyLegal}</div>
+                  <div style={{ borderTop: '1px solid #cbd5e1', maxWidth: '280px', paddingTop: '6px' }}>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0f172a' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>
+                    <div style={{ fontSize: '0.76rem', color: '#64748b' }}>{documentProfile.authorizedSignatoryDesignation || 'HR Management'}</div>
+                    <div style={{ fontSize: '0.76rem', color: '#0E7490', fontWeight: 600, marginTop: '2px' }}>{companyLegal}</div>
                   </div>
                 </div>
 
                 {/* Attachment Card */}
-                <div style={{ backgroundColor: '#27272a', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #3f3f46', marginBottom: '20px' }}>
+                <div style={{ backgroundColor: '#f8fafc', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ width: '38px', height: '38px', borderRadius: '8px', backgroundColor: '#dc2626', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}>
                       PDF
                     </div>
                     <div>
-                      <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#fafafa' }}>
+                      <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0f172a' }}>
                         Offer_Letter_{(currentEmployee?.firstName || 'Candidate').replace(/\s+/g, '_')}_{currentEmployee?.employeeId || 'EMP'}.pdf
                       </div>
-                      <div style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>
+                      <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
                         3 Pages (A4) &bull; Verified Vector PDF &bull; 25 Terms &amp; Annexure A Included
                       </div>
                     </div>
@@ -1246,16 +1246,16 @@ ${documentProfile.phone || ''}`;
                   <button
                     type="button"
                     onClick={handleDownloadPDF}
-                    style={{ background: '#3f3f46', border: 'none', color: '#e4e4e7', padding: '7px 12px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#0f172a', padding: '7px 14px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
                   >
                     <Download size={13} /> Download PDF
                   </button>
                 </div>
 
                 {/* Quick send trigger */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #27272a', paddingTop: '16px' }}>
-                  <div style={{ fontSize: '0.76rem', color: '#a1a1aa' }}>
-                    Ready to send to <strong>{currentEmployee?.email}</strong> via verified SMTP.
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                    Ready to send to <strong style={{ color: '#0f172a' }}>{currentEmployee?.email}</strong> via verified SMTP.
                   </div>
                   <button
                     type="button"
