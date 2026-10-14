@@ -184,7 +184,7 @@ export const Header: React.FC<HeaderProps> = ({
                 style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
                 onClick={() => setShowQuickAddMenu(false)} 
               />
-              <div className="card" style={{
+              <div className="card header-quick-add-dropdown" style={{
                 position: 'absolute',
                 top: 'calc(100% + 8px)',
                 right: 0,
@@ -432,7 +432,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {showNotifications && (
-            <div className="card" style={{
+            <div className="card header-notifications-dropdown" style={{
               position: 'absolute',
               top: 'calc(100% + 8px)',
               right: 0,

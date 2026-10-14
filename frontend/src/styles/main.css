@@ -5257,5 +5257,37 @@ div[style*="overflow-x: auto"] {
   margin-right: auto;
 }
 
+/* 5. Header Notifications Responsive Dropdown for Mobile Screens */
+.header-notifications-dropdown {
+  width: 360px;
+}
+
+@media (max-width: 640px) {
+  .header-notifications-dropdown {
+    position: fixed !important;
+    top: 72px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(85vh - 72px) !important;
+    z-index: 9999 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 20px 30px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.08) !important;
+  }
+
+  .header-quick-add-dropdown {
+    right: -45px !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+  .header-notifications-dropdown {
+    right: -40px !important;
+    max-width: calc(100vw - 32px) !important;
+  }
+}
+
 
 
