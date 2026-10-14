@@ -26,7 +26,7 @@ interface TaskFilterModalProps {
   onReset: () => void;
 }
 
-type TaskFilterTab = 'department' | 'priority' | 'status' | 'source' | 'date_range';
+type TaskFilterTab = 'department' | 'priority' | 'status' | 'date_range';
 
 export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
   isOpen,
@@ -75,13 +75,6 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
     { value: 'CANCELLED', label: 'Cancelled / Closed', desc: 'Closed or deemed unnecessary' }
   ];
 
-  const sourceOptions = [
-    { value: 'Direct', label: 'Direct Task', desc: 'Created directly via Task Form' },
-    { value: 'MOM', label: 'MOM Action Item', desc: 'Assigned from Minutes of Meeting' },
-    { value: 'Project', label: 'Project Milestone', desc: 'Tracked against key project deliverables' },
-    { value: 'Audit', label: 'Audit Finding', desc: 'Generated from compliance or safety audit' }
-  ];
-
   const dateRangeOptions = [
     { value: 'all', label: 'All Dates (Full History)' },
     { value: 'today', label: 'Today (Due or Created Today)' },
@@ -89,7 +82,7 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
     { value: 'this_month', label: 'This Month' }
   ];
 
-  const toggleArrayOption = (key: 'departments' | 'priorities' | 'statuses' | 'sources', item: string) => {
+  const toggleArrayOption = (key: 'departments' | 'priorities' | 'statuses', item: string) => {
     setLocalFilters(prev => {
       const list = prev[key];
       const exists = list.includes(item);
@@ -110,9 +103,6 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
     } else if (activeTab === 'status') {
       const allSelected = localFilters.statuses.length === statusOptions.length;
       setLocalFilters(prev => ({ ...prev, statuses: allSelected ? [] : statusOptions.map(s => s.value) }));
-    } else if (activeTab === 'source') {
-      const allSelected = localFilters.sources.length === sourceOptions.length;
-      setLocalFilters(prev => ({ ...prev, sources: allSelected ? [] : sourceOptions.map(s => s.value) }));
     } else if (activeTab === 'date_range') {
       setLocalFilters(prev => ({ ...prev, dateRange: 'all' }));
     }
@@ -197,19 +187,6 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
 
             <button 
               type="button"
-              className={`filter-nav-item ${activeTab === 'source' ? 'active' : ''}`}
-              onClick={() => setActiveTab('source')}
-            >
-              <span>Task Source</span>
-              {localFilters.sources.length > 0 && (
-                <span className="filter-nav-count-badge" style={{ backgroundColor: '#0E7490', color: '#ffffff' }}>
-                  {localFilters.sources.length}
-                </span>
-              )}
-            </button>
-
-            <button 
-              type="button"
               className={`filter-nav-item ${activeTab === 'date_range' ? 'active' : ''}`}
               onClick={() => setActiveTab('date_range')}
             >
@@ -228,7 +205,6 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
                 {activeTab === 'department' && 'Filter by Department'}
                 {activeTab === 'priority' && 'Filter by Priority'}
                 {activeTab === 'status' && 'Filter by Overall Status'}
-                {activeTab === 'source' && 'Filter by Task Source'}
                 {activeTab === 'date_range' && 'Filter by Date Range'}
               </span>
 
@@ -352,43 +328,7 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
               </div>
             )}
 
-            {/* TAB 4: Source */}
-            {activeTab === 'source' && (
-              <div className="filter-items-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {sourceOptions.map(opt => {
-                  const isChecked = localFilters.sources.includes(opt.value);
-                  return (
-                    <div 
-                      key={opt.value} 
-                      onClick={() => toggleArrayOption('sources', opt.value)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer', backgroundColor: isChecked ? '#ECFEFF' : 'transparent', transition: 'all 0.15s ease' }}
-                    >
-                      <div style={{
-                        width: '18px',
-                        height: '18px',
-                        borderRadius: '4px',
-                        border: isChecked ? '1.5px solid #0E7490' : '1.5px solid #cbd5e1',
-                        backgroundColor: isChecked ? '#0E7490' : '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        {isChecked && <Check size={13} color="#ffffff" strokeWidth={3} />}
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.88rem', color: isChecked ? '#0E7490' : '#334155', fontWeight: isChecked ? 700 : 600 }}>
-                          {opt.label}
-                        </span>
-                        <span style={{ fontSize: '0.74rem', color: '#64748b' }}>{opt.desc}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* TAB 5: Date Range */}
+            {/* TAB 4: Date Range */}
             {activeTab === 'date_range' && (
               <div className="filter-items-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {dateRangeOptions.map(opt => {

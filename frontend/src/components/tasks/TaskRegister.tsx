@@ -76,7 +76,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
   const [filterDept, setFilterDept] = useState<string>('All');
   const [filterPriority, setFilterPriority] = useState<string>('All');
   const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [filterSource, setFilterSource] = useState<string>('All');
   const [filterDueStatus, setFilterDueStatus] = useState<string>('All');
   const [filterCategory, setFilterCategory] = useState<string>('All');
 
@@ -90,7 +89,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
     modalFilters.departments.length +
     modalFilters.priorities.length +
     modalFilters.statuses.length +
-    modalFilters.sources.length +
     (modalFilters.dateRange !== 'all' ? 1 : 0);
 
   // Sorting & Pagination
@@ -170,14 +168,10 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
       // Status Filter
       if (filterStatus !== 'All' && task.overallStatus !== filterStatus) return false;
 
-      // Source Filter
-      if (filterSource !== 'All' && task.sourceType !== filterSource) return false;
-
       // Modal Filters Integration
       if (modalFilters.departments.length > 0 && !modalFilters.departments.includes(task.department)) return false;
       if (modalFilters.priorities.length > 0 && !modalFilters.priorities.includes(task.priority)) return false;
       if (modalFilters.statuses.length > 0 && !modalFilters.statuses.includes(task.overallStatus)) return false;
-      if (modalFilters.sources.length > 0 && !modalFilters.sources.includes(task.sourceType)) return false;
 
       // Due Status Filter
       if (filterDueStatus !== 'All') {
@@ -218,7 +212,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
     filterDept,
     filterPriority,
     filterStatus,
-    filterSource,
     filterDueStatus,
     filterCategory,
     modalFilters
@@ -267,7 +260,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
     setFilterPriority('All');
     setFilterAssignedTo('All');
     setFilterResponsible('All');
-    setFilterSource('All');
     setFilterDueStatus('All');
     setFilterFromDate('');
     setFilterToDate('');
@@ -284,7 +276,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
     filterPriority !== 'All' ||
     filterAssignedTo !== 'All' ||
     filterResponsible !== 'All' ||
-    filterSource !== 'All' ||
     filterDueStatus !== 'All' ||
     filterFromDate !== '' ||
     filterToDate !== '' ||
@@ -572,21 +563,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                 {employees.map(emp => (
                   <option key={emp.id} value={emp.employeeId}>{emp.firstName} {emp.lastName}</option>
                 ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B', marginBottom: '5px', display: 'block' }}>Source Type</label>
-              <select 
-                value={filterSource} 
-                onChange={e => { setFilterSource(e.target.value); setCurrentPage(1); }}
-                style={{ width: '100%', height: '38px', borderRadius: '10px', border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#334155', padding: '6px 10px', lineHeight: '20px', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
-              >
-                <option value="All">All Sources</option>
-                <option value="Direct">Direct</option>
-                <option value="MOM">MOM Action Item</option>
-                <option value="Project">Project Milestone</option>
-                <option value="Audit">Audit Finding</option>
               </select>
             </div>
 
