@@ -1434,25 +1434,6 @@ ${documentProfile.phone || ''}`;
 
             <button 
               type="button" 
-              className="btn btn-secondary btn-sm" 
-              onClick={handleDownloadTxt}
-              title="Download Letter as Text"
-            >
-              <Download size={15} /> Download (.txt)
-            </button>
-
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm" 
-              onClick={handleAttachToProfile}
-              title="Save directly into Employee Profile Documents"
-              style={{ backgroundColor: '#ecfeff', color: '#0891b2', borderColor: '#a5f3fc', fontWeight: 700 }}
-            >
-              <Save size={15} /> Save to Profile
-            </button>
-
-            <button 
-              type="button" 
               className="btn btn-primary btn-sm" 
               onClick={handleSendOfferEmail}
               disabled={isSendingOffer || !currentEmployee?.email}
