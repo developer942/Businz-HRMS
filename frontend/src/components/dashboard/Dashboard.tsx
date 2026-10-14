@@ -9,6 +9,7 @@ import { Employee, AttendanceRecord, LeaveRequest, TaskItem, HolidayItem } from 
 import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
+import { getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
 import { 
   Users, 
   UserCheck, 
@@ -43,7 +44,9 @@ export const Dashboard: React.FC = () => {
     hasPermission,
     shifts,
     faceLogs,
-    holidayPolicies
+    holidayPolicies,
+    masterLeavePolicies,
+    leavePolicies
   } = useHRMS();
 
   const isCEO = 
@@ -152,19 +155,30 @@ export const Dashboard: React.FC = () => {
     const checkInTime = formatTimeDisplay(todayRecord?.checkIn || todayFace?.timestamp, '--:--');
     const todayStatus = todayRecord?.status || (todayFace ? 'Present' : 'Not Marked');
 
+    // Dynamically calculate leave balances from active master leave policies
+    const leaveSummary = getEmployeeTotalLeaveSummary(
+      currentUser.employeeId,
+      currentUser.name,
+      masterLeavePolicies,
+      leavePolicies,
+      leaveRequests
+    );
+
     return {
       todayStatus,
       checkInTime,
       attendanceRate,
       adjPresent: realPresent,
       totalWorkingDays,
-      adjLeave: realLeave,
-      remainingLeaves: Math.max(0, 14 - realLeave),
+      adjLeave: leaveSummary.totalPaidUsed,
+      remainingLeaves: leaveSummary.totalPaidRemaining,
+      annualQuota: leaveSummary.totalAnnualQuota,
+      leaveBalances: leaveSummary.balances,
       shiftName: cleanShiftName,
       shiftTimes: userShift ? `${userShift.startTime} - ${userShift.endTime}` : '--:--',
       monthLabel: month.label
     };
-  }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr]);
+  }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies]);
 
   // Dynamically calculate upcoming holidays from holiday policies (from today onwards)
   const upcomingHolidaysList = useMemo(() => {
@@ -743,6 +757,7 @@ export const Dashboard: React.FC = () => {
               className="kpi-card compact"
               onClick={() => setActiveModule('leaves')}
               style={{ cursor: 'pointer' }}
+              title={employeeAttendanceStats.leaveBalances?.filter(b => b.isPaid).map(b => `${b.name}: ${b.remainingDays} left of ${b.annualQuota}d`).join(' | ') || 'Leave Balance'}
             >
               <div className="kpi-card-header">
                 <span>LEAVE BALANCE</span>
@@ -754,7 +769,7 @@ export const Dashboard: React.FC = () => {
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span className="kpi-trend-badge purple">{employeeAttendanceStats.adjLeave} Days Taken</span>
-                  <span>Annual Balance</span>
+                  <span>Annual ({employeeAttendanceStats.remainingLeaves} of {employeeAttendanceStats.annualQuota || 14}d)</span>
                 </div>
               </div>
             </div>

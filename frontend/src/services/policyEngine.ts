@@ -1274,8 +1274,32 @@ export const calculateEmployeePayroll = (
     });
   }
 
-  // Low Salary Protection: Cap loan deduction to available net salary
-  const leaveDeductionAmount = 0;
+  // Unpaid Leave / Loss of Pay (LOP) & Absent Deductions:
+  const perDaySalary = standardDays > 0 ? (grossSalary / standardDays) : (grossSalary / 26);
+
+  // 1. Unpaid leaves approved for this employee
+  const approvedUnpaidDays = leaveRequests
+    .filter(l => l.employeeId === employee.employeeId && l.status === 'Approved')
+    .filter(l => {
+      const lt = (l.leaveType || '').toLowerCase();
+      return lt.includes('unpaid') || lt.includes('lwp') || lt.includes('loss of pay');
+    })
+    .reduce((sum, l) => sum + toNum(l.daysCount), 0);
+
+  // 2. Unexcused Absent days from attendance records
+  const absentDaysCount = empAtt.filter(a => a.status === 'Absent').length;
+
+  // 3. Excess days beyond policy quota evaluated by policy rule
+  const policyExcessDays = leaveDetails?.excessUnpaidDays || 0;
+
+  // Total LOP days
+  const totalLopDays = Math.max(approvedUnpaidDays + absentDaysCount, policyExcessDays, leaveDetails?.totalUnpaidDays || 0);
+
+  // Calculated Loss of Pay deduction amount
+  const leaveDeductionAmount = (leaveDetails?.deductionAmount && leaveDetails.deductionAmount > 0)
+    ? leaveDetails.deductionAmount
+    : Math.round(totalLopDays * perDaySalary);
+
   const preLoanDeductions = configuredDeductionTotal + lateDetails.deductionAmount + leaveDeductionAmount;
   const availableSalary = Math.max(0, grossSalary - preLoanDeductions);
   const advanceDeduction = Math.min(scheduledLoanDeduction, availableSalary);
@@ -1294,7 +1318,12 @@ export const calculateEmployeePayroll = (
     deductionsBreakdown.push({ name: 'Late Attendance Deduction', category: 'DEDUCTION', amount: lateDetails.deductionAmount, description: lateDetails.ruleApplied });
   }
   if (leaveDeductionAmount > 0) {
-    deductionsBreakdown.push({ name: 'Loss of Pay Deduction', category: 'DEDUCTION', amount: leaveDeductionAmount, description: leaveDetails.ruleApplied });
+    deductionsBreakdown.push({ 
+      name: 'Loss of Pay (Unpaid Leave / Absent Deduction)', 
+      category: 'DEDUCTION', 
+      amount: leaveDeductionAmount, 
+      description: `${totalLopDays} day(s) deducted @ ${formatCurrency(perDaySalary)}/day` 
+    });
   }
   if (advanceDeduction > 0) {
     deductionsBreakdown.push({ name: 'Advance Salary / Loan Recovery', category: 'DEDUCTION', amount: advanceDeduction });

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { getEmployeeLeaveTypeBalances, getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
 import { 
   CalendarDays, 
   Plus, 
@@ -236,6 +237,36 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     reason: '',
     attachmentUrl: ''
   });
+
+  const selectedApplicant = employees.find(e => e.employeeId === form.employeeId);
+  const applicantName = selectedApplicant ? `${selectedApplicant.firstName} ${selectedApplicant.lastName}` : (isEmployeeRole ? currentUser.name : '');
+
+  const applicantLeaveBalances = useMemo(() => {
+    return getEmployeeLeaveTypeBalances(
+      form.employeeId || currentEmployeeId,
+      applicantName,
+      masterLeavePolicies,
+      leavePolicies,
+      leaveRequests
+    );
+  }, [form.employeeId, currentEmployeeId, applicantName, masterLeavePolicies, leavePolicies, leaveRequests]);
+
+  const myLeaveSummary = useMemo(() => {
+    return getEmployeeTotalLeaveSummary(
+      currentUser.employeeId,
+      currentUser.name,
+      masterLeavePolicies,
+      leavePolicies,
+      leaveRequests
+    );
+  }, [currentUser.employeeId, currentUser.name, masterLeavePolicies, leavePolicies, leaveRequests]);
+
+  // Synchronize form.leaveType default to first available balance type
+  useEffect(() => {
+    if (applicantLeaveBalances.length > 0 && !applicantLeaveBalances.some(b => b.name === form.leaveType)) {
+      setForm(prev => ({ ...prev, leaveType: applicantLeaveBalances[0].name }));
+    }
+  }, [applicantLeaveBalances, form.leaveType]);
 
   // HR Override Form State
   const [overrideForm, setOverrideForm] = useState<{
@@ -503,6 +534,88 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           </div>
         )}
       </div>
+
+      {/* Employee Personal Leave Balance Overview Strip */}
+      {isEmployeeRole && (
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '14px',
+          padding: '16px 20px',
+          marginBottom: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <CalendarDays size={18} color="#0E7490" />
+              <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0F172A' }}>
+                My Leave Balance & Quotas ({new Date().getFullYear()})
+              </span>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#64748B', fontWeight: 600 }}>
+              Total Available Paid Balance: <strong style={{ color: '#0E7490', fontSize: '0.95rem' }}>{myLeaveSummary.totalPaidRemaining} Days Left</strong> ({myLeaveSummary.totalPaidUsed} Taken of {myLeaveSummary.totalAnnualQuota}d Annual Quota)
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            {myLeaveSummary.balances.filter(b => b.isPaid).map(b => (
+              <div 
+                key={b.id} 
+                style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1E293B' }}>{b.name}</div>
+                  <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                    Quota: {b.annualQuota}d • Taken: {b.usedDays}d
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: b.remainingDays > 0 ? '#0E7490' : '#DC2626' }}>
+                    {b.remainingDays}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B' }}>Days Left</div>
+                </div>
+              </div>
+            ))}
+
+            <div 
+              style={{
+                backgroundColor: '#FFFBEB',
+                border: '1px solid #FDE68A',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#92400E' }}>Loss of Pay (Unpaid)</div>
+                <div style={{ fontSize: '0.74rem', color: '#B45309', marginTop: '2px' }}>
+                  Deducted from salary like Absent
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: myLeaveSummary.totalUnpaidUsed > 0 ? '#DC2626' : '#92400E' }}>
+                  {myLeaveSummary.totalUnpaidUsed}
+                </div>
+                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#92400E' }}>Days Taken</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Overview Cards */}
       <div className="kpi-grid">
@@ -1181,33 +1294,82 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     style={{ borderRadius: '10px', backgroundColor: '#f8fafc', fontSize: '0.85rem' }}
                     required
                   >
-                    {(() => {
-                      const options = (masterLeavePolicies && masterLeavePolicies.length > 0)
-                        ? masterLeavePolicies.filter(p => p.status === 'Active').flatMap(p => {
-                            const isProv = p.applicableEmploymentType === 'Provisional' || p.policyName.toLowerCase().includes('provisional');
-                            const policyTag = isProv ? 'Provisional (First 3 Mos)' : 'Confirmed';
-                            return (p.leaveTypes || []).map(t => ({
-                              id: `${p.id}-${t.id}`,
-                              value: t.name,
-                              label: `${t.name} (${t.quotaPerYear}d • ${t.isPaid ? 'Paid' : 'Unpaid'}) — [${policyTag}]`
-                            }));
-                          })
-                        : leavePolicies.filter(p => p.status === 'Active').map(p => ({
-                            id: p.id,
-                            value: p.name,
-                            label: `${p.name} (${p.quotaDays} Days/Year • ${p.monthlyAccrual})`
-                          }));
-
-                      const finalOptions = options.length > 0 ? options : DEFAULT_LEAVE_CATEGORY_OPTIONS;
-
-                      return finalOptions.map(item => (
-                        <option key={item.id} value={item.value}>
-                          {item.label}
-                        </option>
-                      ));
-                    })()}
+                    {applicantLeaveBalances.map(item => (
+                      <option key={item.id} value={item.name}>
+                        {item.isPaid 
+                          ? `${item.name} — ${item.remainingDays} Day(s) Left (${item.usedDays} used of ${item.annualQuota}d) [Paid]`
+                          : `${item.name} — Unpaid (Loss of Pay / Salary Deduction)`
+                        }
+                      </option>
+                    ))}
                   </select>
                 </div>
+
+                {/* Real-time Leave Balance Banner for Selected Category */}
+                {(() => {
+                  const selectedBal = applicantLeaveBalances.find(b => b.name === form.leaveType) || applicantLeaveBalances[0];
+                  if (!selectedBal) return null;
+                  const requestedDays = liveCalculation?.totalDays || 1;
+                  const isOverQuota = selectedBal.isPaid && requestedDays > selectedBal.remainingDays;
+
+                  return (
+                    <div style={{
+                      backgroundColor: selectedBal.isPaid ? '#F0FDFA' : '#FFFBEB',
+                      border: `1px solid ${selectedBal.isPaid ? '#99F6E4' : '#FDE68A'}`,
+                      borderRadius: '10px',
+                      padding: '10px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: selectedBal.isPaid ? '#0F766E' : '#B45309', textTransform: 'uppercase' }}>
+                            {selectedBal.name} Balance Status
+                          </span>
+                          <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '2px' }}>
+                            {selectedBal.isPaid ? (
+                              <>Annual Quota: <strong>{selectedBal.annualQuota} Days</strong> • Already Taken: <strong>{selectedBal.usedDays} Days</strong></>
+                            ) : (
+                              <>Loss of Pay: Deducted from monthly salary like an Absent day</>
+                            )}
+                          </div>
+                        </div>
+                        {selectedBal.isPaid && (
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: selectedBal.remainingDays > 0 ? '#0F766E' : '#DC2626' }}>
+                              {selectedBal.remainingDays}
+                            </div>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#0F766E' }}>
+                              Days Available
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {isOverQuota && (
+                        <div style={{
+                          backgroundColor: '#FEF2F2',
+                          border: '1px solid #FECACA',
+                          borderRadius: '6px',
+                          padding: '6px 10px',
+                          fontSize: '0.75rem',
+                          color: '#B91C1C',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginTop: '4px'
+                        }}>
+                          <span>⚠️</span>
+                          <span>
+                            You are requesting {requestedDays} days, but only {selectedBal.remainingDays} paid days are remaining. The remaining {requestedDays - selectedBal.remainingDays} day(s) will be treated as <strong>Unpaid Leave (Loss of Pay)</strong> and deducted from salary.
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Date Selection */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
