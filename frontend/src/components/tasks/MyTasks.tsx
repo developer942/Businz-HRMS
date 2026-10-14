@@ -350,7 +350,16 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
       <StandardFloatingActionBar
         selectedCount={selectedTaskIds.length}
         onClearSelection={() => setSelectedTaskIds([])}
-        onEdit={selectedTaskIds.length === 1 ? () => onSelectTask(selectedTaskIds[0]) : undefined}
+        onEdit={
+          selectedTaskIds.length === 1 &&
+          (() => {
+            const t = sectionTasks.find(item => item.id === selectedTaskIds[0]);
+            const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.role === 'ERP Administrator';
+            return t ? (isTaskAssignedByMe(t, currentUser) || isSuperAdmin) : false;
+          })()
+            ? () => onSelectTask(selectedTaskIds[0])
+            : undefined
+        }
         customActions={
           <button
             type="button"

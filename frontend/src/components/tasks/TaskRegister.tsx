@@ -25,7 +25,7 @@ import {
   Clock,
   RotateCcw
 } from 'lucide-react';
-import { TaskItemEnhanced, TaskOverallStatus, TaskPriority, TaskAssigneeStatus, computeDueStatus } from '../../types/tasks';
+import { TaskItemEnhanced, TaskOverallStatus, TaskPriority, TaskAssigneeStatus, computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { TaskFilterModal, TaskFiltersState, initialTaskFiltersState } from './TaskFilterModal';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
@@ -1006,7 +1006,16 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
       <StandardFloatingActionBar
         selectedCount={selectedTaskIds.length}
         onClearSelection={() => setSelectedTaskIds([])}
-        onEdit={selectedTaskIds.length === 1 ? () => onSelectTask(selectedTaskIds[0]) : undefined}
+        onEdit={
+          selectedTaskIds.length === 1 &&
+          (() => {
+            const t = sortedTasks.find(item => item.id === selectedTaskIds[0]);
+            const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.role === 'ERP Administrator';
+            return t ? (isTaskAssignedByMe(t, currentUser) || isSuperAdmin) : false;
+          })()
+            ? () => onSelectTask(selectedTaskIds[0])
+            : undefined
+        }
         onDelete={() => {
           if (window.confirm(`Delete ${selectedTaskIds.length} selected task(s)?`)) {
             selectedTaskIds.forEach(id => deleteEnhancedTask(id));

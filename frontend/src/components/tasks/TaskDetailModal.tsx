@@ -19,7 +19,7 @@ import {
   Pencil,
   Save
 } from 'lucide-react';
-import { TaskItemEnhanced, TaskAssigneeStatus, TaskDailyReport, computeDueStatus } from '../../types/tasks';
+import { TaskItemEnhanced, TaskAssigneeStatus, TaskDailyReport, computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
@@ -111,11 +111,23 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
   const isSuperAdmin = currentUser.role === 'Super Admin' || currentUser.role === 'ERP Administrator';
   const isCEO = isSuperAdmin || currentUser.role === 'CEO' || (currentUser as any).designation?.toLowerCase().includes('ceo') || (currentUser as any).role?.toLowerCase().includes('ceo');
   const isHR = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || (currentUser as any).department?.toLowerCase().includes('hr') || (currentUser as any).role?.toLowerCase().includes('hr');
-  const isAssigner = 
-    (task.assignedBy && task.assignedBy.toLowerCase().includes(currentEmpName)) ||
-    (task.createdBy && task.createdBy.toLowerCase().includes(currentEmpName)) ||
-    task.responsiblePersonId === currentEmpId ||
-    task.responsiblePersonId === currentUser.id;
+
+  // Creator / Assigner check (ONLY the user who created or assigned this task)
+  const cleanCurrentName = currentEmpName.replace(/\s*\([^)]*\)/g, '').trim();
+  const cleanCreatedBy = (task.createdBy || '').toLowerCase().replace(/\s*\([^)]*\)/g, '').trim();
+  const cleanAssignedBy = (task.assignedBy || '').toLowerCase().replace(/\s*\([^)]*\)/g, '').trim();
+
+  const isCreator = Boolean(
+    isTaskAssignedByMe(task, currentUser) ||
+    ((task as any).createdById && currentEmpId && (task as any).createdById.toLowerCase().trim() === currentEmpId.toLowerCase().trim()) ||
+    ((task as any).createdById && currentUser.id && (task as any).createdById.toLowerCase().trim() === currentUser.id.toLowerCase().trim()) ||
+    ((task as any).assignedById && currentEmpId && (task as any).assignedById.toLowerCase().trim() === currentEmpId.toLowerCase().trim()) ||
+    ((task as any).assignedById && currentUser.id && (task as any).assignedById.toLowerCase().trim() === currentUser.id.toLowerCase().trim()) ||
+    (cleanCurrentName && cleanCreatedBy && (cleanCreatedBy === cleanCurrentName || cleanCreatedBy.includes(cleanCurrentName) || cleanCurrentName.includes(cleanCreatedBy))) ||
+    (cleanCurrentName && cleanAssignedBy && (cleanAssignedBy === cleanCurrentName || cleanAssignedBy.includes(cleanCurrentName) || cleanCurrentName.includes(cleanAssignedBy)))
+  );
+
+  const isAssigner = isCreator;
   const isResponsiblePerson = task.responsiblePersonId === currentEmpId || 
     task.responsiblePersonId === currentUser.id ||
     Boolean(currentEmpName && task.responsiblePersonName && task.responsiblePersonName.toLowerCase().includes(currentEmpName));
@@ -124,7 +136,9 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
     (currentEmpName && a.employeeName && a.employeeName.toLowerCase().includes(currentEmpName)) ||
     (currentEmpName && a.employeeName && currentEmpName.includes(a.employeeName.toLowerCase()))
   );
-  const canEditTaskDetails = isCEO || isHR || isSuperAdmin || isAssigner || isResponsiblePerson;
+
+  // Strictly ONLY the person who created the task can edit task details (or Super Admin)
+  const canEditTaskDetails = isCreator || isSuperAdmin;
 
   useEffect(() => {
     markTaskViewed(task.id);
@@ -180,8 +194,8 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
     setIsAddingLink(false);
   };
 
-  const canClose = (isResponsiblePerson || isHR || isCEO) && task.overallStatus !== 'CLOSED';
-  const canReopen = (isResponsiblePerson || isHR || isCEO) && task.overallStatus === 'CLOSED';
+  const canClose = (isCreator || isResponsiblePerson || isHR || isCEO || isSuperAdmin) && task.overallStatus !== 'CLOSED';
+  const canReopen = (isCreator || isResponsiblePerson || isHR || isCEO || isSuperAdmin) && task.overallStatus === 'CLOSED';
 
   // Task Start Date and Timeline calculation from the day task started
   const taskStartDateStr = task.startDate || task.taskDate || (task.createdAt ? task.createdAt.split('T')[0] : '') || new Date().toISOString().split('T')[0];
@@ -469,7 +483,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
             </div>
           )}
 
-          {isEditingTask && (
+          {isEditingTask && canEditTaskDetails && (
             <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #CFFAFE', boxShadow: '0 1px 3px rgba(14,116,144,0.08)' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 150px 150px', gap: '12px', marginBottom: '12px' }}>
                 <div>
