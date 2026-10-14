@@ -193,7 +193,7 @@ export const EmployeeDetailsGrid: React.FC<{ rows: DetailRow[]; columns?: number
 // Semantic alias matching specification
 export const EmployeeDetails = EmployeeDetailsGrid;
 
-export const DynamicEarningsTable: React.FC<{ earnings: AmountLine[]; total: number }> = ({ earnings, total }) => (
+export const DynamicEarningsTable: React.FC<{ earnings: AmountLine[]; total: number; showDescription?: boolean }> = ({ earnings, total, showDescription = false }) => (
   <div className="payslip-table-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '14px' }}>
     <table className="payslip-table" style={{ width: '100%', minWidth: '320px', borderCollapse: 'collapse', marginBottom: '0' }}>
       <thead>
@@ -205,7 +205,7 @@ export const DynamicEarningsTable: React.FC<{ earnings: AmountLine[]; total: num
       <tbody>
         {earnings.map((earning, i) => (
           <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={earning} /></td>
+            <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={earning} showDescription={showDescription} /></td>
             <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(earning.amount)}</td>
           </tr>
         ))}
@@ -218,7 +218,7 @@ export const DynamicEarningsTable: React.FC<{ earnings: AmountLine[]; total: num
   </div>
 );
 
-export const DynamicDeductionsTable: React.FC<{ deductions: AmountLine[]; total: number }> = ({ deductions, total }) => (
+export const DynamicDeductionsTable: React.FC<{ deductions: AmountLine[]; total: number; showDescription?: boolean }> = ({ deductions, total, showDescription = false }) => (
   <div className="payslip-table-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '14px' }}>
     <table className="payslip-table" style={{ width: '100%', minWidth: '320px', borderCollapse: 'collapse', marginBottom: '0' }}>
       <thead>
@@ -230,7 +230,7 @@ export const DynamicDeductionsTable: React.FC<{ deductions: AmountLine[]; total:
       <tbody>
         {deductions.map((deduction, i) => (
           <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={deduction} /></td>
+            <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}><LineLabel line={deduction} showDescription={showDescription} /></td>
             <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', color: '#be123c', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{formatCurrency(deduction.amount)}</td>
           </tr>
         ))}
@@ -248,7 +248,8 @@ export const DynamicAmountTable: React.FC<{
   deductions: AmountLine[];
   grossEarnings: number;
   totalDeductions: number;
-}> = ({ earnings, deductions, grossEarnings, totalDeductions }) => {
+  showDescription?: boolean;
+}> = ({ earnings, deductions, grossEarnings, totalDeductions, showDescription = false }) => {
   const rowCount = Math.max(earnings.length, deductions.length, 1);
   return (
     <div className="payslip-table-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '18px' }}>
@@ -267,9 +268,9 @@ export const DynamicAmountTable: React.FC<{
             const deduction = deductions[index];
             return (
               <tr key={index}>
-                <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{earning && <LineLabel line={earning} />}</td>
+                <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{earning && <LineLabel line={earning} showDescription={showDescription} />}</td>
                 <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{earning ? formatCurrency(earning.amount) : ''}</td>
-                <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{deduction && <LineLabel line={deduction} />}</td>
+                <td style={{ padding: '8px 12px', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>{deduction && <LineLabel line={deduction} showDescription={showDescription} />}</td>
                 <td style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'right', color: deduction ? '#be123c' : undefined, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
                   {deduction ? formatCurrency(deduction.amount) : ''}
                 </td>
@@ -373,10 +374,12 @@ export const amountToIndianWords = (value: unknown): string => {
   return `INR ${parts.join(' ')} only`;
 };
 
-const LineLabel: React.FC<{ line: AmountLine }> = ({ line }) => (
+const LineLabel: React.FC<{ line: AmountLine; showDescription?: boolean }> = ({ line, showDescription = false }) => (
   <>
     <span>{line.label}</span>
-    {line.description && <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748b' }}>{line.description}</span>}
+    {showDescription && line.description && (
+      <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748b' }}>{line.description}</span>
+    )}
   </>
 );
 

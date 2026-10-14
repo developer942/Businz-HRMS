@@ -642,9 +642,11 @@ export const PayrollManagement: React.FC = () => {
               <h3 className="card-title" style={{ margin: 0 }}>
                 {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
               </h3>
-              <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
-                {salaryFormulaText}
-              </span>
+              {canViewAllPayroll && (
+                <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  {salaryFormulaText}
+                </span>
+              )}
             </div>
             {canViewAllPayroll && availableBatches.length > 1 && (
               <select
@@ -1048,6 +1050,7 @@ export const PayrollManagement: React.FC = () => {
                     deductions={rows.deductions}
                     grossEarnings={rows.grossEarnings}
                     totalDeductions={rows.totalDeductions}
+                    showDescription={false}
                   />
 
                   <NetPaySection netPay={rows.netPay} />
