@@ -5364,6 +5364,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     if (module === 'profile') return true;
+    if (module === 'dashboard' && action === 'view') return true;
+    if (module === 'leaves' && action === 'view') return true;
     if (module === 'settings' && action === 'view') return true;
     if (module === 'tracking') return true;
     if (module === 'overtime' && (action === 'view' || action === 'create')) return true;
@@ -5411,7 +5413,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    const rolePermissions = permissionMatrix[currentUser.role];
+    const rolePermissions = permissionMatrix[currentUser.role] || permissionMatrix['Employee'];
     if (!rolePermissions) return false;
     const actions = rolePermissions[module];
     return actions ? actions.includes(action) : false;

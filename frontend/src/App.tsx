@@ -33,7 +33,7 @@ const AuthenticatedApp: React.FC = () => {
 
     void restoreSession();
     return () => { active = false; };
-  }, [updateCurrentUser, setActiveModule, resetToDashboard]);
+  }, []); // Run only once on mount to restore initial session
 
   const logout = () => {
     authService.clearSession();
