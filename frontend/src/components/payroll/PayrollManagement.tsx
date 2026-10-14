@@ -642,11 +642,6 @@ export const PayrollManagement: React.FC = () => {
               <h3 className="card-title" style={{ margin: 0 }}>
                 {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
               </h3>
-              {canViewAllPayroll && (
-                <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
-                  {salaryFormulaText}
-                </span>
-              )}
             </div>
             {canViewAllPayroll && availableBatches.length > 1 && (
               <select
@@ -1134,9 +1129,6 @@ export const PayrollManagement: React.FC = () => {
                         Salary Scheme: {isWithPf ? 'With PF & ESIC Deductions (Active)' : 'Without PF & ESIC (Probation / < 6 Months Policy)'}
                       </span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                      {salaryFormulaText}
-                    </span>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', fontSize: '0.82rem', marginBottom: '20px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
