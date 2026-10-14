@@ -1605,6 +1605,17 @@ input[type="number"] {
   border-radius: 99px;
 }
 
+.status-pill.no-dot::before {
+  display: none !important;
+  content: none !important;
+}
+
+.status-pill.no-dot {
+  gap: 0 !important;
+  padding: 3.5px 12px !important;
+  justify-content: center;
+}
+
 .status-pill.present { background-color: #ecfdf5; color: #065f46; }
 .status-pill.present::before { background-color: #10b981; }
 
