@@ -1023,7 +1023,6 @@ export const PayrollManagement: React.FC = () => {
                     profile={documentProfile}
                     title={`Payslip for ${monthLabel}`}
                     rightMeta={[
-                      { label: 'Ref', value: selectedPayslip.id },
                       { label: 'Status', value: selectedPayslip.status }
                     ]}
                   />
@@ -1124,7 +1123,6 @@ export const PayrollManagement: React.FC = () => {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>PAYSLIP: {selectedPayslip.month.toUpperCase()} {selectedPayslip.year}</h3>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ref: {selectedPayslip.id}</span>
                     </div>
                   </div>
 
