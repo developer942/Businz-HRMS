@@ -621,48 +621,50 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
         </div>
       )}
 
-      {/* KPI Overview Cards */}
-      <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span>Pending Approvals</span>
-            <div className="kpi-icon-wrapper amber"><Clock size={16} /></div>
+      {/* KPI Overview Cards - Hidden for Employee role, visible for Admin/HR/Manager */}
+      {!isEmployeeRole && (
+        <div className="kpi-grid">
+          <div className="kpi-card">
+            <div className="kpi-card-header">
+              <span>Pending Approvals</span>
+              <div className="kpi-icon-wrapper amber"><Clock size={16} /></div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value">{pendingCount}</div>
+            </div>
           </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value">{pendingCount}</div>
-          </div>
-        </div>
 
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span>Approved Leaves</span>
-            <div className="kpi-icon-wrapper emerald"><CheckCircle2 size={16} /></div>
+          <div className="kpi-card">
+            <div className="kpi-card-header">
+              <span>Approved Leaves</span>
+              <div className="kpi-icon-wrapper emerald"><CheckCircle2 size={16} /></div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value">{approvedCount}</div>
+            </div>
           </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value">{approvedCount}</div>
-          </div>
-        </div>
 
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span>Rejected Requests</span>
-            <div className="kpi-icon-wrapper rose"><XCircle size={16} /></div>
+          <div className="kpi-card">
+            <div className="kpi-card-header">
+              <span>Rejected Requests</span>
+              <div className="kpi-icon-wrapper rose"><XCircle size={16} /></div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value">{rejectedCount}</div>
+            </div>
           </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value">{rejectedCount}</div>
-          </div>
-        </div>
 
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span>Work From Home (WFH)</span>
-            <div className="kpi-icon-wrapper" style={{ backgroundColor: '#CFFAFE', color: '#0E7490' }}><Home size={16} /></div>
-          </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value" style={{ color: '#0E7490' }}>{wfhTotalCount}</div>
+          <div className="kpi-card">
+            <div className="kpi-card-header">
+              <span>Work From Home (WFH)</span>
+              <div className="kpi-icon-wrapper" style={{ backgroundColor: '#CFFAFE', color: '#0E7490' }}><Home size={16} /></div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value" style={{ color: '#0E7490' }}>{wfhTotalCount}</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Table of Requests */}
       <div className="card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
