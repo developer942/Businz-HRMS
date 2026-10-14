@@ -558,11 +558,13 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               Includes Work From Home, Sandwich Days & Pay Breakdown
             </div>
           </div>
-          <ExportDropdown
-            onExportExcel={handleExportExcel}
-            onExportPDF={handleExportPDF}
-            onExportCSV={handleExportCSV}
-          />
+          {!isEmployeeRole && (
+            <ExportDropdown
+              onExportExcel={handleExportExcel}
+              onExportPDF={handleExportPDF}
+              onExportCSV={handleExportCSV}
+            />
+          )}
         </h3>
         
         <div style={{ overflowX: 'auto', width: '100%' }}>
