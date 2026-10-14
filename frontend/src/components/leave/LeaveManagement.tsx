@@ -11,7 +11,6 @@ import {
   Sliders, 
   ShieldAlert, 
   FileCheck, 
-  Info,
   Calendar,
   Layers,
   Check,
@@ -834,22 +833,6 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           </div>
                         ) : (
                           <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '3px' }}>
-                              <span style={{
-                                fontSize: '0.68rem',
-                                fontWeight: 800,
-                                textTransform: 'uppercase',
-                                padding: '2px 7px',
-                                borderRadius: '4px',
-                                backgroundColor: l.status === 'Approved' ? '#DCFCE7' : '#FEE2E2',
-                                color: l.status === 'Approved' ? '#166534' : '#DC2626',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px'
-                              }}>
-                                {l.status === 'Approved' ? '✓ Approved by' : '✕ Rejected by'}
-                              </span>
-                            </div>
                             <div style={{ fontSize: '0.84rem', color: '#0F172A', fontWeight: 800 }}>
                               {l.approvedBy || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}
                             </div>
@@ -1455,18 +1438,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 </div>
               </div>
 
-              {/* Policy Applied Info */}
-              <div style={{ backgroundColor: '#ECFEFF', padding: '12px 16px', borderRadius: '10px', border: '1px solid #CFFAFE', fontSize: '0.82rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0E7490', fontWeight: 700, marginBottom: '4px' }}>
-                  <Info size={16} />
-                  <span>
-                    Policy: {(inspectCalculation || inspectLeave.sandwichDetails)?.appliedPolicyName || 'Corporate Sandwich Leave Policy'} (v{(inspectCalculation || inspectLeave.sandwichDetails)?.policyVersion || 1})
-                  </span>
-                </div>
-                <div style={{ color: '#475569', fontSize: '0.78rem' }}>
-                  Pay Treatment: <strong>{(inspectCalculation || inspectLeave.sandwichDetails)?.payTypeApplied?.replace(/_/g, ' ') || 'Same as Applied Leave'}</strong>
-                </div>
-              </div>
+
 
               {/* HR Override Info (Visible only if override applied, with confidential reason hidden for employee!) */}
               {inspectLeave.hrOverride?.isOverridden && (
