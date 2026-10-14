@@ -1247,30 +1247,38 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
                             {/* Pending Approval Actions */}
+                            {/* Pending Approval Actions */}
                             {l.status === 'Pending' && canApprove && (
                               <>
                                 <button 
                                   type="button"
                                   onClick={() => approveLeave(l.id, reviewerName)}
                                   style={{ 
-                                    height: '30px',
+                                    height: '28px',
                                     padding: '0 12px', 
                                     fontWeight: 700, 
-                                    fontSize: '0.76rem', 
+                                    fontSize: '0.74rem', 
                                     borderRadius: '8px',
-                                    backgroundColor: '#10B981',
-                                    color: '#FFFFFF',
-                                    border: 'none',
+                                    backgroundColor: '#ECFDF5',
+                                    color: '#059669',
+                                    border: '1px solid #A7F3D0',
                                     cursor: 'pointer',
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    boxShadow: '0 1px 2px rgba(16,185,129,0.2)',
+                                    justifyContent: 'center',
                                     transition: 'all 0.15s ease'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#D1FAE5';
+                                    e.currentTarget.style.borderColor = '#6EE7B7';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#ECFDF5';
+                                    e.currentTarget.style.borderColor = '#A7F3D0';
                                   }}
                                   title={isWfh ? "Approve Work From Home" : "Approve Leave Request"}
                                 >
-                                  <Check size={13} /> Approve
+                                  Approve
                                 </button>
                                 <button 
                                   type="button"
@@ -1279,24 +1287,31 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                     setRejectComment('');
                                   }}
                                   style={{ 
-                                    height: '30px',
+                                    height: '28px',
                                     padding: '0 12px', 
                                     fontWeight: 700, 
-                                    fontSize: '0.76rem', 
+                                    fontSize: '0.74rem', 
                                     borderRadius: '8px',
-                                    backgroundColor: '#EF4444',
-                                    color: '#FFFFFF',
-                                    border: 'none',
+                                    backgroundColor: '#FEF2F2',
+                                    color: '#DC2626',
+                                    border: '1px solid #FECACA',
                                     cursor: 'pointer',
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    boxShadow: '0 1px 2px rgba(239,68,68,0.2)',
+                                    justifyContent: 'center',
                                     transition: 'all 0.15s ease'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#FEE2E2';
+                                    e.currentTarget.style.borderColor = '#FCA5A5';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#FEF2F2';
+                                    e.currentTarget.style.borderColor = '#FECACA';
                                   }}
                                   title="Reject Leave Request"
                                 >
-                                  <X size={13} /> Reject
+                                  Reject
                                 </button>
                               </>
                             )}
@@ -1307,10 +1322,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                 type="button"
                                 onClick={() => approveLeave(l.id, reviewerName)}
                                 style={{
-                                  height: '30px',
-                                  padding: '0 10px',
+                                  height: '28px',
+                                  padding: '0 12px',
                                   borderRadius: '8px',
-                                  fontSize: '0.75rem',
+                                  fontSize: '0.74rem',
                                   fontWeight: 700,
                                   backgroundColor: '#ECFDF5',
                                   color: '#059669',
@@ -1318,12 +1333,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                   cursor: 'pointer',
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  justifyContent: 'center',
                                   transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#D1FAE5';
+                                  e.currentTarget.style.borderColor = '#6EE7B7';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#ECFDF5';
+                                  e.currentTarget.style.borderColor = '#A7F3D0';
                                 }}
                                 title="Re-approve this application"
                               >
-                                <Check size={13} /> Re-Approve
+                                Re-Approve
                               </button>
                             )}
 
@@ -1336,10 +1359,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                   setRejectComment('Decision revoked by HR/CEO');
                                 }}
                                 style={{
-                                  height: '30px',
-                                  padding: '0 10px',
+                                  height: '28px',
+                                  padding: '0 12px',
                                   borderRadius: '8px',
-                                  fontSize: '0.75rem',
+                                  fontSize: '0.74rem',
                                   fontWeight: 700,
                                   backgroundColor: '#FEF2F2',
                                   color: '#DC2626',
@@ -1347,12 +1370,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                   cursor: 'pointer',
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  justifyContent: 'center',
                                   transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#FEE2E2';
+                                  e.currentTarget.style.borderColor = '#FCA5A5';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#FEF2F2';
+                                  e.currentTarget.style.borderColor = '#FECACA';
                                 }}
                                 title="Revoke / Cancel approval"
                               >
-                                <X size={13} /> Revoke
+                                Revoke
                               </button>
                             )}
 
@@ -1471,7 +1502,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   }}
                   style={{ color: '#86EFAC' }}
                 >
-                  ✓ Approve ({selectedLeaveIds.length})
+                  Approve ({selectedLeaveIds.length})
                 </button>
                 <button
                   type="button"
@@ -1481,7 +1512,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     setSelectedLeaveIds([]);
                   }}
                 >
-                  ✕ Reject ({selectedLeaveIds.length})
+                  Reject ({selectedLeaveIds.length})
                 </button>
               </div>
             ) : undefined
@@ -1496,7 +1527,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
             <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '10px', marginBottom: '8px' }}>
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#DC2626', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>✕</span> Reject Leave Request
+                  Reject Leave Request
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
                   Please confirm rejection for <strong>{rejectModalTarget.employeeName}</strong> ({rejectModalTarget.employeeId})
@@ -1517,7 +1548,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   cursor: 'pointer'
                 }}
               >
-                ✕
+                <X size={15} />
               </button>
             </div>
             
@@ -2331,23 +2362,30 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         }}
                         style={{
                           height: '38px',
-                          padding: '0 18px',
+                          padding: '0 20px',
                           borderRadius: '10px',
-                          border: 'none',
-                          backgroundColor: '#EF4444',
-                          color: '#FFFFFF',
+                          border: '1px solid #FECACA',
+                          backgroundColor: '#FEF2F2',
+                          color: '#DC2626',
                           fontSize: '0.84rem',
                           fontWeight: 700,
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '6px',
-                          boxShadow: '0 1px 3px rgba(239,68,68,0.25)',
+                          justifyContent: 'center',
                           transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#FEE2E2';
+                          e.currentTarget.style.borderColor = '#FCA5A5';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#FEF2F2';
+                          e.currentTarget.style.borderColor = '#FECACA';
                         }}
                         title="Reject this leave request"
                       >
-                        <X size={15} /> Reject
+                        Reject
                       </button>
                       <button
                         type="button"
@@ -2359,21 +2397,28 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           height: '38px',
                           padding: '0 22px',
                           borderRadius: '10px',
-                          border: 'none',
-                          backgroundColor: '#10B981',
-                          color: '#FFFFFF',
+                          border: '1px solid #A7F3D0',
+                          backgroundColor: '#ECFDF5',
+                          color: '#059669',
                           fontSize: '0.84rem',
                           fontWeight: 700,
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '6px',
-                          boxShadow: '0 1px 3px rgba(16,185,129,0.25)',
+                          justifyContent: 'center',
                           transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#D1FAE5';
+                          e.currentTarget.style.borderColor = '#6EE7B7';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ECFDF5';
+                          e.currentTarget.style.borderColor = '#A7F3D0';
                         }}
                         title="Approve this leave request"
                       >
-                        <Check size={15} /> Approve
+                        Approve
                       </button>
                     </>
                   )}
@@ -2387,7 +2432,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       }}
                       style={{
                         height: '38px',
-                        padding: '0 18px',
+                        padding: '0 20px',
                         borderRadius: '10px',
                         border: '1px solid #A7F3D0',
                         backgroundColor: '#ECFDF5',
@@ -2397,12 +2442,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
+                        justifyContent: 'center',
                         transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#D1FAE5';
+                        e.currentTarget.style.borderColor = '#6EE7B7';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#ECFDF5';
+                        e.currentTarget.style.borderColor = '#A7F3D0';
                       }}
                       title="Re-approve this application"
                     >
-                      <Check size={15} /> Re-Approve Request
+                      Re-Approve Request
                     </button>
                   )}
 
@@ -2415,7 +2468,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       }}
                       style={{
                         height: '38px',
-                        padding: '0 18px',
+                        padding: '0 20px',
                         borderRadius: '10px',
                         border: '1px solid #FECACA',
                         backgroundColor: '#FEF2F2',
@@ -2425,12 +2478,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
+                        justifyContent: 'center',
                         transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#FEE2E2';
+                        e.currentTarget.style.borderColor = '#FCA5A5';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#FEF2F2';
+                        e.currentTarget.style.borderColor = '#FECACA';
                       }}
                       title="Revoke approval"
                     >
-                      <X size={15} /> Revoke Approval
+                      Revoke Approval
                     </button>
                   )}
                 </div>
