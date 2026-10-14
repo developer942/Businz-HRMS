@@ -797,8 +797,9 @@ interface HRMSContextType {
 
   leaveRequests: LeaveRequest[];
   applyLeave: (req: Omit<LeaveRequest, 'id' | 'status' | 'appliedDate'>) => void;
-  approveLeave: (id: string, approvedBy: string) => void;
+  approveLeave: (id: string, approvedBy: string, comment?: string) => void;
   rejectLeave: (id: string, approvedBy: string, comment?: string) => void;
+  deleteLeaveRequest: (id: string, reason?: string) => Promise<boolean>;
 
   shifts: Shift[];
   shiftRequests: ShiftRequest[];
@@ -915,6 +916,7 @@ interface HRMSContextType {
   setActiveModule: (mod: ModuleName) => void;
   activeSettingsTab: SettingsSubTab;
   setActiveSettingsTab: (tab: SettingsSubTab) => void;
+  resetToDashboard: () => void;
 
   workflowFormat: ApprovalWorkflowFormat;
   setWorkflowFormat: (format: ApprovalWorkflowFormat) => void;
@@ -1245,6 +1247,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeModule, setActiveModule] = useState<ModuleName>('dashboard');
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsSubTab>('company_details');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Primary Rule: Software always starts from dashboard upon login / reset
+  const resetToDashboard = () => {
+    setActiveModule('dashboard');
+    setActiveSettingsTab('company_details');
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        window.sessionStorage.removeItem('vrm_task_active_tab');
+      } catch {}
+    }
+  };
   const [workflowFormat, setWorkflowFormat] = useState<ApprovalWorkflowFormat>('HR_ONLY');
   const isCloudInitialized = useRef(false);
   const isSyncingFromCloud = useRef(false);
@@ -3217,7 +3230,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [masterLeavePolicies, setMasterLeavePolicies] = useState<MasterLeavePolicy[]>([]);
 
   // Sandwich Leave Policy Engine States
-  const [sandwichPolicies, setSandwichPolicies] = useState<SandwichLeavePolicy[]>(initialSandwichPolicies);
+  const [sandwichPolicies, setSandwichPolicies] = useState<SandwichLeavePolicy[]>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_sandwich_policies_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return initialSandwichPolicies;
+  });
 
   const [sandwichAuditLogs, setSandwichAuditLogs] = useState<SandwichAuditLog[]>(initialSandwichAuditLogs);
 
@@ -4709,7 +4731,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedBy: userDisplayName
     };
 
-    setSandwichPolicies(prev => [newPolicy, ...prev]);
+    const updated = [newPolicy, ...sandwichPolicies.filter(p => p.id !== newPolicy.id)];
+    syncSandwichPoliciesState(updated);
 
     addSandwichAuditLog({
       action: 'POLICY_CREATED',
@@ -4737,14 +4760,92 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const syncSandwichPoliciesState = (updated: SandwichLeavePolicy[]) => {
+    setSandwichPolicies(updated);
+    try {
+      localStorage.setItem('vrm_hrms_sandwich_policies_persistent', JSON.stringify(updated));
+    } catch {}
+    supabaseDirect.saveCompanySetting('sandwich_policies_data', updated).catch(() => {});
+
+    // Dynamically recalculate all pending leave requests to reflect the updated sandwich policy
+    setLeaveRequests(prevLeaves => {
+      let hasChanges = false;
+      const recomputed = prevLeaves.map(l => {
+        if (l.status !== 'Pending') return l;
+        const isWfh = l.leaveType === 'Work From Home' || (l.leaveType && l.leaveType.toLowerCase().includes('wfh'));
+        if (isWfh) return l;
+
+        const emp = employees.find(e => e.employeeId === l.employeeId || e.id === l.employeeId) || employees[0] || ({
+          id: l.employeeId,
+          employeeId: l.employeeId,
+          firstName: l.employeeName || 'Staff',
+          lastName: '',
+          department: l.department || 'General',
+          designation: 'Staff',
+          workLocation: 'Plant HQ',
+          shiftDetails: { weeklyOff: 'Sunday' }
+        } as any);
+
+        const calc = calculateSandwichLeave({
+          employee: emp,
+          leaveType: l.leaveType,
+          startDate: l.startDate,
+          endDate: l.endDate,
+          policies: updated,
+          holidays: holidayPolicies,
+          existingLeaves: prevLeaves.filter(r => r.id !== l.id),
+          weeklyOffSchedule: emp?.shiftDetails?.weeklyOff,
+          weeklySchedules: weeklySchedules
+        });
+
+        const newDaysCount = calc.totalDays;
+        const newSandwichDays = calc.sandwichDays;
+        const newIsApplied = calc.isSandwichApplied;
+        const newUnpaid = calc.breakdown.filter(b => b.isSandwich && !b.isPaid).length;
+
+        if (
+          l.daysCount !== newDaysCount ||
+          l.sandwichDays !== newSandwichDays ||
+          l.isSandwichApplied !== newIsApplied ||
+          !l.sandwichDetails
+        ) {
+          hasChanges = true;
+          if (l.id && !l.id.startsWith('LR-')) {
+            supabaseDirect.updateLeaveRequestDaysCount(l.id, newDaysCount).catch(() => {});
+          }
+          return {
+            ...l,
+            daysCount: newDaysCount,
+            sandwichDetails: calc,
+            isSandwichApplied: newIsApplied,
+            sandwichDays: newSandwichDays,
+            unpaidSandwichDays: newUnpaid,
+            paidDaysCount: calc.paidDays,
+            unpaidDaysCount: calc.unpaidDays
+          };
+        }
+        return l;
+      });
+
+      if (hasChanges) {
+        try {
+          localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(recomputed));
+        } catch {}
+        supabaseDirect.saveCompanySetting('leave_requests_data', recomputed).catch(() => {});
+        return recomputed;
+      }
+      return prevLeaves;
+    });
+  };
+
   const updateSandwichPolicy = (id: string, updates: Partial<SandwichLeavePolicy>, reason?: string) => {
     const now = new Date().toISOString();
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
 
-    setSandwichPolicies(prev => prev.map(p => {
+    const updated = sandwichPolicies.map(p => {
       if (p.id === id) {
         const nextVersion = p.version + 1;
-        const updated: SandwichLeavePolicy = {
+        const updatedPolicy: SandwichLeavePolicy = {
           ...p,
           ...updates,
           version: nextVersion,
@@ -4755,37 +4856,39 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         addSandwichAuditLog({
           action: 'POLICY_UPDATED',
           policyId: id,
-          policyName: updated.policyName,
+          policyName: updatedPolicy.policyName,
           oldValue: { version: p.version, ruleEnabled: p.sandwichRuleEnabled, condition: p.sandwichCondition, payType: p.payType },
-          newValue: { version: nextVersion, ruleEnabled: updated.sandwichRuleEnabled, condition: updated.sandwichCondition, payType: updated.payType },
-          reason: reason || `Updated sandwich leave policy "${updated.policyName}" to version ${nextVersion}. Historical records preserved.`
+          newValue: { version: nextVersion, ruleEnabled: updatedPolicy.sandwichRuleEnabled, condition: updatedPolicy.sandwichCondition, payType: updatedPolicy.payType },
+          reason: reason || `Updated sandwich leave policy "${updatedPolicy.policyName}" to version ${nextVersion}. Historical records preserved.`
         });
 
         addPolicyAuditLog({
           policyCategory: 'Leave Management',
           policyId: id,
-          policyName: updated.policyName,
+          policyName: updatedPolicy.policyName,
           action: 'EDIT',
           performedBy: currentUser.name,
           performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Updated sandwich policy "${updated.policyName}" to version ${nextVersion}.`,
+          changeSummary: `Updated sandwich policy "${updatedPolicy.policyName}" to version ${nextVersion}.`,
           oldValues: p,
-          newValues: updated
+          newValues: updatedPolicy
         });
 
-        return updated;
+        return updatedPolicy;
       }
       return p;
-    }));
+    });
+
+    syncSandwichPoliciesState(updated);
   };
 
   const archiveSandwichPolicy = (id: string) => {
     const now = new Date().toISOString();
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
 
-    setSandwichPolicies(prev => prev.map(p => {
+    const updated = sandwichPolicies.map(p => {
       if (p.id === id) {
-        const updated: SandwichLeavePolicy = {
+        const updatedPolicy: SandwichLeavePolicy = {
           ...p,
           status: 'Archived',
           updatedAt: now,
@@ -4799,20 +4902,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           reason: `Archived sandwich policy "${p.policyName}". Historical approved records preserved.`
         });
 
-        return updated;
+        return updatedPolicy;
       }
       return p;
-    }));
+    });
+
+    syncSandwichPoliciesState(updated);
   };
 
   const toggleSandwichPolicyStatus = (id: string) => {
     const now = new Date().toISOString();
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
 
-    setSandwichPolicies(prev => prev.map(p => {
+    const updated = sandwichPolicies.map(p => {
       if (p.id === id) {
         const nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
-        const updated: SandwichLeavePolicy = {
+        const updatedPolicy: SandwichLeavePolicy = {
           ...p,
           status: nextStatus,
           updatedAt: now,
@@ -4826,14 +4931,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           reason: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} sandwich leave policy.`
         });
 
-        return updated;
+        return updatedPolicy;
       }
       return p;
-    }));
+    });
+
+    syncSandwichPoliciesState(updated);
   };
 
   const deleteSandwichPolicy = (id: string) => {
-    setSandwichPolicies(prev => prev.filter(p => p.id !== id));
+    const updated = sandwichPolicies.filter(p => p.id !== id);
+    syncSandwichPoliciesState(updated);
   };
 
   const computeSandwichCalculation = (params: {
@@ -4842,7 +4950,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     startDate: string;
     endDate: string;
   }): SandwichCalculationResult => {
-    const emp = employees.find(e => e.employeeId === params.employeeId) || employees[0];
+    const emp = employees.find(e => e.employeeId === params.employeeId || e.id === params.employeeId) || employees[0] || ({
+      id: params.employeeId,
+      employeeId: params.employeeId,
+      firstName: 'Staff',
+      lastName: '',
+      department: 'General',
+      designation: 'Staff',
+      workLocation: 'Plant HQ',
+      shiftDetails: { weeklyOff: 'Sunday' }
+    } as any);
+
     return calculateSandwichLeave({
       employee: emp,
       leaveType: params.leaveType,
@@ -4851,9 +4969,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       policies: sandwichPolicies,
       holidays: holidayPolicies,
       existingLeaves: leaveRequests,
-      weeklyOffSchedule: emp.shiftDetails?.weeklyOff
+      weeklyOffSchedule: emp?.shiftDetails?.weeklyOff,
+      weeklySchedules: weeklySchedules
     });
   };
+
 
   const overrideSandwichCalculation = (leaveRequestId: string, overrideData: {
     excludedDates?: string[];
@@ -5221,6 +5341,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     setCurrentUser(switchedUser);
+    setActiveModule('dashboard');
+    setActiveSettingsTab('company_details');
     try {
       localStorage.setItem('vrm_hrms_current_user', JSON.stringify(switchedUser));
     } catch (e) {
@@ -6159,7 +6281,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       safeEndDate = safeStartDate;
     }
 
-    const emp = employees.find(e => e.employeeId === req.employeeId) || employees[0];
+    const emp = employees.find(e => e.employeeId === req.employeeId || e.id === req.employeeId) || employees[0] || ({
+      id: req.employeeId,
+      employeeId: req.employeeId,
+      firstName: req.employeeName || 'Staff',
+      lastName: '',
+      department: req.department || 'General',
+      designation: 'Staff',
+      workLocation: 'Plant HQ',
+      shiftDetails: { weeklyOff: 'Sunday' }
+    } as any);
 
     const isWfh = req.leaveType === 'Work From Home' || 
       (req.leaveType && req.leaveType.toLowerCase().includes('work from home')) ||
@@ -6184,7 +6315,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       policies: sandwichPolicies,
       holidays: holidayPolicies,
       existingLeaves: leaveRequests,
-      weeklyOffSchedule: emp.shiftDetails?.weeklyOff
+      weeklyOffSchedule: emp?.shiftDetails?.weeklyOff || 'Sunday'
     }));
 
     const isSandwich = isWfh ? false : sandwichCalc.isSandwichApplied;
@@ -6314,7 +6445,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return !isApprovalTargetHR(target);
   };
 
-  const approveLeave = (id: string, approvedBy: string) => {
+  const approveLeave = (id: string, approvedBy: string, comment?: string) => {
     const target = leaveRequests.find(l => l.id === id);
     if (!target) return;
     if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
@@ -6406,12 +6537,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           employeeId: l.employeeId,
           policyId: l.sandwichDetails?.appliedPolicyId,
           newValue: { approvedBy, approvedAt, daysCount: l.daysCount },
-          reason: isWfh 
-            ? `Work From Home request approved by ${approvedBy}. Attendance updated as [WFH] (Present).`
-            : `Leave request approved by ${approvedBy}. Attendance calendar updated.`
+          reason: comment 
+            ? `Leave request approved by ${approvedBy}. Remarks: ${comment}` 
+            : isWfh 
+              ? `Work From Home request approved by ${approvedBy}. Attendance updated as [WFH] (Present).`
+              : `Leave request approved by ${approvedBy}. Attendance calendar updated.`
         });
 
-        return { ...l, status: 'Approved' as const, approvedBy, approvedAt };
+        return { ...l, status: 'Approved' as const, approvedBy, approvedAt, comment: comment !== undefined ? comment : l.comment };
       }
       return l;
       });
@@ -6424,13 +6557,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     if (id.length === 36) {
-      supabaseDirect.updateLeaveRequestStatus(id, 'Approved', approvedBy);
+      supabaseDirect.updateLeaveRequestStatus(id, 'Approved', approvedBy, comment);
     }
 
     // 1. Notify the employee who applied (targeted to their employee ID & name)
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Approved' : 'Leave Request Approved',
-      message: `Your ${target.leaveType} request (${target.startDate} to ${target.endDate}) was approved by ${approvedBy}. Attendance updated.`,
+      message: `Your ${target.leaveType} request (${target.startDate} to ${target.endDate}) was approved by ${approvedBy}.${comment ? ` Remarks: ${comment}` : ''} Attendance updated.`,
       priority: 'Normal',
       category: 'Leave',
       link: 'leaves',
@@ -6527,6 +6660,59 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       category: 'Leave',
       link: 'leaves'
     });
+  };
+
+  const deleteLeaveRequest = async (id: string, reason?: string): Promise<boolean> => {
+    const target = leaveRequests.find(l => l.id === id);
+    if (!target) return false;
+
+    // Clean up attendance if it was an approved leave
+    if (target.status === 'Approved') {
+      const start = new Date(target.startDate);
+      const end = new Date(target.endDate);
+      const cur = new Date(start);
+      const dateStrings: string[] = [];
+      while (cur <= end) {
+        dateStrings.push(cur.toISOString().split('T')[0]);
+        cur.setDate(cur.getDate() + 1);
+      }
+      setAttendanceRecords(prevAtt => prevAtt.filter(a => {
+        const matchEmp = a.employeeId === target.employeeId;
+        const matchDate = dateStrings.includes(a.date);
+        const isAuto = a.id.startsWith('ATT-WFH-') || a.id.startsWith('ATT-LV-') || a.method === 'System Auto';
+        return !(matchEmp && matchDate && isAuto);
+      }));
+    }
+
+    const updatedLeaves = leaveRequests.filter(l => l.id !== id);
+    setLeaveRequests(updatedLeaves);
+
+    try {
+      localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(updatedLeaves));
+      localStorage.setItem('vrm_hrms_leave_requests', JSON.stringify(updatedLeaves));
+    } catch {}
+
+    supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => {});
+
+    if (id.length === 36) {
+      await supabaseDirect.deleteLeaveRequest(id);
+    }
+
+    addSandwichAuditLog({
+      action: 'LEAVE_CANCELLED',
+      leaveRequestId: target.id,
+      employeeId: target.employeeId,
+      reason: reason || `Leave request removed/deleted by ${currentUser.name || currentUser.role}.`
+    });
+
+    addNotification({
+      title: 'Leave Request Removed',
+      message: `${target.employeeName}'s ${target.leaveType} request was removed.`,
+      priority: 'Normal',
+      category: 'Leave'
+    });
+
+    return true;
   };
 
   const addShift = (shiftData: Omit<Shift, 'id' | 'assignedEmployeeCount'>) => {
@@ -9232,9 +9418,61 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // Synchronize Leaves. In Hostinger VPS mode the leave_requests table is the source of truth.
       if (Array.isArray(rawLeaves) && rawLeaves.length > 0) {
+        const cachedLeavesMap = new Map<string, LeaveRequest>();
+        try {
+          const cachedSaved = localStorage.getItem('vrm_hrms_leave_requests_persistent');
+          if (cachedSaved) {
+            const parsed = JSON.parse(cachedSaved);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((l: LeaveRequest) => { if (l?.id) cachedLeavesMap.set(l.id, l); });
+            }
+          }
+          if (Array.isArray(settings.leave_requests_data)) {
+            settings.leave_requests_data.forEach((l: LeaveRequest) => { if (l?.id) cachedLeavesMap.set(l.id, l); });
+          }
+        } catch {}
+
+        const activeSandwichRules = (Array.isArray(settings.sandwich_policies_data) && settings.sandwich_policies_data.length > 0)
+          ? settings.sandwich_policies_data
+          : sandwichPolicies;
+
         const mappedLeaves = rawLeaves.map((l: any) => {
-          const emp = employees.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id);
+          const emp = employees.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id) || employees[0] || ({
+            id: l.employee_id,
+            employeeId: l.employee?.employee_id || l.employee_id,
+            firstName: l.employee?.first_name || 'Staff',
+            lastName: l.employee?.last_name || '',
+            department: 'General',
+            designation: 'Staff',
+            workLocation: 'Plant HQ',
+            shiftDetails: { weeklyOff: 'Sunday' }
+          } as any);
+
           const fullName = l.employee ? `${l.employee.first_name || ''} ${l.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
+          const cached = cachedLeavesMap.get(l.id);
+          const isWfh = l.leave_type === 'Work From Home' || 
+            (l.leave_type && l.leave_type.toLowerCase().includes('work from home')) ||
+            (l.leave_type && l.leave_type.toLowerCase() === 'wfh');
+
+          // Dynamically calculate sandwich breakdown
+          const effectiveSandwichCalc: SandwichCalculationResult | undefined = isWfh ? undefined : (cached?.sandwichDetails || calculateSandwichLeave({
+            employee: emp,
+            leaveType: l.leave_type || 'Casual Leave',
+            startDate: l.start_date,
+            endDate: l.end_date,
+            policies: activeSandwichRules,
+            holidays: holidayPolicies,
+            existingLeaves: rawLeaves.filter((r: any) => r.id !== l.id).map(r => ({ ...r, employeeId: r.employee_id, startDate: r.start_date, endDate: r.end_date })),
+            weeklyOffSchedule: emp?.shiftDetails?.weeklyOff,
+            weeklySchedules: Array.isArray(settings.weekly_schedules_data) ? settings.weekly_schedules_data : weeklySchedules
+          }));
+
+          const sandwichDays = isWfh ? 0 : (cached?.sandwichDays ?? effectiveSandwichCalc?.sandwichDays ?? 0);
+          const isSandwichApplied = isWfh ? false : (cached?.isSandwichApplied ?? effectiveSandwichCalc?.isSandwichApplied ?? false);
+          const finalDays = isWfh 
+            ? (Number(l.days_count) || 1) 
+            : (effectiveSandwichCalc?.totalDays ?? (Number(l.days_count) || 1));
+
           const mappedLeave: LeaveRequest = {
             id: l.id,
             employeeId: l.employee?.employee_id || emp?.employeeId || l.employee_id,
@@ -9243,13 +9481,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             leaveType: l.leave_type || 'Casual Leave',
             startDate: l.start_date,
             endDate: l.end_date,
-            daysCount: Number(l.days_count) || 1,
+            daysCount: finalDays,
             reason: l.reason || '',
             status: l.status || 'Pending',
             appliedDate: l.applied_date || l.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
             approvedBy: l.approved_by || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : l.status === 'Rejected' ? 'Pavithra R (HR Manager)' : undefined),
             approvedAt: l.approved_at || (l.status !== 'Pending' ? (l.updated_at || l.created_at) : undefined),
-            comment: l.comment
+            comment: l.comment,
+            sandwichDetails: effectiveSandwichCalc,
+            isSandwichApplied,
+            sandwichDays,
+            unpaidSandwichDays: effectiveSandwichCalc?.breakdown?.filter(b => b.isSandwich && !b.isPaid).length || 0,
+            paidDaysCount: isWfh ? finalDays : (effectiveSandwichCalc?.paidDays ?? finalDays),
+            unpaidDaysCount: isWfh ? 0 : (effectiveSandwichCalc?.unpaidDays ?? 0),
+            hrOverride: cached?.hrOverride
           };
           return mappedLeave;
         });
@@ -9743,6 +9988,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setMasterLeavePolicies(settings.master_leave_policies_data);
         }
 
+        // Sandwich Leave Policies
+        if (hasSetting('sandwich_policies_data') && Array.isArray(settings.sandwich_policies_data) && settings.sandwich_policies_data.length > 0) {
+          setSandwichPolicies(settings.sandwich_policies_data);
+          try {
+            localStorage.setItem('vrm_hrms_sandwich_policies_persistent', JSON.stringify(settings.sandwich_policies_data));
+          } catch {}
+        }
+
         // Department OT Policies
         if (hasSetting('department_ot_policies_data') && Array.isArray(settings.department_ot_policies_data)) {
           setDepartmentOtPolicies(settings.department_ot_policies_data.map(normalizeDepartmentOtPolicy));
@@ -9946,6 +10199,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       applyLeave,
       approveLeave,
       rejectLeave,
+      deleteLeaveRequest,
       shifts,
       shiftRequests,
       addShift,
@@ -10037,6 +10291,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setActiveModule,
       activeSettingsTab,
       setActiveSettingsTab,
+      resetToDashboard,
       workflowFormat,
       setWorkflowFormat,
       geofenceConfig,

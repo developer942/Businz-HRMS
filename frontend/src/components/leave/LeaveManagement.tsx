@@ -17,7 +17,8 @@ import {
   Check,
   DollarSign,
   Home,
-  Bell
+  Bell,
+  Trash2
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { toNum } from '../../utils/numbers';
@@ -49,6 +50,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     applyLeave, 
     approveLeave, 
     rejectLeave, 
+    deleteLeaveRequest,
     currentUser, 
     employees, 
     hasPermission,
@@ -56,6 +58,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     holidayPolicies,
     masterLeavePolicies,
     sandwichPolicies,
+    weeklySchedules,
     computeSandwichCalculation,
     overrideSandwichCalculation,
     sendLeaveReminder
@@ -131,9 +134,17 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
   const [showModal, setShowModal] = useState<boolean>(openApplyModal || false);
   const [inspectLeave, setInspectLeave] = useState<LeaveRequest | null>(null);
+  const [inspectRemarks, setInspectRemarks] = useState<string>('');
+  const [deleteTargetLeave, setDeleteTargetLeave] = useState<LeaveRequest | null>(null);
+  const [deleteReasonText, setDeleteReasonText] = useState<string>('');
   const [overrideLeave, setOverrideLeave] = useState<LeaveRequest | null>(null);
   const [rejectModalTarget, setRejectModalTarget] = useState<LeaveRequest | null>(null);
   const [rejectComment, setRejectComment] = useState<string>('');
+
+  const openInspectLeaveModal = (l: LeaveRequest) => {
+    setInspectLeave(l);
+    setInspectRemarks(l.comment || '');
+  };
 
   // Role-based data scoping for leave applications
   const roleScopedLeaves = isEmployeeRole
@@ -302,6 +313,27 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       return null;
     }
   }, [computeSandwichCalculation, isEmployeeRole, currentUser.employeeId, form.employeeId, form.leaveType, form.startDate, form.endDate]);
+
+  // Live Dynamic Sandwich Calculation for the active inspection modal
+  const inspectCalculation: SandwichCalculationResult | null = useMemo(() => {
+    if (!inspectLeave) return null;
+    const isWfh = inspectLeave.leaveType === 'Work From Home' || 
+      (inspectLeave.leaveType && inspectLeave.leaveType.toLowerCase().includes('work from home')) ||
+      (inspectLeave.leaveType && inspectLeave.leaveType.toLowerCase() === 'wfh');
+    if (isWfh) return null;
+
+    try {
+      return computeSandwichCalculation({
+        employeeId: inspectLeave.employeeId,
+        leaveType: inspectLeave.leaveType,
+        startDate: inspectLeave.startDate,
+        endDate: inspectLeave.endDate
+      });
+    } catch (e) {
+      console.error('Error calculating inspection sandwich preview', e);
+      return inspectLeave.sandwichDetails || null;
+    }
+  }, [inspectLeave, computeSandwichCalculation, sandwichPolicies, weeklySchedules]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -593,7 +625,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   return (
                     <tr 
                       key={l.id}
-                      onClick={() => isEmployeeRole && setInspectLeave(l)}
+                      onClick={() => isEmployeeRole && openInspectLeaveModal(l)}
                       title={isEmployeeRole ? "Click to view application breakdown" : undefined}
                       style={{
                         backgroundColor: isSelected ? '#ECFEFF' : undefined,
@@ -922,10 +954,48 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               </button>
                             )}
 
-                            {/* 4. View Details button - icon only */}
+                            {/* 4. Remove / Delete Button (for HR/CEO or employee for pending leave) */}
+                            {(canApprove || (isEmployeeRole && l.status === 'Pending')) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteTargetLeave(l);
+                                  setDeleteReasonText('');
+                                }}
+                                title="Remove / Delete leave request"
+                                aria-label="Remove leave request"
+                                style={{
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #FECACA',
+                                  backgroundColor: '#FEF2F2',
+                                  color: '#DC2626',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#FEE2E2';
+                                  e.currentTarget.style.borderColor = '#EF4444';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#FEF2F2';
+                                  e.currentTarget.style.borderColor = '#FECACA';
+                                }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+
+                            {/* 5. View Details button - icon only */}
                             <button
                               type="button"
-                              onClick={() => setInspectLeave(l)}
+                              onClick={() => openInspectLeaveModal(l)}
                               title="View Details"
                               aria-label="View Details"
                               style={{
@@ -1010,6 +1080,19 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 >
                   ✕ Reject ({selectedLeaveIds.length})
                 </button>
+                <button
+                  type="button"
+                  className="action-bar-btn danger"
+                  onClick={() => {
+                    if (window.confirm(`Are you sure you want to remove ${selectedLeaveIds.length} selected leave request(s)?`)) {
+                      selectedLeaveIds.forEach(id => deleteLeaveRequest(id));
+                      setSelectedLeaveIds([]);
+                    }
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Trash2 size={14} /> Delete ({selectedLeaveIds.length})
+                </button>
               </div>
             ) : undefined
           }
@@ -1091,6 +1174,94 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   style={{ borderRadius: '10px', padding: '8px 20px', fontWeight: 700 }}
                 >
                   Confirm Rejection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete / Remove Leave Confirmation Modal */}
+      {deleteTargetLeave && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }}>
+          <div className="modal-content" style={{ maxWidth: '480px', width: '92%', borderRadius: '18px', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '10px', marginBottom: '8px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#DC2626', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Trash2 size={20} />
+                  <span>Remove Leave Request</span>
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
+                  Please confirm removal of leave request for <strong>{deleteTargetLeave.employeeName}</strong>
+                </p>
+              </div>
+              <button 
+                onClick={() => setDeleteTargetLeave(null)}
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '8px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #E2E8F0',
+                  color: '#64748B',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="modal-body" style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ backgroundColor: '#FEF2F2', padding: '12px', borderRadius: '10px', border: '1px solid #FECACA', fontSize: '0.82rem', color: '#991B1B' }}>
+                <div><strong>Leave Type:</strong> {deleteTargetLeave.leaveType} ({deleteTargetLeave.daysCount} days)</div>
+                <div style={{ marginTop: '3px' }}><strong>Duration:</strong> {formatDateDDMMYYYY(deleteTargetLeave.startDate)} to {formatDateDDMMYYYY(deleteTargetLeave.endDate)}</div>
+                <div style={{ marginTop: '3px' }}><strong>Status:</strong> {deleteTargetLeave.status}</div>
+                {deleteTargetLeave.status === 'Approved' && (
+                  <div style={{ marginTop: '6px', fontWeight: 700, fontSize: '0.78rem' }}>
+                    ⚠️ Note: Removing an approved request will automatically clean up any auto-synced attendance for these dates.
+                  </div>
+                )}
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Reason for Removal / Cancellation (Optional)
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={deleteReasonText}
+                  onChange={e => setDeleteReasonText(e.target.value)}
+                  placeholder="e.g. Applied by mistake / Cancelled by applicant / Scheduling change"
+                  style={{ borderRadius: '10px', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setDeleteTargetLeave(null)}
+                  style={{ borderRadius: '10px', padding: '8px 16px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={async () => {
+                    await deleteLeaveRequest(deleteTargetLeave.id, deleteReasonText.trim() || undefined);
+                    setDeleteTargetLeave(null);
+                    if (inspectLeave && inspectLeave.id === deleteTargetLeave.id) {
+                      setInspectLeave(null);
+                    }
+                  }}
+                  style={{ borderRadius: '10px', padding: '8px 20px', fontWeight: 700 }}
+                >
+                  Confirm Delete
                 </button>
               </div>
             </div>
@@ -1276,6 +1447,40 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   />
                 </div>
 
+                {/* Live Sandwich Rule Preview Info Banner */}
+                {liveCalculation && (
+                  <div style={{
+                    backgroundColor: liveCalculation.sandwichDays > 0 ? '#ECFEFF' : '#F8FAFC',
+                    border: `1px solid ${liveCalculation.sandwichDays > 0 ? '#A5F3FC' : '#E2E8F0'}`,
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    fontSize: '0.82rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontWeight: 800, color: liveCalculation.sandwichDays > 0 ? '#0E7490' : '#1E293B', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Sliders size={15} color="#0E7490" />
+                        <span>
+                          {liveCalculation.sandwichDays > 0
+                            ? `Sandwich Rule Applied: ${liveCalculation.appliedLeaveDays} Working Days + ${liveCalculation.sandwichDays} Sandwich Days`
+                            : `${liveCalculation.appliedLeaveDays} Working Days (Sandwich Rule OFF / Excluded)`}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0E7490' }}>
+                        {liveCalculation.totalDays} Total {liveCalculation.totalDays === 1 ? 'Day' : 'Days'}
+                      </div>
+                    </div>
+                    {liveCalculation.sandwichDays > 0 ? (
+                      <div style={{ fontSize: '0.75rem', color: '#0E7490', marginTop: '4px' }}>
+                        Intervening weekly off or public holiday converted to leave under active Corporate Sandwich Policy.
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+                        Weekly offs and holidays are excluded from leave deduction.
+                      </div>
+                    )}
+                  </div>
+                )}
+
               </div>
 
               {/* Modal Footer */}
@@ -1359,19 +1564,19 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 <div>
                   <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Working Days</div>
                   <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1E293B' }}>
-                    {inspectLeave.sandwichDetails?.appliedLeaveDays ?? inspectLeave.daysCount}
+                    {(inspectCalculation || inspectLeave.sandwichDetails)?.appliedLeaveDays ?? inspectLeave.daysCount}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.72rem', color: '#0E7490' }}>Sandwich Days</div>
                   <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0E7490' }}>
-                    {inspectLeave.sandwichDays || inspectLeave.sandwichDetails?.sandwichDays || 0}
+                    {(inspectCalculation || inspectLeave.sandwichDetails)?.sandwichDays ?? inspectLeave.sandwichDays ?? 0}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Total Leave Days</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F172A' }}>
-                    {inspectLeave.daysCount}
+                    {(inspectCalculation || inspectLeave.sandwichDetails)?.totalDays ?? inspectLeave.daysCount}
                   </div>
                 </div>
               </div>
@@ -1381,11 +1586,11 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0E7490', fontWeight: 700, marginBottom: '4px' }}>
                   <Info size={16} />
                   <span>
-                    Policy: {inspectLeave.sandwichDetails?.appliedPolicyName || 'Standard Policy'} (v{inspectLeave.sandwichDetails?.policyVersion || 1})
+                    Policy: {(inspectCalculation || inspectLeave.sandwichDetails)?.appliedPolicyName || 'Corporate Sandwich Leave Policy'} (v{(inspectCalculation || inspectLeave.sandwichDetails)?.policyVersion || 1})
                   </span>
                 </div>
                 <div style={{ color: '#475569', fontSize: '0.78rem' }}>
-                  Pay Treatment: <strong>{inspectLeave.sandwichDetails?.payTypeApplied?.replace(/_/g, ' ') || 'Same as Applied Leave'}</strong>
+                  Pay Treatment: <strong>{(inspectCalculation || inspectLeave.sandwichDetails)?.payTypeApplied?.replace(/_/g, ' ') || 'Same as Applied Leave'}</strong>
                 </div>
               </div>
 
@@ -1424,12 +1629,12 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       </tr>
                     </thead>
                     <tbody>
-                      {inspectLeave.sandwichDetails?.breakdown && inspectLeave.sandwichDetails.breakdown.length > 0 ? (
-                        inspectLeave.sandwichDetails.breakdown.map((item: SandwichCalculationDayDetail) => (
+                      {(inspectCalculation || inspectLeave.sandwichDetails)?.breakdown && (inspectCalculation || inspectLeave.sandwichDetails)!.breakdown.length > 0 ? (
+                        (inspectCalculation || inspectLeave.sandwichDetails)!.breakdown.map((item: SandwichCalculationDayDetail) => (
                           <tr key={item.date} style={{ borderBottom: '1px solid #F1F5F9', backgroundColor: item.isSandwich ? '#ECFEFF' : '#FFFFFF' }}>
                             <td style={{ padding: '8px 12px', fontWeight: 700, color: '#1E293B' }}>{formatDateDDMMYYYY(item.date)}</td>
                             <td style={{ padding: '8px 12px', color: '#64748B' }}>{item.dayOfWeek}</td>
-                            <td style={{ padding: '8px 12px', color: item.isSandwich ? '#0E7490' : '#334155' }}>{item.reason}</td>
+                            <td style={{ padding: '8px 12px', color: item.isSandwich ? '#0E7490' : '#334155', fontWeight: item.isSandwich ? 700 : 500 }}>{item.reason}</td>
                             <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                               {item.isSandwich ? (
                                 <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#0E7490', backgroundColor: '#CFFAFE', padding: '2px 6px', borderRadius: '4px' }}>
@@ -1482,41 +1687,120 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 )}
                 {inspectLeave.comment && (
                   <div style={{ color: '#DC2626', fontSize: '0.78rem', marginTop: '4px' }}>
-                    <strong>Remarks:</strong> {inspectLeave.comment}
+                    <strong>Remarks / Reason:</strong> {inspectLeave.comment}
                   </div>
                 )}
               </div>
+
+              {/* Add Reason / Approver Remarks (HR / CEO Reviewer) */}
+              {canApprove && (
+                <div style={{ marginTop: '12px', backgroundColor: '#F8FAFC', padding: '12px 14px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    <span>📝</span> Add Reason / Approver Remarks
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows={2}
+                    value={inspectRemarks}
+                    onChange={e => setInspectRemarks(e.target.value)}
+                    placeholder="Enter reason or remarks for approval, rejection, or cancellation..."
+                    style={{
+                      width: '100%',
+                      borderRadius: '8px',
+                      fontSize: '0.82rem',
+                      padding: '8px 12px',
+                      border: '1px solid #CBD5E1',
+                      resize: 'vertical',
+                      backgroundColor: '#FFFFFF'
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {/* 1. Pending Approval Actions inside Modal */}
+                {inspectLeave.status === 'Pending' && canApprove && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-success btn-sm"
+                      onClick={() => {
+                        approveLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || undefined);
+                        setInspectLeave(null);
+                      }}
+                      style={{
+                        borderRadius: '8px',
+                        padding: '7px 16px',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 1px 3px rgba(34,197,94,0.3)',
+                        cursor: 'pointer'
+                      }}
+                      title="Approve this leave request"
+                    >
+                      <CheckCircle2 size={16} />
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={() => {
+                        rejectLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || 'Rejected by Reviewer');
+                        setInspectLeave(null);
+                      }}
+                      style={{
+                        borderRadius: '8px',
+                        padding: '7px 16px',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 1px 3px rgba(239,68,68,0.3)',
+                        cursor: 'pointer'
+                      }}
+                      title="Reject this leave request"
+                    >
+                      <XCircle size={16} />
+                      Reject
+                    </button>
+                  </>
+                )}
+
+                {/* 2. Re-Approve if Rejected */}
                 {inspectLeave.status === 'Rejected' && canApprove && (
                   <button
                     type="button"
                     className="btn btn-success btn-sm"
                     onClick={() => {
-                      approveLeave(inspectLeave.id, reviewerName);
+                      approveLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || undefined);
                       setInspectLeave(null);
                     }}
-                    style={{ borderRadius: '8px', padding: '6px 14px', fontWeight: 700 }}
+                    style={{ borderRadius: '8px', padding: '7px 16px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     ✓ Re-Approve Request
                   </button>
                 )}
+
+                {/* 3. Revoke if Approved */}
                 {inspectLeave.status === 'Approved' && canApprove && (
                   <button
                     type="button"
                     className="btn btn-danger btn-sm"
                     onClick={() => {
-                      setRejectModalTarget(inspectLeave);
-                      setRejectComment('Decision revoked by HR/CEO');
+                      rejectLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || 'Decision revoked by HR/CEO');
                       setInspectLeave(null);
                     }}
-                    style={{ borderRadius: '8px', padding: '6px 14px', fontWeight: 700 }}
+                    style={{ borderRadius: '8px', padding: '7px 16px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     ✕ Revoke Approval
                   </button>
                 )}
+
+                {/* 4. Employee Reminder */}
                 {inspectLeave.status === 'Pending' && isEmployeeRole && (
                   <button
                     type="button"
@@ -1525,7 +1809,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     disabled={reminderSentSet.has(inspectLeave.id)}
                     style={{
                       borderRadius: '8px',
-                      padding: '6px 14px',
+                      padding: '7px 14px',
                       fontWeight: 700,
                       backgroundColor: reminderSentSet.has(inspectLeave.id) ? '#ECFDF5' : '#ECFEFF',
                       color: reminderSentSet.has(inspectLeave.id) ? '#059669' : '#0E7490',
@@ -1539,7 +1823,36 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     {reminderSentSet.has(inspectLeave.id) ? '✓ Reminder Sent to HR & CEO' : '🔔 Send Reminder to HR & CEO'}
                   </button>
                 )}
+
+                {/* 5. REMOVE / DELETE BUTTON: Available for HR/CEO or employee for pending leave */}
+                {(canApprove || (isEmployeeRole && inspectLeave.status === 'Pending')) && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      setDeleteTargetLeave(inspectLeave);
+                      setDeleteReasonText(inspectRemarks.trim() || '');
+                    }}
+                    style={{
+                      borderRadius: '8px',
+                      padding: '7px 14px',
+                      fontWeight: 700,
+                      backgroundColor: '#FEF2F2',
+                      color: '#DC2626',
+                      border: '1px solid #FECACA',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                    title="Remove / Delete Leave Request"
+                  >
+                    <Trash2 size={15} />
+                    Remove Request
+                  </button>
+                )}
               </div>
+
               <button 
                 className="btn btn-secondary btn-sm"
                 onClick={() => setInspectLeave(null)}

@@ -224,13 +224,26 @@ export const LeaveManagementSettings: React.FC = () => {
 
   const currentCondition = sandwichPolicies[0]?.sandwichCondition || 'BOTH_SIDES_MANDATORY';
 
+  const ALL_STANDARD_SANDWICH_LEAVE_TYPES = [
+    'Casual Leave', 
+    'Casual Leave (CL)', 
+    'Sick Leave', 
+    'Sick Leave (SL)', 
+    'Earned Leave', 
+    'Earned Leave (EL)', 
+    'Privilege Leave', 
+    'Compensatory Off', 
+    'Loss of Pay (LOP)', 
+    'Unpaid Leave'
+  ];
+
   const handleToggleGlobalSandwich = (nextState?: boolean) => {
     const newState = typeof nextState === 'boolean' ? nextState : !isSandwichEnabled;
     if (sandwichPolicies.length === 0) {
       createSandwichPolicy({
         policyName: 'Corporate Sandwich Leave Policy',
         description: 'Enforces sandwich rule on leaves bounded by weekly offs or holidays.',
-        applicableLeaveTypes: ['Casual Leave', 'Sick Leave', 'Unpaid Leave'],
+        applicableLeaveTypes: ALL_STANDARD_SANDWICH_LEAVE_TYPES,
         applicableEmployees: 'ALL',
         applicableDepartments: 'ALL',
         applicableDesignations: 'ALL',
@@ -256,24 +269,81 @@ export const LeaveManagementSettings: React.FC = () => {
 
   const handleToggleWeeklyOff = (nextVal?: boolean) => {
     const val = typeof nextVal === 'boolean' ? nextVal : !countWeeklyOff;
-    sandwichPolicies.forEach(p => {
-      updateSandwichPolicy(p.id, { countWeeklyOffAsLeave: val });
-    });
+    if (sandwichPolicies.length === 0) {
+      createSandwichPolicy({
+        policyName: 'Corporate Sandwich Leave Policy',
+        description: 'Enforces sandwich rule on leaves bounded by weekly offs or holidays.',
+        applicableLeaveTypes: ALL_STANDARD_SANDWICH_LEAVE_TYPES,
+        applicableEmployees: 'ALL',
+        applicableDepartments: 'ALL',
+        applicableDesignations: 'ALL',
+        applicableBranches: 'ALL',
+        effectiveFrom: '2026-01-01',
+        status: 'Active',
+        sandwichRuleEnabled: true,
+        countWeeklyOffAsLeave: val,
+        countPublicHolidayAsLeave: true,
+        sandwichCondition: 'BOTH_SIDES_MANDATORY',
+        payType: 'SAME_AS_APPLIED_LEAVE'
+      });
+    } else {
+      sandwichPolicies.forEach(p => {
+        updateSandwichPolicy(p.id, { countWeeklyOffAsLeave: val });
+      });
+    }
     showSandwichFeedback(val ? 'Counting Weekly Offs as leave enabled.' : 'Counting Weekly Offs as leave disabled.');
   };
 
   const handleTogglePublicHoliday = (nextVal?: boolean) => {
     const val = typeof nextVal === 'boolean' ? nextVal : !countPublicHoliday;
-    sandwichPolicies.forEach(p => {
-      updateSandwichPolicy(p.id, { countPublicHolidayAsLeave: val });
-    });
+    if (sandwichPolicies.length === 0) {
+      createSandwichPolicy({
+        policyName: 'Corporate Sandwich Leave Policy',
+        description: 'Enforces sandwich rule on leaves bounded by weekly offs or holidays.',
+        applicableLeaveTypes: ALL_STANDARD_SANDWICH_LEAVE_TYPES,
+        applicableEmployees: 'ALL',
+        applicableDepartments: 'ALL',
+        applicableDesignations: 'ALL',
+        applicableBranches: 'ALL',
+        effectiveFrom: '2026-01-01',
+        status: 'Active',
+        sandwichRuleEnabled: true,
+        countWeeklyOffAsLeave: true,
+        countPublicHolidayAsLeave: val,
+        sandwichCondition: 'BOTH_SIDES_MANDATORY',
+        payType: 'SAME_AS_APPLIED_LEAVE'
+      });
+    } else {
+      sandwichPolicies.forEach(p => {
+        updateSandwichPolicy(p.id, { countPublicHolidayAsLeave: val });
+      });
+    }
     showSandwichFeedback(val ? 'Counting Public Holidays as leave enabled.' : 'Counting Public Holidays as leave disabled.');
   };
 
   const handleConditionChange = (condition: SandwichCondition) => {
-    sandwichPolicies.forEach(p => {
-      updateSandwichPolicy(p.id, { sandwichCondition: condition });
-    });
+    if (sandwichPolicies.length === 0) {
+      createSandwichPolicy({
+        policyName: 'Corporate Sandwich Leave Policy',
+        description: 'Enforces sandwich rule on leaves bounded by weekly offs or holidays.',
+        applicableLeaveTypes: ALL_STANDARD_SANDWICH_LEAVE_TYPES,
+        applicableEmployees: 'ALL',
+        applicableDepartments: 'ALL',
+        applicableDesignations: 'ALL',
+        applicableBranches: 'ALL',
+        effectiveFrom: '2026-01-01',
+        status: 'Active',
+        sandwichRuleEnabled: true,
+        countWeeklyOffAsLeave: true,
+        countPublicHolidayAsLeave: true,
+        sandwichCondition: condition,
+        payType: 'SAME_AS_APPLIED_LEAVE'
+      });
+    } else {
+      sandwichPolicies.forEach(p => {
+        updateSandwichPolicy(p.id, { sandwichCondition: condition });
+      });
+    }
     showSandwichFeedback('Sandwich trigger condition updated.');
   };
 

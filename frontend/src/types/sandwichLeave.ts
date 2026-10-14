@@ -105,6 +105,8 @@ export interface SandwichAuditLog {
     | 'HR_OVERRIDE'
     | 'LEAVE_APPROVED'
     | 'LEAVE_REJECTED'
+    | 'LEAVE_CANCELLED'
+    | 'LEAVE_DELETED'
     | 'PAYROLL_DEDUCTION_CREATED';
   policyId?: string;
   policyName?: string;

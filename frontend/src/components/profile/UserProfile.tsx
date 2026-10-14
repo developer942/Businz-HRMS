@@ -61,7 +61,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
     employees,
     designations,
     changeEmployeePassword,
-    updateEmployee
+    updateEmployee,
+    setActiveModule,
+    resetToDashboard
   } = useHRMS();
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('profile');
@@ -923,6 +925,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
                   <button
                     type="button"
                     onClick={() => {
+                      resetToDashboard?.();
+                      setActiveModule('dashboard');
                       if (onLogout) {
                         onLogout();
                       } else {

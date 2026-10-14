@@ -42,7 +42,20 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
   const [isMobile, setIsMobile] = useState<boolean>(() => 
     typeof window !== 'undefined' ? window.innerWidth <= 1024 : false
   );
-  const { activeModule, setActiveModule, hasPermission, currentUser, switchRole } = useHRMS();
+  const { activeModule, setActiveModule, hasPermission, currentUser, switchRole, resetToDashboard } = useHRMS();
+
+  // Primary System Rule: When logging into software, it MUST start from dashboard, not previous tab/module
+  useEffect(() => {
+    setActiveModule('dashboard');
+    resetToDashboard?.();
+  }, []);
+
+  // Automatic RBAC fallback: if active module is not permitted for current role, return to dashboard
+  useEffect(() => {
+    if (activeModule !== 'dashboard' && !hasPermission(activeModule, 'view')) {
+      setActiveModule('dashboard');
+    }
+  }, [activeModule, hasPermission, setActiveModule]);
 
   // AI Assistant restricted strictly to HR / CEO roles, and ONLY rendered on the CEO/HR Dashboard page
   const isHrOrCeo = isCeoOrHrUser(currentUser);

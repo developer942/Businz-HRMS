@@ -42,7 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
     searchQuery, 
     setSearchQuery,
     setActiveModule,
-    setActiveSettingsTab
+    setActiveSettingsTab,
+    resetToDashboard
   } = useHRMS();
 
   const [showNotifications, setShowNotifications] = useState(false);
@@ -615,6 +616,8 @@ export const Header: React.FC<HeaderProps> = ({
                   className="dropdown-menu-item danger"
                   onClick={() => { 
                     setShowProfileMenu(false); 
+                    resetToDashboard?.();
+                    setActiveModule('dashboard');
                     if (onLogout) onLogout(); 
                   }}
                 >

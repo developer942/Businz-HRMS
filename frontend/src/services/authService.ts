@@ -179,6 +179,9 @@ export const authService = {
     localStorage.removeItem('vrm_active_role');
     localStorage.removeItem('vrm_active_emp_id');
     localStorage.removeItem('vrm_hrms_current_user');
+    try {
+      sessionStorage.removeItem('vrm_task_active_tab');
+    } catch {}
   },
 
   async login(identifier: string, password: string): Promise<{ user: AuthUser; accessToken: string }> {

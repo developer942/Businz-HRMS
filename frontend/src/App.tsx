@@ -5,7 +5,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { authService, toAppUser } from './services/authService';
 
 const AuthenticatedApp: React.FC = () => {
-  const { switchRole, updateCurrentUser } = useHRMS();
+  const { switchRole, updateCurrentUser, setActiveModule, resetToDashboard } = useHRMS();
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'anonymous'>('checking');
 
   useEffect(() => {
@@ -22,6 +22,9 @@ const AuthenticatedApp: React.FC = () => {
         if (!active) return;
         const appUser = toAppUser(authUser);
         updateCurrentUser(appUser);
+        // Primary Rule: Software must ALWAYS start from dashboard
+        resetToDashboard?.();
+        setActiveModule('dashboard');
         setAuthState('authenticated');
       } catch {
         if (active) setAuthState('anonymous');
@@ -30,10 +33,12 @@ const AuthenticatedApp: React.FC = () => {
 
     void restoreSession();
     return () => { active = false; };
-  }, []);
+  }, [updateCurrentUser, setActiveModule, resetToDashboard]);
 
   const logout = () => {
     authService.clearSession();
+    resetToDashboard?.();
+    setActiveModule('dashboard');
     updateCurrentUser({
       id: 'USR-001',
       name: 'Admin',
@@ -58,7 +63,12 @@ const AuthenticatedApp: React.FC = () => {
   return authState === 'authenticated' ? (
     <AppLayout onLogout={logout} />
   ) : (
-    <LoginPage onLoginSuccess={() => setAuthState('authenticated')} />
+    <LoginPage onLoginSuccess={() => {
+      // Primary Rule: Software must ALWAYS start from dashboard upon logging in
+      resetToDashboard?.();
+      setActiveModule('dashboard');
+      setAuthState('authenticated');
+    }} />
   );
 };
 

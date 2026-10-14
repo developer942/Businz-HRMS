@@ -25,7 +25,7 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const { switchRole, updateCurrentUser, employees } = useHRMS();
+  const { switchRole, updateCurrentUser, employees, setActiveModule, resetToDashboard } = useHRMS();
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -153,6 +153,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       const appUser = toAppUser(userData);
       switchRole(appUser.role);
       updateCurrentUser(appUser);
+      // Primary Rule: Software MUST start from dashboard upon logging in
+      resetToDashboard?.();
+      setActiveModule('dashboard');
       setIsLoading(false);
       onLoginSuccess();
     } catch (error) {
@@ -190,7 +193,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         department: pendingEmployee.department,
         designation: pendingEmployee.designation,
       });
-
+      // Primary Rule: Software MUST start from dashboard upon logging in
+      resetToDashboard?.();
+      setActiveModule('dashboard');
       onLoginSuccess();
     } catch (error) {
       setIsChangingPassword(false);

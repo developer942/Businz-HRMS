@@ -7,9 +7,11 @@ import {
   SandwichCalculationResult, 
   SandwichCalculationDayDetail,
   SandwichCondition,
-  SandwichPayType
+  SandwichPayType,
+  WeeklyScheduleItem
 } from '../types/hrms';
 import { toNum } from '../utils/numbers';
+import { isDateWeeklyOffBySchedule } from '../utils/weeklyScheduleUtils';
 
 /**
  * Standard Day of Week names
@@ -40,6 +42,53 @@ export const parseWeeklyOffDays = (weeklyOffInput?: string | string[]): string[]
 };
 
 /**
+ * Determines whether a given calendar date ('YYYY-MM-DD') is a Weekly Off
+ * for the employee, adhering dynamically to company Week Off Calendar rules.
+ * 
+ * Hierarchy:
+ * 1. Employee-specific shift details (employee.shiftDetails.weeklyOff)
+ * 2. Explicitly passed weeklyOffSchedule parameter
+ * 3. Company-wide Week Off Calendar roster (weeklySchedules)
+ * 4. Fallback default: Sunday
+ */
+export const isDayWeeklyOff = (
+  dateStr: string,
+  employee?: Employee,
+  weeklyOffSchedule?: string | string[],
+  weeklySchedules?: WeeklyScheduleItem[]
+): { isWeeklyOff: boolean; dayName: string } => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utcDate = new Date(Date.UTC(y, m - 1, d));
+  const dayName = DAYS_OF_WEEK[utcDate.getUTCDay()];
+  const localDate = new Date(y, m - 1, d);
+
+  // 1. Employee-specific shift weekly off days (if defined)
+  if (employee?.shiftDetails?.weeklyOff) {
+    const shiftOff = parseWeeklyOffDays(employee.shiftDetails.weeklyOff);
+    if (shiftOff.length > 0) {
+      return { isWeeklyOff: shiftOff.includes(dayName), dayName };
+    }
+  }
+
+  // 2. Explicit weeklyOffSchedule parameter (if passed)
+  if (weeklyOffSchedule) {
+    const explicitOff = parseWeeklyOffDays(weeklyOffSchedule);
+    if (explicitOff.length > 0) {
+      return { isWeeklyOff: explicitOff.includes(dayName), dayName };
+    }
+  }
+
+  // 3. Company Week Off Calendar schedules (Settings -> Attendance & Time -> Week Off Calendar)
+  if (Array.isArray(weeklySchedules) && weeklySchedules.length > 0) {
+    const isScheduleOff = isDateWeeklyOffBySchedule(localDate, weeklySchedules);
+    return { isWeeklyOff: isScheduleOff, dayName };
+  }
+
+  // 4. Default company baseline fallback: Sunday
+  return { isWeeklyOff: dayName === 'Sunday', dayName };
+};
+
+/**
  * Resolves the applicable Sandwich Leave Policy for an employee based on hierarchy:
  * Priority: Employee-specific > Designation > Department > Branch > Company Default
  * A policy must satisfy all of its defined non-'ALL' constraints to be eligible.
@@ -60,6 +109,8 @@ export const resolveSandwichPolicy = (
 
   // Filter policies that match all non-ALL criteria of the employee
   const eligiblePolicies = activePolicies.filter(p => {
+    if (!employee) return true;
+
     // 1. Employee filter
     if (p.applicableEmployees && p.applicableEmployees !== 'ALL') {
       const empArr = Array.isArray(p.applicableEmployees) ? p.applicableEmployees : [p.applicableEmployees];
@@ -199,6 +250,7 @@ export const calculateSandwichLeave = (params: {
   holidays: HolidayItem[];
   existingLeaves?: LeaveRequest[];
   weeklyOffSchedule?: string | string[];
+  weeklySchedules?: WeeklyScheduleItem[];
 }): SandwichCalculationResult => {
   const {
     employee,
@@ -208,18 +260,12 @@ export const calculateSandwichLeave = (params: {
     policies,
     holidays,
     existingLeaves = [],
-    weeklyOffSchedule
+    weeklyOffSchedule,
+    weeklySchedules
   } = params;
 
   // Step 1: Resolve Active Policy using hierarchy
   const policy = resolveSandwichPolicy(employee, policies, startDate);
-
-  // Determine Employee's Weekly Off Days (reads employee shift details or schedule)
-  const employeeWeeklyOff = parseWeeklyOffDays(
-    weeklyOffSchedule || 
-    employee.shiftDetails?.weeklyOff || 
-    'Sunday'
-  );
 
   const datesInRange = getDateRangeArray(startDate, endDate);
   const isAppliedTypePaid = isLeaveTypePaid(leaveType);
@@ -228,10 +274,17 @@ export const calculateSandwichLeave = (params: {
   const isPolicyActive = policy && policy.sandwichRuleEnabled && policy.status === 'Active';
   
   // Check if requested leave type is subject to sandwich rule
-  const isLeaveTypeApplicable = isPolicyActive && (
-    !policy.applicableLeaveTypes || 
-    policy.applicableLeaveTypes.length === 0 || 
-    policy.applicableLeaveTypes.some(t => leaveType.toLowerCase().includes(t.toLowerCase()))
+  const isLeaveTypeApplicable = Boolean(
+    isPolicyActive && (
+      !policy.applicableLeaveTypes || 
+      policy.applicableLeaveTypes.length === 0 || 
+      (policy.applicableLeaveTypes as any) === 'ALL' ||
+      policy.applicableLeaveTypes.some(t => {
+        const tNorm = t.toLowerCase().trim();
+        const ltNorm = leaveType.toLowerCase().trim();
+        return ltNorm.includes(tNorm) || tNorm.includes(ltNorm);
+      })
+    )
   );
 
   // If sandwich rule is disabled or leave type excluded:
@@ -242,9 +295,7 @@ export const calculateSandwichLeave = (params: {
     let holidayCount = 0;
 
     const breakdown: SandwichCalculationDayDetail[] = datesInRange.map(dateStr => {
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const dayName = DAYS_OF_WEEK[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-      const isWeeklyOff = employeeWeeklyOff.includes(dayName);
+      const { isWeeklyOff, dayName } = isDayWeeklyOff(dateStr, employee, weeklyOffSchedule, weeklySchedules);
       const holidayCheck = isPublicHolidayForEmployee(dateStr, employee, holidays);
 
       if (holidayCheck.isHoliday) {
@@ -255,7 +306,7 @@ export const calculateSandwichLeave = (params: {
           dayType: 'PUBLIC_HOLIDAY',
           isSandwich: false,
           isPaid: true,
-          reason: `Public Holiday (${holidayCheck.holidayName})`,
+          reason: `Public Holiday (${holidayCheck.holidayName || 'Holiday'})`,
           holidayName: holidayCheck.holidayName
         };
       }
@@ -307,7 +358,9 @@ export const calculateSandwichLeave = (params: {
   // Inspect external leaves around startDate and endDate to support multi-leave spans
   const approvedExistingDates = new Set<string>();
   existingLeaves
-    .filter(l => l.employeeId === employee.employeeId && l.status === 'Approved')
+    .filter(l => (
+      employee && (l.employeeId === employee.employeeId || l.employeeId === employee.id) && l.status !== 'Rejected'
+    ))
     .forEach(l => {
       const existingDates = getDateRangeArray(l.startDate, l.endDate);
       existingDates.forEach(d => approvedExistingDates.add(d));
@@ -317,9 +370,7 @@ export const calculateSandwichLeave = (params: {
   const isLeaveOnDate = (dateStr: string): boolean => {
     if (datesInRange.includes(dateStr)) {
       // In the range, is it a normal working day?
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const dayName = DAYS_OF_WEEK[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-      const isWeeklyOff = employeeWeeklyOff.includes(dayName);
+      const { isWeeklyOff } = isDayWeeklyOff(dateStr, employee, weeklyOffSchedule, weeklySchedules);
       const isHoliday = isPublicHolidayForEmployee(dateStr, employee, holidays).isHoliday;
       return !isWeeklyOff && !isHoliday;
     }
@@ -333,11 +384,9 @@ export const calculateSandwichLeave = (params: {
     let safety = 0;
     while (safety < 14) {
       if (isLeaveOnDate(checkDate)) return true;
-      const [y, m, d] = checkDate.split('-').map(Number);
-      const dayName = DAYS_OF_WEEK[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-      const isOff = employeeWeeklyOff.includes(dayName);
+      const { isWeeklyOff } = isDayWeeklyOff(checkDate, employee, weeklyOffSchedule, weeklySchedules);
       const isHol = isPublicHolidayForEmployee(checkDate, employee, holidays).isHoliday;
-      if (!isOff && !isHol) {
+      if (!isWeeklyOff && !isHol) {
         // It's a working day and not on leave -> no leave before
         return false;
       }
@@ -353,11 +402,9 @@ export const calculateSandwichLeave = (params: {
     let safety = 0;
     while (safety < 14) {
       if (isLeaveOnDate(checkDate)) return true;
-      const [y, m, d] = checkDate.split('-').map(Number);
-      const dayName = DAYS_OF_WEEK[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-      const isOff = employeeWeeklyOff.includes(dayName);
+      const { isWeeklyOff } = isDayWeeklyOff(checkDate, employee, weeklyOffSchedule, weeklySchedules);
       const isHol = isPublicHolidayForEmployee(checkDate, employee, holidays).isHoliday;
-      if (!isOff && !isHol) {
+      if (!isWeeklyOff && !isHol) {
         // It's a working day and not on leave -> no leave after
         return false;
       }
@@ -374,9 +421,7 @@ export const calculateSandwichLeave = (params: {
   let sandwichCount = 0;
 
   const breakdown: SandwichCalculationDayDetail[] = datesInRange.map(dateStr => {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const dayName = DAYS_OF_WEEK[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-    const isWeeklyOff = employeeWeeklyOff.includes(dayName);
+    const { isWeeklyOff, dayName } = isDayWeeklyOff(dateStr, employee, weeklyOffSchedule, weeklySchedules);
     const holidayCheck = isPublicHolidayForEmployee(dateStr, employee, holidays);
 
     if (!isWeeklyOff && !holidayCheck.isHoliday) {
@@ -408,7 +453,9 @@ export const calculateSandwichLeave = (params: {
         conditionMet = leaveBefore && leaveAfter;
         break;
       case 'LEAVE_ONLY_BEFORE':
-        conditionMet = leaveBefore;
+      case 'EITHER_SIDE' as any:
+      case 'LEAVE_BEFORE_OR_AFTER' as any:
+        conditionMet = leaveBefore || leaveAfter;
         break;
       case 'LEAVE_ONLY_AFTER':
         conditionMet = leaveAfter;
@@ -424,16 +471,16 @@ export const calculateSandwichLeave = (params: {
     if (conditionMet) {
       if (isWeeklyOff && policy.countWeeklyOffAsLeave) {
         isSandwich = true;
-        reason = `Weekly Off converted to Leave (${policy.sandwichCondition.replace(/_/g, ' ')})`;
+        reason = `Weekly Off (${dayName}) converted to Leave (${policy.sandwichCondition.replace(/_/g, ' ')})`;
       } else if (holidayCheck.isHoliday && policy.countPublicHolidayAsLeave) {
         isSandwich = true;
-        reason = `Public Holiday (${holidayCheck.holidayName}) converted to Leave`;
+        reason = `Public Holiday (${holidayCheck.holidayName || 'Holiday'}) converted to Leave`;
       }
     }
 
     if (!isSandwich) {
       reason = holidayCheck.isHoliday 
-        ? `Public Holiday (${holidayCheck.holidayName}) - Sandwich condition not met`
+        ? `Public Holiday (${holidayCheck.holidayName || 'Holiday'}) - Sandwich condition not met`
         : `Weekly Off (${dayName}) - Sandwich condition not met`;
     }
 

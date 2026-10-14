@@ -1013,6 +1013,39 @@ export const supabaseDirect = {
     }
   },
 
+  async updateLeaveRequestDaysCount(id: string, daysCount: number): Promise<boolean> {
+    try {
+      const body: any = {
+        days_count: Math.max(1, Math.round(daysCount)),
+        updated_at: new Date().toISOString(),
+      };
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests?id=eq.${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { ...getHeaders(), 'Prefer': 'return=representation' },
+        body: JSON.stringify(body),
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[DatabaseRest] updateLeaveRequestDaysCount error:', err);
+      return false;
+    }
+  },
+
+  async deleteLeaveRequest(id: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/leave_requests?id=eq.${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[DatabaseRest] deleteLeaveRequest error:', err);
+      return false;
+    }
+  },
+
+
+
   // --------------------------------------------------------------------------
   // ATTENDANCE RECORDS
   // --------------------------------------------------------------------------
