@@ -1845,309 +1845,529 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       {/* ======================================================== */}
       {/* 2. DETAIL INSPECTION MODAL (CALCULATION BREAKDOWN) */}
       {/* ======================================================== */}
-      {inspectLeave && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '620px', width: '92%', maxHeight: '88vh', overflowY: 'auto', borderRadius: '18px', padding: '24px' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #E2E8F0', paddingBottom: '14px', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0F172A' }}>
-                  Leave & Sandwich Calculation Breakdown
-                </h3>
-                <div style={{ fontSize: '0.82rem', color: '#0E7490', fontWeight: 700, marginTop: '2px' }}>
-                  {inspectLeave.employeeName} ({inspectLeave.employeeId}) • {inspectLeave.leaveType}
-                </div>
-              </div>
-              <button 
-                onClick={() => setInspectLeave(null)}
-                style={{ width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #E2E8F0', backgroundColor: '#F8FAFC', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
+      {inspectLeave && (() => {
+        const isWfhInspect = inspectLeave.leaveType === 'Work From Home' || 
+          (inspectLeave.leaveType && inspectLeave.leaveType.toLowerCase().includes('work from home')) ||
+          (inspectLeave.leaveType && inspectLeave.leaveType.toLowerCase() === 'wfh');
+        const isExplicitUnpaid = !isLeaveTypePaid(inspectLeave.leaveType);
+        const isOverriddenUnpaid = inspectLeave.hrOverride?.adjustedPayType === 'UNPAID_LEAVE';
+        const isOverriddenPaid = inspectLeave.hrOverride?.adjustedPayType === 'PAID_LEAVE';
+        const isUnpaidInspect = (
+          isExplicitUnpaid || 
+          isOverriddenUnpaid || 
+          (inspectLeave.unpaidDaysCount !== undefined && inspectLeave.unpaidDaysCount > 0 && inspectLeave.paidDaysCount === 0) || 
+          (inspectLeave.sandwichDetails && inspectLeave.sandwichDetails.paidDays === 0 && inspectLeave.sandwichDetails.unpaidDays > 0)
+        ) && !isOverriddenPaid;
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Summary Badges */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(5, 1fr)',
-                gap: '8px',
-                backgroundColor: '#F8FAFC',
-                padding: '12px',
-                borderRadius: '12px',
-                textAlign: 'center'
-              }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Applied Date</div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0E7490' }}>
-                    {formatDateDDMMYYYY(inspectLeave.appliedDate || inspectLeave.startDate) || '-'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Duration</div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1E293B' }}>{formatDateDDMMYYYY(inspectLeave.startDate)} → {formatDateDDMMYYYY(inspectLeave.endDate)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Working Days</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1E293B' }}>
-                    {(inspectCalculation || inspectLeave.sandwichDetails)?.appliedLeaveDays ?? inspectLeave.daysCount}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.72rem', color: '#0E7490' }}>Sandwich Days</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0E7490' }}>
-                    {(inspectCalculation || inspectLeave.sandwichDetails)?.sandwichDays ?? inspectLeave.sandwichDays ?? 0}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Total Leave Days</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F172A' }}>
-                    {(inspectCalculation || inspectLeave.sandwichDetails)?.totalDays ?? inspectLeave.daysCount}
-                  </div>
-                </div>
-              </div>
+        const calcData = inspectCalculation || inspectLeave.sandwichDetails;
+        const workingDays = calcData?.appliedLeaveDays ?? inspectLeave.daysCount;
+        const sandwichDays = calcData?.sandwichDays ?? inspectLeave.sandwichDays ?? 0;
+        const totalDays = calcData?.totalDays ?? inspectLeave.daysCount;
 
-
-
-              {/* HR Override Info (Visible only if override applied, with confidential reason hidden for employee!) */}
-              {inspectLeave.hrOverride?.isOverridden && (
-                <div style={{ backgroundColor: '#FEF3C7', padding: '12px 16px', borderRadius: '10px', border: '1px solid #FDE68A', fontSize: '0.82rem' }}>
-                  <div style={{ fontWeight: 800, color: '#D97706', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sliders size={15} />
-                    <span>HR Override Applied by {inspectLeave.hrOverride.overriddenBy}</span>
+        return (
+          <div className="modal-overlay" style={{ zIndex: 1050 }}>
+            <div className="modal-content" style={{ maxWidth: '680px', width: '94%', maxHeight: '90vh', overflowY: 'auto', borderRadius: '20px', padding: '26px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)' }}>
+              
+              {/* Header with Applicant Avatar, Info and Status */}
+              <div style={{ borderBottom: '1px solid #F1F5F9', paddingBottom: '16px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{
+                    width: '46px',
+                    height: '46px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ECFEFF',
+                    color: '#0E7490',
+                    border: '1px solid #A5F3FC',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 800,
+                    fontSize: '0.95rem',
+                    flexShrink: 0,
+                    letterSpacing: '0.5px'
+                  }}>
+                    {getInitials(inspectLeave.employeeName)}
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: '#78350F', marginTop: '4px' }}>
-                    Original: {inspectLeave.hrOverride.originalTotalDays} days ({inspectLeave.hrOverride.originalSandwichDays} sandwich) → Adjusted: {inspectLeave.daysCount} days.
-                  </div>
-                  {isPrivileged && inspectLeave.hrOverride.internalReason && (
-                    <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: '#FFFFFF', borderRadius: '6px', fontSize: '0.75rem', color: '#451A03' }}>
-                      <strong>Internal HR Reason:</strong> {inspectLeave.hrOverride.internalReason}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <h3 style={{ margin: 0, fontSize: '1.20rem', fontWeight: 800, color: '#0F172A' }}>
+                        {inspectLeave.employeeName}
+                      </h3>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '2px 10px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        borderRadius: '999px',
+                        backgroundColor: inspectLeave.status === 'Approved' ? '#DCFCE7' : inspectLeave.status === 'Rejected' ? '#FEE2E2' : '#FEF3C7',
+                        color: inspectLeave.status === 'Approved' ? '#166534' : inspectLeave.status === 'Rejected' ? '#DC2626' : '#B45309'
+                      }}>
+                        <span style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          backgroundColor: inspectLeave.status === 'Approved' ? '#22C55E' : inspectLeave.status === 'Rejected' ? '#EF4444' : '#F59E0B'
+                        }} />
+                        {inspectLeave.status}
+                      </span>
                     </div>
-                  )}
+                    <div style={{ fontSize: '0.78rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600, color: '#334155' }}>{inspectLeave.employeeId}</span>
+                      <span>•</span>
+                      <span>{inspectLeave.department || 'General'}</span>
+                      <span>•</span>
+                      <span style={{
+                        fontWeight: 700,
+                        color: isUnpaidInspect ? '#DC2626' : '#0E7490',
+                        backgroundColor: isUnpaidInspect ? '#FEF2F2' : '#ECFEFF',
+                        padding: '1px 7px',
+                        borderRadius: '4px'
+                      }}>
+                        {inspectLeave.leaveType}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              )}
 
-              {/* Full Day-by-Day Table */}
-              <div>
-                <h4 style={{ margin: '0 0 8px', fontSize: '0.85rem', fontWeight: 800, color: '#1E293B' }}>
-                  Day-by-Day Breakdown
-                </h4>
-                <div style={{ border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
-                        <th style={{ padding: '8px 12px', textAlign: 'left', color: '#475569' }}>Date</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'left', color: '#475569' }}>Day</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'left', color: '#475569' }}>Classification / Reason</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'center', color: '#475569' }}>Sandwich</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right', color: '#475569' }}>Pay Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(inspectCalculation || inspectLeave.sandwichDetails)?.breakdown && (inspectCalculation || inspectLeave.sandwichDetails)!.breakdown.length > 0 ? (
-                        (inspectCalculation || inspectLeave.sandwichDetails)!.breakdown.map((item: SandwichCalculationDayDetail) => (
-                          <tr key={item.date} style={{ borderBottom: '1px solid #F1F5F9', backgroundColor: item.isSandwich ? '#ECFEFF' : '#FFFFFF' }}>
-                            <td style={{ padding: '8px 12px', fontWeight: 700, color: '#1E293B' }}>{formatDateDDMMYYYY(item.date)}</td>
-                            <td style={{ padding: '8px 12px', color: '#64748B' }}>{item.dayOfWeek}</td>
-                            <td style={{ padding: '8px 12px', color: item.isSandwich ? '#0E7490' : '#334155', fontWeight: item.isSandwich ? 700 : 500 }}>{item.reason}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                              {item.isSandwich ? (
-                                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#0E7490', backgroundColor: '#CFFAFE', padding: '2px 6px', borderRadius: '4px' }}>
-                                  YES
+                <button 
+                  type="button"
+                  onClick={() => setInspectLeave(null)}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    border: '1px solid #E2E8F0',
+                    backgroundColor: '#F8FAFC',
+                    color: '#64748B',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#F1F5F9';
+                    e.currentTarget.style.color = '#0F172A';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#F8FAFC';
+                    e.currentTarget.style.color = '#64748B';
+                  }}
+                  title="Close modal"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* 4 Clean Stats Cards */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Applied Date
+                    </div>
+                    <div style={{ fontSize: '0.94rem', fontWeight: 800, color: '#0F172A', marginTop: '4px' }}>
+                      {formatDisplayDate(inspectLeave.appliedDate || inspectLeave.startDate)}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: '#94A3B8', marginTop: '2px' }}>
+                      Submission date
+                    </div>
+                  </div>
+
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Leave Period
+                    </div>
+                    <div style={{ fontSize: '0.94rem', fontWeight: 800, color: '#0E7490', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {formatDisplayDateRange(inspectLeave.startDate, inspectLeave.endDate)}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: '#0E7490', fontWeight: 600, marginTop: '2px' }}>
+                      {workingDays} {toNum(workingDays) === 1 ? 'Working Day' : 'Working Days'}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    backgroundColor: sandwichDays > 0 ? '#FFFBEB' : '#F8FAFC',
+                    border: `1px solid ${sandwichDays > 0 ? '#FDE68A' : '#E2E8F0'}`,
+                    borderRadius: '12px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ fontSize: '0.70rem', fontWeight: 700, color: sandwichDays > 0 ? '#B45309' : '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Sandwich Days
+                    </div>
+                    <div style={{ fontSize: '0.94rem', fontWeight: 800, color: sandwichDays > 0 ? '#D97706' : '#0F172A', marginTop: '4px' }}>
+                      {sandwichDays} {toNum(sandwichDays) === 1 ? 'Day' : 'Days'}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: sandwichDays > 0 ? '#B45309' : '#94A3B8', fontWeight: sandwichDays > 0 ? 600 : 400, marginTop: '2px' }}>
+                      {sandwichDays > 0 ? 'Weekend / Holiday' : 'No sandwich impact'}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    backgroundColor: isUnpaidInspect ? '#FEF2F2' : '#F0FDF4',
+                    border: `1px solid ${isUnpaidInspect ? '#FECACA' : '#BBF7D0'}`,
+                    borderRadius: '12px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ fontSize: '0.70rem', fontWeight: 700, color: isUnpaidInspect ? '#DC2626' : '#166534', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Total Leave Days
+                    </div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: isUnpaidInspect ? '#DC2626' : '#166534', marginTop: '4px' }}>
+                      {totalDays} {toNum(totalDays) === 1 ? 'Day' : 'Days'}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: isUnpaidInspect ? '#DC2626' : '#166534', fontWeight: 600, marginTop: '2px' }}>
+                      {isWfhInspect ? '100% Paid (WFH)' : isUnpaidInspect ? 'Loss of Pay (LOP)' : 'Paid Leave'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* HR Override Info */}
+                {inspectLeave.hrOverride?.isOverridden && (
+                  <div style={{ backgroundColor: '#FEF3C7', padding: '12px 16px', borderRadius: '12px', border: '1px solid #FDE68A', fontSize: '0.82rem' }}>
+                    <div style={{ fontWeight: 800, color: '#D97706', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sliders size={15} />
+                      <span>HR Override Applied by {inspectLeave.hrOverride.overriddenBy}</span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#78350F', marginTop: '4px' }}>
+                      Original: {inspectLeave.hrOverride.originalTotalDays} days ({inspectLeave.hrOverride.originalSandwichDays} sandwich) → Adjusted: {inspectLeave.daysCount} days.
+                    </div>
+                    {isPrivileged && inspectLeave.hrOverride.internalReason && (
+                      <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: '#FFFFFF', borderRadius: '6px', fontSize: '0.75rem', color: '#451A03' }}>
+                        <strong>Internal HR Reason:</strong> {inspectLeave.hrOverride.internalReason}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Day-by-Day Policy Breakdown Table */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Day-by-Day Policy Breakdown
+                    </h4>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>
+                      {calcData?.breakdown?.length || 1} {calcData?.breakdown?.length === 1 ? 'Day Recorded' : 'Days Recorded'}
+                    </span>
+                  </div>
+                  <div style={{ border: '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.80rem' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                          <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748B', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748B', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Day</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748B', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Classification / Policy Note</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'center', color: '#64748B', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Sandwich</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748B', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pay Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calcData?.breakdown && calcData.breakdown.length > 0 ? (
+                          calcData.breakdown.map((item: SandwichCalculationDayDetail) => (
+                            <tr key={item.date} style={{ borderBottom: '1px solid #F1F5F9', backgroundColor: item.isSandwich ? '#ECFEFF' : '#FFFFFF' }}>
+                              <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0F172A' }}>
+                                {formatDisplayDate(item.date)}
+                              </td>
+                              <td style={{ padding: '10px 14px', color: '#475569', fontWeight: 500 }}>
+                                {item.dayOfWeek}
+                              </td>
+                              <td style={{ padding: '10px 14px', color: item.isSandwich ? '#0E7490' : '#334155', fontWeight: item.isSandwich ? 700 : 500 }}>
+                                {item.reason}
+                              </td>
+                              <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                                {item.isSandwich ? (
+                                  <span style={{ fontSize: '0.70rem', fontWeight: 800, color: '#0E7490', backgroundColor: '#CFFAFE', padding: '2px 8px', borderRadius: '6px' }}>
+                                    Sandwich
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                <span style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: item.isPaid ? '#DCFCE7' : '#FEE2E2',
+                                  color: item.isPaid ? '#166534' : '#DC2626'
+                                }}>
+                                  {item.isPaid ? 'Paid' : 'Unpaid (LOP)'}
                                 </span>
-                              ) : (
-                                <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>NO</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: item.isPaid ? '#166534' : '#DC2626' }}>
-                                {item.isPaid ? 'Paid' : 'Unpaid (LOP)'}
-                              </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: '#64748B' }}>
+                              {inspectLeave.daysCount} days applied ({inspectLeave.leaveType}).
                             </td>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={5} style={{ padding: '16px', textAlign: 'center', color: '#64748B' }}>
-                            {inspectLeave.daysCount} days applied ({inspectLeave.leaveType}).
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              {/* Review Audit Box inside Detail Inspection Modal */}
-              <div style={{
-                backgroundColor: inspectLeave.status === 'Approved' ? '#F0FDF4' : inspectLeave.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
-                border: `1px solid ${inspectLeave.status === 'Approved' ? '#BBF7D0' : inspectLeave.status === 'Rejected' ? '#FECACA' : '#FDE68A'}`,
-                borderRadius: '10px',
-                padding: '12px 16px',
-                fontSize: '0.82rem'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <div style={{ fontWeight: 800, color: inspectLeave.status === 'Approved' ? '#166534' : inspectLeave.status === 'Rejected' ? '#DC2626' : '#D97706' }}>
-                    Status: {inspectLeave.status}
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                  {inspectLeave.approvedAt && (
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
-                      {formatReviewDateTime(inspectLeave.approvedAt)}
-                    </div>
-                  )}
                 </div>
 
-                {/* Employee Leave Reason */}
+                {/* Applicant Reason Note Card */}
                 <div style={{
-                  backgroundColor: '#FFFFFF',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
+                  backgroundColor: '#F8FAFC',
                   border: '1px solid #E2E8F0',
-                  marginTop: '8px',
-                  marginBottom: '8px'
+                  borderRadius: '12px',
+                  padding: '14px 16px'
                 }}>
-                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '2px' }}>
-                    Employee Leave Reason
+                  <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                    Applicant Reason / Note
                   </div>
-                  <div style={{ fontSize: '0.86rem', color: '#0F172A', fontWeight: 600 }}>
-                    {inspectLeave.reason || 'Personal reasons / General leave'}
+                  <div style={{ fontSize: '0.88rem', color: '#0F172A', fontWeight: 600, fontStyle: 'italic' }}>
+                    “{inspectLeave.reason || 'Personal reasons / General leave'}”
                   </div>
                 </div>
 
+                {/* Review Audit Box if already reviewed */}
                 {inspectLeave.status !== 'Pending' && (
-                  <div style={{ color: '#1E293B', fontSize: '0.82rem' }}>
-                    <strong>Reviewed By:</strong> {inspectLeave.approvedBy || (inspectLeave.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}
+                  <div style={{
+                    backgroundColor: inspectLeave.status === 'Approved' ? '#F0FDF4' : '#FEF2F2',
+                    border: `1px solid ${inspectLeave.status === 'Approved' ? '#BBF7D0' : '#FECACA'}`,
+                    borderRadius: '12px',
+                    padding: '14px 16px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 800, color: inspectLeave.status === 'Approved' ? '#166534' : '#DC2626', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Decision: {inspectLeave.status}
+                      </div>
+                      {inspectLeave.approvedAt && (
+                        <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                          {formatReviewDateTime(inspectLeave.approvedAt)}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.84rem', color: '#1E293B', fontWeight: 700, marginTop: '2px' }}>
+                      Reviewed by {inspectLeave.approvedBy || (inspectLeave.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}
+                    </div>
+                    {inspectLeave.comment && (
+                      <div style={{ fontSize: '0.80rem', color: '#DC2626', backgroundColor: '#FFFFFF', padding: '6px 10px', borderRadius: '6px', border: '1px solid #FECACA', marginTop: '6px' }}>
+                        <strong>Remarks:</strong> {inspectLeave.comment}
+                      </div>
+                    )}
                   </div>
                 )}
-                {inspectLeave.comment && (
-                  <div style={{ color: '#DC2626', fontSize: '0.78rem', marginTop: '4px' }}>
-                    <strong>Approver Remarks:</strong> {inspectLeave.comment}
+
+                {/* Approver Remarks Input (For Reviewer when approving or rejecting) */}
+                {canApprove && (
+                  <div style={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '14px 16px'
+                  }}>
+                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <span>✍️</span> Approver Remarks / Review Note
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={inspectRemarks}
+                      onChange={e => setInspectRemarks(e.target.value)}
+                      placeholder="Enter reason or remarks for approval, rejection, or cancellation..."
+                      style={{
+                        width: '100%',
+                        borderRadius: '8px',
+                        fontSize: '0.84rem',
+                        padding: '10px 12px',
+                        border: '1px solid #CBD5E1',
+                        resize: 'vertical',
+                        backgroundColor: '#F8FAFC',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.backgroundColor = '#FFFFFF';
+                        e.currentTarget.style.borderColor = '#0E7490';
+                        e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14,116,144,0.1)';
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.backgroundColor = '#F8FAFC';
+                        e.currentTarget.style.borderColor = '#CBD5E1';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    />
                   </div>
                 )}
               </div>
 
-              {/* Add Reason / Approver Remarks (HR / CEO Reviewer) */}
-              {canApprove && (
-                <div style={{ marginTop: '12px', backgroundColor: '#F8FAFC', padding: '12px 14px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-                  <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    <span>📝</span> Add Reason / Approver Remarks
-                  </label>
-                  <textarea
-                    className="form-control"
-                    rows={2}
-                    value={inspectRemarks}
-                    onChange={e => setInspectRemarks(e.target.value)}
-                    placeholder="Enter reason or remarks for approval, rejection, or cancellation..."
-                    style={{
-                      width: '100%',
-                      borderRadius: '8px',
-                      fontSize: '0.82rem',
-                      padding: '8px 12px',
-                      border: '1px solid #CBD5E1',
-                      resize: 'vertical',
-                      backgroundColor: '#FFFFFF'
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+              {/* Clean Standard Modal Footer */}
+              <div style={{
+                marginTop: '22px',
+                paddingTop: '16px',
+                borderTop: '1px solid #F1F5F9',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <button 
+                  type="button"
+                  onClick={() => setInspectLeave(null)}
+                  style={{
+                    height: '38px',
+                    padding: '0 20px',
+                    borderRadius: '10px',
+                    border: '1px solid #E2E8F0',
+                    backgroundColor: '#FFFFFF',
+                    color: '#475569',
+                    fontSize: '0.84rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#F8FAFC';
+                    e.currentTarget.style.borderColor = '#CBD5E1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#FFFFFF';
+                    e.currentTarget.style.borderColor = '#E2E8F0';
+                  }}
+                >
+                  Close
+                </button>
 
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                {/* 1. Pending Approval Actions inside Modal */}
-                {inspectLeave.status === 'Pending' && canApprove && (
-                  <>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {inspectLeave.status === 'Pending' && canApprove && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          rejectLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || 'Rejected by Reviewer');
+                          setInspectLeave(null);
+                        }}
+                        style={{
+                          height: '38px',
+                          padding: '0 18px',
+                          borderRadius: '10px',
+                          border: 'none',
+                          backgroundColor: '#EF4444',
+                          color: '#FFFFFF',
+                          fontSize: '0.84rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 1px 3px rgba(239,68,68,0.25)',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title="Reject this leave request"
+                      >
+                        <X size={15} /> Reject
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          approveLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || undefined);
+                          setInspectLeave(null);
+                        }}
+                        style={{
+                          height: '38px',
+                          padding: '0 22px',
+                          borderRadius: '10px',
+                          border: 'none',
+                          backgroundColor: '#10B981',
+                          color: '#FFFFFF',
+                          fontSize: '0.84rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 1px 3px rgba(16,185,129,0.25)',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title="Approve this leave request"
+                      >
+                        <Check size={15} /> Approve
+                      </button>
+                    </>
+                  )}
+
+                  {inspectLeave.status === 'Rejected' && canApprove && (
                     <button
                       type="button"
-                      className="btn btn-success btn-sm"
                       onClick={() => {
                         approveLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || undefined);
                         setInspectLeave(null);
                       }}
                       style={{
-                        borderRadius: '8px',
-                        padding: '7px 16px',
+                        height: '38px',
+                        padding: '0 18px',
+                        borderRadius: '10px',
+                        border: '1px solid #A7F3D0',
+                        backgroundColor: '#ECFDF5',
+                        color: '#059669',
+                        fontSize: '0.84rem',
                         fontWeight: 700,
+                        cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
-                        boxShadow: '0 1px 3px rgba(34,197,94,0.3)',
-                        cursor: 'pointer'
+                        transition: 'all 0.15s ease'
                       }}
-                      title="Approve this leave request"
+                      title="Re-approve this application"
                     >
-                      <CheckCircle2 size={16} />
-                      Approve
+                      <Check size={15} /> Re-Approve Request
                     </button>
+                  )}
+
+                  {inspectLeave.status === 'Approved' && canApprove && (
                     <button
                       type="button"
-                      className="btn btn-danger btn-sm"
                       onClick={() => {
-                        rejectLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || 'Rejected by Reviewer');
+                        rejectLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || 'Decision revoked by HR/CEO');
                         setInspectLeave(null);
                       }}
                       style={{
-                        borderRadius: '8px',
-                        padding: '7px 16px',
+                        height: '38px',
+                        padding: '0 18px',
+                        borderRadius: '10px',
+                        border: '1px solid #FECACA',
+                        backgroundColor: '#FEF2F2',
+                        color: '#DC2626',
+                        fontSize: '0.84rem',
                         fontWeight: 700,
+                        cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
-                        boxShadow: '0 1px 3px rgba(239,68,68,0.3)',
-                        cursor: 'pointer'
+                        transition: 'all 0.15s ease'
                       }}
-                      title="Reject this leave request"
+                      title="Revoke approval"
                     >
-                      <XCircle size={16} />
-                      Reject
+                      <X size={15} /> Revoke Approval
                     </button>
-                  </>
-                )}
-
-                {/* 2. Re-Approve if Rejected */}
-                {inspectLeave.status === 'Rejected' && canApprove && (
-                  <button
-                    type="button"
-                    className="btn btn-success btn-sm"
-                    onClick={() => {
-                      approveLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || undefined);
-                      setInspectLeave(null);
-                    }}
-                    style={{ borderRadius: '8px', padding: '7px 16px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    ✓ Re-Approve Request
-                  </button>
-                )}
-
-                {/* 3. Revoke if Approved */}
-                {inspectLeave.status === 'Approved' && canApprove && (
-                  <button
-                    type="button"
-                    className="btn btn-danger btn-sm"
-                    onClick={() => {
-                      rejectLeave(inspectLeave.id, reviewerName, inspectRemarks.trim() || 'Decision revoked by HR/CEO');
-                      setInspectLeave(null);
-                    }}
-                    style={{ borderRadius: '8px', padding: '7px 16px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    ✕ Revoke Approval
-                  </button>
-                )}
-
-
-
-
+                  )}
+                </div>
               </div>
 
-              <button 
-                className="btn btn-secondary btn-sm"
-                onClick={() => setInspectLeave(null)}
-                style={{ borderRadius: '10px', padding: '8px 18px' }}
-              >
-                Close
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ======================================================== */}
       {/* 3. HR OVERRIDE MODAL (AUTHORIZED HR / CEO ONLY) */}
