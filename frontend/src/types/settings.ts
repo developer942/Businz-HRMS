@@ -196,13 +196,26 @@ export interface MasterLeavePolicy {
   applicableEmployees: 'ALL' | string[];
   applicableDepartments: 'ALL' | string[];
   applicableBranches: 'ALL' | string[];
-  applicableEmploymentType?: 'ALL' | 'Confirmed' | 'Provisional';
+  applicableEmploymentType?: 'ALL' | 'Confirmed' | 'Provisional' | 'Contract' | 'Intern';
+  applicableDesignations?: 'ALL' | string[];
+  applicableGender?: 'ALL' | 'Male' | 'Female';
   effectiveDate: string;
   status: 'Active' | 'Inactive' | 'Archived';
   version: number;
 
   // Available leave types
   leaveTypes: LeaveTypeConfig[];
+
+  // Carry Forward Configuration
+  allowCarryForward?: boolean;
+  maxCarryForwardDays?: number; // Max days allowed to roll over
+  carryForwardExpiryMonths?: number; // 0 = never expires, 3 = 90 days, 12 = 1 year
+
+  // Leave Encashment Configuration
+  allowEncashment?: boolean;
+  maxEncashableDays?: number; // Max days eligible for cash encashment
+  minBalanceForEncashment?: number; // Min balance employee must retain before encashment
+  encashmentCalculationBase?: 'BASIC' | 'GROSS'; // Calculation basis: Basic (/26) or Gross (/30)
 
   // Custom Leave Rule Builder
   monthlyFreeUnpaidLeaves: number; // e.g. 1 free unpaid leave per month

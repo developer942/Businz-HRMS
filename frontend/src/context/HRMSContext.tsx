@@ -3227,7 +3227,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [attendanceCorrections, setAttendanceCorrections] = useState<AttendanceCorrectionRequest[]>(INITIAL_ATTENDANCE_CORRECTIONS);
 
-  const [masterLeavePolicies, setMasterLeavePolicies] = useState<MasterLeavePolicy[]>([]);
+  const [masterLeavePolicies, setMasterLeavePolicies] = useState<MasterLeavePolicy[]>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_master_leave_policies_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
   // Sandwich Leave Policy Engine States
   const [sandwichPolicies, setSandwichPolicies] = useState<SandwichLeavePolicy[]>(() => {
@@ -3325,6 +3334,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     try {
+      localStorage.setItem('vrm_hrms_master_leave_policies_persistent', JSON.stringify(masterLeavePolicies));
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('master_leave_policies_data', masterLeavePolicies);
       }

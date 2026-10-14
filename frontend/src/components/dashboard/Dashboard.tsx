@@ -155,13 +155,19 @@ export const Dashboard: React.FC = () => {
     const checkInTime = formatTimeDisplay(todayRecord?.checkIn || todayFace?.timestamp, '--:--');
     const todayStatus = todayRecord?.status || (todayFace ? 'Present' : 'Not Marked');
 
+    const currentEmpObj = employees.find(e => 
+      e.employeeId === currentUser.employeeId || 
+      `${e.firstName} ${e.lastName}`.trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase()
+    );
+
     // Dynamically calculate leave balances from active master leave policies
     const leaveSummary = getEmployeeTotalLeaveSummary(
       currentUser.employeeId,
       currentUser.name,
       masterLeavePolicies,
       leavePolicies,
-      leaveRequests
+      leaveRequests,
+      currentEmpObj
     );
 
     return {
@@ -178,7 +184,7 @@ export const Dashboard: React.FC = () => {
       shiftTimes: userShift ? `${userShift.startTime} - ${userShift.endTime}` : '--:--',
       monthLabel: month.label
     };
-  }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies]);
+  }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies, employees]);
 
   // Dynamically calculate upcoming holidays from holiday policies (from today onwards)
   const upcomingHolidaysList = useMemo(() => {

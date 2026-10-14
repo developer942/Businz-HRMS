@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { MasterLeavePolicy, LeaveTypeConfig } from '../../types/settings';
 import { SandwichCondition } from '../../types/sandwichLeave';
@@ -19,7 +19,12 @@ import {
   Check,
   Sparkles,
   Info,
-  X
+  X,
+  Users,
+  RefreshCw,
+  Coins,
+  Building2,
+  UserCheck
 } from 'lucide-react';
 
 export const LeaveManagementSettings: React.FC = () => {
@@ -34,6 +39,8 @@ export const LeaveManagementSettings: React.FC = () => {
     sandwichPolicies,
     updateSandwichPolicy,
     createSandwichPolicy,
+    employees,
+    departments,
     currentUser
   } = useHRMS();
 
@@ -59,7 +66,23 @@ export const LeaveManagementSettings: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<MasterLeavePolicy | null>(null);
 
-  // Form State: strictly the 4 requested fields
+  // Organization Departments derived from departments and employees
+  const allDepartmentNames = useMemo(() => {
+    const set = new Set<string>();
+    (departments || []).forEach(d => {
+      const name = typeof d === 'string' ? d : (d as any).name;
+      if (name) set.add(name);
+    });
+    (employees || []).forEach(e => {
+      if (e.department) set.add(e.department);
+    });
+    if (set.size === 0) {
+      ['Engineering', 'Human Resources', 'Sales', 'Marketing', 'Finance', 'Operations', 'General'].forEach(d => set.add(d));
+    }
+    return Array.from(set).sort();
+  }, [departments, employees]);
+
+  // Form State: core fields + Applicable Employees + Carry Forward + Leave Encashment
   const [form, setForm] = useState<{
     policyName: string;
     frequency: 'MONTH' | 'YEAR';
@@ -67,16 +90,41 @@ export const LeaveManagementSettings: React.FC = () => {
     leaveType: string;
     customLeaveType: string;
     isPaid: boolean;
+    // 1. Applicable Employees / Eligibility
+    applicableScope: 'ALL' | 'DEPARTMENT' | 'EMPLOYMENT_TYPE' | 'GENDER' | 'CUSTOM_EMPLOYEES';
+    selectedDepartments: string[];
+    employmentType: 'ALL' | 'Confirmed' | 'Provisional' | 'Contract' | 'Intern';
+    gender: 'ALL' | 'Male' | 'Female';
+    selectedEmployeeIds: string[];
+    // 2. Carry Forward
+    allowCarryForward: boolean;
+    maxCarryForwardDays: number;
+    carryForwardExpiryMonths: number;
+    // 3. Leave Encashment
+    allowEncashment: boolean;
+    maxEncashableDays: number;
+    minBalanceForEncashment: number;
+    encashmentCalculationBase: 'BASIC' | 'GROSS';
   }>({
     policyName: '',
     frequency: 'MONTH',
     quotaDays: 1,
     leaveType: 'Casual Leave (CL)',
     customLeaveType: '',
-    isPaid: true
+    isPaid: true,
+    applicableScope: 'ALL',
+    selectedDepartments: [],
+    employmentType: 'ALL',
+    gender: 'ALL',
+    selectedEmployeeIds: [],
+    allowCarryForward: false,
+    maxCarryForwardDays: 5,
+    carryForwardExpiryMonths: 12,
+    allowEncashment: false,
+    maxEncashableDays: 10,
+    minBalanceForEncashment: 5,
+    encashmentCalculationBase: 'BASIC'
   });
-
-
 
   const openAddModal = () => {
     setEditingPolicy(null);
@@ -86,7 +134,19 @@ export const LeaveManagementSettings: React.FC = () => {
       quotaDays: 1,
       leaveType: 'Casual Leave (CL)',
       customLeaveType: '',
-      isPaid: true
+      isPaid: true,
+      applicableScope: 'ALL',
+      selectedDepartments: [],
+      employmentType: 'ALL',
+      gender: 'ALL',
+      selectedEmployeeIds: [],
+      allowCarryForward: false,
+      maxCarryForwardDays: 5,
+      carryForwardExpiryMonths: 12,
+      allowEncashment: false,
+      maxEncashableDays: 10,
+      minBalanceForEncashment: 5,
+      encashmentCalculationBase: 'BASIC'
     });
     setIsModalOpen(true);
   };
@@ -131,13 +191,40 @@ export const LeaveManagementSettings: React.FC = () => {
       }
     }
 
+    const isEmpScope = Array.isArray(p.applicableEmployees) && p.applicableEmployees.length > 0;
+    const isDeptScope = Array.isArray(p.applicableDepartments) && p.applicableDepartments.length > 0;
+    const isGenderScope = Boolean(p.applicableGender && p.applicableGender !== 'ALL');
+    const isEmploymentScope = Boolean(p.applicableEmploymentType && p.applicableEmploymentType !== 'ALL');
+
+    const applicableScope = isEmpScope 
+      ? 'CUSTOM_EMPLOYEES' 
+      : isDeptScope 
+      ? 'DEPARTMENT' 
+      : isGenderScope 
+      ? 'GENDER' 
+      : isEmploymentScope 
+      ? 'EMPLOYMENT_TYPE' 
+      : 'ALL';
+
     setForm({
       policyName: p.policyName,
       frequency,
       quotaDays,
       leaveType: matchedStandard || (leaveTypeName ? 'CUSTOM' : 'Casual Leave (CL)'),
       customLeaveType: matchedStandard ? '' : leaveTypeName,
-      isPaid
+      isPaid,
+      applicableScope,
+      selectedDepartments: Array.isArray(p.applicableDepartments) ? p.applicableDepartments : [],
+      employmentType: (p.applicableEmploymentType as any) || 'ALL',
+      gender: p.applicableGender || 'ALL',
+      selectedEmployeeIds: Array.isArray(p.applicableEmployees) ? p.applicableEmployees : [],
+      allowCarryForward: Boolean(p.allowCarryForward),
+      maxCarryForwardDays: p.maxCarryForwardDays ?? 5,
+      carryForwardExpiryMonths: p.carryForwardExpiryMonths ?? 12,
+      allowEncashment: Boolean(p.allowEncashment),
+      maxEncashableDays: p.maxEncashableDays ?? 10,
+      minBalanceForEncashment: p.minBalanceForEncashment ?? 5,
+      encashmentCalculationBase: p.encashmentCalculationBase || 'BASIC'
     });
     setIsModalOpen(true);
   };
@@ -173,16 +260,47 @@ export const LeaveManagementSettings: React.FC = () => {
       });
     }
 
+    let applicableEmployees: 'ALL' | string[] = 'ALL';
+    let applicableDepartments: 'ALL' | string[] = 'ALL';
+    let applicableEmploymentType: 'ALL' | 'Confirmed' | 'Provisional' | 'Contract' | 'Intern' = 'ALL';
+    let applicableGender: 'ALL' | 'Male' | 'Female' = 'ALL';
+
+    if (form.applicableScope === 'DEPARTMENT' && form.selectedDepartments.length > 0) {
+      applicableDepartments = form.selectedDepartments;
+    } else if (form.applicableScope === 'CUSTOM_EMPLOYEES' && form.selectedEmployeeIds.length > 0) {
+      applicableEmployees = form.selectedEmployeeIds;
+    } else if (form.applicableScope === 'EMPLOYMENT_TYPE') {
+      applicableEmploymentType = form.employmentType;
+    } else if (form.applicableScope === 'GENDER') {
+      applicableGender = form.gender;
+    }
+
+    let description = `${finalLeaveTypeName}: ${form.quotaDays} day(s) per ${form.frequency === 'MONTH' ? 'month' : 'year'} (${form.isPaid ? 'Paid' : 'Unpaid'}).`;
+    if (form.allowCarryForward) {
+      description += ` Carry forward up to ${form.maxCarryForwardDays}d.`;
+    }
+    if (form.allowEncashment) {
+      description += ` Encashable up to ${form.maxEncashableDays}d.`;
+    }
+
     const payload = {
       policyName: form.policyName.trim(),
-      description: `${finalLeaveTypeName}: ${form.quotaDays} day(s) per ${form.frequency === 'MONTH' ? 'month' : 'year'} (${form.isPaid ? 'Paid' : 'Unpaid'}). Additional unpaid leaves incur 1 day salary deduction.`,
-      applicableEmployees: 'ALL' as const,
-      applicableDepartments: 'ALL' as const,
+      description,
+      applicableEmployees,
+      applicableDepartments,
       applicableBranches: 'ALL' as const,
-      applicableEmploymentType: editingPolicy?.applicableEmploymentType || ('Confirmed' as const),
+      applicableEmploymentType,
+      applicableGender,
       effectiveDate: editingPolicy?.effectiveDate || '2026-01-01',
       status: editingPolicy?.status === 'Archived' ? ('Inactive' as const) : (editingPolicy?.status || ('Active' as const)),
       leaveTypes,
+      allowCarryForward: form.allowCarryForward,
+      maxCarryForwardDays: form.allowCarryForward ? Number(form.maxCarryForwardDays) : 0,
+      carryForwardExpiryMonths: form.allowCarryForward ? Number(form.carryForwardExpiryMonths) : 12,
+      allowEncashment: form.allowEncashment,
+      maxEncashableDays: form.allowEncashment ? Number(form.maxEncashableDays) : 0,
+      minBalanceForEncashment: form.allowEncashment ? Number(form.minBalanceForEncashment) : 0,
+      encashmentCalculationBase: form.encashmentCalculationBase,
       monthlyFreeUnpaidLeaves: form.isPaid ? monthlyDays : 0,
       deductionRuleType: editingPolicy?.deductionRuleType || ('DAILY_SALARY' as const),
       fixedDeductionAmount: editingPolicy?.fixedDeductionAmount || 1000,
@@ -768,55 +886,129 @@ export const LeaveManagementSettings: React.FC = () => {
                     : `${mainType?.quotaPerYear || 1} Day(s) / Year`;
 
                   return (
-                    <div style={{
-                      backgroundColor: '#F8FAFC',
-                      padding: '14px 16px',
-                      borderRadius: '12px',
-                      fontSize: '0.84rem',
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(3, 1fr)',
-                      gap: '12px',
-                      marginBottom: '14px',
-                      border: '1px solid #F1F5F9'
-                    }}>
-                      <div>
-                        <span style={{ color: '#64748B', fontSize: '0.74rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>
-                          Year / Month:
-                        </span>
-                        <div style={{ fontWeight: 700, color: '#0E7490', marginTop: '3px' }}>
-                          {quotaDisplay}
-                        </div>
-                      </div>
-
-                      <div>
-                        <span style={{ color: '#64748B', fontSize: '0.74rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>
-                          Leave Type:
-                        </span>
-                        <div style={{ fontWeight: 700, color: '#1E293B', marginTop: '3px' }}>
-                          {mainType?.name || 'Casual Leave (CL)'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <span style={{ color: '#64748B', fontSize: '0.74rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>
-                          Paid or Unpaid:
-                        </span>
-                        <div style={{ marginTop: '3px' }}>
-                          <span style={{
-                            fontSize: '0.74rem',
-                            fontWeight: 700,
-                            padding: '3px 10px',
-                            borderRadius: '6px',
-                            backgroundColor: isPaid ? '#ECFEFF' : '#FEF2F2',
-                            color: isPaid ? '#0E7490' : '#DC2626',
-                            border: `1px solid ${isPaid ? '#CFFAFE' : '#FECACA'}`,
-                            display: 'inline-block'
-                          }}>
-                            {isPaid ? 'Paid' : 'Unpaid'}
+                    <>
+                      <div style={{
+                        backgroundColor: '#F8FAFC',
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        fontSize: '0.84rem',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: '12px',
+                        marginBottom: '14px',
+                        border: '1px solid #F1F5F9'
+                      }}>
+                        <div>
+                          <span style={{ color: '#64748B', fontSize: '0.74rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>
+                            Year / Month:
                           </span>
+                          <div style={{ fontWeight: 700, color: '#0E7490', marginTop: '3px' }}>
+                            {quotaDisplay}
+                          </div>
+                        </div>
+
+                        <div>
+                          <span style={{ color: '#64748B', fontSize: '0.74rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>
+                            Leave Type:
+                          </span>
+                          <div style={{ fontWeight: 700, color: '#1E293B', marginTop: '3px' }}>
+                            {mainType?.name || 'Casual Leave (CL)'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <span style={{ color: '#64748B', fontSize: '0.74rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>
+                            Paid or Unpaid:
+                          </span>
+                          <div style={{ marginTop: '3px' }}>
+                            <span style={{
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                              padding: '3px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: isPaid ? '#ECFEFF' : '#FEF2F2',
+                              color: isPaid ? '#0E7490' : '#DC2626',
+                              border: `1px solid ${isPaid ? '#CFFAFE' : '#FECACA'}`,
+                              display: 'inline-block'
+                            }}>
+                              {isPaid ? 'Paid' : 'Unpaid'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+
+                      {/* Applicable Scope, Carry Forward & Encashment Badges */}
+                      <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                        marginBottom: '14px',
+                        alignItems: 'center'
+                      }}>
+                        {/* Applicable Employees Badge */}
+                        <span style={{
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: '9999px',
+                          backgroundColor: '#EFF6FF',
+                          color: '#1E40AF',
+                          border: '1px solid #DBEAFE',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}>
+                          <Users size={12} />
+                          {Array.isArray(policy.applicableEmployees) && policy.applicableEmployees.length > 0
+                            ? `Specific: ${policy.applicableEmployees.length} Staff`
+                            : Array.isArray(policy.applicableDepartments) && policy.applicableDepartments.length > 0
+                            ? `Dept: ${policy.applicableDepartments.join(', ')}`
+                            : policy.applicableGender && policy.applicableGender !== 'ALL'
+                            ? `${policy.applicableGender} Only`
+                            : policy.applicableEmploymentType && policy.applicableEmploymentType !== 'ALL'
+                            ? `${policy.applicableEmploymentType} Staff`
+                            : 'All Employees'}
+                        </span>
+
+                        {/* Carry Forward Badge */}
+                        <span style={{
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: '9999px',
+                          backgroundColor: policy.allowCarryForward ? '#DCFCE7' : '#F1F5F9',
+                          color: policy.allowCarryForward ? '#15803D' : '#64748B',
+                          border: `1px solid ${policy.allowCarryForward ? '#BBF7D0' : '#E2E8F0'}`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}>
+                          <RefreshCw size={12} />
+                          {policy.allowCarryForward 
+                            ? `Carry Forward: Max ${policy.maxCarryForwardDays ?? 5}d` 
+                            : 'No Carry Forward'}
+                        </span>
+
+                        {/* Leave Encashment Badge */}
+                        <span style={{
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: '9999px',
+                          backgroundColor: policy.allowEncashment ? '#FEF3C7' : '#F1F5F9',
+                          color: policy.allowEncashment ? '#B45309' : '#64748B',
+                          border: `1px solid ${policy.allowEncashment ? '#FDE68A' : '#E2E8F0'}`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}>
+                          <Coins size={12} />
+                          {policy.allowEncashment 
+                            ? `Encashable: Max ${policy.maxEncashableDays ?? 10}d (${policy.encashmentCalculationBase || 'Basic'})` 
+                            : 'No Encashment'}
+                        </span>
+                      </div>
+                    </>
                   );
                 })()}
               </div>
@@ -931,17 +1123,25 @@ export const LeaveManagementSettings: React.FC = () => {
           <div
             className="modal-content"
             style={{
-              maxWidth: '520px',
-              width: '100%',
+              maxWidth: '580px',
+              width: '95%',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
               borderRadius: '16px',
               overflow: 'hidden',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.04)'
             }}
           >
             <div className="modal-header" style={{ borderBottom: '1px solid #E7ECF3', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
-                {editingPolicy ? 'Edit Leave Policy' : 'Create Leave Policy'}
-              </h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                  {editingPolicy ? 'Edit Leave Policy' : 'Create Leave Policy'}
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: '#64748B' }}>
+                  Configure entitlement, audience, rollover & encashment rules
+                </p>
+              </div>
               <button
                 className="close-btn"
                 title="Close"
@@ -952,8 +1152,8 @@ export const LeaveManagementSettings: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSave}>
-              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '24px' }}>
+            <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '24px', overflowY: 'auto', maxHeight: 'calc(92vh - 140px)' }}>
                 {/* 1. Policy Name */}
                 <div>
                   <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 700, color: '#1E293B' }}>
@@ -1190,9 +1390,500 @@ export const LeaveManagementSettings: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* 5. Applicable Employees */}
+                <div style={{ borderTop: '1px solid #E7ECF3', paddingTop: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem', fontWeight: 700, color: '#1E293B' }}>
+                    Applicable Employees <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <p style={{ margin: '0 0 10px', fontSize: '0.76rem', color: '#64748B' }}>
+                    Define which employees or groups are eligible for this leave policy
+                  </p>
+
+                  <select
+                    className="form-control"
+                    value={form.applicableScope}
+                    onChange={e => setForm(prev => ({ ...prev, applicableScope: e.target.value as any }))}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      border: '1px solid #E2E8F0',
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      outline: 'none',
+                      backgroundColor: '#FFFFFF',
+                      marginBottom: '10px'
+                    }}
+                  >
+                    <option value="ALL">All Employees (Company-wide)</option>
+                    <option value="DEPARTMENT">Specific Department(s)</option>
+                    <option value="EMPLOYMENT_TYPE">Employment Type (Confirmed / Provisional)</option>
+                    <option value="GENDER">Gender Specific (Maternity / Paternity)</option>
+                    <option value="CUSTOM_EMPLOYEES">Specific Individual Staff</option>
+                  </select>
+
+                  {/* Scope: Specific Departments */}
+                  {form.applicableScope === 'DEPARTMENT' && (
+                    <div style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+                          Select Applicable Departments:
+                        </span>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setForm(prev => ({ ...prev, selectedDepartments: [...allDepartmentNames] }))}
+                            style={{ background: 'none', border: 'none', color: '#0E7490', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                          >
+                            Select All
+                          </button>
+                          <span style={{ color: '#CBD5E1' }}>•</span>
+                          <button
+                            type="button"
+                            onClick={() => setForm(prev => ({ ...prev, selectedDepartments: [] }))}
+                            style={{ background: 'none', border: 'none', color: '#64748B', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {allDepartmentNames.map(dept => {
+                          const isSelected = form.selectedDepartments.includes(dept);
+                          return (
+                            <button
+                              key={dept}
+                              type="button"
+                              onClick={() => {
+                                setForm(prev => ({
+                                  ...prev,
+                                  selectedDepartments: isSelected 
+                                    ? prev.selectedDepartments.filter(d => d !== dept)
+                                    : [...prev.selectedDepartments, dept]
+                                }));
+                              }}
+                              style={{
+                                padding: '5px 10px',
+                                borderRadius: '8px',
+                                border: isSelected ? '1.5px solid #0E7490' : '1px solid #CBD5E1',
+                                backgroundColor: isSelected ? '#ECFEFF' : '#FFFFFF',
+                                color: isSelected ? '#0E7490' : '#475569',
+                                fontSize: '0.78rem',
+                                fontWeight: isSelected ? 700 : 500,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              {isSelected && <Check size={12} />} {dept}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scope: Employment Type */}
+                  {form.applicableScope === 'EMPLOYMENT_TYPE' && (
+                    <div style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                      <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+                        Target Employment Status:
+                      </label>
+                      <select
+                        className="form-control"
+                        value={form.employmentType}
+                        onChange={e => setForm(prev => ({ ...prev, employmentType: e.target.value as any }))}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.86rem',
+                          color: '#1E293B',
+                          backgroundColor: '#FFFFFF'
+                        }}
+                      >
+                        <option value="Confirmed">Confirmed / Permanent Staff Only</option>
+                        <option value="Provisional">Provisional / Probation (First 3-6 Months)</option>
+                        <option value="Contract">Contractual Workforce</option>
+                        <option value="Intern">Interns / Trainees</option>
+                        <option value="ALL">All Employment Types</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Scope: Gender Specific */}
+                  {form.applicableScope === 'GENDER' && (
+                    <div style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                      <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+                        Gender Eligibility:
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                        {(['Female', 'Male', 'ALL'] as const).map(g => {
+                          const isSel = form.gender === g;
+                          const label = g === 'Female' ? 'Female Only' : g === 'Male' ? 'Male Only' : 'All Genders';
+                          return (
+                            <button
+                              key={g}
+                              type="button"
+                              onClick={() => setForm(prev => ({ ...prev, gender: g }))}
+                              style={{
+                                padding: '8px',
+                                borderRadius: '8px',
+                                border: isSel ? '1.5px solid #0E7490' : '1px solid #CBD5E1',
+                                backgroundColor: isSel ? '#ECFEFF' : '#FFFFFF',
+                                color: isSel ? '#0E7490' : '#475569',
+                                fontSize: '0.8rem',
+                                fontWeight: isSel ? 700 : 500,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scope: Specific Employees */}
+                  {form.applicableScope === 'CUSTOM_EMPLOYEES' && (
+                    <div style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+                          Select Staff Members ({form.selectedEmployeeIds.length} Selected):
+                        </span>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setForm(prev => ({ ...prev, selectedEmployeeIds: employees.map(e => e.employeeId) }))}
+                            style={{ background: 'none', border: 'none', color: '#0E7490', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                          >
+                            Select All
+                          </button>
+                          <span style={{ color: '#CBD5E1' }}>•</span>
+                          <button
+                            type="button"
+                            onClick={() => setForm(prev => ({ ...prev, selectedEmployeeIds: [] }))}
+                            style={{ background: 'none', border: 'none', color: '#64748B', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {employees.map(emp => {
+                          const isChecked = form.selectedEmployeeIds.includes(emp.employeeId);
+                          return (
+                            <label
+                              key={emp.employeeId}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: isChecked ? '#ECFEFF' : '#FFFFFF',
+                                border: '1px solid #E2E8F0',
+                                fontSize: '0.8rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setForm(prev => ({
+                                    ...prev,
+                                    selectedEmployeeIds: isChecked
+                                      ? prev.selectedEmployeeIds.filter(id => id !== emp.employeeId)
+                                      : [...prev.selectedEmployeeIds, emp.employeeId]
+                                  }));
+                                }}
+                                style={{ accentColor: '#0E7490' }}
+                              />
+                              <span style={{ fontWeight: 750, color: '#0F172A' }}>{emp.firstName} {emp.lastName}</span>
+                              <span style={{ color: '#64748B', fontSize: '0.72rem' }}>({emp.employeeId} • {emp.department})</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. Carry Forward Configuration */}
+                <div style={{ borderTop: '1px solid #E7ECF3', paddingTop: '16px' }}>
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '12px',
+                      border: form.allowCarryForward ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                      backgroundColor: form.allowCarryForward ? '#F0FDFA' : '#FAFAFA'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          backgroundColor: form.allowCarryForward ? '#CCFBF1' : '#F1F5F9',
+                          color: form.allowCarryForward ? '#0F766E' : '#64748B',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <RefreshCw size={16} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 750, fontSize: '0.88rem', color: '#0F172A' }}>
+                            Allow Carry Forward
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
+                            Roll over unused leave balance to the next year or month
+                          </div>
+                        </div>
+                      </div>
+
+                      <label style={{ position: 'relative', display: 'inline-block', width: '42px', height: '24px', cursor: 'pointer', margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={form.allowCarryForward}
+                          onChange={e => setForm(prev => ({ ...prev, allowCarryForward: e.target.checked }))}
+                          style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{
+                          position: 'absolute',
+                          cursor: 'pointer',
+                          top: 0, left: 0, right: 0, bottom: 0,
+                          backgroundColor: form.allowCarryForward ? '#0E7490' : '#CBD5E1',
+                          borderRadius: '24px',
+                          transition: '0.2s'
+                        }}>
+                          <span style={{
+                            position: 'absolute',
+                            content: '""',
+                            height: '18px',
+                            width: '18px',
+                            left: form.allowCarryForward ? '21px' : '3px',
+                            bottom: '3px',
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: '50%',
+                            transition: '0.2s'
+                          }} />
+                        </span>
+                      </label>
+                    </div>
+
+                    {form.allowCarryForward && (
+                      <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #CCFBF1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.76rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>
+                            Max Carry Forward Days
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={form.maxCarryForwardDays}
+                            onChange={e => setForm(prev => ({ ...prev, maxCarryForwardDays: parseInt(e.target.value) || 0 }))}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.85rem',
+                              backgroundColor: '#FFFFFF',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          <span style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '3px', display: 'block' }}>
+                            Max days roll over into next period
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.76rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>
+                            Rollover Expiry Period
+                          </label>
+                          <select
+                            value={form.carryForwardExpiryMonths}
+                            onChange={e => setForm(prev => ({ ...prev, carryForwardExpiryMonths: parseInt(e.target.value) }))}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.85rem',
+                              backgroundColor: '#FFFFFF',
+                              boxSizing: 'border-box'
+                            }}
+                          >
+                            <option value={12}>12 Months (End of Calendar Year)</option>
+                            <option value={3}>3 Months (Quarterly Expiry - 90 Days)</option>
+                            <option value={6}>6 Months (Half-Yearly Expiry)</option>
+                            <option value={0}>Never Expires (Accumulate Across Years)</option>
+                          </select>
+                          <span style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '3px', display: 'block' }}>
+                            Period before unused carried days lapse
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 7. Leave Encashment Configuration */}
+                <div style={{ borderTop: '1px solid #E7ECF3', paddingTop: '16px' }}>
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '12px',
+                      border: form.allowEncashment ? '1.5px solid #F59E0B' : '1px solid #E2E8F0',
+                      backgroundColor: form.allowEncashment ? '#FFFBEB' : '#FAFAFA'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          backgroundColor: form.allowEncashment ? '#FEF3C7' : '#F1F5F9',
+                          color: form.allowEncashment ? '#B45309' : '#64748B',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <Coins size={16} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 750, fontSize: '0.88rem', color: '#0F172A' }}>
+                            Allow Leave Encashment
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
+                            Convert accumulated unused leaves into cash during payroll or exit
+                          </div>
+                        </div>
+                      </div>
+
+                      <label style={{ position: 'relative', display: 'inline-block', width: '42px', height: '24px', cursor: 'pointer', margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={form.allowEncashment}
+                          onChange={e => setForm(prev => ({ ...prev, allowEncashment: e.target.checked }))}
+                          style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{
+                          position: 'absolute',
+                          cursor: 'pointer',
+                          top: 0, left: 0, right: 0, bottom: 0,
+                          backgroundColor: form.allowEncashment ? '#F59E0B' : '#CBD5E1',
+                          borderRadius: '24px',
+                          transition: '0.2s'
+                        }}>
+                          <span style={{
+                            position: 'absolute',
+                            content: '""',
+                            height: '18px',
+                            width: '18px',
+                            left: form.allowEncashment ? '21px' : '3px',
+                            bottom: '3px',
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: '50%',
+                            transition: '0.2s'
+                          }} />
+                        </span>
+                      </label>
+                    </div>
+
+                    {form.allowEncashment && (
+                      <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #FDE68A', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.74rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>
+                            Max Encashable Days
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={form.maxEncashableDays}
+                            onChange={e => setForm(prev => ({ ...prev, maxEncashableDays: parseInt(e.target.value) || 0 }))}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.85rem',
+                              backgroundColor: '#FFFFFF',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '2px', display: 'block' }}>
+                            Max days per cycle
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.74rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>
+                            Min Retained Balance
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={30}
+                            value={form.minBalanceForEncashment}
+                            onChange={e => setForm(prev => ({ ...prev, minBalanceForEncashment: parseInt(e.target.value) || 0 }))}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.85rem',
+                              backgroundColor: '#FFFFFF',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '2px', display: 'block' }}>
+                            Balance to preserve
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.74rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>
+                            Calculation Base
+                          </label>
+                          <select
+                            value={form.encashmentCalculationBase}
+                            onChange={e => setForm(prev => ({ ...prev, encashmentCalculationBase: e.target.value as any }))}
+                            style={{
+                              width: '100%',
+                              padding: '8px 8px',
+                              borderRadius: '8px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.82rem',
+                              backgroundColor: '#FFFFFF',
+                              boxSizing: 'border-box'
+                            }}
+                          >
+                            <option value="BASIC">Basic / 26</option>
+                            <option value="GROSS">Gross / 30</option>
+                          </select>
+                          <span style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '2px', display: 'block' }}>
+                            Per-day rate basis
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 24px', borderTop: '1px solid #E7ECF3' }}>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 24px', borderTop: '1px solid #E7ECF3', backgroundColor: '#F8FAFC' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"

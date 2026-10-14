@@ -239,18 +239,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     attachmentUrl: ''
   });
 
-  const selectedApplicant = employees.find(e => e.employeeId === form.employeeId);
-  const applicantName = selectedApplicant ? `${selectedApplicant.firstName} ${selectedApplicant.lastName}` : (isEmployeeRole ? currentUser.name : '');
+  const targetEmpId = form.employeeId || currentEmployeeId;
+  const selectedApplicant = employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || currentEmployee;
+  const applicantName = selectedApplicant ? `${selectedApplicant.firstName} ${selectedApplicant.lastName}`.trim() : (isEmployeeRole ? currentUser.name : '');
 
   const applicantLeaveBalances = useMemo(() => {
     return getEmployeeLeaveTypeBalances(
-      form.employeeId || currentEmployeeId,
+      targetEmpId,
       applicantName,
       masterLeavePolicies,
       leavePolicies,
-      leaveRequests
+      leaveRequests,
+      selectedApplicant
     );
-  }, [form.employeeId, currentEmployeeId, applicantName, masterLeavePolicies, leavePolicies, leaveRequests]);
+  }, [targetEmpId, applicantName, masterLeavePolicies, leavePolicies, leaveRequests, selectedApplicant]);
 
   const myLeaveSummary = useMemo(() => {
     return getEmployeeTotalLeaveSummary(
@@ -258,9 +260,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       currentUser.name,
       masterLeavePolicies,
       leavePolicies,
-      leaveRequests
+      leaveRequests,
+      currentEmployee
     );
-  }, [currentUser.employeeId, currentUser.name, masterLeavePolicies, leavePolicies, leaveRequests]);
+  }, [currentUser.employeeId, currentUser.name, masterLeavePolicies, leavePolicies, leaveRequests, currentEmployee]);
 
   // Synchronize form.leaveType default to first available balance type
   useEffect(() => {
@@ -1422,7 +1425,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           </span>
                           <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '2px' }}>
                             {selectedBal.isPaid ? (
-                              <>Annual Quota: <strong>{selectedBal.annualQuota} Days</strong> • Already Taken: <strong>{selectedBal.usedDays} Days</strong></>
+                              <>
+                                Annual Quota: <strong>{selectedBal.annualQuota} Days</strong>
+                                {selectedBal.carriedForwardDays > 0 && (
+                                  <span style={{ color: '#0E7490', fontWeight: 700, marginLeft: '4px' }}>
+                                    (+{selectedBal.carriedForwardDays}d carried forward)
+                                  </span>
+                                )}
+                                {' '}• Already Taken: <strong>{selectedBal.usedDays} Days</strong>
+                                {selectedBal.allowEncashment && selectedBal.encashableDays > 0 && (
+                                  <span style={{ color: '#D97706', fontWeight: 700, marginLeft: '4px' }}>
+                                    • Encashable: {selectedBal.encashableDays}d
+                                  </span>
+                                )}
+                              </>
                             ) : (
                               <>Loss of Pay: Deducted from monthly salary like an Absent day</>
                             )}

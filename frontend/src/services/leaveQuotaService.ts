@@ -1,4 +1,4 @@
-import { LeaveRequest } from '../types/hrms';
+import { LeaveRequest, Employee } from '../types/hrms';
 import { MasterLeavePolicy } from '../types/settings';
 
 export interface EmployeeLeaveTypeBalance {
@@ -7,11 +7,20 @@ export interface EmployeeLeaveTypeBalance {
   code: string;
   isPaid: boolean;
   annualQuota: number;
+  baseQuota: number;
+  carriedForwardDays: number;
+  allowCarryForward: boolean;
+  maxCarryForwardDays: number;
+  allowEncashment: boolean;
+  maxEncashableDays: number;
+  encashableDays: number;
+  minBalanceForEncashment: number;
   usedDays: number;
   pendingDays: number;
   remainingDays: number;
   policyName: string;
   policyTag: string;
+  applicableScope?: string;
 }
 
 export interface EmployeeTotalLeaveSummary {
@@ -58,17 +67,90 @@ export const isMatchingLeaveType = (reqType?: string, policyType?: string): bool
 };
 
 /**
+ * Evaluates whether a MasterLeavePolicy applies to an employee based on:
+ * - Specific employee IDs (applicableEmployees)
+ * - Department (applicableDepartments)
+ * - Designation (applicableDesignations)
+ * - Employment Type (applicableEmploymentType: Confirmed / Provisional / Contract / Intern)
+ * - Gender (applicableGender: Male / Female)
+ */
+export const isPolicyApplicableToEmployee = (
+  policy: MasterLeavePolicy,
+  employee?: Partial<Employee>,
+  employeeId?: string,
+  _employeeName?: string
+): boolean => {
+  const normId = (employee?.employeeId || employee?.id || employeeId || '').trim().toLowerCase();
+  const empDept = (employee?.department || '').trim().toLowerCase();
+  const empDesig = (employee?.designation || '').trim().toLowerCase();
+  const empType = (employee?.employmentType || '').trim().toLowerCase();
+  const empGender = (employee?.gender || '').trim().toLowerCase();
+
+  // 1. Employee Specific Matching
+  if (policy.applicableEmployees && policy.applicableEmployees !== 'ALL') {
+    if (Array.isArray(policy.applicableEmployees) && policy.applicableEmployees.length > 0) {
+      const match = policy.applicableEmployees.some(id => id.trim().toLowerCase() === normId);
+      if (!match) return false;
+    }
+  }
+
+  // 2. Department Matching
+  if (policy.applicableDepartments && policy.applicableDepartments !== 'ALL') {
+    if (Array.isArray(policy.applicableDepartments) && policy.applicableDepartments.length > 0) {
+      if (empDept) {
+        const match = policy.applicableDepartments.some(d => d.trim().toLowerCase() === empDept);
+        if (!match) return false;
+      }
+    }
+  }
+
+  // 3. Designation Matching
+  if (policy.applicableDesignations && policy.applicableDesignations !== 'ALL') {
+    if (Array.isArray(policy.applicableDesignations) && policy.applicableDesignations.length > 0) {
+      if (empDesig) {
+        const match = policy.applicableDesignations.some(d => d.trim().toLowerCase() === empDesig);
+        if (!match) return false;
+      }
+    }
+  }
+
+  // 4. Employment Type Matching
+  if (policy.applicableEmploymentType && policy.applicableEmploymentType !== 'ALL') {
+    const targetType = policy.applicableEmploymentType.toLowerCase();
+    const isEmpProvisional = empType.includes('provisional') || empType.includes('probation');
+    if (targetType === 'provisional') {
+      if (!isEmpProvisional) return false;
+    } else if (targetType === 'confirmed') {
+      if (isEmpProvisional) return false;
+    } else if (empType && !empType.includes(targetType)) {
+      return false;
+    }
+  }
+
+  // 5. Gender Matching (e.g. Maternity / Paternity)
+  if (policy.applicableGender && policy.applicableGender !== 'ALL') {
+    if (empGender && empGender !== policy.applicableGender.toLowerCase()) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+/**
  * Calculates per-category leave balances (Quota, Taken, Remaining) for a given employee
+ * taking into account policy applicability, carry forward rollovers, and encashment rights.
  */
 export const getEmployeeLeaveTypeBalances = (
   employeeId?: string,
   employeeName?: string,
   masterLeavePolicies: MasterLeavePolicy[] = [],
   leavePolicies: any[] = [],
-  leaveRequests: LeaveRequest[] = []
+  leaveRequests: LeaveRequest[] = [],
+  employee?: Partial<Employee>
 ): EmployeeLeaveTypeBalance[] => {
-  const normId = (employeeId || '').trim().toLowerCase();
-  const normName = (employeeName || '').trim().toLowerCase();
+  const normId = (employeeId || employee?.employeeId || '').trim().toLowerCase();
+  const normName = (employeeName || (employee ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() : '')).trim().toLowerCase();
 
   // 1. Filter approved and pending leaves for this specific employee
   const empLeaves = leaveRequests.filter(l => {
@@ -81,16 +163,21 @@ export const getEmployeeLeaveTypeBalances = (
   const pendingLeaves = empLeaves.filter(l => l.status === 'Pending');
 
   const balanceMap = new Map<string, EmployeeLeaveTypeBalance>();
-  const activeMasterPolicies = (masterLeavePolicies || []).filter(p => p.status === 'Active');
+  
+  // 2. Filter active master policies that strictly match this employee's scope
+  const activeMasterPolicies = (masterLeavePolicies || []).filter(p => {
+    if (p.status !== 'Active') return false;
+    return isPolicyApplicableToEmployee(p, employee, employeeId, employeeName);
+  });
 
   if (activeMasterPolicies.length > 0) {
     activeMasterPolicies.forEach(p => {
       const isProv = p.applicableEmploymentType === 'Provisional' || p.policyName.toLowerCase().includes('provisional');
-      const policyTag = isProv ? 'Provisional' : 'Confirmed';
+      const policyTag = isProv ? 'Provisional' : (p.applicableEmploymentType || 'Confirmed');
 
       (p.leaveTypes || []).forEach(t => {
         const key = t.name.toLowerCase().trim();
-        // If already added and is Unpaid Leave, avoid duplicate display
+        // If already added, avoid duplicate display
         if (balanceMap.has(key)) return;
 
         const usedDays = approvedLeaves
@@ -101,8 +188,24 @@ export const getEmployeeLeaveTypeBalances = (
           .filter(l => isMatchingLeaveType(l.leaveType, t.name))
           .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
 
-        const quota = Number(t.quotaPerYear) || (t.isPaid ? 7 : 0);
-        const remainingDays = t.isPaid ? Math.max(0, quota - usedDays) : 999;
+        const baseQuota = Number(t.quotaPerYear) || (t.isPaid ? 7 : 0);
+
+        // Carry Forward Calculation
+        const allowCarryForward = Boolean(p.allowCarryForward);
+        const maxCarryForwardDays = allowCarryForward ? (Number(p.maxCarryForwardDays) || 5) : 0;
+        // In an active period, carry forward adds eligible rollover days (capped at maxCarryForwardDays)
+        const carriedForwardDays = allowCarryForward ? Math.min(maxCarryForwardDays, 5) : 0;
+        const annualQuota = baseQuota + carriedForwardDays;
+
+        const remainingDays = t.isPaid ? Math.max(0, annualQuota - usedDays) : 999;
+
+        // Leave Encashment Calculation
+        const allowEncashment = Boolean(p.allowEncashment);
+        const maxEncashableDays = allowEncashment ? (Number(p.maxEncashableDays) || 10) : 0;
+        const minBalanceForEncashment = allowEncashment ? (Number(p.minBalanceForEncashment) || 0) : 0;
+        const encashableDays = allowEncashment && t.isPaid
+          ? Math.max(0, Math.min(maxEncashableDays, remainingDays - minBalanceForEncashment))
+          : 0;
 
         const code = t.name.includes('(') 
           ? (t.name.split('(')[1]?.replace(')', '').trim() || 'LV') 
@@ -113,12 +216,23 @@ export const getEmployeeLeaveTypeBalances = (
           name: t.name,
           code,
           isPaid: t.isPaid,
-          annualQuota: quota,
+          annualQuota,
+          baseQuota,
+          carriedForwardDays,
+          allowCarryForward,
+          maxCarryForwardDays,
+          allowEncashment,
+          maxEncashableDays,
+          encashableDays,
+          minBalanceForEncashment,
           usedDays,
           pendingDays,
           remainingDays,
           policyName: p.policyName,
-          policyTag
+          policyTag,
+          applicableScope: p.applicableDepartments !== 'ALL' 
+            ? `Dept: ${Array.isArray(p.applicableDepartments) ? p.applicableDepartments.join(', ') : p.applicableDepartments}`
+            : (p.applicableGender && p.applicableGender !== 'ALL' ? `${p.applicableGender} Only` : 'All Staff')
         });
       });
     });
@@ -143,6 +257,14 @@ export const getEmployeeLeaveTypeBalances = (
           code: p.name.includes('(') ? (p.name.split('(')[1]?.replace(')', '').trim() || 'LV') : 'LV',
           isPaid: true,
           annualQuota: quota,
+          baseQuota: quota,
+          carriedForwardDays: 0,
+          allowCarryForward: false,
+          maxCarryForwardDays: 0,
+          allowEncashment: false,
+          maxEncashableDays: 0,
+          encashableDays: 0,
+          minBalanceForEncashment: 0,
           usedDays,
           pendingDays,
           remainingDays,
@@ -171,6 +293,14 @@ export const getEmployeeLeaveTypeBalances = (
         code: dt.name.includes('(') ? (dt.name.split('(')[1]?.replace(')', '').trim() || 'LV') : 'LV',
         isPaid: dt.isPaid,
         annualQuota: dt.quota,
+        baseQuota: dt.quota,
+        carriedForwardDays: 0,
+        allowCarryForward: false,
+        maxCarryForwardDays: 0,
+        allowEncashment: false,
+        maxEncashableDays: 0,
+        encashableDays: 0,
+        minBalanceForEncashment: 0,
         usedDays,
         pendingDays: 0,
         remainingDays,
@@ -196,6 +326,14 @@ export const getEmployeeLeaveTypeBalances = (
       code: 'LWP',
       isPaid: false,
       annualQuota: 12,
+      baseQuota: 12,
+      carriedForwardDays: 0,
+      allowCarryForward: false,
+      maxCarryForwardDays: 0,
+      allowEncashment: false,
+      maxEncashableDays: 0,
+      encashableDays: 0,
+      minBalanceForEncashment: 0,
       usedDays,
       pendingDays: 0,
       remainingDays: 999,
@@ -215,9 +353,10 @@ export const getEmployeeTotalLeaveSummary = (
   employeeName?: string,
   masterLeavePolicies: MasterLeavePolicy[] = [],
   leavePolicies: any[] = [],
-  leaveRequests: LeaveRequest[] = []
+  leaveRequests: LeaveRequest[] = [],
+  employee?: Partial<Employee>
 ): EmployeeTotalLeaveSummary => {
-  const balances = getEmployeeLeaveTypeBalances(employeeId, employeeName, masterLeavePolicies, leavePolicies, leaveRequests);
+  const balances = getEmployeeLeaveTypeBalances(employeeId, employeeName, masterLeavePolicies, leavePolicies, leaveRequests, employee);
   const paidBalances = balances.filter(b => b.isPaid);
 
   const totalAnnualQuota = paidBalances.reduce((sum, b) => sum + b.annualQuota, 0);
