@@ -116,14 +116,22 @@ export const isPolicyApplicableToEmployee = (
 
   // 4. Employment Type Matching
   if (policy.applicableEmploymentType && policy.applicableEmploymentType !== 'ALL') {
-    const targetType = policy.applicableEmploymentType.toLowerCase();
+    const targetType = policy.applicableEmploymentType.trim().toLowerCase();
+    const cleanTarget = targetType.replace(/[^a-z0-9]/g, '');
+    const cleanEmp = empType.replace(/[^a-z0-9]/g, '');
+
     const isEmpProvisional = empType.includes('provisional') || empType.includes('probation');
-    if (targetType === 'provisional') {
+    if (targetType === 'provisional' || targetType === 'probation') {
       if (!isEmpProvisional) return false;
-    } else if (targetType === 'confirmed') {
+    } else if (targetType === 'confirmed' || targetType === 'permanent') {
       if (isEmpProvisional) return false;
-    } else if (empType && !empType.includes(targetType)) {
-      return false;
+    } else if (empType) {
+      const isMatch = empType === targetType ||
+                      cleanEmp === cleanTarget ||
+                      empType.includes(targetType) ||
+                      targetType.includes(empType) ||
+                      (Boolean(cleanEmp && cleanTarget) && (cleanEmp.includes(cleanTarget) || cleanTarget.includes(cleanEmp)));
+      if (!isMatch) return false;
     }
   }
 

@@ -41,7 +41,9 @@ export const LeaveManagementSettings: React.FC = () => {
     createSandwichPolicy,
     employees,
     departments,
-    currentUser
+    currentUser,
+    orgStructure,
+    employmentTypes
   } = useHRMS();
 
   const userRole = (currentUser?.role as string) || '';
@@ -82,6 +84,31 @@ export const LeaveManagementSettings: React.FC = () => {
     return Array.from(set).sort();
   }, [departments, employees]);
 
+  // Dynamic Employment Types derived from Organization Structure (Company Details) and DB
+  const availableEmploymentTypes = useMemo(() => {
+    const orgTypes = Array.isArray(orgStructure?.employmentTypes) ? orgStructure.employmentTypes : [];
+    const dbTypes = Array.isArray(employmentTypes) ? employmentTypes.filter(t => t.status !== 'Inactive').map(t => t.name) : [];
+    const empTypes = Array.isArray(employees) ? employees.map(e => (e as any).employmentType).filter(Boolean) : [];
+
+    const combined = [...orgTypes, ...dbTypes, ...empTypes]
+      .map(t => (typeof t === 'string' ? t.trim() : ''))
+      .filter(Boolean);
+
+    const uniqueMap = new Map<string, string>();
+    combined.forEach(t => {
+      const lower = t.toLowerCase();
+      if (!uniqueMap.has(lower)) {
+        uniqueMap.set(lower, t);
+      }
+    });
+
+    const result = Array.from(uniqueMap.values());
+    if (result.length === 0) {
+      return ['Full Time', 'Intern', 'Contract', 'Probation'];
+    }
+    return result;
+  }, [orgStructure?.employmentTypes, employmentTypes, employees]);
+
   // Form State: core fields + Applicable Employees + Carry Forward + Leave Encashment
   const [form, setForm] = useState<{
     policyName: string;
@@ -93,7 +120,7 @@ export const LeaveManagementSettings: React.FC = () => {
     // 1. Applicable Employees / Eligibility
     applicableScope: 'ALL' | 'DEPARTMENT' | 'EMPLOYMENT_TYPE' | 'GENDER' | 'CUSTOM_EMPLOYEES';
     selectedDepartments: string[];
-    employmentType: 'ALL' | 'Confirmed' | 'Provisional' | 'Contract' | 'Intern';
+    employmentType: string;
     gender: 'ALL' | 'Male' | 'Female';
     selectedEmployeeIds: string[];
     // 2. Carry Forward
@@ -262,7 +289,7 @@ export const LeaveManagementSettings: React.FC = () => {
 
     let applicableEmployees: 'ALL' | string[] = 'ALL';
     let applicableDepartments: 'ALL' | string[] = 'ALL';
-    let applicableEmploymentType: 'ALL' | 'Confirmed' | 'Provisional' | 'Contract' | 'Intern' = 'ALL';
+    let applicableEmploymentType: 'ALL' | string = 'ALL';
     let applicableGender: 'ALL' | 'Male' | 'Female' = 'ALL';
 
     if (form.applicableScope === 'DEPARTMENT' && form.selectedDepartments.length > 0) {
@@ -966,7 +993,7 @@ export const LeaveManagementSettings: React.FC = () => {
                             : policy.applicableGender && policy.applicableGender !== 'ALL'
                             ? `${policy.applicableGender} Only`
                             : policy.applicableEmploymentType && policy.applicableEmploymentType !== 'ALL'
-                            ? `${policy.applicableEmploymentType} Staff`
+                            ? `${policy.applicableEmploymentType}`
                             : 'All Employees'}
                         </span>
 
@@ -1419,7 +1446,7 @@ export const LeaveManagementSettings: React.FC = () => {
                   >
                     <option value="ALL">All Employees (Company-wide)</option>
                     <option value="DEPARTMENT">Specific Department(s)</option>
-                    <option value="EMPLOYMENT_TYPE">Employment Type (Confirmed / Provisional)</option>
+                    <option value="EMPLOYMENT_TYPE">Employment Type</option>
                     <option value="GENDER">Gender Specific (Maternity / Paternity)</option>
                     <option value="CUSTOM_EMPLOYEES">Specific Individual Staff</option>
                   </select>
@@ -1490,12 +1517,12 @@ export const LeaveManagementSettings: React.FC = () => {
                   {form.applicableScope === 'EMPLOYMENT_TYPE' && (
                     <div style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
                       <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
-                        Target Employment Status:
+                        Target Employment Type:
                       </label>
                       <select
                         className="form-control"
                         value={form.employmentType}
-                        onChange={e => setForm(prev => ({ ...prev, employmentType: e.target.value as any }))}
+                        onChange={e => setForm(prev => ({ ...prev, employmentType: e.target.value }))}
                         style={{
                           width: '100%',
                           padding: '8px 12px',
@@ -1506,12 +1533,23 @@ export const LeaveManagementSettings: React.FC = () => {
                           backgroundColor: '#FFFFFF'
                         }}
                       >
-                        <option value="Confirmed">Confirmed / Permanent Staff Only</option>
-                        <option value="Provisional">Provisional / Probation (First 3-6 Months)</option>
-                        <option value="Contract">Contractual Workforce</option>
-                        <option value="Intern">Interns / Trainees</option>
                         <option value="ALL">All Employment Types</option>
+                        {availableEmploymentTypes.map(t => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                        {form.employmentType && 
+                         form.employmentType !== 'ALL' && 
+                         !availableEmploymentTypes.some(t => t.toLowerCase() === form.employmentType.toLowerCase()) && (
+                          <option value={form.employmentType}>{form.employmentType}</option>
+                        )}
                       </select>
+                      {availableEmploymentTypes.length === 0 && (
+                        <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748B' }}>
+                          No custom employment types configured yet. You can add them in <strong>Company Settings → Organization Structure</strong>.
+                        </div>
+                      )}
                     </div>
                   )}
 

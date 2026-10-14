@@ -213,7 +213,7 @@ export interface MasterLeavePolicy {
   applicableEmployees: 'ALL' | string[];
   applicableDepartments: 'ALL' | string[];
   applicableBranches: 'ALL' | string[];
-  applicableEmploymentType?: 'ALL' | 'Confirmed' | 'Provisional' | 'Contract' | 'Intern';
+  applicableEmploymentType?: 'ALL' | string;
   applicableDesignations?: 'ALL' | string[];
   applicableGender?: 'ALL' | 'Male' | 'Female';
   effectiveDate: string;
