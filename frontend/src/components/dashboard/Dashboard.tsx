@@ -1069,7 +1069,20 @@ export const Dashboard: React.FC = () => {
                         >
                           {l.employeeName}
                         </span>
-                        <span className="status-pill pending" style={{ fontSize: '0.68rem', padding: '1px 7px', border: 'none' }}>{l.leaveType}</span>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          padding: '1px 8px',
+                          borderRadius: '999px',
+                          backgroundColor: '#EFF6FF',
+                          color: '#1E40AF',
+                          lineHeight: 1.3
+                        }}>
+                          {l.leaveType}
+                        </span>
                       </div>
                       <p 
                         style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 6px 0' }}
@@ -1104,7 +1117,16 @@ export const Dashboard: React.FC = () => {
                           </button>
                         </div>
                       ) : (
-                        <span className="status-pill pending" style={{ fontSize: '0.72rem', display: 'block', textAlign: 'center' }}>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          display: 'block',
+                          textAlign: 'center',
+                          padding: '3px 8px',
+                          borderRadius: '999px',
+                          backgroundColor: '#EFF6FF',
+                          color: '#1E40AF'
+                        }}>
                           Awaiting HR Approval
                         </span>
                       )}

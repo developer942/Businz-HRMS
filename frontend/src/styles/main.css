@@ -1640,6 +1640,23 @@ input[type="number"] {
 .status-pill.on-leave { background-color: #f5f3ff; color: #5b21b6; }
 .status-pill.on-leave::before { background-color: #8b5cf6; }
 
+/* Force eliminate dot pseudo element for any status-pill with no-dot */
+.status-pill.no-dot::before,
+.status-pill.no-dot.pending::before,
+.status-pill.no-dot.approved::before,
+.status-pill.no-dot.rejected::before,
+.status-pill.pending.no-dot::before,
+.status-pill.approved.no-dot::before,
+.status-pill.rejected.no-dot::before,
+.status-pill.active.no-dot::before,
+.status-pill.on-leave.no-dot::before {
+  all: unset !important;
+  display: none !important;
+  content: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 .priority-pill {
   padding: 3px 8px;
   border-radius: var(--radius-xs);

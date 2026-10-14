@@ -380,7 +380,25 @@ export const ReportsAnalytics: React.FC = () => {
                       <td>{l.department}</td>
                       <td>{l.leaveType}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>{formatDateDDMMYYYY(l.startDate)} to {formatDateDDMMYYYY(l.endDate)} ({l.daysCount} days)</td>
-                      <td><span className={`status-pill ${l.status.toLowerCase()}`}>{l.status}</span></td>
+                      <td>
+                        <span 
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '3px 12px',
+                            fontSize: '11.5px',
+                            fontWeight: 700,
+                            borderRadius: '999px',
+                            lineHeight: 1.3,
+                            whiteSpace: 'nowrap',
+                            backgroundColor: l.status === 'Approved' ? '#DCFCE7' : l.status === 'Rejected' ? '#FEE2E2' : '#EFF6FF',
+                            color: l.status === 'Approved' ? '#166534' : l.status === 'Rejected' ? '#DC2626' : '#1E40AF'
+                          }}
+                        >
+                          {l.status}
+                        </span>
+                      </td>
                     </tr>
                   ))
                 )}
