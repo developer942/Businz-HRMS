@@ -174,6 +174,7 @@ export const PayrollManagement: React.FC = () => {
   const totalEntries = visibleRecords.length;
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedRecords = visibleRecords.slice(startIndex, startIndex + pageSize);
+  const displayedRecords = isEmployeeRole ? visibleRecords : paginatedRecords;
 
   const totalPayout = visibleRecords.reduce((acc, curr) => acc + toNum(curr.netSalary), 0);
   const totalStaffIncluded = new Set(
@@ -685,15 +686,17 @@ export const PayrollManagement: React.FC = () => {
           <table className="hrms-table">
             <thead>
               <tr>
-                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={paginatedRecords.length > 0 && paginatedRecords.every(p => selectedPayslipIds.includes(p.id))}
-                    onChange={handleToggleSelectAll}
-                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                    aria-label="Select all payslips"
-                  />
-                </th>
+                {!isEmployeeRole && (
+                  <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={displayedRecords.length > 0 && displayedRecords.every(p => selectedPayslipIds.includes(p.id))}
+                      onChange={handleToggleSelectAll}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                      aria-label="Select all payslips"
+                    />
+                  </th>
+                )}
                 <th>Employee</th>
                 <th>Department</th>
                 {activeEarnings.length > 0 ? (
@@ -717,31 +720,43 @@ export const PayrollManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {paginatedRecords.map(p => {
-                const isSelected = selectedPayslipIds.includes(p.id);
-                const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
-                const basic = toNum(p.basicSalary);
-                const advance = toNum(p.advanceDeduction || 0);
-                const statutoryTax = toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0);
-
-                return (
-                  <tr 
-                    key={p.id}
-                    style={{
-                      backgroundColor: isSelected ? '#ECFEFF' : undefined,
-                      borderLeft: isSelected ? '4px solid #0E7490' : undefined,
-                      transition: 'background-color 0.15s ease'
-                    }}
+              {displayedRecords.length === 0 ? (
+                <tr>
+                  <td 
+                    colSpan={isEmployeeRole ? (activeEarnings.length > 0 ? activeEarnings.length + 7 : 8) : (activeEarnings.length > 0 ? activeEarnings.length + 8 : 9)} 
+                    style={{ textAlign: 'center', padding: '36px 20px', color: '#64748B' }}
                   >
-                    <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleTogglePayslip(p.id)}
-                        style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                        aria-label={`Select payslip for ${p.employeeName}`}
-                      />
-                    </td>
+                    No payslip records found.
+                  </td>
+                </tr>
+              ) : (
+                displayedRecords.map(p => {
+                  const isSelected = selectedPayslipIds.includes(p.id);
+                  const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
+                  const basic = toNum(p.basicSalary);
+                  const advance = toNum(p.advanceDeduction || 0);
+                  const statutoryTax = toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0);
+
+                  return (
+                    <tr 
+                      key={p.id}
+                      style={{
+                        backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                        borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                        transition: 'background-color 0.15s ease'
+                      }}
+                    >
+                      {!isEmployeeRole && (
+                        <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleTogglePayslip(p.id)}
+                            style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                            aria-label={`Select payslip for ${p.employeeName}`}
+                          />
+                        </td>
+                      )}
                     <td>
                       <div>
                         <strong>{p.employeeName}</strong>
@@ -859,41 +874,46 @@ export const PayrollManagement: React.FC = () => {
                     </td>
                   </tr>
                 );
-              })}
+              })
+            )}
             </tbody>
           </table>
         </div>
 
         {/* Standardized Table Pagination */}
-        <StandardTablePagination
-          currentPage={currentPage}
-          totalEntries={totalEntries}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={setPageSize}
-          pageSizeOptions={[5, 10]}
-        />
+        {!isEmployeeRole && (
+          <StandardTablePagination
+            currentPage={currentPage}
+            totalEntries={totalEntries}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[5, 10]}
+          />
+        )}
       </div>
 
       {/* Floating Action Bar per AGENTS.md */}
-      <StandardFloatingActionBar
-        selectedCount={selectedPayslipIds.length}
-        onClearSelection={() => setSelectedPayslipIds([])}
-        onEdit={selectedPayslipIds.length === 1 ? () => {
-          const rec = visibleRecords.find(p => p.id === selectedPayslipIds[0]);
-          if (rec) setSelectedPayslip(rec);
-        } : undefined}
-        customActions={canMarkPaid && selectedUnpaidIds.length > 0 ? (
-          <button
-            className="action-bar-btn"
-            onClick={() => handleMarkPaid(selectedUnpaidIds)}
-            title="Mark selected salaries as paid"
-          >
-            <IndianRupee size={14} />
-            <span>Mark Paid ({selectedUnpaidIds.length})</span>
-          </button>
-        ) : undefined}
-      />
+      {!isEmployeeRole && (
+        <StandardFloatingActionBar
+          selectedCount={selectedPayslipIds.length}
+          onClearSelection={() => setSelectedPayslipIds([])}
+          onEdit={selectedPayslipIds.length === 1 ? () => {
+            const rec = visibleRecords.find(p => p.id === selectedPayslipIds[0]);
+            if (rec) setSelectedPayslip(rec);
+          } : undefined}
+          customActions={canMarkPaid && selectedUnpaidIds.length > 0 ? (
+            <button
+              className="action-bar-btn"
+              onClick={() => handleMarkPaid(selectedUnpaidIds)}
+              title="Mark selected salaries as paid"
+            >
+              <IndianRupee size={14} />
+              <span>Mark Paid ({selectedUnpaidIds.length})</span>
+            </button>
+          ) : undefined}
+        />
+      )}
 
       {/* Modal: Edit Advance / Loan Recovery ("Others") */}
       {editingAdvance && (

@@ -273,6 +273,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedExpenses = filteredExpenses.slice(startIndex, startIndex + pageSize);
+  const displayedExpenses = isEmployeeRole ? filteredExpenses : paginatedExpenses;
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -673,14 +674,16 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
           <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={paginatedExpenses.length > 0 && paginatedExpenses.every(e => selectedRowIds.includes(e.id))}
-                    onChange={handleToggleAll}
-                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                  />
-                </th>
+                {!isEmployeeRole && (
+                  <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={displayedExpenses.length > 0 && displayedExpenses.every(e => selectedRowIds.includes(e.id))}
+                      onChange={handleToggleAll}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                  </th>
+                )}
                 <th style={{ whiteSpace: 'nowrap' }}>Claim ID &amp; Employee</th>
                 <th style={{ whiteSpace: 'nowrap' }}>Category</th>
                 <th style={{ whiteSpace: 'nowrap' }}>Date</th>
@@ -698,9 +701,9 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               </tr>
             </thead>
             <tbody>
-              {paginatedExpenses.length === 0 ? (
+              {displayedExpenses.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748B' }}>
+                  <td colSpan={isEmployeeRole ? 8 : 9} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748B' }}>
                     <AlertCircle size={28} style={{ margin: '0 auto 8px', color: '#94A3B8' }} />
                     <div style={{ fontWeight: 600 }}>No expense claims found matching the current criteria.</div>
                     {isEmployeeRole && (
@@ -715,7 +718,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                   </td>
                 </tr>
               ) : (
-                paginatedExpenses.map(exp => {
+                displayedExpenses.map(exp => {
                   const isSelected = selectedRowIds.includes(exp.id);
                   const isPending = exp.status === 'Pending Finance' || exp.status === 'Pending Manager';
 
@@ -729,14 +732,16 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                       }}
                     >
                       {/* Checkbox */}
-                      <td style={{ textAlign: 'center' }}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleRow(exp.id)}
-                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                        />
-                      </td>
+                      {!isEmployeeRole && (
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleRow(exp.id)}
+                            style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                        </td>
+                      )}
 
                       {/* Employee Info */}
                       <td>
@@ -948,146 +953,148 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
         </div>
 
         {/* Standardized Pagination Footer per AGENTS.md (Strictly [5, 10]) */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '16px 20px',
-          borderTop: '1px solid #F1F5F9',
-          flexWrap: 'wrap',
-          gap: '12px',
-          backgroundColor: '#ffffff'
-        }}>
-          {/* Left: Rows-per-page selector restricted strictly to [5, 10] */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#64748B' }}>
-            <span>Rows per page:</span>
-            <select
-              value={pageSize}
-              onChange={e => {
-                setPageSize(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '8px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.82rem',
-                color: '#1E293B',
-                background: '#ffffff',
-                outline: 'none'
-              }}
-            >
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-            </select>
-            <span>
-              Showing {totalEntries > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + pageSize, totalEntries)} of {totalEntries} entries
-            </span>
-          </div>
-
-          {/* Right: Page Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => handlePageChange(1)}
-                disabled={currentPage === 1}
-                style={{ padding: '4px 8px', minWidth: '32px' }}
-                title="First page"
-              >
-                <ChevronsLeft size={14} />
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1}
-                style={{ padding: '4px 8px', minWidth: '32px' }}
-                title="Previous page"
-              >
-                <ChevronLeft size={14} />
-              </button>
-
-              {/* Page numbers */}
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
-                .map((p, idx, arr) => {
-                  const showEllipsisBefore = idx > 0 && p - arr[idx - 1] > 1;
-                  return (
-                    <React.Fragment key={p}>
-                      {showEllipsisBefore && <span style={{ padding: '0 4px', color: '#94A3B8' }}>...</span>}
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${currentPage === p ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => handlePageChange(p)}
-                        style={{
-                          padding: '4px 10px',
-                          minWidth: '32px',
-                          backgroundColor: currentPage === p ? '#0E7490' : undefined,
-                          borderColor: currentPage === p ? '#0E7490' : undefined,
-                          color: currentPage === p ? '#ffffff' : undefined,
-                          fontWeight: currentPage === p ? 700 : 500
-                        }}
-                      >
-                        {p}
-                      </button>
-                    </React.Fragment>
-                  );
-                })}
-
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                style={{ padding: '4px 8px', minWidth: '32px' }}
-                title="Next page"
-              >
-                <ChevronRight size={14} />
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => handlePageChange(totalPages)}
-                disabled={currentPage === totalPages}
-                style={{ padding: '4px 8px', minWidth: '32px' }}
-                title="Last page"
-              >
-                <ChevronsRight size={14} />
-              </button>
-            </div>
-
-            {/* Jump to page */}
-            <form onSubmit={handleGoToPage} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
-              <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Go to:</span>
-              <input
-                type="number"
-                min={1}
-                max={totalPages}
-                value={targetPageInput}
-                onChange={e => setTargetPageInput(e.target.value)}
-                placeholder={`${currentPage}`}
+        {!isEmployeeRole && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderTop: '1px solid #F1F5F9',
+            flexWrap: 'wrap',
+            gap: '12px',
+            backgroundColor: '#ffffff'
+          }}>
+            {/* Left: Rows-per-page selector restricted strictly to [5, 10] */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#64748B' }}>
+              <span>Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={e => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
                 style={{
-                  width: '44px',
-                  padding: '3px 6px',
-                  borderRadius: '6px',
+                  padding: '4px 8px',
+                  borderRadius: '8px',
                   border: '1px solid #E2E8F0',
-                  fontSize: '0.8rem',
-                  textAlign: 'center',
+                  fontSize: '0.82rem',
+                  color: '#1E293B',
+                  background: '#ffffff',
                   outline: 'none'
                 }}
-              />
-              <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: '0.78rem' }}>
-                Go ›
-              </button>
-            </form>
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+              </select>
+              <span>
+                Showing {totalEntries > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + pageSize, totalEntries)} of {totalEntries} entries
+              </span>
+            </div>
+
+            {/* Right: Page Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handlePageChange(1)}
+                  disabled={currentPage === 1}
+                  style={{ padding: '4px 8px', minWidth: '32px' }}
+                  title="First page"
+                >
+                  <ChevronsLeft size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  style={{ padding: '4px 8px', minWidth: '32px' }}
+                  title="Previous page"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+
+                {/* Page numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                  .map((p, idx, arr) => {
+                    const showEllipsisBefore = idx > 0 && p - arr[idx - 1] > 1;
+                    return (
+                      <React.Fragment key={p}>
+                        {showEllipsisBefore && <span style={{ padding: '0 4px', color: '#94A3B8' }}>...</span>}
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${currentPage === p ? 'btn-primary' : 'btn-secondary'}`}
+                          onClick={() => handlePageChange(p)}
+                          style={{
+                            padding: '4px 10px',
+                            minWidth: '32px',
+                            backgroundColor: currentPage === p ? '#0E7490' : undefined,
+                            borderColor: currentPage === p ? '#0E7490' : undefined,
+                            color: currentPage === p ? '#ffffff' : undefined,
+                            fontWeight: currentPage === p ? 700 : 500
+                          }}
+                        >
+                          {p}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  style={{ padding: '4px 8px', minWidth: '32px' }}
+                  title="Next page"
+                >
+                  <ChevronRight size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handlePageChange(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{ padding: '4px 8px', minWidth: '32px' }}
+                  title="Last page"
+                >
+                  <ChevronsRight size={14} />
+                </button>
+              </div>
+
+              {/* Jump to page */}
+              <form onSubmit={handleGoToPage} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+                <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Go to:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={targetPageInput}
+                  onChange={e => setTargetPageInput(e.target.value)}
+                  placeholder={`${currentPage}`}
+                  style={{
+                    width: '44px',
+                    padding: '3px 6px',
+                    borderRadius: '6px',
+                    border: '1px solid #E2E8F0',
+                    fontSize: '0.8rem',
+                    textAlign: 'center',
+                    outline: 'none'
+                  }}
+                />
+                <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: '0.78rem' }}>
+                  Go ›
+                </button>
+              </form>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Floating Action Bar (Per AGENTS.md table rules) */}
-      {selectedRowIds.length > 0 && (
+      {!isEmployeeRole && selectedRowIds.length > 0 && (
         <div style={{
           position: 'fixed',
           bottom: '24px',
