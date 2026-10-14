@@ -108,28 +108,45 @@ export type DeductionVisibility = 'DETAILED' | 'GENERIC';
 export interface AttendancePolicy {
   id: string;
   policyName: string;
-  description: string;
+  description?: string;
   applicableEmployees: 'ALL' | string[]; // 'ALL' or array of employee IDs
   applicableDepartments: 'ALL' | string[];
-  applicableBranches: 'ALL' | string[];
-  effectiveFrom: string;
+  applicableDesignations?: 'ALL' | string[];
+  applicableShifts?: 'ALL' | string[]; // 'ALL' or array of shift IDs / names
+  applicableBranches?: 'ALL' | string[];
+  effectiveFrom?: string;
   effectiveTo?: string;
   status: 'Active' | 'Inactive' | 'Archived';
   version: number;
 
-  // Working Time Settings
-  shiftName: string;
-  startTime: string; // '09:30'
-  endTime: string;   // '18:30'
-  graceTimeMinutes: number; // e.g. 10 minutes
-  minWorkingHours: number;  // e.g. 8
-  halfDayHours: number;     // e.g. 4
-  fullDayHours: number;     // e.g. 8.5
-  weeklyOff: string[];      // ['Sunday']
-  holidayCalendar: string;
+  // The 7 Standard Late Attendance Policy Fields:
+  // 1. Policy Name (policyName)
+  // 2. Applicable Employees (applicableEmployees, applicableDepartments, applicableDesignations, applicableShifts)
+  // 3. Grace Period (graceTimeMinutes)
+  // 4. Allowed Late Count (allowedLateCount per month)
+  // 5. Warning System (warningSystemEnabled)
+  // 6. Half-Day Rule (halfDayRuleEnabled + halfDayThresholdCount)
+  // 7. Loss of Pay (LOP) Rule (lopRuleEnabled + lopThresholdCount)
+  graceTimeMinutes: number; // Custom minutes (e.g. 10)
+  allowedLateCount?: number; // Allowed late count per month (e.g. 3)
+  warningSystemEnabled?: boolean; // Enable / Disable
+  halfDayRuleEnabled?: boolean; // Enable / Disable
+  halfDayThresholdCount?: number; // Trigger threshold count (e.g. 4)
+  lopRuleEnabled?: boolean; // Enable / Disable
+  lopThresholdCount?: number; // Trigger threshold count (e.g. 6)
 
-  // Late Coming Rules
-  lateRuleType: LateRuleType;
+  // Working Time Settings (legacy / optional)
+  shiftName?: string;
+  startTime?: string; // '09:30'
+  endTime?: string;   // '18:30'
+  minWorkingHours?: number;  // e.g. 8
+  halfDayHours?: number;     // e.g. 4
+  fullDayHours?: number;     // e.g. 8.5
+  weeklyOff?: string[];      // ['Sunday']
+  holidayCalendar?: string;
+
+  // Late Coming Rules (legacy / optional)
+  lateRuleType?: LateRuleType;
   fixedAmount?: number; // ₹100
   percentageOfDailySalary?: number; // 5%
   countTiers?: CountBasedLateTier[];
@@ -137,8 +154,8 @@ export interface AttendancePolicy {
   customFormula?: string; // e.g. "(LATE_COUNT * 100)"
 
   // Deduction Privacy
-  deductionVisibility: DeductionVisibility;
-  genericCategoryLabel: string; // Default: 'OTHERS'
+  deductionVisibility?: DeductionVisibility;
+  genericCategoryLabel?: string; // Default: 'OTHERS'
 
   createdAt: string;
   createdBy: string;

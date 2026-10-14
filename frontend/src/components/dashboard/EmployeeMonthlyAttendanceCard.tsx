@@ -11,8 +11,12 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
   onOpenAttendance,
   onOpenLeaves
 }) => {
-  const { currentUser, attendanceRecords, leaveRequests } = useHRMS();
+  const { currentUser, attendanceRecords, leaveRequests, masterAttendancePolicies } = useHRMS();
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
+
+  const userLatePolicy = useMemo(() => {
+    return (masterAttendancePolicies || []).find(p => p.status === 'Active');
+  }, [masterAttendancePolicies]);
 
   // Compute monthly stats for current employee for the real current month (month-to-date)
   const stats = useMemo(() => {
@@ -376,6 +380,29 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               {((absent / safeTotal) * 100).toFixed(0)}% <span style={{ color: '#64748B', fontWeight: 500 }}>{absent} {absent === 1 ? 'Day' : 'Days'}</span>
             </span>
           </div>
+
+          {/* Late Policy Warning System Banner */}
+          {userLatePolicy?.warningSystemEnabled && late > 0 && (
+            <div style={{
+              marginTop: '6px',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              backgroundColor: late > (userLatePolicy.allowedLateCount ?? 3) ? '#FEF2F2' : '#FFFBEB',
+              border: `1px solid ${late > (userLatePolicy.allowedLateCount ?? 3) ? '#FECACA' : '#FDE68A'}`,
+              fontSize: '0.74rem',
+              color: late > (userLatePolicy.allowedLateCount ?? 3) ? '#B91C1C' : '#92400E',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span>{late > (userLatePolicy.allowedLateCount ?? 3) ? '⚠️' : '🔔'}</span>
+              <span>
+                {late > (userLatePolicy.allowedLateCount ?? 3)
+                  ? `Late limit exceeded: ${late}/${userLatePolicy.allowedLateCount ?? 3} used this month. Deductions apply.`
+                  : `Late warning: ${late} of ${userLatePolicy.allowedLateCount ?? 3} allowed late arrivals used.`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

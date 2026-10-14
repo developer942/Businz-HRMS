@@ -20,6 +20,7 @@ export type Role =
 
 export * from './tasks';
 export * from './sandwichLeave';
+export * from './settings';
 import { SandwichCalculationResult, HROverrideDetails, SandwichCalculationDayDetail } from './sandwichLeave';
 import type {
   LateDeductionResult,

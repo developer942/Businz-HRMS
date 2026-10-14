@@ -9,7 +9,8 @@ import {
   Employee,
   PayrollRecord,
   LoanRecord,
-  LoanRepaymentInstallment
+  LoanRepaymentInstallment,
+  Shift
 } from '../types/hrms';
 import { SalaryComponentConfig } from '../types/settings';
 import { toNum, formatCurrency } from '../utils/numbers';
@@ -195,7 +196,98 @@ export interface LateDeductionResult {
   isConfidential: boolean;
   genericCategoryLabel: string;
   details: string;
+  // Dynamic Late Policy Engine fields:
+  allowedLateCount?: number;
+  exceededLateCount?: number;
+  halfDaysLateCount?: number;
+  lopDaysLateCount?: number;
+  warningIssued?: boolean;
+  warningMessage?: string;
+  hasConflict?: boolean;
+  conflictingPolicyNames?: string[];
 }
+
+/**
+ * Checks if a policy applies to an employee based on company scope, department, designation, and assigned shift.
+ */
+export const isPolicyApplicableToLateEmployee = (
+  policy: AttendancePolicy,
+  employee: Employee,
+  empShiftId?: string,
+  empShiftName?: string
+): boolean => {
+  if (!policy || policy.status !== 'Active') return false;
+
+  // 1. Specific Employee restriction
+  if (Array.isArray(policy.applicableEmployees) && policy.applicableEmployees.length > 0) {
+    if (!policy.applicableEmployees.includes(employee.employeeId)) return false;
+  }
+
+  // 2. Department restriction
+  if (Array.isArray(policy.applicableDepartments) && policy.applicableDepartments.length > 0) {
+    if (!policy.applicableDepartments.includes(employee.department)) return false;
+  }
+
+  // 3. Designation restriction
+  if (Array.isArray(policy.applicableDesignations) && policy.applicableDesignations.length > 0) {
+    if (!employee.designation || !policy.applicableDesignations.includes(employee.designation)) return false;
+  }
+
+  // 4. Shift restriction (Multi-Shift Support)
+  if (Array.isArray(policy.applicableShifts) && policy.applicableShifts.length > 0) {
+    const shiftMatches = (empShiftId && policy.applicableShifts.includes(empShiftId)) ||
+                         (empShiftName && policy.applicableShifts.includes(empShiftName));
+    if (!shiftMatches) return false;
+  }
+
+  return true;
+};
+
+/**
+ * Resolves the single effective late policy for an employee among active policies using strict precedence:
+ * Specific Employee (5) > Specific Shift (4) > Specific Designation (3) > Specific Department (2) > Company-wide ALL (1)
+ * Detects and flags conflicts if multiple policies match at the exact same precedence level.
+ */
+export const resolveEffectiveLatePolicy = (
+  employee: Employee,
+  activePolicies: AttendancePolicy[],
+  empShiftId?: string,
+  empShiftName?: string
+): { policy: AttendancePolicy | null; conflict: boolean; conflictingPolicies: AttendancePolicy[] } => {
+  const matching = activePolicies.filter(p => isPolicyApplicableToLateEmployee(p, employee, empShiftId, empShiftName));
+
+  if (matching.length === 0) {
+    return { policy: null, conflict: false, conflictingPolicies: [] };
+  }
+
+  if (matching.length === 1) {
+    return { policy: matching[0], conflict: false, conflictingPolicies: [] };
+  }
+
+  // Calculate precedence weight for each matching policy
+  const scored = matching.map(p => {
+    let score = 1; // Default company-wide 'ALL'
+    if (Array.isArray(p.applicableEmployees) && p.applicableEmployees.length > 0) score = 5;
+    else if (Array.isArray(p.applicableShifts) && p.applicableShifts.length > 0) score = 4;
+    else if (Array.isArray(p.applicableDesignations) && p.applicableDesignations.length > 0) score = 3;
+    else if (Array.isArray(p.applicableDepartments) && p.applicableDepartments.length > 0) score = 2;
+    return { policy: p, score };
+  });
+
+  const maxScore = Math.max(...scored.map(s => s.score));
+  const topMatches = scored.filter(s => s.score === maxScore).map(s => s.policy);
+
+  if (topMatches.length > 1) {
+    // Conflict detected at the same precedence level
+    return {
+      policy: topMatches[0], // Deterministic fallback to prevent crash
+      conflict: true,
+      conflictingPolicies: topMatches
+    };
+  }
+
+  return { policy: topMatches[0], conflict: false, conflictingPolicies: [] };
+};
 
 /**
  * Checks if a check-in time exceeds shift start time + grace period.
@@ -213,20 +305,23 @@ export const isCheckInLate = (
   if (isNaN(cHour) || isNaN(sHour)) return false;
 
   const checkInMinutes = cHour * 60 + (cMin || 0);
-  const allowedMinutes = sHour * 60 + (sMin || 0) + graceMins;
+  const allowedMinutes = sHour * 60 + (sMin || 0) + (graceMins || 0);
 
   return checkInMinutes > allowedMinutes;
 };
 
 /**
- * Evaluates the attendance policy for an employee over a month to calculate late deductions.
+ * Evaluates the attendance late policy for an employee over a month to calculate late deductions,
+ * warnings, Half-Day rules, and Loss of Pay (LOP) penalties across multiple assigned shifts.
  */
 export const evaluateAttendanceLateDeduction = (
   employee: Employee,
   attendanceRecords: AttendanceRecord[],
   policy: AttendancePolicy | undefined,
   dailySalary: number,
-  basicSalary: number
+  basicSalary: number,
+  allShifts: Shift[] = [],
+  monthYear?: { month: number; year: number }
 ): LateDeductionResult => {
   const defaultResult: LateDeductionResult = {
     lateCount: 0,
@@ -235,28 +330,67 @@ export const evaluateAttendanceLateDeduction = (
     ruleApplied: 'None',
     isConfidential: false,
     genericCategoryLabel: 'OTHERS',
-    details: 'No deduction'
+    details: 'No deduction',
+    allowedLateCount: 3,
+    exceededLateCount: 0,
+    halfDaysLateCount: 0,
+    lopDaysLateCount: 0,
+    warningIssued: false
   };
 
   if (!policy || policy.status !== 'Active') {
     return defaultResult;
   }
 
-  // Check eligibility: department or branch or specific employees
-  if (policy.applicableEmployees !== 'ALL' && !policy.applicableEmployees.includes(employee.employeeId)) {
-    return defaultResult;
-  }
-  if (policy.applicableDepartments !== 'ALL' && !policy.applicableDepartments.includes(employee.department)) {
+  // Find employee's assigned default shift if any
+  const empShift = allShifts.find(s => 
+    (Array.isArray(s.assignments) && s.assignments.some(a => a.employeeId === employee.employeeId && a.status === 'ACTIVE')) ||
+    s.id === employee.workShift ||
+    s.shiftName === employee.workShift
+  );
+
+  // Check policy applicability
+  if (!isPolicyApplicableToLateEmployee(policy, employee, empShift?.id, empShift?.shiftName)) {
     return defaultResult;
   }
 
-  // Count late punches for this employee
-  const empRecords = attendanceRecords.filter(r => r.employeeId === employee.employeeId);
+  // Filter attendance records for the target calendar month to ensure monthly counter isolation & history preservation
+  const empRecords = attendanceRecords.filter(r => {
+    if (r.employeeId !== employee.employeeId) return false;
+    if (monthYear && r.date) {
+      const d = new Date(r.date);
+      if (!isNaN(d.getTime())) {
+        const rMonth = d.getMonth() + 1;
+        const rYear = d.getFullYear();
+        if (rMonth !== monthYear.month || rYear !== monthYear.year) return false;
+      }
+    }
+    return true;
+  });
+
+  // Sort chronological for sequential late counting
+  empRecords.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  const graceMins = policy.graceTimeMinutes ?? 10;
   let lateCount = 0;
   let severelyLateCount = 0;
 
   empRecords.forEach(rec => {
-    const isLate = rec.status === 'Late' || isCheckInLate(rec.checkIn, policy.startTime, policy.graceTimeMinutes);
+    // Dynamically resolve the shift start time for THIS specific record
+    let shiftStartTime = '09:30';
+    if (rec.shiftId) {
+      const matched = allShifts.find(s => s.id === rec.shiftId);
+      if (matched?.startTime) shiftStartTime = matched.startTime;
+    } else if (rec.shiftName) {
+      const matched = allShifts.find(s => s.shiftName.toLowerCase() === rec.shiftName?.toLowerCase());
+      if (matched?.startTime) shiftStartTime = matched.startTime;
+    } else if (empShift?.startTime) {
+      shiftStartTime = empShift.startTime;
+    } else if (policy.startTime) {
+      shiftStartTime = policy.startTime;
+    }
+
+    const isLate = rec.status === 'Late' || isCheckInLate(rec.checkIn, shiftStartTime, graceMins);
     if (isLate) {
       lateCount++;
       if (rec.lateStatus === 'Severely Late') {
@@ -265,9 +399,28 @@ export const evaluateAttendanceLateDeduction = (
     }
   });
 
+  const allowedCount = policy.allowedLateCount ?? 3;
+  const exceededCount = Math.max(0, lateCount - allowedCount);
+
+  // Warning System logic
+  let warningIssued = false;
+  let warningMessage = '';
+  if (policy.warningSystemEnabled) {
+    if (lateCount > 0 && lateCount <= allowedCount) {
+      warningIssued = true;
+      warningMessage = `Late Warning: ${lateCount} of ${allowedCount} allowed late arrivals used this month.`;
+    } else if (lateCount > allowedCount) {
+      warningIssued = true;
+      warningMessage = `⚠️ Late Limit Exceeded: ${lateCount} late arrivals recorded this month (Allowed: ${allowedCount}).`;
+    }
+  }
+
   if (lateCount === 0) {
     return {
       ...defaultResult,
+      allowedLateCount: allowedCount,
+      warningIssued,
+      warningMessage,
       isConfidential: policy.deductionVisibility === 'GENERIC',
       genericCategoryLabel: policy.genericCategoryLabel || 'OTHERS'
     };
@@ -275,65 +428,113 @@ export const evaluateAttendanceLateDeduction = (
 
   let deductionAmount = 0;
   let ruleApplied = '';
+  let halfDaysLateCount = 0;
+  let lopDaysLateCount = 0;
 
-  switch (policy.lateRuleType) {
-    case 'FIXED_AMOUNT': {
-      const perLate = toNum(policy.fixedAmount || 100);
-      deductionAmount = lateCount * perLate;
-      ruleApplied = `Fixed ${formatCurrency(perLate)} per late entry (${lateCount} entries)`;
-      break;
+  const isNewPolicyConfigured = policy.allowedLateCount !== undefined || policy.halfDayRuleEnabled || policy.lopRuleEnabled;
+
+  if (isNewPolicyConfigured) {
+    // 7-Field Late Policy Engine: Evaluate late occurrences
+    // Rules:
+    // - 1st to allowedCount: Within allowed count (no deduction)
+    // - Occurrence k (k > allowedCount):
+    //   - If LOP enabled & k >= lopThresholdCount -> 1 Day LOP
+    //   - Else if Half-Day enabled & k >= halfDayThresholdCount -> 0.5 Day Half-Day
+    //   - Do not apply both Half-Day and full-day LOP for the same late occurrence
+    const halfDayThreshold = policy.halfDayThresholdCount ?? 4;
+    const lopThreshold = policy.lopThresholdCount ?? 6;
+
+    for (let k = 1; k <= lateCount; k++) {
+      if (k <= allowedCount) {
+        // Free late arrival
+        continue;
+      }
+
+      const triggersLop = Boolean(policy.lopRuleEnabled && k >= lopThreshold);
+      const triggersHalfDay = Boolean(policy.halfDayRuleEnabled && k >= halfDayThreshold);
+
+      if (triggersLop) {
+        lopDaysLateCount++;
+      } else if (triggersHalfDay) {
+        halfDaysLateCount++;
+      }
     }
 
-    case 'PERCENTAGE_DAILY': {
-      const pct = toNum(policy.percentageOfDailySalary || 5);
-      const perOccurrence = (dailySalary * pct) / 100;
-      deductionAmount = Math.round(lateCount * perOccurrence);
-      ruleApplied = `${pct}% of Daily Salary (${formatCurrency(perOccurrence)}) × ${lateCount}`;
-      break;
+    const lopDeduction = lopDaysLateCount * dailySalary;
+    const halfDayDeduction = halfDaysLateCount * (dailySalary * 0.5);
+    deductionAmount = lopDeduction + halfDayDeduction;
+
+    const parts: string[] = [];
+    parts.push(`${allowedCount} Free`);
+    if (halfDaysLateCount > 0) parts.push(`${halfDaysLateCount} Half-Day penalty`);
+    if (lopDaysLateCount > 0) parts.push(`${lopDaysLateCount} Loss of Pay (LOP) penalty`);
+    if (halfDaysLateCount === 0 && lopDaysLateCount === 0 && exceededCount > 0) {
+      parts.push(`${exceededCount} exceeded (monitoring only)`);
     }
-
-    case 'COUNT_BASED': {
-      // e.g. 1-3 free, 4-5 ₹100 each, 6+ ₹200 each
-      const tiers = policy.countTiers || [
-        { id: 't1', minCount: 1, maxCount: 3, deductionPerOccurrence: 0 },
-        { id: 't2', minCount: 4, maxCount: 5, deductionPerOccurrence: 100 },
-        { id: 't3', minCount: 6, maxCount: null, deductionPerOccurrence: 200 }
-      ];
-
-      for (let i = 1; i <= lateCount; i++) {
-        const tier = tiers.find(t => i >= t.minCount && (t.maxCount === null || i <= t.maxCount));
-        if (tier) {
-          deductionAmount += toNum(tier.deductionPerOccurrence);
+    ruleApplied = `${parts.join(', ')} (${lateCount} late entries)`;
+  } else {
+    // Legacy fallback rule engine if configured with legacy lateRuleType
+    switch (policy.lateRuleType) {
+      case 'FIXED_AMOUNT': {
+        const perLate = toNum(policy.fixedAmount || 100);
+        deductionAmount = lateCount * perLate;
+        ruleApplied = `Fixed ${formatCurrency(perLate)} per late entry (${lateCount} entries)`;
+        break;
+      }
+      case 'PERCENTAGE_DAILY': {
+        const pct = toNum(policy.percentageOfDailySalary || 5);
+        const perOccurrence = (dailySalary * pct) / 100;
+        deductionAmount = Math.round(lateCount * perOccurrence);
+        ruleApplied = `${pct}% of Daily Salary (${formatCurrency(perOccurrence)}) × ${lateCount}`;
+        break;
+      }
+      case 'COUNT_BASED': {
+        const tiers = policy.countTiers || [
+          { id: 't1', minCount: 1, maxCount: 3, deductionPerOccurrence: 0 },
+          { id: 't2', minCount: 4, maxCount: 5, deductionPerOccurrence: 100 },
+          { id: 't3', minCount: 6, maxCount: null, deductionPerOccurrence: 200 }
+        ];
+        for (let i = 1; i <= lateCount; i++) {
+          const tier = tiers.find(t => i >= t.minCount && (t.maxCount === null || i <= t.maxCount));
+          if (tier) deductionAmount += toNum(tier.deductionPerOccurrence);
         }
+        ruleApplied = `Count-based tiered late deduction for ${lateCount} entries`;
+        break;
       }
-      ruleApplied = `Count-based tiered late deduction for ${lateCount} entries`;
-      break;
-    }
-
-    case 'HALF_DAY_CONVERSION': {
-      // Severely late entries converted to half days
-      const halfDays = severelyLateCount;
-      deductionAmount = Math.round(halfDays * (dailySalary * 0.5));
-      ruleApplied = `${halfDays} entries converted to half-day deductions`;
-      break;
-    }
-
-    case 'CUSTOM_FORMULA': {
-      if (policy.customFormula) {
-        deductionAmount = evaluateFormula(policy.customFormula, {
-          LATE_COUNT: lateCount,
-          DAILY_SALARY: dailySalary,
-          BASIC: basicSalary
-        });
-        ruleApplied = `Formula: ${policy.customFormula}`;
+      case 'HALF_DAY_CONVERSION': {
+        const halfDays = severelyLateCount;
+        halfDaysLateCount = halfDays;
+        deductionAmount = Math.round(halfDays * (dailySalary * 0.5));
+        ruleApplied = `${halfDays} entries converted to half-day deductions`;
+        break;
       }
-      break;
+      case 'CUSTOM_FORMULA': {
+        if (policy.customFormula) {
+          deductionAmount = evaluateFormula(policy.customFormula, {
+            LATE_COUNT: lateCount,
+            DAILY_SALARY: dailySalary,
+            BASIC: basicSalary
+          });
+          ruleApplied = `Formula: ${policy.customFormula}`;
+        }
+        break;
+      }
+      default: {
+        ruleApplied = `Monitored (${lateCount} entries)`;
+        break;
+      }
     }
   }
 
   return {
     lateCount,
     severelyLateCount,
+    allowedLateCount: allowedCount,
+    exceededLateCount: exceededCount,
+    halfDaysLateCount,
+    lopDaysLateCount,
+    warningIssued,
+    warningMessage,
     deductionAmount: Math.max(0, Math.round(deductionAmount)),
     ruleApplied,
     isConfidential: policy.deductionVisibility === 'GENERIC',
@@ -1065,7 +1266,8 @@ export const calculateEmployeePayroll = (
   leavePolicy: MasterLeavePolicy | undefined,
   payrollConfig: PayrollSettingsConfig | undefined,
   month: string = 'August',
-  year: number = 2026
+  year: number = 2026,
+  allShifts: Shift[] = []
 ): FullPayrollCalculationResult => {
   const configuredComponents = payrollConfig?.components || [];
   const configuredEarnings = configuredComponents.filter(c => c.active && c.type === 'EARNING');
@@ -1156,13 +1358,14 @@ export const calculateEmployeePayroll = (
   ).length;
   const presentDays = presentCount > 0 ? Math.min(standardDays, presentCount) : (employee.status === 'Active' ? standardDays : 0);
 
-  // 2. Late Attendance Policy Evaluation
+  // 2. Late Attendance Policy Evaluation (with multi-shift support)
   const lateDetails = evaluateAttendanceLateDeduction(
     employee,
     attendanceRecords,
     attendancePolicy,
     dailySalary,
-    basic
+    basic,
+    allShifts
   );
 
   // 3. Leave Policy Evaluation

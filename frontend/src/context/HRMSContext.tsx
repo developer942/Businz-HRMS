@@ -123,7 +123,7 @@ import {
   INITIAL_POLICY_AUDIT_LOGS
 } from '../data/settingsInitialData';
 import { DEFAULT_LOAN_POLICIES, INITIAL_LOAN_RECORDS } from '../data/loanInitialData';
-import { calculateEmployeePayroll, resolveEmployeeWithPf } from '../services/policyEngine';
+import { calculateEmployeePayroll, resolveEmployeeWithPf, resolveEffectiveLatePolicy } from '../services/policyEngine';
 import {
   calibrateTrustedTime,
   commitTrustedAttendanceTime,
@@ -1025,6 +1025,7 @@ interface HRMSContextType {
   updateMasterAttendancePolicy: (id: string, updates: Partial<AttendancePolicy>) => void;
   archiveMasterAttendancePolicy: (id: string) => void;
   toggleMasterAttendancePolicyStatus: (id: string) => void;
+  deleteMasterAttendancePolicy: (id: string) => void;
 
   attendanceCorrections: AttendanceCorrectionRequest[];
   submitAttendanceCorrection: (req: Omit<AttendanceCorrectionRequest, 'id' | 'submittedAt' | 'status'>) => void;
@@ -4511,6 +4512,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return p;
     }));
+  };
+
+  const deleteMasterAttendancePolicy = (id: string) => {
+    const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
+    const policyToDelete = masterAttendancePolicies.find(p => p.id === id);
+    setMasterAttendancePolicies(prev => prev.filter(p => p.id !== id));
+    if (policyToDelete) {
+      addPolicyAuditLog({
+        policyCategory: 'Attendance & Time',
+        policyId: id,
+        policyName: policyToDelete.policyName,
+        action: 'DELETE',
+        performedBy: currentUser.name,
+        performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+        changeSummary: `Deleted attendance policy "${policyToDelete.policyName}". Historical attendance and payroll data preserved.`
+      });
+    }
   };
 
   // Missed Attendance Correction Flow
@@ -8415,17 +8433,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }) || masterLeavePolicies.find(p => p.status === 'Active');
 
       const employeeWithPf = resolveEmployeeWithPf(emp);
+      const resolvedAttPolicy = resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
       const calc = calculateEmployeePayroll(
         emp,
         attendanceRecords,
         leaveRequests,
         loanRecords,
         employeeRewardRecords,
-        activeAttPolicy,
+        resolvedAttPolicy,
         empLeavePolicy,
         payrollSettingsConfig,
         batchMonthName,
-        batchYear
+        batchYear,
+        shifts
       );
 
       const resolvedEmpDept = resolveEmployeeDepartmentName(emp, departments);
@@ -10382,6 +10402,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updateMasterAttendancePolicy,
       archiveMasterAttendancePolicy,
       toggleMasterAttendancePolicyStatus,
+      deleteMasterAttendancePolicy,
       attendanceCorrections,
       submitAttendanceCorrection,
       reviewAttendanceCorrection,
