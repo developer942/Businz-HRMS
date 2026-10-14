@@ -210,9 +210,16 @@ export const addDays = (dateStr: string, days: number): string => {
 /**
  * Checks whether an applied leave type is considered paid or unpaid
  */
-export const isLeaveTypePaid = (leaveType: string): boolean => {
+export const isLeaveTypePaid = (leaveType?: string): boolean => {
+  if (!leaveType) return true;
   const lt = leaveType.toLowerCase();
-  if (lt.includes('unpaid') || lt.includes('lop') || lt.includes('loss of pay')) {
+  if (
+    lt.includes('unpaid') || 
+    lt.includes('lop') || 
+    lt.includes('loss of pay') || 
+    lt.includes('lwp') ||
+    lt.includes('without pay')
+  ) {
     return false;
   }
   return true;

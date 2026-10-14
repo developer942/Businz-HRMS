@@ -75,7 +75,7 @@ import {
   SandwichCalculationDayDetail
 } from '../types/hrms';
 import { initialSandwichPolicies, initialSandwichAuditLogs } from '../data/sandwichPolicyInitialData';
-import { calculateSandwichLeave } from '../services/sandwichLeaveEngine';
+import { calculateSandwichLeave, isLeaveTypePaid } from '../services/sandwichLeaveEngine';
 import {
   FieldAssignment,
   FieldTripSession,
@@ -9471,6 +9471,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           const sandwichDays = isWfh ? 0 : (cached?.sandwichDays ?? effectiveSandwichCalc?.sandwichDays ?? 0);
           const isSandwichApplied = isWfh ? false : (cached?.isSandwichApplied ?? effectiveSandwichCalc?.isSandwichApplied ?? false);
+          const isExplicitUnpaid = !isLeaveTypePaid(l.leave_type || '');
           const finalDays = isWfh 
             ? (Number(l.days_count) || 1) 
             : (effectiveSandwichCalc?.totalDays ?? (Number(l.days_count) || 1));
@@ -9494,8 +9495,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isSandwichApplied,
             sandwichDays,
             unpaidSandwichDays: effectiveSandwichCalc?.breakdown?.filter(b => b.isSandwich && !b.isPaid).length || 0,
-            paidDaysCount: isWfh ? finalDays : (effectiveSandwichCalc?.paidDays ?? finalDays),
-            unpaidDaysCount: isWfh ? 0 : (effectiveSandwichCalc?.unpaidDays ?? 0),
+            paidDaysCount: isWfh ? finalDays : (isExplicitUnpaid ? 0 : (effectiveSandwichCalc?.paidDays ?? finalDays)),
+            unpaidDaysCount: isWfh ? 0 : (isExplicitUnpaid ? finalDays : (effectiveSandwichCalc?.unpaidDays ?? 0)),
             hrOverride: cached?.hrOverride
           };
           return mappedLeave;

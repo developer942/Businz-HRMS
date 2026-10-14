@@ -20,6 +20,7 @@ import {
   Bell
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
+import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
 import { toNum } from '../../utils/numbers';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
@@ -732,6 +733,24 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   const isOverridden = l.hrOverride?.isOverridden;
                   const isSelected = selectedLeaveIds.includes(l.id);
 
+                  // Determine pay classification (paid vs unpaid / Loss of Pay)
+                  const isExplicitUnpaid = !isLeaveTypePaid(l.leaveType);
+                  const isOverriddenUnpaid = l.hrOverride?.adjustedPayType === 'UNPAID_LEAVE';
+                  const isOverriddenPaid = l.hrOverride?.adjustedPayType === 'PAID_LEAVE';
+
+                  const isUnpaid = (
+                    isExplicitUnpaid || 
+                    isOverriddenUnpaid || 
+                    (l.unpaidDaysCount !== undefined && l.unpaidDaysCount > 0 && l.paidDaysCount === 0) || 
+                    (l.sandwichDetails && l.sandwichDetails.paidDays === 0 && l.sandwichDetails.unpaidDays > 0)
+                  ) && !isOverriddenPaid;
+
+                  const unpaidDaysTotal = isUnpaid
+                    ? toNum(l.daysCount)
+                    : (l.unpaidSandwichDays || l.sandwichDetails?.unpaidDays || l.unpaidDaysCount || 0);
+
+                  const isPartiallyUnpaid = !isUnpaid && !isWfh && unpaidDaysTotal > 0;
+
                   return (
                     <tr 
                       key={l.id}
@@ -781,6 +800,18 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           }}>
                             <Home size={12} /> Work From Home [WFH]
                           </span>
+                        ) : isUnpaid ? (
+                          <span style={{ 
+                            fontWeight: 700, 
+                            color: '#DC2626', 
+                            backgroundColor: '#FEF2F2', 
+                            border: '1px solid #FECACA',
+                            padding: '2px 7px', 
+                            borderRadius: '6px', 
+                            fontSize: '0.74rem' 
+                          }}>
+                            {l.leaveType}
+                          </span>
                         ) : (
                           <span style={{ 
                             fontWeight: 700, 
@@ -817,7 +848,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0F172A' }}>
                           {formatDateDDMMYYYY(l.startDate)} <span style={{ color: '#94A3B8', fontWeight: 500 }}>to</span> {formatDateDDMMYYYY(l.endDate)}
                         </div>
-                        <div style={{ fontSize: '0.74rem', color: '#0E7490', fontWeight: 700, marginTop: '2px' }}>
+                        <div style={{ fontSize: '0.74rem', color: isUnpaid ? '#DC2626' : '#0E7490', fontWeight: 700, marginTop: '2px' }}>
                           {l.daysCount} {toNum(l.daysCount) === 1 ? 'day' : 'days'} total
                         </div>
                       </td>
@@ -843,32 +874,94 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               Recorded as [WFH] • Not Absent / Not Leave
                             </div>
                           </>
+                        ) : isUnpaid ? (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                backgroundColor: '#FEE2E2',
+                                color: '#DC2626',
+                                padding: '2px 8px',
+                                borderRadius: '6px'
+                              }}>
+                                Unpaid Leave (Loss of Pay)
+                              </span>
+                              {isOverridden && (
+                                <span style={{
+                                  fontSize: '0.68rem',
+                                  fontWeight: 700,
+                                  backgroundColor: '#FEF3C7',
+                                  color: '#D97706',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  Overridden
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#DC2626', fontWeight: 600 }}>
+                              {l.daysCount}d Salary Deduction
+                              {hasSandwich && (
+                                <span style={{ color: '#B91C1C', fontWeight: 700, marginLeft: '4px' }}>
+                                  (+{l.sandwichDays}d Sandwich LOP)
+                                </span>
+                              )}
+                            </div>
+                          </>
+                        ) : isPartiallyUnpaid ? (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                backgroundColor: '#FEE2E2',
+                                color: '#DC2626',
+                                padding: '2px 8px',
+                                borderRadius: '6px'
+                              }}>
+                                {unpaidDaysTotal}d Unpaid LOP
+                              </span>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                backgroundColor: '#DCFCE7',
+                                color: '#166534',
+                                padding: '2px 8px',
+                                borderRadius: '6px'
+                              }}>
+                                Paid Leave
+                              </span>
+                              {isOverridden && (
+                                <span style={{
+                                  fontSize: '0.68rem',
+                                  fontWeight: 700,
+                                  backgroundColor: '#FEF3C7',
+                                  color: '#D97706',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  Overridden
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>
+                              {toNum(l.daysCount) - unpaidDaysTotal}d Paid • <span style={{ color: '#DC2626', fontWeight: 700 }}>{unpaidDaysTotal}d Deduction</span>
+                            </div>
+                          </>
                         ) : (
                           <>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                              {l.unpaidSandwichDays && l.unpaidSandwichDays > 0 ? (
-                                <span style={{
-                                  fontSize: '0.72rem',
-                                  fontWeight: 700,
-                                  backgroundColor: '#FEE2E2',
-                                  color: '#DC2626',
-                                  padding: '2px 8px',
-                                  borderRadius: '6px'
-                                }}>
-                                  {l.unpaidSandwichDays}d Unpaid LOP
-                                </span>
-                              ) : (
-                                <span style={{
-                                  fontSize: '0.72rem',
-                                  fontWeight: 700,
-                                  backgroundColor: '#DCFCE7',
-                                  color: '#166534',
-                                  padding: '2px 8px',
-                                  borderRadius: '6px'
-                                }}>
-                                  Paid Leave
-                                </span>
-                              )}
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                backgroundColor: '#DCFCE7',
+                                color: '#166534',
+                                padding: '2px 8px',
+                                borderRadius: '6px'
+                              }}>
+                                Paid Leave
+                              </span>
                               {isOverridden && (
                                 <span style={{
                                   fontSize: '0.68rem',

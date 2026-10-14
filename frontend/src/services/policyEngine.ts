@@ -397,7 +397,11 @@ export const evaluateLeaveDeductions = (
 
   approvedLeaves.forEach(l => {
     const leaveName = (l.leaveType || '').toLowerCase();
-    const isExplicitUnpaid = leaveName.includes('unpaid') || leaveName.includes('lop') || leaveName.includes('loss of pay');
+    const isExplicitUnpaid = leaveName.includes('unpaid') || 
+      leaveName.includes('lop') || 
+      leaveName.includes('loss of pay') || 
+      leaveName.includes('lwp') || 
+      leaveName.includes('without pay');
     if (isExplicitUnpaid) {
       regularUnpaidDays += toNum(l.daysCount);
     } else {
