@@ -1262,6 +1262,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [workflowFormat, setWorkflowFormat] = useState<ApprovalWorkflowFormat>('HR_ONLY');
   const isCloudInitialized = useRef(false);
   const isSyncingFromCloud = useRef(false);
+  const lastLocalLeavePolicyUpdate = useRef(0);
 
   const [geofenceConfig, setGeofenceConfig] = useState<GeofenceConfig>(INITIAL_GEOFENCE_CONFIG);
 
@@ -4620,10 +4621,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Master Leave Policies
+  // Master Leave Policies Direct Synchronizer
+  const syncMasterLeavePoliciesState = (updated: MasterLeavePolicy[]) => {
+    lastLocalLeavePolicyUpdate.current = Date.now();
+    setMasterLeavePolicies(updated);
+    try {
+      localStorage.setItem('vrm_hrms_master_leave_policies_persistent', JSON.stringify(updated));
+    } catch {}
+    supabaseDirect.saveCompanySetting('master_leave_policies_data', updated).catch(err => {
+      console.warn('[HRMSContext] Failed saving master_leave_policies_data:', err);
+    });
+  };
+
   const addMasterLeavePolicy = (policy: Omit<MasterLeavePolicy, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'createdBy' | 'updatedBy'>) => {
     const now = new Date().toISOString();
-    const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
+    const userDisplayName = `${currentUser?.name || 'Admin'} (${(currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin'})`;
     const newPolicy: MasterLeavePolicy = {
       ...policy,
       id: `LP-${Date.now()}`,
@@ -4633,114 +4645,156 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedAt: now,
       updatedBy: userDisplayName
     };
-    setMasterLeavePolicies(prev => [newPolicy, ...prev]);
-    addPolicyAuditLog({
-      policyCategory: 'Leave Management',
-      policyId: newPolicy.id,
-      policyName: newPolicy.policyName,
-      action: 'CREATE',
-      performedBy: currentUser.name,
-      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-      changeSummary: `Created master leave policy "${newPolicy.policyName}" with ${newPolicy.monthlyFreeUnpaidLeaves} free unpaid day(s).`
-    });
+    const updated = [newPolicy, ...masterLeavePolicies.filter(p => p.id !== newPolicy.id)];
+    syncMasterLeavePoliciesState(updated);
+    try {
+      addPolicyAuditLog({
+        policyCategory: 'Leave Management',
+        policyId: newPolicy.id,
+        policyName: newPolicy.policyName,
+        action: 'CREATE',
+        performedBy: currentUser?.name || 'Admin',
+        performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
+        changeSummary: `Created master leave policy "${newPolicy.policyName}" with ${newPolicy.monthlyFreeUnpaidLeaves} free unpaid day(s).`
+      });
+    } catch {}
+    triggerToast(`Created leave policy "${newPolicy.policyName}".`);
   };
 
   const updateMasterLeavePolicy = (id: string, updates: Partial<MasterLeavePolicy>) => {
-    const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setMasterLeavePolicies(prev => prev.map(p => {
-      if (p.id === id) {
-        const updated = {
+    const userDisplayName = `${currentUser?.name || 'Admin'} (${(currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin'})`;
+    let updatedPolicyName = '';
+    const updated = masterLeavePolicies.map(p => {
+      if (p.id === id || String(p.id).trim() === String(id).trim()) {
+        const next = {
           ...p,
           ...updates,
-          version: p.version + 1,
+          version: (p.version || 1) + 1,
           updatedAt: new Date().toISOString(),
           updatedBy: userDisplayName
         };
-        addPolicyAuditLog({
-          policyCategory: 'Leave Management',
-          policyId: id,
-          policyName: updated.policyName,
-          action: 'EDIT',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Updated leave policy "${updated.policyName}" (version ${updated.version}).`,
-          oldValues: p,
-          newValues: updated
-        });
-        return updated;
+        updatedPolicyName = next.policyName;
+        try {
+          addPolicyAuditLog({
+            policyCategory: 'Leave Management',
+            policyId: id,
+            policyName: next.policyName,
+            action: 'EDIT',
+            performedBy: currentUser?.name || 'Admin',
+            performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
+            changeSummary: `Updated leave policy "${next.policyName}" (version ${next.version}).`,
+            oldValues: p,
+            newValues: next
+          });
+        } catch {}
+        return next;
       }
       return p;
-    }));
-  };
-
-  const archiveMasterLeavePolicy = (id: string) => {
-    const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setMasterLeavePolicies(prev => prev.map(p => {
-      if (p.id === id) {
-        const updated: MasterLeavePolicy = { ...p, status: 'Archived', updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
-        addPolicyAuditLog({
-          policyCategory: 'Leave Management',
-          policyId: id,
-          policyName: p.policyName,
-          action: 'ARCHIVE',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Archived leave policy "${p.policyName}". Historical records preserved.`
-        });
-        return updated;
-      }
-      return p;
-    }));
-  };
-
-  const toggleMasterLeavePolicyStatus = (id: string) => {
-    const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setMasterLeavePolicies(prev => prev.map(p => {
-      if (p.id === id) {
-        const nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
-        const updated: MasterLeavePolicy = { ...p, status: nextStatus, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
-        addPolicyAuditLog({
-          policyCategory: 'Leave Management',
-          policyId: id,
-          policyName: p.policyName,
-          action: nextStatus === 'Active' ? 'ACTIVATE' : 'DEACTIVATE',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} leave policy "${p.policyName}".`
-        });
-        return updated;
-      }
-      return p;
-    }));
-  };
-
-  const deleteMasterLeavePolicy = (id: string) => {
-    const policyToDelete = masterLeavePolicies.find(p => p.id === id);
-    setMasterLeavePolicies(prev => prev.filter(p => p.id !== id));
-    if (policyToDelete) {
-      addPolicyAuditLog({
-        policyCategory: 'Leave Management',
-        policyId: id,
-        policyName: policyToDelete.policyName,
-        action: 'DELETE',
-        performedBy: currentUser.name,
-        performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-        changeSummary: `Permanently deleted leave policy "${policyToDelete.policyName}".`
-      });
+    });
+    syncMasterLeavePoliciesState(updated);
+    if (updatedPolicyName) {
+      triggerToast(`Updated leave policy "${updatedPolicyName}".`);
     }
   };
 
-  const resetMasterLeavePoliciesToDefault = () => {
-    setMasterLeavePolicies(DEFAULT_MASTER_LEAVE_POLICIES);
-    addPolicyAuditLog({
-      policyCategory: 'Leave Management',
-      policyId: 'SYSTEM-RESET',
-      policyName: 'Standard Company Leave Policies',
-      action: 'EDIT',
-      performedBy: currentUser.name,
-      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-      changeSummary: 'Reset leave policies to standard Confirmed (1 Day/Month Paid) and Provisional (1 Paid/3 Months) policies.'
+  const archiveMasterLeavePolicy = (id: string) => {
+    const userDisplayName = `${currentUser?.name || 'Admin'} (${(currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin'})`;
+    let archivedName = '';
+    const updated = masterLeavePolicies.map(p => {
+      if (p.id === id || String(p.id).trim() === String(id).trim()) {
+        const next: MasterLeavePolicy = { ...p, status: 'Archived', updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
+        archivedName = p.policyName;
+        try {
+          addPolicyAuditLog({
+            policyCategory: 'Leave Management',
+            policyId: id,
+            policyName: p.policyName,
+            action: 'ARCHIVE',
+            performedBy: currentUser?.name || 'Admin',
+            performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
+            changeSummary: `Archived leave policy "${p.policyName}". Historical records preserved.`
+          });
+        } catch {}
+        return next;
+      }
+      return p;
     });
+    syncMasterLeavePoliciesState(updated);
+    if (archivedName) {
+      triggerToast(`Archived leave policy "${archivedName}".`);
+    }
+  };
+
+  const toggleMasterLeavePolicyStatus = (id: string) => {
+    const userDisplayName = `${currentUser?.name || 'Admin'} (${(currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin'})`;
+    let toggledName = '';
+    let nextStatus = 'Active';
+    const updated = masterLeavePolicies.map(p => {
+      if (p.id === id || String(p.id).trim() === String(id).trim()) {
+        nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
+        const next: MasterLeavePolicy = { ...p, status: nextStatus as any, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
+        toggledName = p.policyName;
+        try {
+          addPolicyAuditLog({
+            policyCategory: 'Leave Management',
+            policyId: id,
+            policyName: p.policyName,
+            action: nextStatus === 'Active' ? 'ACTIVATE' : 'DEACTIVATE',
+            performedBy: currentUser?.name || 'Admin',
+            performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
+            changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} leave policy "${p.policyName}".`
+          });
+        } catch {}
+        return next;
+      }
+      return p;
+    });
+    syncMasterLeavePoliciesState(updated);
+    if (toggledName) {
+      triggerToast(`${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} policy "${toggledName}".`);
+    }
+  };
+
+  const deleteMasterLeavePolicy = (id: string) => {
+    const cleanId = String(id || '').trim();
+    const policyToDelete = masterLeavePolicies.find(p => p.id === cleanId || String(p.id).trim() === cleanId || (cleanId && p.policyName.trim().toLowerCase() === cleanId.toLowerCase()));
+    const targetName = policyToDelete?.policyName || cleanId;
+    const updated = masterLeavePolicies.filter(p => p.id !== cleanId && String(p.id).trim() !== cleanId && (!cleanId || p.policyName.trim().toLowerCase() !== cleanId.toLowerCase()));
+    
+    syncMasterLeavePoliciesState(updated);
+    
+    if (policyToDelete) {
+      try {
+        addPolicyAuditLog({
+          policyCategory: 'Leave Management',
+          policyId: policyToDelete.id,
+          policyName: policyToDelete.policyName,
+          action: 'DELETE',
+          performedBy: currentUser?.name || 'Admin',
+          performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
+          changeSummary: `Permanently deleted leave policy "${policyToDelete.policyName}".`
+        });
+      } catch (err) {
+        console.warn('Audit log error on delete:', err);
+      }
+    }
+    triggerToast(`Permanently deleted leave policy "${targetName}".`);
+  };
+
+  const resetMasterLeavePoliciesToDefault = () => {
+    syncMasterLeavePoliciesState(DEFAULT_MASTER_LEAVE_POLICIES);
+    try {
+      addPolicyAuditLog({
+        policyCategory: 'Leave Management',
+        policyId: 'SYSTEM-RESET',
+        policyName: 'Standard Company Leave Policies',
+        action: 'EDIT',
+        performedBy: currentUser?.name || 'Admin',
+        performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
+        changeSummary: 'Reset leave policies to standard Confirmed (1 Day/Month Paid) and Provisional (1 Paid/3 Months) policies.'
+      });
+    } catch {}
+    triggerToast('Reset leave policies to standard defaults.');
   };
 
   // ==========================================
@@ -10018,7 +10072,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Master Leave Policies
         if (hasSetting('master_leave_policies_data') && Array.isArray(settings.master_leave_policies_data)) {
-          setMasterLeavePolicies(settings.master_leave_policies_data);
+          const timeSinceLocalUpdate = Date.now() - lastLocalLeavePolicyUpdate.current;
+          if (timeSinceLocalUpdate > 4000) {
+            setMasterLeavePolicies(settings.master_leave_policies_data);
+            try {
+              localStorage.setItem('vrm_hrms_master_leave_policies_persistent', JSON.stringify(settings.master_leave_policies_data));
+            } catch {}
+          }
         }
 
         // Sandwich Leave Policies

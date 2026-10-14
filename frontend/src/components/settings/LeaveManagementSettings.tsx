@@ -1127,7 +1127,9 @@ export const LeaveManagementSettings: React.FC = () => {
                         border: '1px solid #FECACA',
                         cursor: 'pointer'
                       }}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
                         if (window.confirm(`Permanently delete "${policy.policyName}"?`)) {
                           deleteMasterLeavePolicy(policy.id);
                         }
