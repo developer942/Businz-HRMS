@@ -17,7 +17,10 @@ import {
   Check,
   DollarSign,
   Home,
-  Bell
+  Bell,
+  Search,
+  X,
+  User
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
@@ -218,11 +221,106 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     }).length;
   }, [roleScopedLeaves]);
 
-  const displayedLeaves = roleScopedLeaves;
+  // Status Filter Tab & Search State
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'Pending' | 'Approved' | 'Rejected' | 'WFH'>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'EM';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  const formatDisplayDate = (d?: string) => {
+    if (!d) return '-';
+    try {
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      if (d.includes('/')) {
+        const parts = d.split('/');
+        if (parts.length === 3) {
+          const mIdx = parseInt(parts[1], 10) - 1;
+          return `${parts[0]} ${monthNames[mIdx] || parts[1]} ${parts[2]}`;
+        }
+      } else if (d.includes('-')) {
+        const parts = d.split('-');
+        if (parts.length === 3) {
+          const mIdx = parseInt(parts[1], 10) - 1;
+          return `${parts[2]} ${monthNames[mIdx] || parts[1]} ${parts[0]}`;
+        }
+      }
+      return formatDateDDMMYYYY(d);
+    } catch {
+      return formatDateDDMMYYYY(d);
+    }
+  };
+
+  const formatDisplayDateRange = (start?: string, end?: string) => {
+    if (!start && !end) return '-';
+    if (!start) return formatDisplayDate(end);
+    if (!end || start === end) return formatDisplayDate(start);
+    const startFormatted = formatDisplayDate(start);
+    const endFormatted = formatDisplayDate(end);
+    const startParts = startFormatted.split(' ');
+    const endParts = endFormatted.split(' ');
+    if (startParts.length === 3 && endParts.length === 3 && startParts[1] === endParts[1] && startParts[2] === endParts[2]) {
+      return `${startParts[0]} – ${endParts[0]} ${endParts[1]} ${endParts[2]}`;
+    }
+    return `${startFormatted} – ${endFormatted}`;
+  };
+
+  const tabCounts = useMemo(() => {
+    let pending = 0;
+    let approved = 0;
+    let rejected = 0;
+    let wfh = 0;
+    roleScopedLeaves.forEach(l => {
+      if (l.status === 'Pending') pending++;
+      else if (l.status === 'Approved') approved++;
+      else if (l.status === 'Rejected') rejected++;
+      const isWfh = l.leaveType === 'Work From Home' || 
+        (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+        (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+      if (isWfh) wfh++;
+    });
+    return { all: roleScopedLeaves.length, pending, approved, rejected, wfh };
+  }, [roleScopedLeaves]);
+
+  const filteredLeaves = useMemo(() => {
+    return roleScopedLeaves.filter(l => {
+      if (statusFilter === 'Pending' && l.status !== 'Pending') return false;
+      if (statusFilter === 'Approved' && l.status !== 'Approved') return false;
+      if (statusFilter === 'Rejected' && l.status !== 'Rejected') return false;
+      if (statusFilter === 'WFH') {
+        const isWfh = l.leaveType === 'Work From Home' || 
+          (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+          (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+        if (!isWfh) return false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchName = (l.employeeName || '').toLowerCase().includes(q);
+        const matchId = (l.employeeId || '').toLowerCase().includes(q);
+        const matchDept = (l.department || '').toLowerCase().includes(q);
+        const matchType = (l.leaveType || '').toLowerCase().includes(q);
+        const matchReason = (l.reason || '').toLowerCase().includes(q);
+        if (!matchName && !matchId && !matchDept && !matchType && !matchReason) return false;
+      }
+
+      return true;
+    });
+  }, [roleScopedLeaves, statusFilter, searchQuery]);
+
+  const displayedLeaves = filteredLeaves;
 
   // Standard Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery]);
 
   const paginatedLeaves = useMemo(() => {
     if (isEmployeeRole) return displayedLeaves;
@@ -622,41 +720,86 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       )}
 
       {/* KPI Overview Cards - Hidden for Employee role, visible for Admin/HR/Manager */}
+      {/* KPI Overview Cards - Interactive Filter Cards for Admin/HR/Manager */}
       {!isEmployeeRole && (
-        <div className="kpi-grid">
-          <div className="kpi-card">
+        <div className="kpi-grid" style={{ marginBottom: '20px' }}>
+          <div 
+            className="kpi-card" 
+            onClick={() => setStatusFilter(prev => prev === 'Pending' ? 'ALL' : 'Pending')}
+            style={{ 
+              cursor: 'pointer',
+              border: statusFilter === 'Pending' ? '2px solid #F59E0B' : '1px solid #E7ECF3',
+              boxShadow: statusFilter === 'Pending' ? '0 4px 14px rgba(245,158,11,0.15)' : '0 1px 3px rgba(0,0,0,0.03)',
+              transition: 'all 0.2s ease',
+              backgroundColor: statusFilter === 'Pending' ? '#FFFBEB' : '#FFFFFF'
+            }}
+            title="Click to filter by Pending Approvals"
+          >
             <div className="kpi-card-header">
-              <span>Pending Approvals</span>
+              <span style={{ fontWeight: 700, color: statusFilter === 'Pending' ? '#B45309' : '#64748B' }}>Pending Approvals</span>
               <div className="kpi-icon-wrapper amber"><Clock size={16} /></div>
             </div>
             <div className="kpi-card-body">
-              <div className="kpi-value">{pendingCount}</div>
+              <div className="kpi-value" style={{ color: '#D97706' }}>{pendingCount}</div>
             </div>
           </div>
 
-          <div className="kpi-card">
+          <div 
+            className="kpi-card"
+            onClick={() => setStatusFilter(prev => prev === 'Approved' ? 'ALL' : 'Approved')}
+            style={{ 
+              cursor: 'pointer',
+              border: statusFilter === 'Approved' ? '2px solid #10B981' : '1px solid #E7ECF3',
+              boxShadow: statusFilter === 'Approved' ? '0 4px 14px rgba(16,185,129,0.15)' : '0 1px 3px rgba(0,0,0,0.03)',
+              transition: 'all 0.2s ease',
+              backgroundColor: statusFilter === 'Approved' ? '#F0FDF4' : '#FFFFFF'
+            }}
+            title="Click to filter by Approved Leaves"
+          >
             <div className="kpi-card-header">
-              <span>Approved Leaves</span>
+              <span style={{ fontWeight: 700, color: statusFilter === 'Approved' ? '#047857' : '#64748B' }}>Approved Leaves</span>
               <div className="kpi-icon-wrapper emerald"><CheckCircle2 size={16} /></div>
             </div>
             <div className="kpi-card-body">
-              <div className="kpi-value">{approvedCount}</div>
+              <div className="kpi-value" style={{ color: '#059669' }}>{approvedCount}</div>
             </div>
           </div>
 
-          <div className="kpi-card">
+          <div 
+            className="kpi-card"
+            onClick={() => setStatusFilter(prev => prev === 'Rejected' ? 'ALL' : 'Rejected')}
+            style={{ 
+              cursor: 'pointer',
+              border: statusFilter === 'Rejected' ? '2px solid #EF4444' : '1px solid #E7ECF3',
+              boxShadow: statusFilter === 'Rejected' ? '0 4px 14px rgba(239,68,68,0.15)' : '0 1px 3px rgba(0,0,0,0.03)',
+              transition: 'all 0.2s ease',
+              backgroundColor: statusFilter === 'Rejected' ? '#FEF2F2' : '#FFFFFF'
+            }}
+            title="Click to filter by Rejected Requests"
+          >
             <div className="kpi-card-header">
-              <span>Rejected Requests</span>
+              <span style={{ fontWeight: 700, color: statusFilter === 'Rejected' ? '#B91C1C' : '#64748B' }}>Rejected Requests</span>
               <div className="kpi-icon-wrapper rose"><XCircle size={16} /></div>
             </div>
             <div className="kpi-card-body">
-              <div className="kpi-value">{rejectedCount}</div>
+              <div className="kpi-value" style={{ color: '#DC2626' }}>{rejectedCount}</div>
             </div>
           </div>
 
-          <div className="kpi-card">
+          <div 
+            className="kpi-card"
+            onClick={() => setStatusFilter(prev => prev === 'WFH' ? 'ALL' : 'WFH')}
+            style={{ 
+              cursor: 'pointer',
+              border: statusFilter === 'WFH' ? '2px solid #0E7490' : '1px solid #E7ECF3',
+              boxShadow: statusFilter === 'WFH' ? '0 4px 14px rgba(14,116,144,0.15)' : '0 1px 3px rgba(0,0,0,0.03)',
+              transition: 'all 0.2s ease',
+              backgroundColor: statusFilter === 'WFH' ? '#ECFEFF' : '#FFFFFF'
+            }}
+            title="Click to filter by Work From Home"
+          >
             <div className="kpi-card-header">
-              <span>Work From Home (WFH)</span>
+              <span style={{ fontWeight: 700, color: statusFilter === 'WFH' ? '#0E7490' : '#64748B' }}>Work From Home (WFH)</span>
               <div className="kpi-icon-wrapper" style={{ backgroundColor: '#CFFAFE', color: '#0E7490' }}><Home size={16} /></div>
             </div>
             <div className="kpi-card-body">
@@ -667,27 +810,143 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       )}
 
       {/* Table of Requests */}
-      <div className="card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
-        <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <span>
-              {isEmployeeRole ? 'My Applications' : isManagerRole ? `${currentUser.department} Applications` : 'All Leave & WFH Applications'} ({roleScopedLeaves.length})
-            </span>
-            <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600, marginTop: '2px' }}>
-              Includes Work From Home, Sandwich Days & Pay Breakdown
+      <div className="card" style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)' }}>
+        {/* Modern Clean Header with Title, Search & Export */}
+        <div style={{ padding: '20px 24px 16px 24px', borderBottom: '1px solid #F1F5F9' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '16px' }}>
+            <div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>
+                  {isEmployeeRole ? 'My Applications' : isManagerRole ? `${currentUser.department} Applications` : 'All Leave & WFH Applications'}
+                </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, backgroundColor: '#ECFEFF', color: '#0E7490', padding: '2px 8px', borderRadius: '999px', border: '1px solid #CFFAFE' }}>
+                  {filteredLeaves.length}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 500, marginTop: '2px' }}>
+                Includes Work From Home, Sandwich Days & Pay Breakdown
+              </div>
+            </div>
+
+            {/* Search Bar & Export Dropdown */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', minWidth: '240px' }}>
+                <Search size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search applicant, ID, type..."
+                  style={{
+                    width: '100%',
+                    height: '36px',
+                    paddingLeft: '32px',
+                    paddingRight: searchQuery ? '28px' : '12px',
+                    borderRadius: '10px',
+                    border: '1px solid #E2E8F0',
+                    fontSize: '0.82rem',
+                    color: '#1E293B',
+                    backgroundColor: '#F8FAFC',
+                    outline: 'none',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.backgroundColor = '#FFFFFF';
+                    e.currentTarget.style.borderColor = '#0E7490';
+                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14,116,144,0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.backgroundColor = '#F8FAFC';
+                    e.currentTarget.style.borderColor = '#E2E8F0';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      border: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      color: '#94A3B8',
+                      padding: 0,
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                    title="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {!isEmployeeRole && (
+                <ExportDropdown
+                  onExportExcel={handleExportExcel}
+                  onExportPDF={handleExportPDF}
+                  onExportCSV={handleExportCSV}
+                />
+              )}
             </div>
           </div>
-          {!isEmployeeRole && (
-            <ExportDropdown
-              onExportExcel={handleExportExcel}
-              onExportPDF={handleExportPDF}
-              onExportCSV={handleExportCSV}
-            />
-          )}
-        </h3>
+
+          {/* Interactive Status Segmented Filter Tabs */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', overflowX: 'auto', paddingBottom: '2px' }}>
+            {[
+              { key: 'ALL', label: 'All Applications', count: tabCounts.all },
+              { key: 'Pending', label: 'Pending', count: tabCounts.pending },
+              { key: 'Approved', label: 'Approved', count: tabCounts.approved },
+              { key: 'Rejected', label: 'Rejected', count: tabCounts.rejected },
+              { key: 'WFH', label: 'Work From Home', count: tabCounts.wfh }
+            ].map(tab => {
+              const isActive = statusFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.key as any)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.80rem',
+                    fontWeight: 700,
+                    border: isActive ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                    backgroundColor: isActive ? '#0E7490' : '#FFFFFF',
+                    color: isActive ? '#FFFFFF' : '#475569',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.15s ease',
+                    whiteSpace: 'nowrap',
+                    boxShadow: isActive ? '0 1px 3px rgba(14,116,144,0.2)' : 'none'
+                  }}
+                >
+                  <span>{tab.label}</span>
+                  <span style={{
+                    fontSize: '0.70rem',
+                    fontWeight: 800,
+                    padding: '1px 6px',
+                    borderRadius: '999px',
+                    backgroundColor: isActive ? 'rgba(255,255,255,0.22)' : '#F1F5F9',
+                    color: isActive ? '#FFFFFF' : '#475569'
+                  }}>
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         
+        {/* Streamlined Clean Table */}
         <div style={{ overflowX: 'auto', width: '100%' }}>
-          <table className="hrms-table" style={{ width: '100%', minWidth: '980px', borderCollapse: 'collapse' }}>
+          <table className="hrms-table" style={{ width: '100%', minWidth: '940px', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
                 {!isEmployeeRole && (
@@ -701,19 +960,17 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     />
                   </th>
                 )}
-                <th style={{ width: '50px', minWidth: '50px', textAlign: 'center' }}>S.No</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '150px' }}>Applicant</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '140px' }}>Department & Type</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '120px' }}>Applied Date</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Duration</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '200px' }}>Pay & Attendance Breakdown</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '100px' }}>Status</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Reviewed By</th>
+                <th style={{ width: '45px', minWidth: '45px', textAlign: 'center' }}>#</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '220px' }}>Applicant</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Type & Reason</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '220px' }}>Dates & Duration</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '110px' }}>Applied On</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Status & Review</th>
                 {!isEmployeeRole && (
                   <th style={{ 
                     textAlign: 'right', 
                     whiteSpace: 'nowrap', 
-                    minWidth: '180px',
+                    minWidth: '160px',
                     paddingRight: '20px'
                   }}>
                     Actions
@@ -724,8 +981,11 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
             <tbody>
               {paginatedLeaves.length === 0 ? (
                 <tr>
-                  <td colSpan={isEmployeeRole ? 8 : 10} style={{ textAlign: 'center', padding: '30px', color: '#94A3B8' }}>
-                    No applications found matching the selected filter.
+                  <td colSpan={isEmployeeRole ? 6 : 8} style={{ textAlign: 'center', padding: '40px 20px', color: '#94A3B8' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 600, color: '#64748B' }}>No applications found</div>
+                    <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginTop: '4px' }}>
+                      Try adjusting your status filter or search query.
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -779,325 +1039,274 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                           />
                         </td>
                       )}
-                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '50px', color: '#64748B', fontWeight: 700, fontSize: '0.84rem' }}>
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '45px', color: '#94A3B8', fontWeight: 700, fontSize: '0.80rem' }}>
                         {serialNo}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ fontWeight: 800, color: '#0F172A', fontSize: '0.9rem' }}>{l.employeeName}</div>
-                        <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>{l.employeeId}</div>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.84rem', marginBottom: '3px' }}>
-                          {l.department}
-                        </div>
-                        {isWfh ? (
-                          <span style={{ 
-                            fontWeight: 700, 
-                            color: '#0E7490', 
-                            backgroundColor: '#ECFEFF', 
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '50%',
+                            backgroundColor: '#ECFEFF',
+                            color: '#0E7490',
                             border: '1px solid #A5F3FC',
-                            padding: '3px 8px', 
-                            borderRadius: '6px', 
-                            fontSize: '0.74rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}>
-                            <Home size={12} /> Work From Home [WFH]
-                          </span>
-                        ) : isUnpaid ? (
-                          <span style={{ 
-                            fontWeight: 700, 
-                            color: '#DC2626', 
-                            backgroundColor: '#FEF2F2', 
-                            border: '1px solid #FECACA',
-                            padding: '2px 7px', 
-                            borderRadius: '6px', 
-                            fontSize: '0.74rem' 
-                          }}>
-                            {l.leaveType}
-                          </span>
-                        ) : (
-                          <span style={{ 
-                            fontWeight: 700, 
-                            color: '#0E7490', 
-                            backgroundColor: '#ECFEFF', 
-                            border: '1px solid #CFFAFE',
-                            padding: '2px 7px', 
-                            borderRadius: '6px', 
-                            fontSize: '0.74rem' 
-                          }}>
-                            {l.leaveType}
-                          </span>
-                        )}
-                        {l.reason && (
-                          <div style={{ 
-                            fontSize: '0.73rem', 
-                            color: '#64748B', 
-                            marginTop: '3px', 
-                            maxWidth: '190px', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis', 
-                            whiteSpace: 'nowrap' 
-                          }} title={`Employee Reason: ${l.reason}`}>
-                            <span style={{ color: '#0E7490', fontWeight: 700 }}>Reason:</span> {l.reason}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0F172A' }}>
-                          {formatDateDDMMYYYY(l.appliedDate || l.startDate) || '-'}
-                        </div>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0F172A' }}>
-                          {formatDateDDMMYYYY(l.startDate)} <span style={{ color: '#94A3B8', fontWeight: 500 }}>to</span> {formatDateDDMMYYYY(l.endDate)}
-                        </div>
-                        <div style={{ fontSize: '0.74rem', color: isUnpaid ? '#DC2626' : '#0E7490', fontWeight: 700, marginTop: '2px' }}>
-                          {l.daysCount} {toNum(l.daysCount) === 1 ? 'day' : 'days'} total
-                        </div>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        {isWfh ? (
-                          <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                backgroundColor: '#DCFCE7',
-                                color: '#166534',
-                                padding: '2px 8px',
-                                borderRadius: '6px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}>
-                                ✓ 100% Working Day (Full Pay)
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '0.74rem', color: '#0E7490', fontWeight: 600 }}>
-                              Recorded as [WFH] • Not Absent / Not Leave
-                            </div>
-                          </>
-                        ) : isUnpaid ? (
-                          <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                backgroundColor: '#FEE2E2',
-                                color: '#DC2626',
-                                padding: '2px 8px',
-                                borderRadius: '6px'
-                              }}>
-                                Unpaid Leave (Loss of Pay)
-                              </span>
-                              {isOverridden && (
-                                <span style={{
-                                  fontSize: '0.68rem',
-                                  fontWeight: 700,
-                                  backgroundColor: '#FEF3C7',
-                                  color: '#D97706',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px'
-                                }}>
-                                  Overridden
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: '#DC2626', fontWeight: 600 }}>
-                              {l.daysCount}d Salary Deduction
-                              {hasSandwich && (
-                                <span style={{ color: '#B91C1C', fontWeight: 700, marginLeft: '4px' }}>
-                                  (+{l.sandwichDays}d Sandwich LOP)
-                                </span>
-                              )}
-                            </div>
-                          </>
-                        ) : isPartiallyUnpaid ? (
-                          <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                backgroundColor: '#FEE2E2',
-                                color: '#DC2626',
-                                padding: '2px 8px',
-                                borderRadius: '6px'
-                              }}>
-                                {unpaidDaysTotal}d Unpaid LOP
-                              </span>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                backgroundColor: '#DCFCE7',
-                                color: '#166534',
-                                padding: '2px 8px',
-                                borderRadius: '6px'
-                              }}>
-                                Paid Leave
-                              </span>
-                              {isOverridden && (
-                                <span style={{
-                                  fontSize: '0.68rem',
-                                  fontWeight: 700,
-                                  backgroundColor: '#FEF3C7',
-                                  color: '#D97706',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px'
-                                }}>
-                                  Overridden
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>
-                              {toNum(l.daysCount) - unpaidDaysTotal}d Paid • <span style={{ color: '#DC2626', fontWeight: 700 }}>{unpaidDaysTotal}d Deduction</span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                backgroundColor: '#DCFCE7',
-                                color: '#166534',
-                                padding: '2px 8px',
-                                borderRadius: '6px'
-                              }}>
-                                Paid Leave
-                              </span>
-                              {isOverridden && (
-                                <span style={{
-                                  fontSize: '0.68rem',
-                                  fontWeight: 700,
-                                  backgroundColor: '#FEF3C7',
-                                  color: '#D97706',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px'
-                                }}>
-                                  Overridden
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>
-                              {toNum(l.daysCount) - (l.sandwichDays || 0)}d Applied
-                              {hasSandwich && (
-                                <span style={{ color: '#0E7490', fontWeight: 700, marginLeft: '4px' }}>
-                                  (+{l.sandwichDays}d Sandwich)
-                                </span>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <span 
-                          style={{
-                            display: 'inline-flex',
+                            display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            padding: '3px 12px',
-                            fontSize: '11.5px',
-                            fontWeight: 700,
-                            borderRadius: '999px',
-                            lineHeight: 1.3,
-                            whiteSpace: 'nowrap',
-                            backgroundColor: l.status === 'Approved' ? '#DCFCE7' : l.status === 'Rejected' ? '#FEE2E2' : '#EFF6FF',
-                            color: l.status === 'Approved' ? '#166534' : l.status === 'Rejected' ? '#DC2626' : '#1E40AF',
-                            border: 'none'
-                          }}
-                        >
-                          {l.status}
-                        </span>
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            flexShrink: 0,
+                            letterSpacing: '0.5px'
+                          }}>
+                            {getInitials(l.employeeName)}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {l.employeeName}
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                              <span style={{ fontWeight: 600 }}>{l.employeeId}</span>
+                              <span style={{ color: '#CBD5E1' }}>•</span>
+                              <span>{l.department || 'General'}</span>
+                            </div>
+                          </div>
+                        </div>
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        {l.status === 'Pending' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                          {isWfh ? (
                             <span style={{ 
-                              color: '#D97706', 
-                              backgroundColor: '#FEF3C7', 
-                              padding: '3px 8px', 
+                              fontWeight: 700, 
+                              color: '#0E7490', 
+                              backgroundColor: '#ECFEFF', 
+                              border: '1px solid #A5F3FC',
+                              padding: '2px 8px', 
                               borderRadius: '6px', 
-                              fontSize: '0.74rem', 
-                              fontWeight: 700,
+                              fontSize: '0.74rem',
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '4px'
                             }}>
+                              <Home size={12} /> Work From Home
+                            </span>
+                          ) : isUnpaid ? (
+                            <span style={{ 
+                              fontWeight: 700, 
+                              color: '#DC2626', 
+                              backgroundColor: '#FEF2F2', 
+                              border: '1px solid #FECACA',
+                              padding: '2px 8px', 
+                              borderRadius: '6px', 
+                              fontSize: '0.74rem' 
+                            }}>
+                              {l.leaveType}
+                            </span>
+                          ) : (
+                            <span style={{ 
+                              fontWeight: 700, 
+                              color: '#0E7490', 
+                              backgroundColor: '#ECFEFF', 
+                              border: '1px solid #CFFAFE',
+                              padding: '2px 8px', 
+                              borderRadius: '6px', 
+                              fontSize: '0.74rem' 
+                            }}>
+                              {l.leaveType}
+                            </span>
+                          )}
+                          {l.reason && (
+                            <div style={{ 
+                              fontSize: '0.73rem', 
+                              color: '#64748B', 
+                              fontStyle: 'italic',
+                              maxWidth: '190px', 
+                              overflow: 'hidden', 
+                              textOverflow: 'ellipsis', 
+                              whiteSpace: 'nowrap' 
+                            }} title={`Reason: ${l.reason}`}>
+                              “{l.reason}”
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap' }}>
+                          <Calendar size={13} style={{ color: '#0E7490', flexShrink: 0 }} />
+                          <span>{formatDisplayDateRange(l.startDate, l.endDate)}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '3px', flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            color: isUnpaid ? '#DC2626' : '#0E7490',
+                            backgroundColor: isUnpaid ? '#FEF2F2' : '#ECFEFF',
+                            padding: '1px 6px',
+                            borderRadius: '4px'
+                          }}>
+                            {l.daysCount} {toNum(l.daysCount) === 1 ? 'day' : 'days'}
+                          </span>
+                          {isWfh ? (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#166534', backgroundColor: '#DCFCE7', padding: '1px 6px', borderRadius: '4px' }}>
+                              Full Pay
+                            </span>
+                          ) : isUnpaid ? (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#DC2626', backgroundColor: '#FEE2E2', padding: '1px 6px', borderRadius: '4px' }}>
+                              Loss of Pay
+                            </span>
+                          ) : isPartiallyUnpaid ? (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#DC2626', backgroundColor: '#FEE2E2', padding: '1px 6px', borderRadius: '4px' }}>
+                              {unpaidDaysTotal}d LOP
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#166534', backgroundColor: '#DCFCE7', padding: '1px 6px', borderRadius: '4px' }}>
+                              Paid
+                            </span>
+                          )}
+                          {hasSandwich && (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#D97706', backgroundColor: '#FEF3C7', padding: '1px 6px', borderRadius: '4px' }}>
+                              +{l.sandwichDays}d Sandwich
+                            </span>
+                          )}
+                          {isOverridden && (
+                            <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#D97706', padding: '1px 5px', borderRadius: '4px' }}>
+                              HR Override
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                          {formatDisplayDate(l.appliedDate || l.startDate)}
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                          <span 
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '2px 9px',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                              borderRadius: '999px',
+                              backgroundColor: l.status === 'Approved' ? '#DCFCE7' : l.status === 'Rejected' ? '#FEE2E2' : '#FEF3C7',
+                              color: l.status === 'Approved' ? '#166534' : l.status === 'Rejected' ? '#DC2626' : '#B45309'
+                            }}
+                          >
+                            <span style={{
+                              width: '6px',
+                              height: '6px',
+                              borderRadius: '50%',
+                              backgroundColor: l.status === 'Approved' ? '#22C55E' : l.status === 'Rejected' ? '#EF4444' : '#F59E0B'
+                            }} />
+                            {l.status}
+                          </span>
+                          {l.status === 'Pending' ? (
+                            <span style={{ fontSize: '0.71rem', color: '#94A3B8', fontStyle: 'italic', marginTop: '2px' }}>
                               Awaiting HR/CEO review
                             </span>
-                          </div>
-                        ) : (
-                          <div>
-                            <div style={{ fontSize: '0.84rem', color: '#0F172A', fontWeight: 800 }}>
-                              {l.approvedBy || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR Manager)')}
-                            </div>
-                            <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, marginTop: '2px' }}>
-                              {formatReviewDateTime(l.approvedAt) || (l.appliedDate ? formatDateDDMMYYYY(l.appliedDate) : '-')}
-                            </div>
-                            {l.comment && (
-                              <div style={{ 
-                                fontSize: '0.72rem', 
-                                color: '#DC2626', 
-                                backgroundColor: '#FFF5F5',
-                                border: '1px solid #FED7D7',
-                                borderRadius: '4px',
-                                padding: '3px 7px',
-                                marginTop: '4px', 
-                                maxWidth: '240px', 
-                                whiteSpace: 'normal',
-                                lineHeight: '1.25'
-                              }}>
-                                <strong>Reason:</strong> {l.comment}
+                          ) : (
+                            <div style={{ marginTop: '1px' }}>
+                              <div style={{ fontSize: '0.74rem', color: '#334155', fontWeight: 600 }}>
+                                {l.approvedBy || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : 'Pavithra R (HR)')}
                               </div>
-                            )}
-                          </div>
-                        )}
+                              <div style={{ fontSize: '0.69rem', color: '#94A3B8' }}>
+                                {formatReviewDateTime(l.approvedAt) || (l.appliedDate ? formatDisplayDate(l.appliedDate) : '')}
+                              </div>
+                            </div>
+                          )}
+                          {l.comment && (
+                            <div style={{ 
+                              fontSize: '0.70rem', 
+                              color: '#DC2626', 
+                              backgroundColor: '#FEF2F2',
+                              border: '1px solid #FECACA',
+                              borderRadius: '4px',
+                              padding: '2px 6px',
+                              marginTop: '2px', 
+                              maxWidth: '180px', 
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }} title={l.comment}>
+                              Note: {l.comment}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       {!isEmployeeRole && (
                         <td style={{ 
                           textAlign: 'right', 
                           whiteSpace: 'nowrap', 
-                          minWidth: '180px',
+                          minWidth: '160px',
                           paddingRight: '20px'
                         }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-                            {/* 1. Pending Approval Actions */}
+                            {/* Pending Approval Actions */}
                             {l.status === 'Pending' && canApprove && (
                               <>
                                 <button 
                                   type="button"
-                                  className="btn btn-success btn-sm"
                                   onClick={() => approveLeave(l.id, reviewerName)}
-                                  style={{ padding: '5px 12px', fontWeight: 700, fontSize: '0.78rem', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(34,197,94,0.2)' }}
+                                  style={{ 
+                                    height: '30px',
+                                    padding: '0 12px', 
+                                    fontWeight: 700, 
+                                    fontSize: '0.76rem', 
+                                    borderRadius: '8px',
+                                    backgroundColor: '#10B981',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    boxShadow: '0 1px 2px rgba(16,185,129,0.2)',
+                                    transition: 'all 0.15s ease'
+                                  }}
                                   title={isWfh ? "Approve Work From Home" : "Approve Leave Request"}
                                 >
-                                  Approve
+                                  <Check size={13} /> Approve
                                 </button>
                                 <button 
                                   type="button"
-                                  className="btn btn-danger btn-sm"
                                   onClick={() => {
                                     setRejectModalTarget(l);
                                     setRejectComment('');
                                   }}
-                                  style={{ padding: '5px 12px', fontWeight: 700, fontSize: '0.78rem', whiteSpace: 'nowrap', boxShadow: '0 1px 2px rgba(239,68,68,0.2)' }}
+                                  style={{ 
+                                    height: '30px',
+                                    padding: '0 12px', 
+                                    fontWeight: 700, 
+                                    fontSize: '0.76rem', 
+                                    borderRadius: '8px',
+                                    backgroundColor: '#EF4444',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    boxShadow: '0 1px 2px rgba(239,68,68,0.2)',
+                                    transition: 'all 0.15s ease'
+                                  }}
                                   title="Reject Leave Request"
                                 >
-                                  Reject
+                                  <X size={13} /> Reject
                                 </button>
                               </>
                             )}
 
-                            {/* 2. Re-Approve if Rejected (for HR/CEO) */}
+                            {/* Re-Approve if Rejected */}
                             {l.status === 'Rejected' && canApprove && (
                               <button
                                 type="button"
                                 onClick={() => approveLeave(l.id, reviewerName)}
-                                className="btn btn-sm"
                                 style={{
-                                  padding: '5px 10px',
+                                  height: '30px',
+                                  padding: '0 10px',
                                   borderRadius: '8px',
                                   fontSize: '0.75rem',
                                   fontWeight: 700,
@@ -1107,15 +1316,16 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                   cursor: 'pointer',
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '3px'
+                                  gap: '4px',
+                                  transition: 'all 0.15s ease'
                                 }}
                                 title="Re-approve this application"
                               >
-                                ✓ Re-Approve
+                                <Check size={13} /> Re-Approve
                               </button>
                             )}
 
-                            {/* 3. Revoke if Approved (for HR/CEO) */}
+                            {/* Revoke if Approved */}
                             {l.status === 'Approved' && canApprove && (
                               <button
                                 type="button"
@@ -1123,9 +1333,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                   setRejectModalTarget(l);
                                   setRejectComment('Decision revoked by HR/CEO');
                                 }}
-                                className="btn btn-sm"
                                 style={{
-                                  padding: '5px 10px',
+                                  height: '30px',
+                                  padding: '0 10px',
                                   borderRadius: '8px',
                                   fontSize: '0.75rem',
                                   fontWeight: 700,
@@ -1135,35 +1345,34 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                   cursor: 'pointer',
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '3px'
+                                  gap: '4px',
+                                  transition: 'all 0.15s ease'
                                 }}
                                 title="Revoke / Cancel approval"
                               >
-                                ✕ Revoke
+                                <X size={13} /> Revoke
                               </button>
                             )}
 
-
-
-                            {/* 5. View Details button - icon only */}
+                            {/* View Details button */}
                             <button
                               type="button"
                               onClick={() => openInspectLeaveModal(l)}
-                              title="View Details"
+                              title="View application details"
                               aria-label="View Details"
                               style={{
-                                width: '28px',
-                                height: '28px',
-                                borderRadius: '6px',
-                                border: '1px solid #CBD5E1',
-                                backgroundColor: '#F8FAFC',
+                                width: '30px',
+                                height: '30px',
+                                borderRadius: '8px',
+                                border: '1px solid #E2E8F0',
+                                backgroundColor: '#FFFFFF',
                                 color: '#0E7490',
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 cursor: 'pointer',
                                 padding: 0,
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
                                 transition: 'all 0.15s ease'
                               }}
                               onMouseEnter={(e) => {
@@ -1171,8 +1380,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                                 e.currentTarget.style.borderColor = '#0E7490';
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#F8FAFC';
-                                e.currentTarget.style.borderColor = '#CBD5E1';
+                                e.currentTarget.style.backgroundColor = '#FFFFFF';
+                                e.currentTarget.style.borderColor = '#E2E8F0';
                               }}
                             >
                               <Eye size={14} />
@@ -1192,7 +1401,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
         {!isEmployeeRole && (
           <StandardTablePagination
             currentPage={currentPage}
-            totalEntries={displayedLeaves.length}
+            totalEntries={filteredLeaves.length}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={size => {
