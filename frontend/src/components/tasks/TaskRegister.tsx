@@ -5,8 +5,6 @@ import {
   Filter, 
   FileText, 
   Eye, 
-  ChevronDown, 
-  ChevronUp, 
   Calendar, 
   User, 
   Building, 
@@ -15,8 +13,6 @@ import {
   Trash2, 
   AlertTriangle, 
   Link2,
-  SlidersHorizontal,
-  Sliders,
   Plus,
   X,
   Check,
@@ -78,8 +74,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
   const [filterStatus, setFilterStatus] = useState<string>('All');
   const [filterDueStatus, setFilterDueStatus] = useState<string>('All');
   const [filterCategory, setFilterCategory] = useState<string>('All');
-
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
 
   // Dedicated Filter Modal State
   const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
@@ -476,29 +470,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
               </span>
             </button>
 
-            <button 
-              type="button"
-              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              style={{ 
-                height: '38px', 
-                padding: '0 12px', 
-                borderRadius: '10px', 
-                border: showAdvancedFilters ? '1px solid #0E7490' : '1px solid #E2E8F0',
-                background: showAdvancedFilters ? '#ECFEFF' : '#ffffff',
-                color: showAdvancedFilters ? '#0E7490' : '#334155',
-                fontSize: '0.82rem', 
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'inline-flex', 
-                alignItems: 'center', 
-                gap: '6px',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)'
-              }}
-            >
-              <SlidersHorizontal size={15} /> 
-              <span>{showAdvancedFilters ? 'Hide Filters' : 'More Filters'}</span>
-              {showAdvancedFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
 
             {hasActiveFilters && (
               <button
@@ -528,81 +499,6 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
           </div>
         </div>
 
-        {/* Collapsible Advanced Filters Drawer */}
-        {showAdvancedFilters && (
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', 
-            gap: '14px', 
-            marginTop: '16px', 
-            paddingTop: '16px', 
-            borderTop: '1px solid #F1F5F9' 
-          }}>
-            <div>
-              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B', marginBottom: '5px', display: 'block' }}>Assigned To</label>
-              <select 
-                value={filterAssignedTo} 
-                onChange={e => { setFilterAssignedTo(e.target.value); setCurrentPage(1); }}
-                style={{ width: '100%', height: '38px', borderRadius: '10px', border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#334155', padding: '6px 10px', lineHeight: '20px', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
-              >
-                <option value="All">All Assignees</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.employeeId}>{emp.firstName} {emp.lastName}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B', marginBottom: '5px', display: 'block' }}>Responsible Person</label>
-              <select 
-                value={filterResponsible} 
-                onChange={e => { setFilterResponsible(e.target.value); setCurrentPage(1); }}
-                style={{ width: '100%', height: '38px', borderRadius: '10px', border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#334155', padding: '6px 10px', lineHeight: '20px', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
-              >
-                <option value="All">All Responsible</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.employeeId}>{emp.firstName} {emp.lastName}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B', marginBottom: '5px', display: 'block' }}>Due Status</label>
-              <select 
-                value={filterDueStatus} 
-                onChange={e => { setFilterDueStatus(e.target.value); setCurrentPage(1); }}
-                style={{ width: '100%', height: '38px', borderRadius: '10px', border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#334155', padding: '6px 10px', lineHeight: '20px', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
-              >
-                <option value="All">All Due Statuses</option>
-                <option value="On Track">On Track</option>
-                <option value="Due Today">Due Today</option>
-                <option value="Due Tomorrow">Due Tomorrow</option>
-                <option value="Overdue">Overdue</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B', marginBottom: '5px', display: 'block' }}>From Due Date</label>
-              <input 
-                type="date" 
-                value={filterFromDate} 
-                onChange={e => { setFilterFromDate(e.target.value); setCurrentPage(1); }}
-                style={{ width: '100%', height: '38px', borderRadius: '10px', border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#334155', padding: '6px 10px', lineHeight: '20px', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B', marginBottom: '5px', display: 'block' }}>To Due Date</label>
-              <input 
-                type="date" 
-                value={filterToDate} 
-                onChange={e => { setFilterToDate(e.target.value); setCurrentPage(1); }}
-                style={{ width: '100%', height: '38px', borderRadius: '10px', border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#334155', padding: '6px 10px', lineHeight: '20px', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Main Enterprise Task Register Table Container - Single Box Architecture */}
