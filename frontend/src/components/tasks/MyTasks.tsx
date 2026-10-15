@@ -3,9 +3,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { 
   CheckCircle2, 
   Sliders, 
-  User, 
-  Paperclip, 
-  FileText 
+  User 
 } from 'lucide-react';
 import { TaskItemEnhanced, TaskAssigneeStatus, computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
@@ -253,46 +251,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
                           </div>
                         )}
 
-                        {/* Expected Deliverable criteria badge */}
-                        {task.expectedOutput && (
-                          <div style={{ marginTop: '5px' }}>
-                            <span style={{ fontSize: '0.7rem', color: '#166534', background: '#DCFCE7', border: '1px solid #BBF7D0', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <strong>Deliverable:</strong> {task.expectedOutput.length > 85 ? `${task.expectedOutput.slice(0, 85)}...` : task.expectedOutput}
-                            </span>
-                          </div>
-                        )}
 
-                        {/* Attachments chips */}
-                        {task.attachments && task.attachments.length > 0 && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0E7490', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                              <Paperclip size={12} /> {task.attachments.length} Attachment{task.attachments.length > 1 ? 's' : ''}:
-                            </span>
-                            {task.attachments.map(att => (
-                              <a
-                                key={att.id}
-                                href={att.fileUrl}
-                                download={att.fileName}
-                                style={{
-                                  fontSize: '0.68rem',
-                                  color: '#0E7490',
-                                  background: '#ECFEFF',
-                                  border: '1px solid #CFFAFE',
-                                  padding: '2px 7px',
-                                  borderRadius: '6px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  textDecoration: 'none',
-                                  fontWeight: 600
-                                }}
-                                title={`Download ${att.fileName}`}
-                              >
-                                <FileText size={12} /> {att.fileName}
-                              </a>
-                            ))}
-                          </div>
-                        )}
                       </td>
 
                       <td>

@@ -411,12 +411,6 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
               <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.78rem', color: '#FFFFFF', background: 'rgba(255, 255, 255, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
                 {task.taskNumber}
               </span>
-              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#FEF3C7', color: '#92400E' }}>
-                {task.priority}
-              </span>
-              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#ECFEFF', color: '#0E7490' }}>
-                ● {currentStage}
-              </span>
               {task.editedAt && (
                 <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#F1F5F9', color: '#475569' }}>
                   Edited
