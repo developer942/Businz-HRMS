@@ -903,8 +903,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               { key: 'ALL', label: 'All Applications', count: tabCounts.all },
               { key: 'Pending', label: 'Pending', count: tabCounts.pending },
               { key: 'Approved', label: 'Approved', count: tabCounts.approved },
-              { key: 'Rejected', label: 'Rejected', count: tabCounts.rejected },
-              { key: 'WFH', label: 'Work From Home', count: tabCounts.wfh }
+              { key: 'Rejected', label: 'Rejected', count: tabCounts.rejected }
             ].map(tab => {
               const isActive = statusFilter === tab.key;
               return (
