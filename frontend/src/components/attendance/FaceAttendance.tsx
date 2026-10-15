@@ -22,7 +22,6 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  Eye,
   Image,
   Search
 } from 'lucide-react';
@@ -1682,17 +1681,6 @@ export const FaceAttendance: React.FC = () => {
                                   }}
                                 >
                                   <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                  <div style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    backgroundColor: 'rgba(0,0,0,0.2)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#ffffff'
-                                  }}>
-                                    <Eye size={12} />
-                                  </div>
                                 </div>
                               ) : null}
                             </div>
@@ -1729,17 +1717,6 @@ export const FaceAttendance: React.FC = () => {
                                   }}
                                 >
                                   <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                  <div style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    backgroundColor: 'rgba(0,0,0,0.2)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#ffffff'
-                                  }}>
-                                    <Eye size={12} />
-                                  </div>
                                 </div>
                               ) : null}
                             </div>
