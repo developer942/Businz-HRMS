@@ -14,6 +14,7 @@ import {
 } from '../types/hrms';
 import { SalaryComponentConfig } from '../types/settings';
 import { toNum, formatCurrency } from '../utils/numbers';
+import { parseTimeToMinutes } from './attendanceCalculationEngine';
 
 // ========================================================
 // 1. SAFE MATHEMATICAL FORMULA EVALUATOR (No eval)
@@ -299,15 +300,13 @@ export const isCheckInLate = (
 ): boolean => {
   if (!checkInStr) return false;
 
-  const [cHour, cMin] = checkInStr.split(':').map(Number);
-  const [sHour, sMin] = shiftStartStr.split(':').map(Number);
+  const inMins = parseTimeToMinutes(checkInStr);
+  const startMins = parseTimeToMinutes(shiftStartStr);
 
-  if (isNaN(cHour) || isNaN(sHour)) return false;
+  if (inMins === null || startMins === null) return false;
 
-  const checkInMinutes = cHour * 60 + (cMin || 0);
-  const allowedMinutes = sHour * 60 + (sMin || 0) + (graceMins || 0);
-
-  return checkInMinutes > allowedMinutes;
+  const allowedMinutes = startMins + (graceMins || 0);
+  return inMins > allowedMinutes;
 };
 
 /**
@@ -390,7 +389,14 @@ export const evaluateAttendanceLateDeduction = (
       shiftStartTime = policy.startTime;
     }
 
-    const isLate = rec.status === 'Late' || isCheckInLate(rec.checkIn, shiftStartTime, graceMins);
+    let isLate = false;
+    if (rec.status === 'Absent' || rec.status === 'Holiday' || rec.status === 'Week Off' || rec.status === 'On Leave') {
+      isLate = false;
+    } else if (rec.checkIn && rec.checkIn !== '--:--') {
+      isLate = isCheckInLate(rec.checkIn, shiftStartTime, graceMins);
+    } else {
+      isLate = rec.status === 'Late' || (rec.lateStatus ? rec.lateStatus !== 'On Time' && rec.lateStatus !== 'N/A' : false);
+    }
     if (isLate) {
       lateCount++;
       if (rec.lateStatus === 'Severely Late') {

@@ -427,14 +427,16 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     Boolean(record.checkOut && record.checkOut !== '--:--' && record.checkOut.trim() !== '' && !record.checkOut.toLowerCase().includes('progress'));
 
   const isLateArrivalRecord = (record: AttendanceRecord): boolean => {
-    if (record.status === 'Absent') return false;
-    if (record.status === 'Late' || record.lateStatus?.toLowerCase().includes('late')) return true;
-    if (!record.checkIn || record.checkIn === '--:--') return false;
-
-    const shift = getEmployeeShift(record.employeeId);
-    const inM = parseTimeToMinutes(record.checkIn);
-    const startM = parseTimeToMinutes(shift.startTime);
-    return inM > (startM + shift.gracePeriodMins);
+    if (record.status === 'Absent' || record.status === 'Holiday' || record.status === 'Week Off' || record.status === 'On Leave') return false;
+    if (record.checkIn && record.checkIn !== '--:--') {
+      const shift = getEmployeeShift(record.employeeId);
+      const inM = parseTimeToMinutes(record.checkIn);
+      const startM = parseTimeToMinutes(shift.startTime);
+      if (inM > 0 && startM > 0) {
+        return inM > (startM + shift.gracePeriodMins);
+      }
+    }
+    return record.status === 'Late' || (record.lateStatus ? record.lateStatus !== 'On Time' && record.lateStatus !== 'N/A' : false);
   };
 
   const isEarlyDepartureRecord = (record: AttendanceRecord): boolean => {
@@ -692,7 +694,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const st = (r.status || '').toLowerCase();
         const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || (r.method || '').toLowerCase().includes('field');
         const isWfo = st.includes('wfo') || st.includes('office') || st.includes('home');
-        const isLate = st === 'late' || (r.lateStatus || '').toLowerCase().includes('late');
+        const isLate = isLateArrivalRecord(r);
         const dur = getRecordWorkingDuration(r);
 
         data.push({
@@ -1408,7 +1410,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     const st = (r.status || '').toLowerCase();
                     const isWfo = st.includes('wfo') || st.includes('office') || st.includes('home');
                     const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || (r.method || '').toLowerCase().includes('field');
-                    const isLate = st === 'late' || (r.lateStatus || '').toLowerCase().includes('late');
+                    const isLate = isLateArrivalRecord(r);
                     const dur = getRecordWorkingDuration(r);
 
                     return (

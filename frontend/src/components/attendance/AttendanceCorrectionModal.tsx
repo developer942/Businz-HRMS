@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import { 
   X, 
   Clock, 
@@ -51,11 +52,26 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
     currentUser.role === 'Manager' ||
     currentUser.role === 'Department Manager';
 
+  // Resolve employee assigned shift & shift window
+  const assignedShift = shifts.find(s => s.id === record.shiftId) ||
+    shifts.find(s => s.shiftName.toLowerCase() === record.shiftName?.toLowerCase()) ||
+    shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? a === record.employeeId : a.employeeId === record.employeeId))) ||
+    shifts[0];
+  const shiftStartTimeStr = assignedShift?.startTime || '09:00 AM';
+  const shiftGraceMins = assignedShift?.gracePeriodMins ?? 15;
+
   // State management
-  const [selectedStatus, setSelectedStatus] = useState<AttendanceRecord['status']>(record.status || 'Present');
+  const [selectedStatus, setSelectedStatus] = useState<AttendanceRecord['status']>(
+    record.status === 'Late' ? 'Present' : (record.status || 'Present')
+  );
   const [checkInTime, setCheckInTime] = useState<string>(record.checkIn || '09:00 AM');
   const [checkOutTime, setCheckOutTime] = useState<string>(record.checkOut || '06:00 PM');
   const [breakDuration, setBreakDuration] = useState<number>(record.breakDurationMinutes || 45);
+
+  const inMins = parseTimeToMinutes(checkInTime);
+  const shiftMins = parseTimeToMinutes(shiftStartTimeStr) ?? 9 * 60;
+  const isCurrentlyLate = inMins !== null && inMins > (shiftMins + shiftGraceMins);
+  const lateMinutesDiff = inMins !== null && shiftMins !== null ? Math.max(0, inMins - shiftMins) : 0;
 
   // Status specific states
   const [halfDayType, setHalfDayType] = useState<'First Half' | 'Second Half'>(record.halfDayType || 'First Half');
@@ -136,7 +152,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
       return;
     }
 
-    if ((selectedStatus === 'Present' || selectedStatus === 'Work From Home' || selectedStatus === 'Missing Punch') && checkInTime && checkOutTime) {
+    if ((selectedStatus === 'Present' || selectedStatus === 'Late' || selectedStatus === 'Work From Home' || selectedStatus === 'Missing Punch') && checkInTime && checkOutTime) {
       const parseTimeStr = (tStr: string) => {
         const clean = tStr.trim();
         let h = 0, m = 0;
@@ -166,9 +182,15 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
     setIsSubmitting(true);
     const actorInfo = `${currentUser.name} (${currentUser.role})`;
 
+    // Automatically resolve whether target status is Present or Late based on effective Check-In time vs Shift
+    let statusToSend = selectedStatus;
+    if (statusToSend === 'Present' || statusToSend === 'Late') {
+      statusToSend = isCurrentlyLate ? 'Late' : 'Present';
+    }
+
     const result = correctAttendanceRecord({
       attendanceId: record.id,
-      status: selectedStatus,
+      status: statusToSend,
       checkIn: selectedStatus === 'Absent' ? null : checkInTime,
       checkOut: selectedStatus === 'Absent' ? null : checkOutTime,
       breakDurationMinutes: breakDuration,
@@ -391,7 +413,8 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
                     boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                   }}
                 >
-                  <option value="Present">Present (Standard On-site Work)</option>
+                  <option value="Present">Present (Standard On-site Work / On Time)</option>
+                  <option value="Late">Late (Late Arrival)</option>
                   <option value="Missing Punch">Missing Punch (Missing Check-In / Check-Out Correction)</option>
                   <option value="Half Day">Half Day (First Half / Second Half)</option>
                   <option value="Absent">Absent (Unauthorized / No Show)</option>
@@ -404,8 +427,8 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
 
               {/* 2. DYNAMIC STATUS FIELDS */}
 
-              {/* STATUS: PRESENT / WFH / MISSING PUNCH */}
-              {(selectedStatus === 'Present' || selectedStatus === 'Work From Home' || selectedStatus === 'Missing Punch') && (
+              {/* STATUS: PRESENT / LATE / WFH / MISSING PUNCH */}
+              {(selectedStatus === 'Present' || selectedStatus === 'Late' || selectedStatus === 'Work From Home' || selectedStatus === 'Missing Punch') && (
                 <div style={{
                   backgroundColor: '#F1F5F9',
                   borderRadius: '12px',
@@ -426,17 +449,52 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
                         type="text"
                         placeholder="e.g. 09:00 AM"
                         value={checkInTime}
-                        onChange={(e) => setCheckInTime(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCheckInTime(val);
+                          const userInMins = parseTimeToMinutes(val);
+                          if (userInMins !== null) {
+                            const isLateNow = userInMins > (shiftMins + shiftGraceMins);
+                            if (!isLateNow && selectedStatus === 'Late') {
+                              setSelectedStatus('Present');
+                            } else if (isLateNow && selectedStatus === 'Present') {
+                              setSelectedStatus('Late');
+                            }
+                          }
+                        }}
                         style={{
                           width: '100%',
                           padding: '8px 12px',
                           borderRadius: '8px',
-                          border: '1px solid #CBD5E1',
+                          border: isCurrentlyLate ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
                           fontSize: '0.9rem',
                           color: '#1E293B',
                           backgroundColor: '#FFFFFF'
                         }}
                       />
+                      {checkInTime && inMins !== null && (
+                        <div style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          marginTop: '5px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: isCurrentlyLate ? '#D97706' : '#16A34A'
+                        }}>
+                          {isCurrentlyLate ? (
+                            <>
+                              <AlertCircle size={13} style={{ color: '#D97706', flexShrink: 0 }} />
+                              <span>Late: +{lateMinutesDiff}m (Shift starts {shiftStartTimeStr})</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 size={13} style={{ color: '#16A34A', flexShrink: 0 }} />
+                              <span>On Time (Shift {shiftStartTimeStr})</span>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div>

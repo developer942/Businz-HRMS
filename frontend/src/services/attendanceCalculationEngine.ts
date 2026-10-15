@@ -17,8 +17,11 @@ import {
  */
 export function parseTimeToMinutes(timeStr?: string | null): number | null {
   if (!timeStr || typeof timeStr !== 'string') return null;
-  const clean = timeStr.trim();
+  let clean = timeStr.trim();
   if (!clean || clean === '--:--' || clean === '-' || clean === 'N/A' || clean === '—') return null;
+
+  // Normalize potential typing mistakes like 10;30 AM or 10.00 AM
+  clean = clean.replace(/^(\d{1,2})[;.](\d{2})/, '$1:$2');
 
   // Handle full ISO datetime string (e.g. 2026-10-06T12:48:30.277+00:00)
   if (clean.includes('T') || clean.includes('Z') || (clean.includes('-') && clean.includes(':'))) {
@@ -284,8 +287,8 @@ export function calculateAttendanceHoursAndStatus(params: {
 
   // Status determination
   let status: AttendanceRecord['status'] = manualStatusOverride || 'Present';
-  if (!manualStatusOverride) {
-    if (workedHours < halfDayThreshold) {
+  if (!manualStatusOverride || manualStatusOverride === 'Present' || manualStatusOverride === 'Late') {
+    if (workedHours < halfDayThreshold && workedHours > 0) {
       status = 'Half Day';
     } else if (lateMinutes > 0) {
       status = 'Late';

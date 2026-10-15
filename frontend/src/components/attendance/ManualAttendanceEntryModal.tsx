@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
+import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 
 interface ManualAttendanceEntryModalProps {
   isOpen: boolean;
@@ -69,10 +70,30 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     ) || null;
   }, [attendanceRecords, selectedEmpId, selectedEmployee, date]);
 
+  // Resolve employee assigned shift & shift window
+  const assignedShift = useMemo(() => {
+    if (!selectedEmployee) return shifts[0];
+    const empId = selectedEmployee.id;
+    const empCode = selectedEmployee.employeeId;
+    return shifts.find(s => s.id === existingRecord?.shiftId) ||
+      shifts.find(s => s.shiftName?.toLowerCase() === existingRecord?.shiftName?.toLowerCase()) ||
+      shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? (a === empId || a === empCode) : (a.employeeId === empId || a.employeeId === empCode)))) ||
+      shifts[0];
+  }, [shifts, selectedEmployee, existingRecord]);
+
+  const shiftStartTimeStr = assignedShift?.startTime || '09:00 AM';
+  const shiftGraceMins = assignedShift?.gracePeriodMins ?? 15;
+
+  const inMins = parseTimeToMinutes(checkInTime);
+  const shiftMins = parseTimeToMinutes(shiftStartTimeStr) ?? (9 * 60);
+  const isCurrentlyLate = inMins !== null && inMins > (shiftMins + shiftGraceMins);
+  const lateMinutesDiff = inMins !== null && shiftMins !== null ? Math.max(0, inMins - shiftMins) : 0;
+
   // Sync state when existing record or defaults change
   useEffect(() => {
     if (existingRecord) {
-      setStatus(existingRecord.status || 'Present');
+      // Normalize 'Late' to 'Present' so HR can edit timing without getting locked into Late
+      setStatus(existingRecord.status === 'Late' ? 'Present' : (existingRecord.status || 'Present'));
       if (existingRecord.checkIn) {
         setCheckInTime(existingRecord.checkIn);
         setIsMissedCheckIn(false);
@@ -92,15 +113,15 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
         setBreakDuration(existingRecord.breakDurationMinutes);
       }
     } else {
-      // Default to 09:00 AM - 06:00 PM
-      setCheckInTime('09:00 AM');
+      // Default to employee's shift start time if available
+      setCheckInTime(shiftStartTimeStr || '09:00 AM');
       setCheckOutTime('06:00 PM');
       setIsMissedCheckIn(false);
       setIsMissedCheckOut(false);
       setOtHours(0);
       setStatus('Present');
     }
-  }, [existingRecord, date, selectedEmpId]);
+  }, [existingRecord, date, selectedEmpId, shiftStartTimeStr]);
 
   if (!isOpen) return null;
 
@@ -174,12 +195,20 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     const finalCheckIn = isMissedCheckIn ? null : checkInTime;
     const finalCheckOut = isMissedCheckOut ? null : checkOutTime;
 
+    // Dynamically evaluate punctuality status
+    let statusToSend = status;
+    if (status === 'Present' || status === 'Late') {
+      if (!isMissedCheckIn && checkInTime) {
+        statusToSend = isCurrentlyLate ? 'Late' : 'Present';
+      }
+    }
+
     const addedBy = `${currentUser?.name} (${currentUser?.role})`;
 
     const res = addManualAttendanceRecord({
       employeeId: selectedEmpId,
       date,
-      status,
+      status: statusToSend,
       checkIn: finalCheckIn,
       checkOut: finalCheckOut,
       breakDurationMinutes: breakDuration,
@@ -455,6 +484,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                   }}
                 >
                   <option value="Present">Present (Full Day)</option>
+                  <option value="Late">Late (Late Arrival)</option>
                   <option value="Half Day">Half Day</option>
                   <option value="Absent">Absent (LOP)</option>
                   <option value="On Leave">On Leave</option>
@@ -490,7 +520,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               </div>
             )}
 
-            {/* Check-In & Check-Out Times (if status is Present or Half Day or WFH) */}
+            {/* Check-In & Check-Out Times (if status is Present or Late or Half Day or WFH) */}
             {status !== 'Absent' && status !== 'On Leave' && (
               <div
                 style={{
@@ -533,7 +563,18 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       type="text"
                       disabled={isMissedCheckIn}
                       value={isMissedCheckIn ? 'Missed / Absent' : checkInTime}
-                      onChange={e => setCheckInTime(e.target.value)}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setCheckInTime(val);
+                        const tMins = parseTimeToMinutes(val);
+                        if (tMins !== null && shiftMins !== null) {
+                          if (tMins > (shiftMins + shiftGraceMins)) {
+                            setStatus('Late');
+                          } else if (status === 'Late') {
+                            setStatus('Present');
+                          }
+                        }
+                      }}
                       placeholder="e.g. 09:00 AM"
                       style={{
                         width: '100%',
@@ -550,27 +591,52 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       }}
                     />
                     {!isMissedCheckIn && (
-                      <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                        {['09:00 AM', '09:30 AM', '10:00 AM'].map(t => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setCheckInTime(t)}
-                            style={{
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              backgroundColor: checkInTime === t ? '#ECFEFF' : '#FFFFFF',
-                              color: checkInTime === t ? '#0E7490' : '#64748B',
-                              border: '1px solid #CBD5E1',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
+                      <>
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                          {Array.from(new Set([shiftStartTimeStr, '09:00 AM', '09:30 AM', '10:00 AM'])).filter(Boolean).map(t => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => {
+                                setCheckInTime(t);
+                                const tMins = parseTimeToMinutes(t);
+                                if (tMins !== null && shiftMins !== null) {
+                                  if (tMins > (shiftMins + shiftGraceMins)) {
+                                    setStatus('Late');
+                                  } else if (status === 'Late') {
+                                    setStatus('Present');
+                                  }
+                                }
+                              }}
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                backgroundColor: checkInTime === t ? '#ECFEFF' : '#FFFFFF',
+                                color: checkInTime === t ? '#0E7490' : '#64748B',
+                                border: checkInTime === t ? '1px solid #0E7490' : '1px solid #CBD5E1',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {t} {t === shiftStartTimeStr ? '(Shift)' : ''}
+                            </button>
+                          ))}
+                        </div>
+                        {checkInTime && (
+                          <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 600 }}>
+                            {isCurrentlyLate ? (
+                              <span style={{ color: '#D97706', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '6px' }}>
+                                ⚠️ Late Arrival (+{lateMinutesDiff}m) — Shift starts at {shiftStartTimeStr} ({shiftGraceMins}m grace)
+                              </span>
+                            ) : (
+                              <span style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#ECFDF5', padding: '2px 8px', borderRadius: '6px' }}>
+                                🟢 On Time — Shift starts at {shiftStartTimeStr} ({shiftGraceMins}m grace)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 

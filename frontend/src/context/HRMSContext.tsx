@@ -187,7 +187,8 @@ import {
   resolveEmployeeOtEligibility,
   calculateOtSalaryAmount,
   calculateAttendanceSalaryImpact,
-  aggregateMonthlyAttendanceSummary
+  aggregateMonthlyAttendanceSummary,
+  parseTimeToMinutes
 } from '../services/attendanceCalculationEngine';
 import {
   evaluateShiftAttendance,
@@ -1671,6 +1672,29 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: 'Attendance record not found.' };
     }
 
+    const effectiveCheckIn = params.status === 'Absent' ? null : (params.checkIn !== undefined ? params.checkIn : existingRec.checkIn);
+    const effectiveCheckOut = params.status === 'Absent' ? null : (params.checkOut !== undefined ? params.checkOut : existingRec.checkOut);
+
+    // Resolve employee & shift
+    const emp = employees.find(e => e.id === existingRec.employeeId || e.employeeId === existingRec.employeeId);
+    let matchedShift = shifts.find(s => s.id === existingRec.shiftId);
+    if (!matchedShift && existingRec.shiftName) {
+      matchedShift = shifts.find(s => s.shiftName.toLowerCase() === existingRec.shiftName?.toLowerCase());
+    }
+    if (!matchedShift && emp) {
+      matchedShift = shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? a === emp.employeeId || a === emp.id : a.employeeId === emp.employeeId || a.employeeId === emp.id)));
+      const empWorkShift = emp.workShift;
+      if (!matchedShift && empWorkShift) {
+        matchedShift = shifts.find(s => s.id === empWorkShift || s.shiftName.toLowerCase() === empWorkShift.toLowerCase());
+      }
+    }
+    if (!matchedShift && shifts.length > 0) {
+      matchedShift = shifts[0];
+    }
+
+    const shiftStartTime = matchedShift?.startTime || '09:00 AM';
+    const shiftGraceMins = matchedShift?.gracePeriodMins ?? (matchedShift as any)?.gracePeriodMinutes ?? attendancePolicyConfig?.gracePeriodMinutes ?? 15;
+
     // Calculate working hours & OT
     let computedWorkingHours = existingRec.workingHours;
     const breakMins = params.breakDurationMinutes ?? existingRec.breakDurationMinutes ?? 0;
@@ -1681,27 +1705,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       computedWorkingHours = 4.0;
     } else if (params.status === 'On Leave' || (params.status as string) === 'Leave') {
       computedWorkingHours = (params.leaveDuration === 'First Half' || params.leaveDuration === 'Second Half') ? 4.0 : 0;
-    } else if (params.checkIn && params.checkOut) {
-      const parseTime = (timeStr: string) => {
-        if (!timeStr) return null;
-        const clean = timeStr.trim();
-        let hours = 0;
-        let mins = 0;
-        if (clean.includes('AM') || clean.includes('PM')) {
-          const [timePart, ampm] = clean.split(' ');
-          const [h, m] = timePart.split(':').map(Number);
-          hours = ampm.toUpperCase() === 'PM' && h < 12 ? h + 12 : (ampm.toUpperCase() === 'AM' && h === 12 ? 0 : h);
-          mins = m || 0;
-        } else {
-          const [h, m] = clean.split(':').map(Number);
-          hours = h || 0;
-          mins = m || 0;
-        }
-        return hours * 60 + mins;
-      };
-
-      const inMins = parseTime(params.checkIn);
-      const outMins = parseTime(params.checkOut);
+    } else if (effectiveCheckIn && effectiveCheckOut) {
+      const inMins = parseTimeToMinutes(effectiveCheckIn);
+      const outMins = parseTimeToMinutes(effectiveCheckOut);
       if (inMins !== null && outMins !== null) {
         if (outMins < inMins) {
           return { success: false, message: 'Check-out time cannot be earlier than check-in time.' };
@@ -1709,6 +1715,42 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const netMinutes = Math.max(0, outMins - inMins - breakMins);
         computedWorkingHours = Math.round((netMinutes / 60) * 10) / 10;
       }
+    }
+
+    // Dynamic punctuality & status resolution:
+    // When HR manually changes check-in time, check against the employee's shift start time + grace period!
+    let finalStatus = params.status;
+    let finalLateStatus: AttendanceRecord['lateStatus'] = 'On Time';
+    let finalLateMinutes = 0;
+
+    const isNonWorking = finalStatus === 'Absent' || finalStatus === 'Holiday' || finalStatus === 'Week Off' || finalStatus === 'On Leave' || finalStatus === 'Half Day';
+
+    if (isNonWorking) {
+      finalLateStatus = 'N/A';
+      finalLateMinutes = 0;
+    } else if (effectiveCheckIn) {
+      const inMins = parseTimeToMinutes(effectiveCheckIn);
+      const startMins = parseTimeToMinutes(shiftStartTime) ?? 9 * 60;
+
+      if (inMins !== null) {
+        if (inMins > (startMins + shiftGraceMins)) {
+          finalLateMinutes = inMins - startMins;
+          finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
+          if (finalStatus === 'Present' || finalStatus === 'Late') {
+            finalStatus = 'Late';
+          }
+        } else {
+          // On Time! No longer late!
+          finalLateMinutes = 0;
+          finalLateStatus = 'On Time';
+          if (finalStatus === 'Late' || finalStatus === 'Present') {
+            finalStatus = 'Present';
+          }
+        }
+      }
+    } else {
+      finalLateStatus = 'On Time';
+      finalLateMinutes = 0;
     }
 
     const calculatedOtHours = computedWorkingHours > 8.0 ? Math.round((computedWorkingHours - 8.0) * 10) / 10 : 0;
@@ -1719,17 +1761,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const updatedRecord: AttendanceRecord = {
       ...existingRec,
-      status: params.status,
-      checkIn: params.status === 'Absent' ? null : (params.checkIn !== undefined ? params.checkIn : existingRec.checkIn),
-      checkOut: params.status === 'Absent' ? null : (params.checkOut !== undefined ? params.checkOut : existingRec.checkOut),
+      status: finalStatus,
+      lateStatus: finalLateStatus,
+      lateDurationMinutes: finalLateMinutes,
+      checkIn: effectiveCheckIn,
+      checkOut: effectiveCheckOut,
       workingHours: computedWorkingHours,
       breakDurationMinutes: breakMins,
-      halfDayType: params.halfDayType,
-      absentReason: params.absentReason,
-      leaveType: params.leaveType,
-      leaveDuration: params.leaveDuration,
-      wfhReason: params.wfhReason,
-      wfhSource: params.wfhSource,
+      halfDayType: finalStatus === 'Half Day' ? params.halfDayType : undefined,
+      absentReason: finalStatus === 'Absent' ? params.absentReason : undefined,
+      leaveType: finalStatus === 'On Leave' || (finalStatus as string) === 'Leave' ? params.leaveType : undefined,
+      leaveDuration: finalStatus === 'On Leave' || (finalStatus as string) === 'Leave' ? params.leaveDuration : undefined,
+      wfhReason: finalStatus === 'Work From Home' ? params.wfhReason : undefined,
+      wfhSource: finalStatus === 'Work From Home' ? params.wfhSource : undefined,
       otHours: params.otHours ?? calculatedOtHours,
       calculatedOtHours,
       approvedOtHours: approvedOt,
@@ -1739,6 +1783,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     setAttendanceRecords(prev => prev.map(r => r.id === params.attendanceId ? updatedRecord : r));
+
+    if (existingRec.id && existingRec.id.length === 36) {
+      const checkInIso = effectiveCheckIn ? localDateTimeToIso(existingRec.date, effectiveCheckIn) : null;
+      const checkOutIso = effectiveCheckOut ? localDateTimeToIso(existingRec.date, effectiveCheckOut) : null;
+      supabaseDirect.updateAttendanceRecord(existingRec.id, {
+        check_in: checkInIso,
+        check_out: checkOutIso,
+        working_hours: computedWorkingHours,
+        status: finalStatus,
+        late_status: finalLateStatus,
+        method: 'Manual Override'
+      });
+    }
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -2692,6 +2749,48 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const cleanCheckOut = isNonWorking ? null : (entry.checkOut || null);
     const otHrs = entry.otHours || 0;
 
+    // Resolve employee shift & punctuality
+    let matchedShift = shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? a === emp.employeeId || a === emp.id : a.employeeId === emp.employeeId || a.employeeId === emp.id)));
+    const empWorkShift = emp?.workShift;
+    if (!matchedShift && empWorkShift) {
+      matchedShift = shifts.find(s => s.id === empWorkShift || s.shiftName.toLowerCase() === empWorkShift.toLowerCase());
+    }
+    if (!matchedShift && shifts.length > 0) {
+      matchedShift = shifts[0];
+    }
+    const shiftStartTime = matchedShift?.startTime || '09:00 AM';
+    const shiftGraceMins = matchedShift?.gracePeriodMins ?? (matchedShift as any)?.gracePeriodMinutes ?? attendancePolicyConfig?.gracePeriodMinutes ?? 15;
+
+    let finalStatus = entry.status;
+    let finalLateStatus: AttendanceRecord['lateStatus'] = 'On Time';
+    let finalLateMinutes = 0;
+
+    if (isNonWorking || entry.status === 'Half Day' || (entry.status as string) === 'On Leave' || (entry.status as string) === 'Leave') {
+      finalLateStatus = 'N/A';
+      finalLateMinutes = 0;
+    } else if (cleanCheckIn) {
+      const inMins = parseTimeToMinutes(cleanCheckIn);
+      const startMins = parseTimeToMinutes(shiftStartTime) ?? 9 * 60;
+      if (inMins !== null) {
+        if (inMins > (startMins + shiftGraceMins)) {
+          finalLateMinutes = inMins - startMins;
+          finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
+          if (finalStatus === 'Present' || finalStatus === 'Late') {
+            finalStatus = 'Late';
+          }
+        } else {
+          finalLateMinutes = 0;
+          finalLateStatus = 'On Time';
+          if (finalStatus === 'Late' || finalStatus === 'Present') {
+            finalStatus = 'Present';
+          }
+        }
+      }
+    } else {
+      finalLateStatus = 'On Time';
+      finalLateMinutes = 0;
+    }
+
     let existingRecord: AttendanceRecord | undefined;
 
     let persistedAttendanceId: string | undefined;
@@ -2702,7 +2801,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         persistedAttendanceId = prev[idx].id;
         const updated: AttendanceRecord = {
           ...prev[idx],
-          status: entry.status,
+          status: finalStatus,
+          lateStatus: finalLateStatus,
+          lateDurationMinutes: finalLateMinutes,
           checkIn: cleanCheckIn,
           checkOut: cleanCheckOut,
           workingHours: computedHours || 0,
@@ -2724,13 +2825,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           employeeName: fullName,
           department: emp.department,
           date: entry.date,
-          status: entry.status,
+          status: finalStatus,
+          lateStatus: finalLateStatus,
+          lateDurationMinutes: finalLateMinutes,
           checkIn: cleanCheckIn,
           checkOut: cleanCheckOut,
           workingHours: computedHours || 0,
           breakDurationMinutes: breakMins,
           halfDayType: entry.halfDayType,
-          shiftName: emp.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
+          shiftName: matchedShift?.shiftName || emp.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
           method: 'Manual Punch',
           otHours: otHrs,
           approvedOtHours: otHrs,
@@ -2749,7 +2852,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         check_in: checkInIso,
         check_out: checkOutIso,
         working_hours: computedHours || 0,
-        status: entry.status,
+        status: finalStatus,
+        late_status: finalLateStatus,
         method: 'Manual Punch',
       });
     } else if (employeeDbId) {
@@ -2759,7 +2863,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         check_in: checkInIso,
         check_out: checkOutIso,
         working_hours: computedHours || 0,
-        status: entry.status,
+        status: finalStatus,
+        late_status: finalLateStatus,
         method: 'Manual Punch',
         shift_date: entry.date,
       }).then(res => {
@@ -6235,6 +6340,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ? Math.round((diffMins / 60) * 100) / 100
           : (status === 'Present' ? 8 : 4);
 
+        const existingStatus = copy[existingIdx].status;
+        const existingLateStatus = copy[existingIdx].lateStatus;
+        const finalStatus = wantsCheckOut ? (existingStatus || calculatedStatus) : calculatedStatus;
+        const finalLateStatus = wantsCheckOut ? (existingLateStatus || 'On Time') : (copy[existingIdx].lateStatus || calculatedLateStatus);
+
         const updatedRecord: AttendanceRecord = {
           ...copy[existingIdx],
           shiftId: empShift.id,
@@ -6242,8 +6352,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           shiftName: empShift.shiftName,
           checkIn: existingCheckIn,
           checkOut: wantsCheckOut ? nowTime : copy[existingIdx].checkOut,
-          status: calculatedStatus,
-          lateStatus: copy[existingIdx].lateStatus || calculatedLateStatus,
+          status: finalStatus,
+          lateStatus: finalLateStatus,
           method,
           location: location || copy[existingIdx].location,
           workingHours: workedHours,
@@ -6257,8 +6367,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           supabaseDirect.updateAttendanceRecord(copy[existingIdx].id, {
             check_out: now.toISOString(),
             working_hours: workedHours,
-            status: calculatedStatus,
-            late_status: copy[existingIdx].lateStatus || calculatedLateStatus,
+            status: finalStatus,
+            late_status: finalLateStatus,
             method,
             ...(wantsCheckOut && photoUrl ? { check_out_photo: photoUrl } : {}),
             ...(wantsCheckIn && photoUrl ? { check_in_photo: photoUrl } : {})
