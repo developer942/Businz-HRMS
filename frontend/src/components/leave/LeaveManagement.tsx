@@ -20,8 +20,7 @@ import {
   Bell,
   Search,
   X,
-  User,
-  Trash2
+  User
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
@@ -1418,45 +1417,6 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                             >
                               <Eye size={14} />
                             </button>
-
-                            {/* Delete / Remove button */}
-                            {(canApprove || isPrivileged || l.employeeId === (currentUser.employeeId || currentUser.id)) && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (window.confirm(`Delete this ${l.leaveType} request for ${l.employeeName}?`)) {
-                                    await deleteLeaveRequest(l.id, 'Deleted by user/admin');
-                                  }
-                                }}
-                                title="Remove / Delete Leave Request"
-                                aria-label="Delete Leave Request"
-                                style={{
-                                  width: '30px',
-                                  height: '30px',
-                                  borderRadius: '8px',
-                                  border: '1px solid #FECACA',
-                                  backgroundColor: '#FEF2F2',
-                                  color: '#DC2626',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  padding: 0,
-                                  boxShadow: '0 1px 2px rgba(220,38,38,0.06)',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.backgroundColor = '#FEE2E2';
-                                  e.currentTarget.style.borderColor = '#EF4444';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.backgroundColor = '#FEF2F2';
-                                  e.currentTarget.style.borderColor = '#FECACA';
-                                }}
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            )}
                           </div>
                         </td>
                       )}
@@ -2320,36 +2280,6 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 </button>
 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  {/* Delete / Remove button */}
-                  {(canApprove || isPrivileged || inspectLeave.employeeId === (currentUser.employeeId || currentUser.id)) && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (window.confirm(`Are you sure you want to remove this ${inspectLeave.leaveType} request for ${inspectLeave.employeeName}?`)) {
-                          await deleteLeaveRequest(inspectLeave.id, inspectRemarks.trim() || 'Deleted by user/admin');
-                          setInspectLeave(null);
-                        }
-                      }}
-                      style={{
-                        height: '38px',
-                        padding: '0 14px',
-                        borderRadius: '10px',
-                        border: '1px solid #FECACA',
-                        backgroundColor: '#FEF2F2',
-                        color: '#DC2626',
-                        fontSize: '0.84rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        transition: 'all 0.15s ease'
-                      }}
-                      title="Remove / Delete this leave request"
-                    >
-                      <Trash2 size={15} /> Remove
-                    </button>
-                  )}
 
                   {inspectLeave.status === 'Pending' && canApprove && (
                     <>
