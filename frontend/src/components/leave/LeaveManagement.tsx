@@ -962,7 +962,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 )}
                 <th style={{ width: '45px', minWidth: '45px', textAlign: 'center' }}>#</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '220px' }}>Applicant</th>
-                <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Type & Reason</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: '140px' }}>Leave Type</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '220px' }}>Dates & Duration</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '110px' }}>Applied On</th>
                 <th style={{ whiteSpace: 'nowrap', minWidth: '180px' }}>Status & Review</th>
@@ -1074,61 +1074,46 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         </div>
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
-                          {isWfh ? (
-                            <span style={{ 
-                              fontWeight: 700, 
-                              color: '#0E7490', 
-                              backgroundColor: '#ECFEFF', 
-                              border: '1px solid #A5F3FC',
-                              padding: '2px 8px', 
-                              borderRadius: '6px', 
-                              fontSize: '0.74rem',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}>
-                              <Home size={12} /> Work From Home
-                            </span>
-                          ) : isUnpaid ? (
-                            <span style={{ 
-                              fontWeight: 700, 
-                              color: '#DC2626', 
-                              backgroundColor: '#FEF2F2', 
-                              border: '1px solid #FECACA',
-                              padding: '2px 8px', 
-                              borderRadius: '6px', 
-                              fontSize: '0.74rem' 
-                            }}>
-                              {l.leaveType}
-                            </span>
-                          ) : (
-                            <span style={{ 
-                              fontWeight: 700, 
-                              color: '#0E7490', 
-                              backgroundColor: '#ECFEFF', 
-                              border: '1px solid #CFFAFE',
-                              padding: '2px 8px', 
-                              borderRadius: '6px', 
-                              fontSize: '0.74rem' 
-                            }}>
-                              {l.leaveType}
-                            </span>
-                          )}
-                          {l.reason && (
-                            <div style={{ 
-                              fontSize: '0.73rem', 
-                              color: '#64748B', 
-                              fontStyle: 'italic',
-                              maxWidth: '190px', 
-                              overflow: 'hidden', 
-                              textOverflow: 'ellipsis', 
-                              whiteSpace: 'nowrap' 
-                            }} title={`Reason: ${l.reason}`}>
-                              “{l.reason}”
-                            </div>
-                          )}
-                        </div>
+                        {isWfh ? (
+                          <span style={{ 
+                            fontWeight: 700, 
+                            color: '#0E7490', 
+                            backgroundColor: '#ECFEFF', 
+                            border: '1px solid #A5F3FC',
+                            padding: '2px 8px', 
+                            borderRadius: '6px', 
+                            fontSize: '0.74rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <Home size={12} /> Work From Home
+                          </span>
+                        ) : isUnpaid ? (
+                          <span style={{ 
+                            fontWeight: 700, 
+                            color: '#DC2626', 
+                            backgroundColor: '#FEF2F2', 
+                            border: '1px solid #FECACA',
+                            padding: '2px 8px', 
+                            borderRadius: '6px', 
+                            fontSize: '0.74rem' 
+                          }}>
+                            {l.leaveType}
+                          </span>
+                        ) : (
+                          <span style={{ 
+                            fontWeight: 700, 
+                            color: '#0E7490', 
+                            backgroundColor: '#ECFEFF', 
+                            border: '1px solid #CFFAFE',
+                            padding: '2px 8px', 
+                            borderRadius: '6px', 
+                            fontSize: '0.74rem' 
+                          }}>
+                            {l.leaveType}
+                          </span>
+                        )}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap' }}>
@@ -1215,23 +1200,6 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               <div style={{ fontSize: '0.69rem', color: '#94A3B8' }}>
                                 {formatReviewDateTime(l.approvedAt) || (l.appliedDate ? formatDisplayDate(l.appliedDate) : '')}
                               </div>
-                            </div>
-                          )}
-                          {l.comment && (
-                            <div style={{ 
-                              fontSize: '0.70rem', 
-                              color: '#DC2626', 
-                              backgroundColor: '#FEF2F2',
-                              border: '1px solid #FECACA',
-                              borderRadius: '4px',
-                              padding: '2px 6px',
-                              marginTop: '2px', 
-                              maxWidth: '180px', 
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }} title={l.comment}>
-                              Note: {l.comment}
                             </div>
                           )}
                         </div>
