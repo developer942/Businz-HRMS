@@ -14,8 +14,6 @@ import {
   X, 
   Clock, 
   AlertTriangle,
-  LogIn,
-  LogOut,
   User,
   Users,
   FlipHorizontal,
@@ -1263,40 +1261,6 @@ export const FaceAttendance: React.FC = () => {
                   {scanResult.status === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
                   <span>{scanResult.message}</span>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Automatic Attendance State Indicator */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 18px',
-              borderRadius: '99px',
-              fontSize: '0.8rem',
-              fontWeight: 800,
-              backgroundColor: isCompletedToday ? '#dcfce7' : punchType === 'Check-Out' ? '#fef3c7' : '#ecfeff',
-              color: isCompletedToday ? '#15803d' : punchType === 'Check-Out' ? '#b45309' : '#0e7490',
-              border: `1.5px solid ${isCompletedToday ? '#86efac' : punchType === 'Check-Out' ? '#fde68a' : '#a5f3fc'}`,
-              boxShadow: '0 2px 6px rgba(0,0,0,0.04)'
-            }}>
-              {isCompletedToday ? (
-                <>
-                  <CheckCircle2 size={14} />
-                  <span>Today's Attendance Completed</span>
-                </>
-              ) : punchType === 'Check-Out' ? (
-                <>
-                  <LogOut size={14} />
-                  <span>Next Action: Clock-Out</span>
-                </>
-              ) : (
-                <>
-                  <LogIn size={14} />
-                  <span>Next Action: Clock-In</span>
-                </>
               )}
             </div>
           </div>
