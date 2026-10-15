@@ -729,7 +729,7 @@ interface HRMSContextType {
   changeEmployeePassword: (identifier: string, newPassword: string) => { success: boolean; message: string };
 
   attendanceRecords: AttendanceRecord[];
-  markAttendance: (empId: string, status: AttendanceRecord['status'], method: AttendanceRecord['method'], location?: AttendanceRecord['location']) => { success: boolean; message: string };
+  markAttendance: (empId: string, status: AttendanceRecord['status'], method: AttendanceRecord['method'], location?: AttendanceRecord['location'], photoUrl?: string) => { success: boolean; message: string };
   attendanceAuditLogs: AttendanceAuditLog[];
   correctAttendanceRecord: (params: {
     attendanceId: string;
@@ -6101,7 +6101,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     empId: string,
     status: AttendanceRecord['status'],
     method: AttendanceRecord['method'],
-    location?: AttendanceRecord['location']
+    location?: AttendanceRecord['location'],
+    photoUrl?: string
   ): { success: boolean; message: string } => {
     const clockValidation = validateAttendancePunchTime(attendanceRecords);
     if (!clockValidation.success) {
@@ -6234,7 +6235,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ? Math.round((diffMins / 60) * 100) / 100
           : (status === 'Present' ? 8 : 4);
 
-        const updatedRecord = {
+        const updatedRecord: AttendanceRecord = {
           ...copy[existingIdx],
           shiftId: empShift.id,
           shiftDate: today,
@@ -6245,7 +6246,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           lateStatus: copy[existingIdx].lateStatus || calculatedLateStatus,
           method,
           location: location || copy[existingIdx].location,
-          workingHours: workedHours
+          workingHours: workedHours,
+          checkInPhoto: copy[existingIdx].checkInPhoto || (wantsCheckIn ? photoUrl : undefined),
+          checkOutPhoto: wantsCheckOut ? (photoUrl || copy[existingIdx].checkOutPhoto) : copy[existingIdx].checkOutPhoto
         };
         copy[existingIdx] = updatedRecord;
 
@@ -6257,6 +6260,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             status: calculatedStatus,
             late_status: copy[existingIdx].lateStatus || calculatedLateStatus,
             method,
+            ...(wantsCheckOut && photoUrl ? { check_out_photo: photoUrl } : {}),
+            ...(wantsCheckIn && photoUrl ? { check_in_photo: photoUrl } : {})
           });
         }
         return copy;
@@ -6281,7 +6286,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           lateStatus: calculatedLateStatus,
           location: location || { lat: 13.151968, lng: 80.2086053, address: 'HQ Office', inGeofence: true },
           faceVerified: method === 'Face Recognition',
-          method
+          method,
+          checkInPhoto: photoUrl
         };
 
         // Persist new attendance record to central database
@@ -6290,6 +6296,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             employee_id: targetEmpDbId,
             date: today,
             check_in: now.toISOString(),
+            check_in_photo: photoUrl || undefined,
             working_hours: 0,
             status: calculatedStatus,
             late_status: calculatedLateStatus,
@@ -6344,6 +6351,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } catch {}
       supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => {});
+      supabaseDirect.insertFaceLog({
+        employee_id: log.employeeId,
+        timestamp: log.timestamp || new Date().toISOString(),
+        type: log.type,
+        status: log.status,
+        photo_url: log.photoUrl,
+        confidence_score: log.confidenceScore
+      }).catch(() => {});
       return updated;
     });
   };
@@ -9496,6 +9511,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             method: a.method || 'Face Scan',
             location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: a.location_address || 'Plant HQ', inGeofence: a.in_geofence ?? true },
             faceVerified: a.face_verified ?? false,
+            checkInPhoto: a.check_in_photo || undefined,
+            checkOutPhoto: a.check_out_photo || undefined,
           };
         }));
       } else {

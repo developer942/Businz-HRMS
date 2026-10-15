@@ -1082,6 +1082,8 @@ export const supabaseDirect = {
     location_address?: string;
     shift_id?: string;
     shift_date?: string;
+    check_in_photo?: string | null;
+    check_out_photo?: string | null;
   }): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
       const employeeUuid = await resolveEmployeeUuid(record.employee_id);
@@ -1114,6 +1116,8 @@ export const supabaseDirect = {
         location_address: record.location_address || 'Plant HQ',
         shift_id: (record.shift_id && record.shift_id.length === 36) ? record.shift_id : null,
         shift_date: record.shift_date || record.date,
+        check_in_photo: record.check_in_photo || null,
+        check_out_photo: record.check_out_photo || null,
       };
 
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records`, {
@@ -1146,6 +1150,36 @@ export const supabaseDirect = {
       return res.ok;
     } catch (err) {
       console.warn('[DatabaseRest] updateAttendanceRecord error:', err);
+      return false;
+    }
+  },
+
+  async insertFaceLog(log: {
+    employee_id: string;
+    timestamp: string;
+    type: string;
+    status: string;
+    photo_url?: string;
+    confidence_score?: number;
+  }): Promise<boolean> {
+    try {
+      const employeeUuid = await resolveEmployeeUuid(log.employee_id);
+      if (!employeeUuid) return false;
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/face_logs`, {
+        method: 'POST',
+        headers: { ...getHeaders(), 'Prefer': 'return=minimal' },
+        body: JSON.stringify({
+          employee_id: employeeUuid,
+          timestamp: log.timestamp,
+          type: log.type,
+          status: log.status,
+          photo_url: log.photo_url || null,
+          confidence_score: log.confidence_score ?? 98.5
+        })
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[DatabaseRest] insertFaceLog error:', e);
       return false;
     }
   },

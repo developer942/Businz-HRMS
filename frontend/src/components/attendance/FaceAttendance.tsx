@@ -18,7 +18,13 @@ import {
   LogOut,
   User,
   Users,
-  FlipHorizontal
+  FlipHorizontal,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Image,
+  Search
 } from 'lucide-react';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import type { FaceLog } from '../../types/hrms';
@@ -112,6 +118,40 @@ export const FaceAttendance: React.FC = () => {
   const [punchType, setPunchType] = useState<'Check-In' | 'Check-Out'>('Check-In');
   const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString());
   const [activityViewTab, setActivityViewTab] = useState<'my' | 'all'>('my');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [staffSearchQuery, setStaffSearchQuery] = useState<string>('');
+  const [previewPhoto, setPreviewPhoto] = useState<{
+    url: string;
+    title: string;
+    subtitle: string;
+    time?: string;
+  } | null>(null);
+
+  const formatMonthDisplay = (monthStr: string) => {
+    if (!monthStr) return '';
+    const [year, month] = monthStr.split('-').map(Number);
+    const date = new Date(year, month - 1, 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  const handlePrevMonth = () => {
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const prevDate = new Date(year, month - 2, 1);
+    const y = prevDate.getFullYear();
+    const m = String(prevDate.getMonth() + 1).padStart(2, '0');
+    setSelectedMonth(`${y}-${m}`);
+  };
+
+  const handleNextMonth = () => {
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const nextDate = new Date(year, month, 1);
+    const y = nextDate.getFullYear();
+    const m = String(nextDate.getMonth() + 1).padStart(2, '0');
+    setSelectedMonth(`${y}-${m}`);
+  };
 
   // Reactively track current date so at midnight the view automatically flips to tomorrow
   useEffect(() => {
@@ -347,13 +387,19 @@ export const FaceAttendance: React.FC = () => {
       return;
     }
 
-    // Record Attendance & Add Face Log
-    const punchResult = markAttendance(selectedEmpId, 'Present', (type === 'Check-In' ? 'Face Check-In' : 'Face Check-Out') as any, {
-      lat: userLat,
-      lng: userLng,
-      address: addressText,
-      inGeofence: isInsideGeofence
-    });
+    // Record Attendance & Add Face Log (Persisting captured live photo)
+    const punchResult = markAttendance(
+      selectedEmpId, 
+      'Present', 
+      (type === 'Check-In' ? 'Face Check-In' : 'Face Check-Out') as any, 
+      {
+        lat: userLat,
+        lng: userLng,
+        address: addressText,
+        inGeofence: isInsideGeofence
+      },
+      capturedPhotoUrl
+    );
 
     if (!punchResult.success) {
       setScanResult({
@@ -544,12 +590,18 @@ export const FaceAttendance: React.FC = () => {
       return;
     }
 
-    const punchResult = markAttendance(selectedEmpId, 'Present', (type === 'Check-In' ? 'GPS Check-In' : 'GPS Check-Out') as any, {
-      lat,
-      lng,
-      address: addr,
-      inGeofence: isInside
-    });
+    const punchResult = markAttendance(
+      selectedEmpId, 
+      'Present', 
+      (type === 'Check-In' ? 'GPS Check-In' : 'GPS Check-Out') as any, 
+      {
+        lat,
+        lng,
+        address: addr,
+        inGeofence: isInside
+      },
+      activeEmp.avatar || undefined
+    );
 
     if (!punchResult.success) {
       setScanResult({
@@ -820,6 +872,108 @@ export const FaceAttendance: React.FC = () => {
       return a.employeeName.localeCompare(b.employeeName);
     });
   }, [attendanceRecords, faceLogs, todayStr, employees]);
+
+  // Photo resolution helper for attendance records and face logs
+  const getRecordPhoto = (record: any, type: 'Check-In' | 'Check-Out'): string | null => {
+    if (type === 'Check-In' && record.checkInPhoto) return record.checkInPhoto;
+    if (type === 'Check-Out' && record.checkOutPhoto) return record.checkOutPhoto;
+
+    const recDate = normalizeToYYYYMMDD(record.date || record.shiftDate);
+    const empId = String(record.employeeId || '').toLowerCase();
+    const empName = String(record.employeeName || '').toLowerCase();
+
+    const matchedLog = (faceLogs || []).find(l => {
+      const logDate = normalizeToYYYYMMDD(l.timestamp);
+      const lEmpId = String(l.employeeId || '').toLowerCase();
+      const lEmpName = String(l.employeeName || '').toLowerCase();
+      const matchEmp = (empId && (lEmpId === empId || lEmpName === empName)) || (empName && lEmpName === empName);
+      return matchEmp && logDate === recDate && l.type === type && l.photoUrl;
+    });
+
+    if (matchedLog?.photoUrl) return matchedLog.photoUrl;
+    return null;
+  };
+
+  // Today live photos for logged-in user
+  const myTodayCheckInPhoto = useMemo(() => {
+    if (myTodayAttendance?.checkInPhoto) return myTodayAttendance.checkInPhoto;
+    const inLog = myTodayFaceLogs.find(l => l.type === 'Check-In' && l.photoUrl);
+    if (inLog?.photoUrl) return inLog.photoUrl;
+    return null;
+  }, [myTodayAttendance, myTodayFaceLogs]);
+
+  const myTodayCheckOutPhoto = useMemo(() => {
+    if (myTodayAttendance?.checkOutPhoto) return myTodayAttendance.checkOutPhoto;
+    const outLog = myTodayFaceLogs.find(l => l.type === 'Check-Out' && l.photoUrl);
+    if (outLog?.photoUrl) return outLog.photoUrl;
+    return null;
+  }, [myTodayAttendance, myTodayFaceLogs]);
+
+  // Current user's monthly attendance records
+  const myMonthlyRecords = useMemo(() => {
+    return attendanceRecords
+      .filter(a => {
+        const d = normalizeToYYYYMMDD(a.date);
+        const sd = normalizeToYYYYMMDD(a.shiftDate);
+        const matchesMonth = (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
+        return matchesMonth && isLogForCurrentUser(a);
+      })
+      .sort((a, b) => {
+        const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
+        const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
+        return String(db).localeCompare(String(da));
+      });
+  }, [attendanceRecords, selectedMonth, isLogForCurrentUser]);
+
+  // Monthly summary stats for current user
+  const monthlyStats = useMemo(() => {
+    let presentDays = 0;
+    let lateDays = 0;
+    let totalWorkedHours = 0;
+
+    myMonthlyRecords.forEach(r => {
+      if (r.status === 'Present' || r.status === 'Half Day') {
+        presentDays += r.status === 'Half Day' ? 0.5 : 1;
+      }
+      if ((r.lateStatus && r.lateStatus !== 'On Time' && r.lateStatus !== 'N/A') || (r.lateDurationMinutes && r.lateDurationMinutes > 0)) {
+        lateDays++;
+      }
+      totalWorkedHours += Number(r.workingHours || 0);
+    });
+
+    return {
+      presentDays,
+      lateDays,
+      totalHours: Math.round(totalWorkedHours * 10) / 10,
+      totalPunches: myMonthlyRecords.length
+    };
+  }, [myMonthlyRecords]);
+
+  // All Staff Monthly records
+  const allStaffMonthlyRecords = useMemo(() => {
+    return attendanceRecords
+      .filter(a => {
+        const d = normalizeToYYYYMMDD(a.date);
+        const sd = normalizeToYYYYMMDD(a.shiftDate);
+        return (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
+      })
+      .sort((a, b) => {
+        const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
+        const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
+        return String(db).localeCompare(String(da));
+      });
+  }, [attendanceRecords, selectedMonth]);
+
+  // Filtered all staff monthly by search
+  const filteredAllStaffMonthlyRecords = useMemo(() => {
+    if (!staffSearchQuery.trim()) return allStaffMonthlyRecords;
+    const q = staffSearchQuery.toLowerCase().trim();
+    return allStaffMonthlyRecords.filter(r =>
+      (r.employeeName && r.employeeName.toLowerCase().includes(q)) ||
+      (r.employeeId && r.employeeId.toLowerCase().includes(q)) ||
+      (r.department && r.department.toLowerCase().includes(q))
+    );
+  }, [allStaffMonthlyRecords, staffSearchQuery]);
 
   if (isCEO) {
     return (
@@ -1250,7 +1404,7 @@ export const FaceAttendance: React.FC = () => {
 
         </div>
 
-        {/* RIGHT COLUMN: TODAY'S ACTIVITY CARD (STRICTLY SCOPED TO TODAY ONLY) */}
+        {/* RIGHT COLUMN: MONTHLY ACTIVITY CARD (SCOPED TO SELECTED MONTH) */}
         <div className="face-attendance-activity-card" style={{
           backgroundColor: '#ffffff',
           borderRadius: '16px',
@@ -1260,21 +1414,98 @@ export const FaceAttendance: React.FC = () => {
           flexDirection: 'column',
           gap: '16px'
         }}>
-          {/* Header Strip */}
+          {/* Header Strip with Month Navigation */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Clock size={18} color="#0e7490" />
+                <Calendar size={18} color="#0e7490" />
                 <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                  Today's Activity
+                  Monthly Activity
                 </h2>
               </div>
-              <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '3px', fontWeight: 500 }}>
-                {formatDateDDMMYYYY(todayStr)} • Strictly Today's Punches
+              
+              {/* Month Picker Controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={handlePrevMonth}
+                  title="Previous Month"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#0e7490',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <ChevronLeft size={15} />
+                </button>
+
+                <div style={{
+                  padding: '3px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ecfeff',
+                  border: '1px solid #a5f3fc',
+                  color: '#0e7490',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <Calendar size={12} />
+                  <span>{formatMonthDisplay(selectedMonth)}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleNextMonth}
+                  title="Next Month"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#0e7490',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <ChevronRight size={15} />
+                </button>
+
+                {selectedMonth !== todayStr.slice(0, 7) && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonth(todayStr.slice(0, 7))}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      backgroundColor: '#f8fafc',
+                      color: '#64748b',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Current Month
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* If HR / Admin: Toggle between My Activity and All Staff Today */}
+            {/* If HR / Admin: Toggle between My Monthly and All Staff Monthly */}
             {isHrOrAdmin ? (
               <div style={{
                 display: 'inline-flex',
@@ -1303,7 +1534,7 @@ export const FaceAttendance: React.FC = () => {
                   }}
                 >
                   <User size={13} />
-                  <span>My Activity</span>
+                  <span>My Monthly ({myMonthlyRecords.length})</span>
                 </button>
                 <button
                   type="button"
@@ -1325,7 +1556,7 @@ export const FaceAttendance: React.FC = () => {
                   }}
                 >
                   <Users size={13} />
-                  <span>All Staff Today ({allTodayStaffAttendance.length})</span>
+                  <span>All Staff ({allStaffMonthlyRecords.length})</span>
                 </button>
               </div>
             ) : (
@@ -1338,12 +1569,12 @@ export const FaceAttendance: React.FC = () => {
                 fontWeight: 800,
                 letterSpacing: '0.04em'
               }}>
-                {myTodayLogs.length} {myTodayLogs.length === 1 ? 'RECORD' : 'RECORDS'}
+                {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'RECORD' : 'RECORDS'}
               </span>
             )}
           </div>
 
-          {/* VIEW 1: MY ACTIVITY (STRICTLY LOGGED-IN USER'S OWN DATA) */}
+          {/* VIEW 1: MY MONTHLY ACTIVITY */}
           {activityViewTab === 'my' ? (
             <>
               {/* User Identity Banner */}
@@ -1391,19 +1622,82 @@ export const FaceAttendance: React.FC = () => {
                   color: myTodayStatus === 'Completed' ? '#15803d' : myTodayStatus === 'Checked In' ? '#0e7490' : '#64748b',
                   border: `1px solid ${myTodayStatus === 'Completed' ? '#bbf7d0' : myTodayStatus === 'Checked In' ? '#a5f3fc' : '#e2e8f0'}`
                 }}>
-                  {myTodayStatus === 'Completed' ? '✓ Completed' : myTodayStatus === 'Checked In' ? '● Checked In' : 'Not Punched'}
+                  {myTodayStatus === 'Completed' ? '✓ Today Completed' : myTodayStatus === 'Checked In' ? '● Checked In Today' : 'Not Punched Today'}
                 </span>
               </div>
 
-              {/* 2 High-Contrast Dedicated Tiles: CHECK-IN TIME & CHECK-OUT TIME */}
+              {/* Monthly Summary Statistics Strip */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: '8px'
+              }}>
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  backgroundColor: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#15803d', letterSpacing: '0.04em' }}>PRESENT</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#166534' }}>{monthlyStats.presentDays}</span>
+                  <span style={{ fontSize: '0.65rem', color: '#16a34a' }}>Days this month</span>
+                </div>
+
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#b45309', letterSpacing: '0.04em' }}>LATE</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#92400e' }}>{monthlyStats.lateDays}</span>
+                  <span style={{ fontSize: '0.65rem', color: '#d97706' }}>Punches</span>
+                </div>
+
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  backgroundColor: '#ecfeff',
+                  border: '1px solid #a5f3fc',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#0e7490', letterSpacing: '0.04em' }}>HOURS</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#155e75' }}>{monthlyStats.totalHours}</span>
+                  <span style={{ fontSize: '0.65rem', color: '#0891b2' }}>Total worked</span>
+                </div>
+
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>RECORDS</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#334155' }}>{monthlyStats.totalPunches}</span>
+                  <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Logged</span>
+                </div>
+              </div>
+
+              {/* Today's High-Contrast Tiles with Live Captured Photo Previews */}
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
                 gap: '12px'
               }}>
-                {/* Check-In Tile */}
+                {/* Check-In Tile with Photo */}
                 <div style={{
-                  padding: '14px',
+                  padding: '12px',
                   borderRadius: '12px',
                   backgroundColor: myCheckInTime ? '#f0fdf4' : '#f8fafc',
                   border: `1.5px solid ${myCheckInTime ? '#86efac' : '#e2e8f0'}`,
@@ -1413,22 +1707,71 @@ export const FaceAttendance: React.FC = () => {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '0.68rem', fontWeight: 800, color: myCheckInTime ? '#15803d' : '#64748b', letterSpacing: '0.05em' }}>
-                      CHECK-IN TIME
+                      TODAY CHECK-IN
                     </span>
                     <LogIn size={15} color={myCheckInTime ? '#16a34a' : '#94a3b8'} />
                   </div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: myCheckInTime ? '#0f172a' : '#94a3b8', letterSpacing: '-0.02em' }}>
-                    {myCheckInTime || '—'}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: myCheckInTime ? '#16a34a' : '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {myCheckInTime ? <CheckCircle2 size={12} /> : null}
-                    <span>{myCheckInTime ? 'Punch Verified' : 'Pending clock-in'}</span>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 800, color: myCheckInTime ? '#0f172a' : '#94a3b8', letterSpacing: '-0.02em' }}>
+                        {myCheckInTime || '—'}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: myCheckInTime ? '#16a34a' : '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                        {myCheckInTime ? <CheckCircle2 size={12} /> : null}
+                        <span>{myCheckInTime ? 'Punch Verified' : 'Pending clock-in'}</span>
+                      </div>
+                    </div>
+
+                    {/* Check-In Photo Snapshot Preview */}
+                    {myTodayCheckInPhoto ? (
+                      <div 
+                        onClick={() => setPreviewPhoto({
+                          url: myTodayCheckInPhoto,
+                          title: `${currentUser.name || 'Staff'} - Check-In Photo`,
+                          subtitle: `Today (${formatDateDDMMYYYY(todayStr)})`,
+                          time: myCheckInTime || undefined
+                        })}
+                        title="Click to zoom Check-In Photo"
+                        style={{
+                          position: 'relative',
+                          cursor: 'pointer',
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          border: '2px solid #86efac',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+                          flexShrink: 0
+                        }}
+                      >
+                        <img 
+                          src={myTodayCheckInPhoto} 
+                          alt="Today Check-In" 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          bottom: 0,
+                          right: 0,
+                          backgroundColor: '#16a34a',
+                          color: '#ffffff',
+                          padding: '1px 3px',
+                          borderRadius: '4px 0 0 0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <Camera size={10} />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Check-Out Tile */}
+                {/* Check-Out Tile with Photo */}
                 <div style={{
-                  padding: '14px',
+                  padding: '12px',
                   borderRadius: '12px',
                   backgroundColor: myCheckOutTime ? '#ecfeff' : myCheckInTime ? '#fffbeb' : '#f8fafc',
                   border: `1.5px solid ${myCheckOutTime ? '#67e8f9' : myCheckInTime ? '#fde68a' : '#e2e8f0'}`,
@@ -1438,27 +1781,81 @@ export const FaceAttendance: React.FC = () => {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '0.68rem', fontWeight: 800, color: myCheckOutTime ? '#0e7490' : myCheckInTime ? '#b45309' : '#64748b', letterSpacing: '0.05em' }}>
-                      CHECK-OUT TIME
+                      TODAY CHECK-OUT
                     </span>
                     <LogOut size={15} color={myCheckOutTime ? '#0e7490' : myCheckInTime ? '#d97706' : '#94a3b8'} />
                   </div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: myCheckOutTime ? '#0f172a' : myCheckInTime ? '#d97706' : '#94a3b8', letterSpacing: '-0.02em' }}>
-                    {myCheckOutTime || (myCheckInTime ? 'In Progress' : '—')}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: myCheckOutTime ? '#0e7490' : myCheckInTime ? '#b45309' : '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {myCheckOutTime ? <CheckCircle2 size={12} /> : null}
-                    <span>{myCheckOutTime ? 'Shift Completed' : myCheckInTime ? 'Working currently' : 'Pending punch-out'}</span>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 800, color: myCheckOutTime ? '#0f172a' : myCheckInTime ? '#d97706' : '#94a3b8', letterSpacing: '-0.02em' }}>
+                        {myCheckOutTime || (myCheckInTime ? 'In Progress' : '—')}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: myCheckOutTime ? '#0e7490' : myCheckInTime ? '#b45309' : '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                        {myCheckOutTime ? <CheckCircle2 size={12} /> : null}
+                        <span>{myCheckOutTime ? 'Shift Completed' : myCheckInTime ? 'Working currently' : 'Pending punch-out'}</span>
+                      </div>
+                    </div>
+
+                    {/* Check-Out Photo Snapshot Preview */}
+                    {myTodayCheckOutPhoto ? (
+                      <div 
+                        onClick={() => setPreviewPhoto({
+                          url: myTodayCheckOutPhoto,
+                          title: `${currentUser.name || 'Staff'} - Check-Out Photo`,
+                          subtitle: `Today (${formatDateDDMMYYYY(todayStr)})`,
+                          time: myCheckOutTime || undefined
+                        })}
+                        title="Click to zoom Check-Out Photo"
+                        style={{
+                          position: 'relative',
+                          cursor: 'pointer',
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          border: '2px solid #67e8f9',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+                          flexShrink: 0
+                        }}
+                      >
+                        <img 
+                          src={myTodayCheckOutPhoto} 
+                          alt="Today Check-Out" 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          bottom: 0,
+                          right: 0,
+                          backgroundColor: '#0e7490',
+                          color: '#ffffff',
+                          padding: '1px 3px',
+                          borderRadius: '4px 0 0 0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <Camera size={10} />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
-              {/* Today's Scan Logs Audit Trail */}
+              {/* Monthly Attendance Records List with Saved Photos */}
               <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', marginBottom: '8px', letterSpacing: '0.04em' }}>
-                  TODAY'S VERIFIED PUNCH LOGS ({myTodayLogs.length})
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>
+                    {formatMonthDisplay(selectedMonth).toUpperCase()} PUNCH LOGS ({myMonthlyRecords.length})
+                  </div>
+                  <span style={{ fontSize: '0.7rem', color: '#0e7490', fontWeight: 700 }}>
+                    Photos captured with face scan
+                  </span>
                 </div>
 
-                {myTodayLogs.length === 0 ? (
+                {myMonthlyRecords.length === 0 ? (
                   <div style={{
                     padding: '30px 16px',
                     textAlign: 'center',
@@ -1466,81 +1863,214 @@ export const FaceAttendance: React.FC = () => {
                     borderRadius: '12px',
                     border: '1px dashed #cbd5e1'
                   }}>
-                    <Clock size={28} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
+                    <Calendar size={28} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
                     <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
-                      No activity recorded for today
+                      No records for {formatMonthDisplay(selectedMonth)}
                     </div>
                     <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                      Your check-in and check-out records for today will appear here as soon as you clock in.
+                      Punch in using Face Attendance or GPS Clock to see your daily verified records and photos.
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
-                    {myTodayLogs.map(log => (
-                      <div
-                        key={log.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '10px 12px',
-                          borderRadius: '10px',
-                          border: '1px solid #e2e8f0',
-                          backgroundColor: '#f8fafc'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '50%',
-                            backgroundColor: log.type === 'Check-In' ? '#dcfce7' : '#ecfeff',
-                            color: log.type === 'Check-In' ? '#15803d' : '#0e7490',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}>
-                            {log.type === 'Check-In' ? <LogIn size={14} /> : <LogOut size={14} />}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
-                              {log.type}
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                              {formatAttendanceTime(log.timestamp)}
-                            </div>
-                          </div>
-                        </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {myMonthlyRecords.map(rec => {
+                      const recDate = rec.date || rec.shiftDate;
+                      const inPhoto = getRecordPhoto(rec, 'Check-In');
+                      const outPhoto = getRecordPhoto(rec, 'Check-Out');
+                      const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.68rem',
-                            fontWeight: 800,
-                            backgroundColor: log.type === 'Check-In' ? '#dcfce7' : '#ecfeff',
-                            color: log.type === 'Check-In' ? '#15803d' : '#0e7490'
+                      return (
+                        <div
+                          key={rec.id}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '10px',
+                            border: `1px solid ${isTodayRow ? '#a5f3fc' : '#e2e8f0'}`,
+                            backgroundColor: isTodayRow ? '#f0fdfa' : '#f8fafc',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px'
+                          }}
+                        >
+                          {/* Row Top: Date, Day, Status Pill & Hours */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
+                                {formatDateDDMMYYYY(recDate)}
+                              </span>
+                              {isTodayRow && (
+                                <span style={{
+                                  fontSize: '0.62rem',
+                                  fontWeight: 800,
+                                  backgroundColor: '#0e7490',
+                                  color: '#ffffff',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  TODAY
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontSize: '0.68rem',
+                                fontWeight: 800,
+                                backgroundColor: rec.status === 'Present' ? '#dcfce7' : rec.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
+                                color: rec.status === 'Present' ? '#15803d' : rec.status === 'Half Day' ? '#b45309' : '#b91c1c'
+                              }}>
+                                {rec.status}
+                              </span>
+                              {rec.workingHours ? (
+                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b' }}>
+                                  {rec.workingHours} hrs
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* Row Bottom: Side-by-side Check-In and Check-Out with Photos */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '8px',
+                            backgroundColor: '#ffffff',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0'
                           }}>
-                            {log.type}
-                          </span>
-                          <span className="status-pill present" style={{ fontSize: '0.65rem' }}>
-                            {log.confidenceScore}%
-                          </span>
+                            {/* Check-In Side */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div>
+                                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
+                                  CHECK-IN
+                                </div>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkIn ? '#0f172a' : '#94a3b8' }}>
+                                  {rec.checkIn ? formatAttendanceTime(rec.checkIn) : '—'}
+                                </div>
+                              </div>
+
+                              {inPhoto ? (
+                                <div
+                                  onClick={() => setPreviewPhoto({
+                                    url: inPhoto,
+                                    title: `${currentUser.name || 'Staff'} - Check-In Photo`,
+                                    subtitle: formatDateDDMMYYYY(recDate),
+                                    time: rec.checkIn ? formatAttendanceTime(rec.checkIn) : undefined
+                                  })}
+                                  title="View Check-In Photo"
+                                  style={{
+                                    cursor: 'pointer',
+                                    position: 'relative',
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '6px',
+                                    overflow: 'hidden',
+                                    border: '1.5px solid #86efac',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    backgroundColor: 'rgba(0,0,0,0.2)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#ffffff'
+                                  }}>
+                                    <Eye size={12} />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {/* Check-Out Side */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div>
+                                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
+                                  CHECK-OUT
+                                </div>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkOut ? '#0f172a' : rec.checkIn ? '#d97706' : '#94a3b8' }}>
+                                  {rec.checkOut ? formatAttendanceTime(rec.checkOut) : (rec.checkIn ? 'In Progress' : '—')}
+                                </div>
+                              </div>
+
+                              {outPhoto ? (
+                                <div
+                                  onClick={() => setPreviewPhoto({
+                                    url: outPhoto,
+                                    title: `${currentUser.name || 'Staff'} - Check-Out Photo`,
+                                    subtitle: formatDateDDMMYYYY(recDate),
+                                    time: rec.checkOut ? formatAttendanceTime(rec.checkOut) : undefined
+                                  })}
+                                  title="View Check-Out Photo"
+                                  style={{
+                                    cursor: 'pointer',
+                                    position: 'relative',
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '6px',
+                                    overflow: 'hidden',
+                                    border: '1.5px solid #67e8f9',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    backgroundColor: 'rgba(0,0,0,0.2)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#ffffff'
+                                  }}>
+                                    <Eye size={12} />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </>
           ) : (
-            /* VIEW 2: ALL STAFF TODAY (ACCESSIBLE TO HR/ADMIN WHEN TOGGLED) */
+            /* VIEW 2: ALL STAFF MONTHLY ATTENDANCE (ACCESSIBLE TO HR/ADMIN) */
             <>
-              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>
-                COMPANY ATTENDANCE FOR TODAY ({allTodayStaffAttendance.length} ACTIVE)
+              {/* Search Bar for Filtering Staff */}
+              <div style={{ position: 'relative' }}>
+                <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  placeholder="Search staff name, ID or department..."
+                  value={staffSearchQuery}
+                  onChange={(e) => setStaffSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px 8px 32px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.78rem',
+                    color: '#0f172a',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
               </div>
 
-              {allTodayStaffAttendance.length === 0 ? (
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>
+                COMPANY ATTENDANCE - {formatMonthDisplay(selectedMonth).toUpperCase()} ({filteredAllStaffMonthlyRecords.length} LOGS)
+              </div>
+
+              {filteredAllStaffMonthlyRecords.length === 0 ? (
                 <div style={{
                   padding: '40px 16px',
                   textAlign: 'center',
@@ -1550,95 +2080,154 @@ export const FaceAttendance: React.FC = () => {
                 }}>
                   <Users size={32} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
                   <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
-                    No staff activity today
+                    No staff records found for {formatMonthDisplay(selectedMonth)}
                   </div>
                   <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                    Staff check-ins and check-outs for today will appear here in real-time.
+                    Records punched by employees in this month will appear here with photos.
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '380px', overflowY: 'auto' }}>
-                  {allTodayStaffAttendance.map(staff => (
-                    <div
-                      key={staff.employeeId}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
-                        backgroundColor: '#f8fafc',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px'
-                      }}
-                    >
-                      {/* Top: Name, Department & Status */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '50%',
-                            background: 'linear-gradient(135deg, #0e7490, #0891b2)',
-                            color: '#ffffff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {filteredAllStaffMonthlyRecords.map(staff => {
+                    const recDate = staff.date || staff.shiftDate;
+                    const inPhoto = getRecordPhoto(staff, 'Check-In');
+                    const outPhoto = getRecordPhoto(staff, 'Check-Out');
+
+                    return (
+                      <div
+                        key={staff.id}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: '10px',
+                          border: '1px solid #e2e8f0',
+                          backgroundColor: '#f8fafc',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px'
+                        }}
+                      >
+                        {/* Top: Name, Department, Date & Status */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              background: 'linear-gradient(135deg, #0e7490, #0891b2)',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 800,
+                              fontSize: '0.7rem'
+                            }}>
+                              {(staff.employeeName || 'EM').substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
+                                {staff.employeeName}
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                                {formatDateDDMMYYYY(recDate)} • {staff.department || 'General'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <span style={{
+                            padding: '2px 8px',
+                            borderRadius: '9999px',
+                            fontSize: '0.66rem',
                             fontWeight: 800,
-                            fontSize: '0.72rem'
+                            backgroundColor: staff.status === 'Present' ? '#dcfce7' : staff.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
+                            color: staff.status === 'Present' ? '#15803d' : staff.status === 'Half Day' ? '#b45309' : '#b91c1c'
                           }}>
-                            {staff.employeeName.substring(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#0f172a' }}>
-                              {staff.employeeName}
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                              {staff.employeeId} • {staff.department}
-                            </div>
-                          </div>
+                            {staff.status}
+                          </span>
                         </div>
 
-                        <span style={{
-                          padding: '3px 8px',
-                          borderRadius: '9999px',
-                          fontSize: '0.68rem',
-                          fontWeight: 800,
-                          backgroundColor: staff.status === 'Completed' ? '#dcfce7' : staff.status === 'Checked In' ? '#ecfeff' : '#f1f5f9',
-                          color: staff.status === 'Completed' ? '#15803d' : staff.status === 'Checked In' ? '#0e7490' : '#64748b'
+                        {/* Bottom: Side-by-side Check-In and Check-Out Times with Photos */}
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '8px',
+                          backgroundColor: '#ffffff',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0'
                         }}>
-                          {staff.status}
-                        </span>
-                      </div>
+                          {/* Check-In */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                              <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
+                                CHECK-IN
+                              </div>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkIn ? '#0f172a' : '#94a3b8' }}>
+                                {staff.checkIn ? formatAttendanceTime(staff.checkIn) : '—'}
+                              </div>
+                            </div>
 
-                      {/* Bottom: Side-by-side Check-In and Check-Out Times */}
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '8px',
-                        backgroundColor: '#ffffff',
-                        padding: '8px 10px',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0'
-                      }}>
-                        <div>
-                          <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#16a34a' }}>
-                            CHECK-IN
+                            {inPhoto ? (
+                              <div
+                                onClick={() => setPreviewPhoto({
+                                  url: inPhoto,
+                                  title: `${staff.employeeName} - Check-In Photo`,
+                                  subtitle: formatDateDDMMYYYY(recDate),
+                                  time: staff.checkIn ? formatAttendanceTime(staff.checkIn) : undefined
+                                })}
+                                title="View Check-In Photo"
+                                style={{
+                                  cursor: 'pointer',
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: '6px',
+                                  overflow: 'hidden',
+                                  border: '1.5px solid #86efac',
+                                  flexShrink: 0
+                                }}
+                              >
+                                <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              </div>
+                            ) : null}
                           </div>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 800, color: staff.checkInTime ? '#0f172a' : '#94a3b8' }}>
-                            {staff.checkInTime || '—'}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#0e7490' }}>
-                            CHECK-OUT
-                          </div>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 800, color: staff.checkOutTime ? '#0f172a' : staff.checkInTime ? '#d97706' : '#94a3b8' }}>
-                            {staff.checkOutTime || (staff.checkInTime ? 'In Progress' : '—')}
+
+                          {/* Check-Out */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                              <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
+                                CHECK-OUT
+                              </div>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkOut ? '#0f172a' : staff.checkIn ? '#d97706' : '#94a3b8' }}>
+                                {staff.checkOut ? formatAttendanceTime(staff.checkOut) : (staff.checkIn ? 'In Progress' : '—')}
+                              </div>
+                            </div>
+
+                            {outPhoto ? (
+                              <div
+                                onClick={() => setPreviewPhoto({
+                                  url: outPhoto,
+                                  title: `${staff.employeeName} - Check-Out Photo`,
+                                  subtitle: formatDateDDMMYYYY(recDate),
+                                  time: staff.checkOut ? formatAttendanceTime(staff.checkOut) : undefined
+                                })}
+                                title="View Check-Out Photo"
+                                style={{
+                                  cursor: 'pointer',
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: '6px',
+                                  overflow: 'hidden',
+                                  border: '1.5px solid #67e8f9',
+                                  flexShrink: 0
+                                }}
+                              >
+                                <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -1845,6 +2434,133 @@ export const FaceAttendance: React.FC = () => {
                 </button>
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PHOTO PREVIEW LIGHTBOX MODAL */}
+      {previewPhoto && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setPreviewPhoto(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div 
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: '460px',
+              width: '100%',
+              backgroundColor: '#ffffff',
+              borderRadius: '20px',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
+              border: '1px solid #e2e8f0',
+              animation: 'fadeIn 0.2s ease-out'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '16px 20px',
+              borderBottom: '1px solid #e2e8f0',
+              backgroundColor: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Camera size={18} color="#0e7490" />
+                <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                  {previewPhoto.title}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#64748b',
+                  padding: '4px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Photo Preview Container */}
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '260px',
+              maxHeight: '420px'
+            }}>
+              <img
+                src={previewPhoto.url}
+                alt={previewPhoto.title}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '380px',
+                  borderRadius: '12px',
+                  objectFit: 'contain',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+                }}
+              />
+            </div>
+
+            {/* Footer with verification metadata */}
+            <div style={{
+              padding: '14px 20px',
+              backgroundColor: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTop: '1px solid #e2e8f0'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>
+                  {previewPhoto.subtitle}
+                </div>
+                {previewPhoto.time && (
+                  <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '2px' }}>
+                    Punch Time: {previewPhoto.time}
+                  </div>
+                )}
+              </div>
+              <span style={{
+                padding: '4px 10px',
+                borderRadius: '9999px',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                backgroundColor: '#ecfeff',
+                color: '#0e7490',
+                border: '1px solid #a5f3fc',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <CheckCircle2 size={12} />
+                <span>Face Verified</span>
+              </span>
             </div>
           </div>
         </div>

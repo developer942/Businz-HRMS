@@ -255,6 +255,8 @@ export interface AttendanceRecord {
   };
   faceVerified?: boolean;
   method?: 'Face Recognition' | 'GPS Check-In' | 'Manual Punch' | 'System Auto';
+  checkInPhoto?: string;
+  checkOutPhoto?: string;
   
   // Extended Attendance Correction & OT Fields
   otHours?: number;
