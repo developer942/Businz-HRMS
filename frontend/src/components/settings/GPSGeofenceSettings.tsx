@@ -695,7 +695,7 @@ export const GPSGeofenceSettings: React.FC = () => {
                 }}
               >
                 <Compass size={15} />
-                {isDetectingLocation ? 'Locating...' : '📍 My Location'}
+                {isDetectingLocation ? 'Locating...' : 'My Location'}
               </button>
             </div>
           </div>

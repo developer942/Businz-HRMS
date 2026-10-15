@@ -546,12 +546,12 @@ export const SandwichLeavePolicySettings: React.FC = () => {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             {policy.applicableBranches !== 'ALL' && (
                               <span style={{ color: '#475569', fontWeight: 600 }}>
-                                📍 {Array.isArray(policy.applicableBranches) ? policy.applicableBranches.join(', ') : 'All'}
+                                Branch: {Array.isArray(policy.applicableBranches) ? policy.applicableBranches.join(', ') : 'All'}
                               </span>
                             )}
                             {policy.applicableDepartments !== 'ALL' && (
                               <span style={{ color: '#64748B' }}>
-                                👥 {Array.isArray(policy.applicableDepartments) ? policy.applicableDepartments.join(', ') : 'All'}
+                                Dept: {Array.isArray(policy.applicableDepartments) ? policy.applicableDepartments.join(', ') : 'All'}
                               </span>
                             )}
                           </div>

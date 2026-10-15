@@ -257,7 +257,7 @@ export const FaceAttendance: React.FC = () => {
         console.error('GPS error:', err);
         setScanResult({
           status: 'error',
-          message: '🚨 Could not access current GPS position. Please allow browser location permissions.'
+          message: 'Could not access current GPS position. Please allow browser location permissions.'
         });
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -371,7 +371,7 @@ export const FaceAttendance: React.FC = () => {
     if (type === 'Check-In' && !currentShiftState.canCheckIn) {
       setScanResult({
         status: 'error',
-        message: `🚫 Check-In Not Allowed: ${currentShiftState.message}`
+        message: `Check-In Not Allowed: ${currentShiftState.message}`
       });
       setIsScanning(false);
       punchInProgressRef.current = false;
@@ -380,7 +380,7 @@ export const FaceAttendance: React.FC = () => {
     if (type === 'Check-Out' && !currentShiftState.canCheckOut) {
       setScanResult({
         status: 'error',
-        message: `🚫 Check-Out Not Allowed: ${currentShiftState.message}`
+        message: `Check-Out Not Allowed: ${currentShiftState.message}`
       });
       setIsScanning(false);
       punchInProgressRef.current = false;
@@ -457,7 +457,7 @@ export const FaceAttendance: React.FC = () => {
       if (!navigator.geolocation) {
         setScanResult({
           status: 'error',
-          message: '🚨 GPS Geolocation is not supported by your browser or device.'
+          message: 'GPS Geolocation is not supported by your browser or device.'
         });
         setIsScanning(false);
         punchInProgressRef.current = false;
@@ -481,9 +481,9 @@ export const FaceAttendance: React.FC = () => {
           console.error('Geolocation permission error:', error);
           let errorMsg = 'GPS Location Access Required! Please grant location permissions in your browser settings to verify geofence boundary.';
           if (error.code === error.PERMISSION_DENIED) {
-            errorMsg = '🚨 Location Permission DENIED by Browser! You must enable location access in browser settings to check in.';
+            errorMsg = 'Location Permission DENIED by Browser! You must enable location access in browser settings to check in.';
           } else if (error.code === error.POSITION_UNAVAILABLE) {
-            errorMsg = '🚨 GPS Location signal unavailable. Please ensure location/GPS is enabled on your device.';
+            errorMsg = 'GPS Location signal unavailable. Please ensure location/GPS is enabled on your device.';
           }
           setScanResult({ status: 'error', message: errorMsg });
           setIsScanning(false);
@@ -576,7 +576,7 @@ export const FaceAttendance: React.FC = () => {
     if (type === 'Check-In' && !currentShiftState.canCheckIn) {
       setScanResult({
         status: 'error',
-        message: `🚫 Check-In Not Allowed: ${currentShiftState.message}`
+        message: `Check-In Not Allowed: ${currentShiftState.message}`
       });
       punchInProgressRef.current = false;
       return;
@@ -584,7 +584,7 @@ export const FaceAttendance: React.FC = () => {
     if (type === 'Check-Out' && !currentShiftState.canCheckOut) {
       setScanResult({
         status: 'error',
-        message: `🚫 Check-Out Not Allowed: ${currentShiftState.message}`
+        message: `Check-Out Not Allowed: ${currentShiftState.message}`
       });
       punchInProgressRef.current = false;
       return;
@@ -624,7 +624,7 @@ export const FaceAttendance: React.FC = () => {
 
     setScanResult({
       status: 'success',
-      message: `📍 GPS ${type} Successful! Verified location (${dist}m) for ${activeEmp.firstName} ${activeEmp.lastName}.`
+      message: `GPS ${type} Successful! Verified location (${dist}m) for ${activeEmp.firstName} ${activeEmp.lastName}.`
     });
 
     if (type === 'Check-In') {
