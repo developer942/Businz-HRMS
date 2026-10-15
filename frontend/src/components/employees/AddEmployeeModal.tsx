@@ -3470,7 +3470,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         {step === 7 && (
           <div className="onboarding-section-card">
             <div className="onboarding-card-title">
-              <span>7. Attendance Mode, Shifts & Leave Policies</span>
+              <span>7. Attendance Mode & Shift Schedule</span>
             </div>
 
             {isCEO && (
@@ -3508,33 +3508,6 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                       <option key={s.id} value={s.shiftName}>{s.shiftName} ({s.startTime} - {s.endTime})</option>
                     ))
                   )}
-                </select>
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Weekly Off Routine</label>
-                <select 
-                  className="form-control" 
-                  value={formData.weeklyOff} 
-                  onChange={e => handleChange('weeklyOff', e.target.value)}
-                >
-                  {weeklySchedules.map(w => (
-                    <option key={w.id} value={w.name}>{w.name} ({w.workingDays})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Annual Leave Policy Package</label>
-                <select 
-                  className="form-control" 
-                  value={formData.leavePolicy} 
-                  onChange={e => handleChange('leavePolicy', e.target.value)}
-                >
-                  {leavePolicies.map(lp => (
-                    <option key={lp.id} value={lp.name}>{lp.name} ({lp.quotaDays} Days)</option>
-                  ))}
                 </select>
               </div>
             </div>
@@ -4048,14 +4021,6 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   <div className="review-field-box">
                     <div className="review-field-label">Assigned Work Shift</div>
                     <div className="review-field-val">{formData.shift}</div>
-                  </div>
-                  <div className="review-field-box">
-                    <div className="review-field-label">Weekly Off Routine</div>
-                    <div className="review-field-val">{formData.weeklyOff}</div>
-                  </div>
-                  <div className="review-field-box">
-                    <div className="review-field-label">Annual Leave Policy</div>
-                    <div className="review-field-val">{formData.leavePolicy}</div>
                   </div>
                 </div>
               )}
