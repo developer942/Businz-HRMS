@@ -105,7 +105,7 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
       case 'IN PROGRESS':
         return { bg: '#ECFEFF', color: '#0E7490', label: 'In Progress' };
       case 'PARTIALLY COMPLETED':
-        return { bg: '#F3E8FF', color: '#7E22CE', label: 'Partially Completed' };
+        return { bg: '#ECFEFF', color: '#0E7490', label: 'In Progress' };
       case 'OVERDUE':
         return { bg: '#FEE2E2', color: '#DC2626', label: 'Overdue' };
       case 'OPEN':

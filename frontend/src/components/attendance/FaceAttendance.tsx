@@ -13,7 +13,6 @@ import {
   Navigation, 
   X, 
   Clock, 
-  AlertTriangle,
   User,
   Users,
   FlipHorizontal,
@@ -1225,41 +1224,11 @@ export const FaceAttendance: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    margin: '0 auto 12px',
+                    margin: '0 auto',
                     color: '#0891b2'
                   }}>
                     <Camera size={32} />
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#cbd5e1', marginBottom: '4px' }}>
-                    AI Biometric Scanner
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-                    Click "Start Face Scan" below
-                  </div>
-                </div>
-              )}
-
-              {/* Status Alert Inside Viewport */}
-              {scanResult.status && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: '16px',
-                  left: '16px',
-                  right: '16px',
-                  padding: '10px 14px',
-                  borderRadius: '12px',
-                  backgroundColor: scanResult.status === 'success' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(239, 68, 68, 0.95)',
-                  backdropFilter: 'blur(8px)',
-                  color: '#ffffff',
-                  fontSize: '0.8rem',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  zIndex: 20
-                }}>
-                  {scanResult.status === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                  <span>{scanResult.message}</span>
                 </div>
               )}
             </div>
@@ -1342,16 +1311,16 @@ export const FaceAttendance: React.FC = () => {
             )}
           </div>
 
-          {/* Result Alert Message */}
-          {scanResult.message && (
+          {/* Result Alert Message (Non-success only) */}
+          {scanResult.message && scanResult.status !== 'success' && (
             <div style={{
               maxWidth: '360px',
               margin: '16px auto 0',
               padding: '10px 14px',
               borderRadius: '10px',
-              backgroundColor: scanResult.status === 'success' ? '#ecfdf5' : scanResult.status === 'error' ? '#fff1f2' : '#ecfeff',
-              border: `1px solid ${scanResult.status === 'success' ? '#10b981' : scanResult.status === 'error' ? '#f43f5e' : '#0891b2'}`,
-              color: scanResult.status === 'success' ? '#065f46' : scanResult.status === 'error' ? '#9f1239' : '#0e7490',
+              backgroundColor: scanResult.status === 'error' ? '#fff1f2' : '#ecfeff',
+              border: `1px solid ${scanResult.status === 'error' ? '#f43f5e' : '#0891b2'}`,
+              color: scanResult.status === 'error' ? '#9f1239' : '#0e7490',
               fontSize: '0.8rem',
               fontWeight: 600,
               display: 'flex',
@@ -1359,7 +1328,6 @@ export const FaceAttendance: React.FC = () => {
               justifyContent: 'center',
               gap: '8px'
             }}>
-              {scanResult.status === 'success' && <CheckCircle2 size={16} />}
               {scanResult.status === 'error' && <ShieldAlert size={16} />}
               <span>{scanResult.message}</span>
             </div>

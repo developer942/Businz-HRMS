@@ -72,7 +72,7 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
     { value: 'IN_PROGRESS', label: 'In Progress', desc: 'Currently actively worked upon' },
     { value: 'COMPLETED', label: 'Completed', desc: 'Submitted for verification or completed' },
     { value: 'BLOCKED', label: 'Blocked / At Risk', desc: 'Paused due to dependency or issue' },
-    { value: 'CANCELLED', label: 'Cancelled / Closed', desc: 'Closed or deemed unnecessary' }
+    { value: 'CANCELLED', label: 'Cancelled', desc: 'Cancelled or deemed unnecessary' }
   ];
 
   const dateRangeOptions = [

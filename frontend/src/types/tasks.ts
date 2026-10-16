@@ -329,7 +329,7 @@ export function computeTaskOverallStatusAndProgress(
   if (completedCount === total) {
     overallStatus = 'COMPLETED';
   } else if (completedCount > 0 && completedCount < total) {
-    overallStatus = 'PARTIALLY COMPLETED';
+    overallStatus = 'IN PROGRESS';
   } else if (startedCount > 0) {
     overallStatus = 'IN PROGRESS';
   } else {

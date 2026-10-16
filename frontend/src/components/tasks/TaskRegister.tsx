@@ -400,9 +400,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
               <option value="All">All Statuses</option>
               <option value="OPEN">OPEN</option>
               <option value="IN PROGRESS">IN PROGRESS</option>
-              <option value="PARTIALLY COMPLETED">PARTIALLY COMPLETED</option>
               <option value="COMPLETED">COMPLETED</option>
-              <option value="CLOSED">CLOSED</option>
               <option value="OVERDUE">OVERDUE</option>
             </select>
           </div>
@@ -850,7 +848,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
                                 task.overallStatus === 'IN PROGRESS' ? '#3B82F6' : '#94A3B8'
                             }} />
                             <span style={{ whiteSpace: 'nowrap' }}>
-                              {task.overallStatus}
+                              {task.overallStatus === 'CLOSED' ? 'COMPLETED' : task.overallStatus === 'PARTIALLY COMPLETED' ? 'IN PROGRESS' : task.overallStatus}
                             </span>
                           </span>
                         </td>
