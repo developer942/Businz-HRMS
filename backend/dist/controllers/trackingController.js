@@ -1,5 +1,6 @@
 import { trackingRepository } from '../repositories/trackingRepository.js';
 import { createAssignmentSchema, updateAssignmentSchema, startTripSchema, endTripSchema, locationPointsSchema, } from '../validators/trackingValidators.js';
+import { checkDuplicateFieldAssignment, DUPLICATE_REQUEST_ERROR_MESSAGE } from '../utils/requestValidation.js';
 export const getAssignments = async (req, res, next) => {
     try {
         const { date, status, employeeId } = req.query;
@@ -20,6 +21,22 @@ export const getAssignments = async (req, res, next) => {
 export const createAssignment = async (req, res, next) => {
     try {
         const validated = createAssignmentSchema.parse(req.body);
+        // Business-specific duplicate validation for Field Duty Assignment
+        const sDate = validated.startDate || validated.scheduledDate || new Date().toISOString().split('T')[0];
+        const eDate = validated.endDate || sDate;
+        const existing = await trackingRepository.getAssignments({ employeeId: validated.employeeId });
+        const dupCheck = checkDuplicateFieldAssignment(existing, validated.employeeId, sDate, eDate);
+        if (dupCheck.hasDuplicate) {
+            res.status(409).json({
+                success: false,
+                error: {
+                    code: 'DUPLICATE_REQUEST',
+                    message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE,
+                    details: [],
+                },
+            });
+            return;
+        }
         const assignment = await trackingRepository.createAssignment(validated);
         res.status(201).json({
             success: true,

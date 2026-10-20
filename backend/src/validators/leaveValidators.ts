@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { 
+  getTodayKolkata, 
+  validateDateRange, 
+  PAST_DATE_ERROR_MESSAGE, 
+  INVALID_DATE_RANGE_ORDER_MESSAGE 
+} from '../utils/requestValidation.js';
 
 export const createLeaveSchema = z.object({
   employeeId: z.string().max(50).optional(),
@@ -25,21 +31,20 @@ export const createLeaveSchema = z.object({
 }).refine(
   (data) => {
     if (!data.startDate || !data.endDate) return true;
-    return new Date(data.endDate) >= new Date(data.startDate);
+    return data.endDate >= data.startDate;
   },
   {
-    message: 'endDate must be greater than or equal to startDate',
+    message: INVALID_DATE_RANGE_ORDER_MESSAGE,
     path: ['endDate'],
   }
 ).refine(
   (data) => {
     if (!data.startDate) return true;
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    return data.startDate >= todayStr;
+    const today = getTodayKolkata();
+    return data.startDate >= today;
   },
   {
-    message: 'startDate must be today or a future date. Past dates are not allowed.',
+    message: PAST_DATE_ERROR_MESSAGE,
     path: ['startDate'],
   }
 );

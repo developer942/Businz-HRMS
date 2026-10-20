@@ -28,7 +28,6 @@ import {
   User, 
   Plus, 
   Save, 
-  Sparkles,
   Send,
   Printer,
   Mail,

@@ -10,8 +10,7 @@ import {
   Eye, 
   Filter, 
   Building,
-  RotateCcw,
-  Sparkles
+  RotateCcw
 } from 'lucide-react';
 import { TaskAssigneeStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { StandardTablePagination } from '../common/StandardTablePagination';

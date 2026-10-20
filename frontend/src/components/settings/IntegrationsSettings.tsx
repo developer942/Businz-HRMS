@@ -30,6 +30,8 @@ import {
   setStoredGeminiApiKey,
   getStoredGeminiModel,
   setStoredGeminiModel,
+  getStoredGeminiOcrModel,
+  setStoredGeminiOcrModel,
   listGeminiModels,
   cleanApiKey,
   syncApiKeyToBackend,
@@ -88,6 +90,7 @@ export const IntegrationsSettings: React.FC = () => {
     return getStoredGeminiApiKey() || '';
   });
   const [geminiModel, setGeminiModel] = useState<string>(getStoredGeminiModel());
+  const [geminiOcrModel, setGeminiOcrModel] = useState<string>(getStoredGeminiOcrModel());
   const [availableGeminiModels, setAvailableGeminiModels] = useState<GeminiModelInfo[]>([]);
 
   // Migrate deprecated models on component mount
@@ -198,6 +201,7 @@ export const IntegrationsSettings: React.FC = () => {
       gemini_ai: {
         apiKey: getStoredGeminiApiKey() || '',
         model: getStoredGeminiModel(),
+        ocrModel: getStoredGeminiOcrModel(),
         enableTanglishTamil: true,
         temperature: 0.7
       },
@@ -448,15 +452,28 @@ export const IntegrationsSettings: React.FC = () => {
         },
         {
           key: 'model',
-          label: 'Active Gemini AI Model',
+          label: 'Active Gemini AI Model (Pavi Chatbot)',
           type: 'select',
           options: [
-            { label: 'gemini-2.0-flash (Fast & Recommended)', value: 'gemini-2.0-flash' },
+            { label: 'gemini-2.5-flash (Next Gen Preview - Recommended)', value: 'gemini-2.5-flash' },
+            { label: 'gemini-2.0-flash (Fast & Multimodal)', value: 'gemini-2.0-flash' },
             { label: 'gemini-1.5-flash (Standard & Reliable)', value: 'gemini-1.5-flash' },
             { label: 'gemini-1.5-pro (High Reasoning)', value: 'gemini-1.5-pro' },
-            { label: 'gemini-2.5-flash (Next Gen Preview)', value: 'gemini-2.5-flash' }
+            { label: 'gemini-3.7-flash (Advanced Preview)', value: 'gemini-3.7-flash' }
           ],
-          defaultValue: (geminiModel && !geminiModel.includes('3.6-flash')) ? geminiModel : 'gemini-2.0-flash'
+          defaultValue: (geminiModel && !geminiModel.includes('3.6-flash')) ? geminiModel : 'gemini-2.5-flash'
+        },
+        {
+          key: 'ocrModel',
+          label: 'Visiting Card Scanner OCR Model (Vision Multimodal)',
+          type: 'select',
+          options: [
+            { label: 'gemini-3.5-flash-lite (Fast 1.5s OCR - Recommended)', value: 'gemini-3.5-flash-lite' },
+            { label: 'gemini-flash-lite-latest (Latest Flash Lite)', value: 'gemini-flash-lite-latest' },
+            { label: 'gemini-3.7-flash (Advanced Preview)', value: 'gemini-3.7-flash' }
+          ],
+          helperText: 'Independent multimodal vision model used for visiting card extraction. Separate from Pavi chatbot model.',
+          defaultValue: geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite'
         }
       ]
     },
@@ -506,7 +523,15 @@ export const IntegrationsSettings: React.FC = () => {
           label: 'Google Account App Password (16-digits)',
           type: 'password',
           placeholder: 'Enter 16-digit Google App Password',
-          helperText: 'Generate from myaccount.google.com > Security > 2-Step Verification > App Passwords',
+          helperText: 'Generate from myaccount.google.com > Security > 2-Step Verification > App Passwords. Formatting spaces are removed automatically.',
+          defaultValue: ''
+        },
+        {
+          key: 'testRecipientEmail',
+          label: 'Send Test Email To (Optional)',
+          type: 'text',
+          placeholder: 'e.g. developer@businz.com',
+          helperText: 'Optional: Enter an email address to receive a live test email upon successful verification, or leave empty to test connection handshake only.',
           defaultValue: ''
         }
       ]
@@ -646,6 +671,8 @@ export const IntegrationsSettings: React.FC = () => {
   const handleOpenConfig = (item: IntegrationDefinition) => {
     if (item.id === 'gemini_ai') {
       const currentStoredKey = getStoredGeminiApiKey();
+      const currentStoredModel = getStoredGeminiModel();
+      const currentStoredOcrModel = getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
       setIntegrationFormValues(prev => {
         const existingKey = prev.gemini_ai?.apiKey || '';
         const cleanKey = existingKey || currentStoredKey;
@@ -654,11 +681,14 @@ export const IntegrationsSettings: React.FC = () => {
           gemini_ai: {
             ...prev.gemini_ai,
             apiKey: cleanKey,
-            model: prev.gemini_ai?.model || getStoredGeminiModel()
+            model: prev.gemini_ai?.model || currentStoredModel,
+            ocrModel: prev.gemini_ai?.ocrModel || currentStoredOcrModel
           }
         };
       });
       setGeminiKey(currentStoredKey);
+      setGeminiModel(currentStoredModel);
+      setGeminiOcrModel(currentStoredOcrModel);
     }
     if (item.id === 'google_workspace') {
       setIntegrationFormValues(prev => {
@@ -733,6 +763,7 @@ export const IntegrationsSettings: React.FC = () => {
       localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updatedAllValues));
 
       const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      const cleanPass = (gVals.appPassword || '').replace(/\s+/g, '').trim();
       fetch(`${API_BASE_URL}/settings/smtp/config`, {
         method: 'POST',
         headers: {
@@ -743,7 +774,7 @@ export const IntegrationsSettings: React.FC = () => {
           smtpHost: host,
           smtpPort: port,
           senderEmail: (gVals.senderEmail || '').trim(),
-          appPassword: (gVals.appPassword || '').trim(),
+          appPassword: cleanPass,
         })
       }).catch(err => {
         console.error('Failed to sync SMTP config to backend:', err);
@@ -755,11 +786,14 @@ export const IntegrationsSettings: React.FC = () => {
       const gKey = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey || '');
       const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.0-flash';
       const gModel = rawModel.includes('3.6-flash') ? 'gemini-2.0-flash' : rawModel;
+      const gOcrModel = integrationFormValues['gemini_ai']?.ocrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
       setStoredGeminiApiKey(gKey);
       setStoredGeminiModel(gModel);
+      setStoredGeminiOcrModel(gOcrModel);
       setGeminiKey(gKey);
       setGeminiModel(gModel);
-      syncApiKeyToBackend(gKey, gModel);
+      setGeminiOcrModel(gOcrModel);
+      syncApiKeyToBackend(gKey, gModel, gOcrModel);
     }
 
     // If Biometrics, sync to HRMSContext
@@ -848,7 +882,9 @@ export const IntegrationsSettings: React.FC = () => {
           // If Google returns ACCESS_TOKEN_TYPE_UNSUPPORTED or cloud permissions error:
           // The key is a valid AQ. / AIza key format! Provide standard models and advise user.
           models = [
+            { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (Next Gen Preview)', description: 'Fast, advanced reasoning', supportedGenerationMethods: ['generateContent'] },
             { name: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash (Recommended)', description: 'Fast, multimodal, high accuracy', supportedGenerationMethods: ['generateContent'] },
+            { name: 'gemini-3.7-flash', displayName: 'Gemini 3.7 Flash', description: 'Next Gen Multimodal Preview', supportedGenerationMethods: ['generateContent'] },
             { name: 'gemini-1.5-flash', displayName: 'Gemini 1.5 Flash', description: 'Fast and versatile performance', supportedGenerationMethods: ['generateContent'] },
             { name: 'gemini-1.5-pro', displayName: 'Gemini 1.5 Pro', description: 'Complex reasoning and analysis', supportedGenerationMethods: ['generateContent'] },
           ];
@@ -858,18 +894,22 @@ export const IntegrationsSettings: React.FC = () => {
         }
         setAvailableGeminiModels(models);
         setIsTestingConnection(false);
-        const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.0-flash';
-        const validModel = models.some(m => m.name === currentModel)
+        const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash';
+        const currentOcrModel = integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
+        
+        // Preserve user's model selection if it's already a valid recognized model
+        const validModel = (models.some(m => m.name === currentModel) || ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-3.7-flash'].includes(currentModel))
           ? currentModel
-          : (models.find(m => m.name.includes('2.0-flash'))?.name || models.find(m => m.name.includes('1.5-flash'))?.name || models[0]?.name || 'gemini-2.0-flash');
-        handleFieldChange('gemini_ai', 'model', validModel);
+          : (models.find(m => m.name.includes('2.5-flash'))?.name || models.find(m => m.name.includes('2.0-flash'))?.name || models[0]?.name || 'gemini-2.5-flash');
 
         // Auto-save and auto-connect upon successful test!
         setStoredGeminiApiKey(key);
         setStoredGeminiModel(validModel);
+        setStoredGeminiOcrModel(currentOcrModel);
         setGeminiKey(key);
         setGeminiModel(validModel);
-        syncApiKeyToBackend(key, validModel);
+        setGeminiOcrModel(currentOcrModel);
+        syncApiKeyToBackend(key, validModel, currentOcrModel);
 
         const nextStatuses = { ...connectionStatuses, gemini_ai: 'connected' as const };
         setConnectionStatuses(nextStatuses);
@@ -903,8 +943,10 @@ export const IntegrationsSettings: React.FC = () => {
       const gVals = integrationFormValues['google_workspace'] || {};
       const host = (gVals.smtpHost || '').trim() || 'smtp.gmail.com';
       const email = (gVals.senderEmail || '').trim();
-      const pass = (gVals.appPassword || '').trim();
+      // Remove all whitespace formatting from 16-digit Google App Password (e.g. "abcd efgh ijkl mnop")
+      const pass = (gVals.appPassword || '').replace(/\s+/g, '').trim();
       const port = Number(gVals.smtpPort) || 587;
+      const testRecipient = (gVals.testRecipientEmail || '').trim();
 
       if (!email) {
         setIsTestingConnection(false);
@@ -915,24 +957,46 @@ export const IntegrationsSettings: React.FC = () => {
         return;
       }
 
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      if (!token) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: 'HRMS Authentication Required: Please sign in to an authorized HRMS Administrator account before testing integrations.'
+        });
+        return;
+      }
+
       try {
-        const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token');
         const res = await fetch(`${API_BASE_URL}/settings/smtp/test-connection`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
             smtpHost: host,
             smtpPort: port,
             senderEmail: email,
             appPassword: pass,
+            testRecipientEmail: testRecipient || undefined,
           })
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
+          if (res.status === 401) {
+            throw new Error(`HRMS Session Error (${data.error?.code || '401'}): ${data.error?.message || 'Your HRMS session has expired or is invalid. Please sign in again.'}`);
+          }
+          if (res.status === 403) {
+            throw new Error(`HRMS Permission Denied (${data.error?.code || '403'}): ${data.error?.message || 'Administrator privileges required to test or configure SMTP.'}`);
+          }
+          if (data.error?.code === 'SMTP_AUTH_FAILED') {
+            throw new Error(`Google SMTP Authentication Failed: ${data.error?.message || 'Invalid email or App Password.'}`);
+          }
+          if (data.error?.code === 'SMTP_CONNECTION_FAILED') {
+            throw new Error(`Google SMTP Connection Failed: ${data.error?.message || 'Unable to connect to smtp.gmail.com:587.'}`);
+          }
           throw new Error(data.error?.message || 'SMTP Authentication failed');
         }
 
@@ -941,7 +1005,7 @@ export const IntegrationsSettings: React.FC = () => {
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
 
-        // Auto-save to backend upon successful handshake
+        // Auto-save sanitized config to backend upon successful handshake
         if (token && pass) {
           fetch(`${API_BASE_URL}/settings/smtp/config`, {
             method: 'POST',
@@ -1161,17 +1225,25 @@ export const IntegrationsSettings: React.FC = () => {
 
     // 1. Real-time dynamic sync logic for Google Gemini AI
     if (integrationId === 'gemini_ai') {
+      const currentKey = cleanApiKey(fieldKey === 'apiKey' ? value : (integrationFormValues['gemini_ai']?.apiKey || geminiKey));
+      const currentModel = fieldKey === 'model' ? value : (integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash');
+      const currentOcrModel = fieldKey === 'ocrModel' ? value : (integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite');
+
       if (fieldKey === 'apiKey') {
         const cleaned = cleanApiKey(value || '');
         setGeminiKey(cleaned);
         setStoredGeminiApiKey(cleaned);
-        const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel;
-        syncApiKeyToBackend(cleaned, currentModel);
+        syncApiKeyToBackend(cleaned, currentModel, currentOcrModel);
       } else if (fieldKey === 'model') {
-        const currentKey = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey);
         setGeminiModel(value);
         setStoredGeminiModel(value);
-        syncApiKeyToBackend(currentKey, value);
+        syncApiKeyToBackend(currentKey, value, currentOcrModel);
+        triggerToast(`Pavi Chatbot AI model switched to ${value}`, 'info');
+      } else if (fieldKey === 'ocrModel') {
+        setGeminiOcrModel(value);
+        setStoredGeminiOcrModel(value);
+        syncApiKeyToBackend(currentKey, currentModel, value);
+        triggerToast(`Visiting Card Scanner OCR model switched to ${value}`, 'success');
       }
     }
 

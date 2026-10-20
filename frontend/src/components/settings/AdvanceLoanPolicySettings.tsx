@@ -39,7 +39,6 @@ import {
   FileText,
   AlertCircle,
   Layers,
-  Sparkles,
   RefreshCw
 } from 'lucide-react';
 

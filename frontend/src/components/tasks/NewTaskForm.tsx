@@ -17,6 +17,13 @@ import {
   Star
 } from 'lucide-react';
 import { TaskPriority, TaskSourceType, TaskAssignee, TaskAssigneeRole, TaskAssigneeStatus } from '../../types/tasks';
+import { 
+  getTodayKolkata, 
+  validateRequestDate, 
+  PAST_DATE_ERROR_MESSAGE, 
+  INVALID_DATE_RANGE_ORDER_MESSAGE 
+} from '../../utils/requestValidation';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface NewTaskFormProps {
   onTaskCreated: (taskId: string) => void;
@@ -79,8 +86,9 @@ const departmentMatches = (
 export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCancel }) => {
   const { employees, departments, enhancedTasks, currentUser, createEnhancedTask } = useHRMS();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayKolkata();
   const nextWeek = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split('T')[0];
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Current user identification
   const currentEmpId = currentUser.employeeId || currentUser.id || '';
@@ -337,7 +345,25 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
 
     if (!taskTitle.trim()) newErrors.taskTitle = 'Task title is required.';
     if (!description.trim()) newErrors.description = 'Task description is required.';
-    if (!dueDate) newErrors.dueDate = 'Due date is required.';
+
+    if (!dueDate) {
+      newErrors.dueDate = 'Due date is required.';
+    } else {
+      const dv = validateRequestDate(dueDate);
+      if (!dv.valid) {
+        newErrors.dueDate = dv.error || PAST_DATE_ERROR_MESSAGE;
+      }
+    }
+
+    if (startDate) {
+      const sv = validateRequestDate(startDate);
+      if (!sv.valid) {
+        newErrors.startDate = sv.error || PAST_DATE_ERROR_MESSAGE;
+      } else if (dueDate && startDate > dueDate) {
+        newErrors.dueDate = INVALID_DATE_RANGE_ORDER_MESSAGE;
+      }
+    }
+
     if (assignedEmployeeIds.length === 0) newErrors.assignees = 'At least one employee must be assigned.';
 
     // Self-assignment prevention check ("oru person own task assign pannakudathu")
@@ -353,7 +379,11 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
       return;
     }
 
-    const respEmp = employees.find(e => e.employeeId === responsiblePersonId || e.id === responsiblePersonId);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      const respEmp = employees.find(e => e.employeeId === responsiblePersonId || e.id === responsiblePersonId);
 
     // Build assignee records
     const assignees: TaskAssignee[] = assignedEmployeeIds.map((empId, idx): TaskAssignee => {
@@ -427,10 +457,13 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
     });
 
     onTaskCreated(created.id);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="new-task-form-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
+    <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="new-task-form-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
           <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}>{isCEO ? 'Assign New Task' : 'Create New Task'}</h2>
@@ -488,6 +521,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
             placeholder="e.g. Solar Tracker Mounting Structure Quality Inspection"
             value={taskTitle}
             onChange={e => { setTaskTitle(e.target.value); setErrors(prev => ({ ...prev, taskTitle: '' })); }}
+            onKeyDown={preventSpaceEnterPropagation}
             className={`form-control ${errors.taskTitle ? 'is-invalid' : ''}`}
             style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 600 }}
             required
@@ -584,6 +618,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
             <input 
               type="date"
               value={startDate}
+              min={getTodayKolkata()}
               onChange={e => setStartDate(e.target.value)}
               className="form-control"
               style={{ marginTop: '4px' }}
@@ -595,6 +630,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
             <input 
               type="date"
               value={dueDate}
+              min={startDate || getTodayKolkata()}
               onChange={e => { setDueDate(e.target.value); setErrors(prev => ({ ...prev, dueDate: '' })); }}
               className={`form-control ${errors.dueDate ? 'is-invalid' : ''}`}
               style={{ marginTop: '4px', fontWeight: 600 }}
@@ -618,6 +654,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
             placeholder="Provide operational requirements, fabrication specifications, site location details, or execution steps..."
             value={description}
             onChange={e => { setDescription(e.target.value); setErrors(prev => ({ ...prev, description: '' })); }}
+            onKeyDown={preventSpaceEnterPropagation}
             className={`form-control ${errors.description ? 'is-invalid' : ''}`}
             style={{ marginTop: '4px', resize: 'vertical' }}
             required
@@ -1003,8 +1040,21 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
         <button type="button" className="btn btn-secondary" onClick={onCancel} style={{ fontSize: '0.9rem', padding: '10px 20px' }}>
           Cancel
         </button>
-        <button type="submit" className="btn btn-primary" style={{ fontSize: '0.9rem', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Check size={18} /> {isCEO ? 'Assign Task' : 'Create Task'}
+        <button 
+          type="submit" 
+          disabled={isSubmitting}
+          className="btn btn-primary" 
+          style={{ 
+            fontSize: '0.9rem', 
+            padding: '10px 24px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            opacity: isSubmitting ? 0.7 : 1,
+            cursor: isSubmitting ? 'not-allowed' : 'pointer'
+          }}
+        >
+          <Check size={18} /> {isSubmitting ? 'Saving Task...' : (isCEO ? 'Assign Task' : 'Create Task')}
         </button>
       </div>
     </form>

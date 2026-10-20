@@ -42,6 +42,14 @@ import { toNum, formatCurrency } from '../../utils/numbers';
 import { downloadElementAsPDF, downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { StandardTablePagination } from '../common/StandardTablePagination';
+import { 
+  getTodayKolkata, 
+  validateRequestDate, 
+  checkDuplicateAdvanceRequest, 
+  PAST_DATE_ERROR_MESSAGE, 
+  DUPLICATE_REQUEST_ERROR_MESSAGE 
+} from '../../utils/requestValidation';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface AdvanceSalaryManagementProps {
   openAddModal?: boolean;
@@ -183,7 +191,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     return `${year}-${month}-${day}`;
   };
 
-  const getFutureRequestDateString = () => getLocalDateString(1);
+  const getFutureRequestDateString = () => getTodayKolkata();
+  const [isSubmittingLoan, setIsSubmittingLoan] = useState<boolean>(false);
 
   // Sync quick add modal trigger from header
   useEffect(() => {
@@ -474,42 +483,56 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     }
 
     const minNeededByDate = getFutureRequestDateString();
-    if (!requestFormData.neededByDate || requestFormData.neededByDate < minNeededByDate) {
-      showFeedback('error', `Funds needed by date must be a future date (${formatDateDDMMYYYY(minNeededByDate)} onwards). Past dates (yesterday, previous months) cannot be requested.`);
+    if (isSubmittingLoan) return;
+
+    const dateVal = validateRequestDate(requestFormData.neededByDate);
+    if (!dateVal.valid) {
+      showFeedback('error', dateVal.error || PAST_DATE_ERROR_MESSAGE);
       return;
     }
 
-    const now = new Date();
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    const dupCheck = checkDuplicateAdvanceRequest(loanRecords, targetEmployee.employeeId, requestFormData.neededByDate);
+    if (dupCheck.hasDuplicate) {
+      showFeedback('error', dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
 
-    const res = submitLoanRequest({
-      employeeId: targetEmployee.employeeId,
-      employeeName: `${targetEmployee.firstName} ${targetEmployee.lastName}`,
-      department: targetEmployee.department,
-      designation: targetEmployee.designation,
-      policyId: elig.policy.id,
-      policyName: elig.policy.policyName,
-      requestType: requestFormData.requestType,
-      basicSalary: toNum(targetEmployee.basicSalary),
-      eligibleLimitAmount: elig.maxEligibleAmount,
-      requestedAmount,
-      installmentMonths: effectiveMonths,
-      monthlyDeduction: isAdvanceSalary ? requestedAmount : Math.round(requestedAmount / (effectiveMonths || 1)),
-      deductionStartMonth: defaultDeductionMonth,
-      purpose: requestFormData.purpose,
-      reasonDetails: requestFormData.reasonDetails,
-      neededByDate: requestFormData.neededByDate
-    });
+    setIsSubmittingLoan(true);
+    try {
+      const now = new Date();
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
 
-    if (res.success) {
-      showFeedback('success', isAdvanceSalary
-        ? `Advance Salary request submitted (Ref: ${res.loanId}). ${formatCurrency(requestedAmount)} will be auto-deducted from your ${defaultDeductionMonth} salary.`
-        : `Employee Loan request submitted successfully (Ref: ${res.loanId})!`);
-      setIsRequestModalOpen(false);
-      if (onCloseQuickAdd) onCloseQuickAdd();
-    } else {
-      showFeedback('error', res.message);
+      const res = submitLoanRequest({
+        employeeId: targetEmployee.employeeId,
+        employeeName: `${targetEmployee.firstName} ${targetEmployee.lastName}`,
+        department: targetEmployee.department,
+        designation: targetEmployee.designation,
+        policyId: elig.policy.id,
+        policyName: elig.policy.policyName,
+        requestType: requestFormData.requestType,
+        basicSalary: toNum(targetEmployee.basicSalary),
+        eligibleLimitAmount: elig.maxEligibleAmount,
+        requestedAmount,
+        installmentMonths: effectiveMonths,
+        monthlyDeduction: isAdvanceSalary ? requestedAmount : Math.round(requestedAmount / (effectiveMonths || 1)),
+        deductionStartMonth: defaultDeductionMonth,
+        purpose: requestFormData.purpose,
+        reasonDetails: requestFormData.reasonDetails,
+        neededByDate: requestFormData.neededByDate
+      });
+
+      if (res.success) {
+        showFeedback('success', isAdvanceSalary
+          ? `Advance Salary request submitted (Ref: ${res.loanId}). ${formatCurrency(requestedAmount)} will be auto-deducted from your ${defaultDeductionMonth} salary.`
+          : `Employee Loan request submitted successfully (Ref: ${res.loanId})!`);
+        setIsRequestModalOpen(false);
+        if (onCloseQuickAdd) onCloseQuickAdd();
+      } else {
+        showFeedback('error', res.message);
+      }
+    } finally {
+      setIsSubmittingLoan(false);
     }
   };
 
@@ -1560,7 +1583,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
 
               {/* Scrollable Modal Body */}
               <div className="modal-body" style={{ padding: '20px 24px', overflowY: 'auto', flex: '1 1 auto' }}>
-                <form id="advance-salary-request-form" onSubmit={handleRequestSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <form id="advance-salary-request-form" onSubmit={handleRequestSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
                   {/* Ineligibility Alert */}
                   {!modalElig.isEligible && (
@@ -1752,6 +1775,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                       className="form-control"
                       value={requestFormData.purpose}
                       onChange={e => setRequestFormData({ ...requestFormData, purpose: e.target.value })}
+                      onKeyDown={preventSpaceEnterPropagation}
                       style={{ height: '42px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.85rem' }}
                     />
                   </div>
@@ -1766,6 +1790,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                       className="form-control"
                       value={requestFormData.reasonDetails}
                       onChange={e => setRequestFormData({ ...requestFormData, reasonDetails: e.target.value })}
+                      onKeyDown={preventSpaceEnterPropagation}
                       style={{ borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.85rem', resize: 'vertical' }}
                     />
                   </div>
@@ -1789,10 +1814,23 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 <button 
                   type="submit" 
                   form="advance-salary-request-form"
+                  disabled={isSubmittingLoan}
                   className="btn btn-primary"
-                  style={{ borderRadius: '10px', padding: '9px 20px', fontWeight: 700, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px', backgroundColor: '#0E7490', borderColor: '#0E7490' }}
+                  style={{ 
+                    borderRadius: '10px', 
+                    padding: '9px 20px', 
+                    fontWeight: 700, 
+                    fontSize: '0.85rem', 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    backgroundColor: '#0E7490', 
+                    borderColor: '#0E7490',
+                    opacity: isSubmittingLoan ? 0.7 : 1,
+                    cursor: isSubmittingLoan ? 'not-allowed' : 'pointer'
+                  }}
                 >
-                  <Send size={15} /> Submit Advance Salary Request
+                  <Send size={15} /> {isSubmittingLoan ? 'Submitting...' : 'Submit Advance Salary Request'}
                 </button>
               </div>
             </div>
@@ -1941,7 +1979,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
             </div>
 
             {/* Scrollable Form Body */}
-            <form onSubmit={handleReviewSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', margin: 0 }}>
+            <form onSubmit={handleReviewSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', margin: 0 }}>
               <div style={{ 
                 flex: 1, 
                 overflowY: 'auto', 
@@ -2177,6 +2215,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                         placeholder="Please specify detailed rationale for rejecting this loan request..."
                         value={reviewFormData.rejectionReason}
                         onChange={e => setReviewFormData({ ...reviewFormData, rejectionReason: e.target.value })}
+                        onKeyDown={preventSpaceEnterPropagation}
                       />
                     </div>
                   )}
@@ -2263,7 +2302,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
             {/* Scrollable Body */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
               <div style={{ maxWidth: '720px', margin: '0 auto' }}>
-                <form id="disbursement-form" onSubmit={handleDisbursementSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <form id="disbursement-form" onSubmit={handleDisbursementSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <div style={{ padding: '16px', background: '#ECFEFF', borderRadius: '12px', fontSize: '0.85rem', color: '#0E7490', border: '1px solid #A5F3FC' }}>
                     <strong>Important:</strong> Disbursing this loan activates monthly repayment deductions starting from <strong>{disbursementModalRecord.deductionStartMonth || 'Nov 2026'}</strong>.
                   </div>
@@ -2412,7 +2451,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 </div>
               </div>
 
-              <form id="manual-repayment-form" onSubmit={handleManualRepaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <form id="manual-repayment-form" onSubmit={handleManualRepaymentSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>

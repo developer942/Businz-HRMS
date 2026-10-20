@@ -128,6 +128,7 @@ export interface AttendancePolicy {
   // 6. Half-Day Rule (halfDayRuleEnabled + halfDayThresholdCount)
   // 7. Loss of Pay (LOP) Rule (lopRuleEnabled + lopThresholdCount)
   graceTimeMinutes: number; // Custom minutes (e.g. 10)
+  gracePeriodMinutes?: number; // Optional alias for compatibility
   allowedLateCount?: number; // Allowed late count per month (e.g. 3)
   warningSystemEnabled?: boolean; // Enable / Disable
   halfDayRuleEnabled?: boolean; // Enable / Disable

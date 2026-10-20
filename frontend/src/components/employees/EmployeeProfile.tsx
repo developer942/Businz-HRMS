@@ -446,8 +446,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       accountStatus: ((emp.accountStatus as any) || (emp.status === 'Terminated' || emp.status === 'Inactive' ? 'DEACTIVATED' : 'ACTIVE')) as 'ACTIVE' | 'DEACTIVATED' | 'DISABLED',
       password: (emp as any).password || emp.password || 'Password@123',
       mustChangePassword: Boolean(emp.mustChangePassword ?? false),
-      credentialEmailStatus: emp.credentialEmailStatus || 'SENT',
-      credentialEmailSentAt: emp.credentialEmailSentAt || '14 Sep 2026, 09:15 AM'
+      credentialEmailStatus: emp.credentialEmailStatus || 'NOT_SENT',
+      credentialEmailSentAt: emp.credentialEmailSentAt || null
     };
   };
 

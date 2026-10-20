@@ -8,6 +8,7 @@ import {
   locationPointsSchema,
 } from '../validators/trackingValidators.js';
 import { FieldAssignment, LocationPoint } from '../types/tracking.js';
+import { checkDuplicateFieldAssignment, DUPLICATE_REQUEST_ERROR_MESSAGE } from '../utils/requestValidation.js';
 
 export const getAssignments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -30,6 +31,30 @@ export const getAssignments = async (req: Request, res: Response, next: NextFunc
 export const createAssignment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const validated = createAssignmentSchema.parse(req.body);
+
+    // Business-specific duplicate validation for Field Duty Assignment
+    const sDate = validated.startDate || validated.scheduledDate || new Date().toISOString().split('T')[0];
+    const eDate = validated.endDate || sDate;
+    const existing = await trackingRepository.getAssignments({ employeeId: validated.employeeId });
+    const dupCheck = checkDuplicateFieldAssignment(
+      existing as any,
+      validated.employeeId,
+      sDate,
+      eDate
+    );
+
+    if (dupCheck.hasDuplicate) {
+      res.status(409).json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_REQUEST',
+          message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE,
+          details: [],
+        },
+      });
+      return;
+    }
+
     const assignment = await trackingRepository.createAssignment(validated as unknown as Partial<FieldAssignment>);
 
     res.status(201).json({

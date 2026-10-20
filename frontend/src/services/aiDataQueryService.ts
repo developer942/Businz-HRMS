@@ -169,6 +169,251 @@ export function executeHRMSQuery(
     };
   }
 
+  // 2A. GET_MY_LEAVE_BALANCE: Calculate deterministic leave balances in backend/client code
+  if (intent === 'GET_MY_LEAVE_BALANCE') {
+    const targetEmpId = data.currentUser?.employeeId || data.currentUser?.id || 'EMP-001';
+    const targetEmp = data.employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || data.currentUser;
+    const empName = targetEmp ? `${targetEmp.firstName || ''} ${targetEmp.lastName || ''}`.trim() : targetEmpId;
+
+    const approvedLeaves = data.leaveRequests.filter(l => 
+      (l.employeeId === targetEmpId || l.employeeName === empName) && l.status === 'Approved'
+    );
+    const pendingLeaves = data.leaveRequests.filter(l => 
+      (l.employeeId === targetEmpId || l.employeeName === empName) && l.status === 'Pending'
+    );
+
+    const countDays = (leaves: LeaveRequest[], matchFn: (t: string) => boolean) =>
+      leaves.filter(l => matchFn((l.leaveType || '').toLowerCase())).reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
+
+    const casualUsed = countDays(approvedLeaves, t => t.includes('casual') || t === 'cl');
+    const sickUsed = countDays(approvedLeaves, t => t.includes('sick') || t === 'sl' || t.includes('medical'));
+    const earnedUsed = countDays(approvedLeaves, t => t.includes('earned') || t === 'el' || t.includes('annual'));
+    const unpaidUsed = countDays(approvedLeaves, t => t.includes('unpaid') || t.includes('lop') || t.includes('loss'));
+
+    const casualPending = countDays(pendingLeaves, t => t.includes('casual') || t === 'cl');
+    const sickPending = countDays(pendingLeaves, t => t.includes('sick') || t === 'sl');
+    const earnedPending = countDays(pendingLeaves, t => t.includes('earned') || t === 'el');
+
+    const clQuota = 12;
+    const slQuota = 10;
+    const elQuota = 15;
+
+    const clRemaining = Math.max(0, clQuota - casualUsed);
+    const slRemaining = Math.max(0, slQuota - sickUsed);
+    const elRemaining = Math.max(0, elQuota - earnedUsed);
+    const totalRemaining = clRemaining + slRemaining + elRemaining;
+
+    const columns: TableColumn[] = [
+      { key: 'leaveType', label: 'Leave Type' },
+      { key: 'quota', label: 'Annual Quota' },
+      { key: 'used', label: 'Approved Used' },
+      { key: 'pending', label: 'Pending Approval' },
+      { key: 'remaining', label: 'Balance Remaining' },
+    ];
+
+    const rows = [
+      { id: 1, leaveType: 'Casual Leave (CL)', quota: `${clQuota} Days`, used: `${casualUsed} Days`, pending: `${casualPending} Days`, remaining: `${clRemaining} Days` },
+      { id: 2, leaveType: 'Sick / Medical Leave (SL)', quota: `${slQuota} Days`, used: `${sickUsed} Days`, pending: `${sickPending} Days`, remaining: `${slRemaining} Days` },
+      { id: 3, leaveType: 'Earned / Privilege Leave (EL)', quota: `${elQuota} Days`, used: `${earnedUsed} Days`, pending: `${earnedPending} Days`, remaining: `${elRemaining} Days` },
+      { id: 4, leaveType: 'Loss of Pay (Unpaid LOP)', quota: 'As Applicable', used: `${unpaidUsed} Days`, pending: '0 Days', remaining: '—' },
+    ];
+
+    const responseText = lang === 'ta'
+      ? `உங்கள் (${targetEmpId}) விடுப்பு இருப்பு விபரம் (Leave Balance Summary):\n• Casual Leave: ${clRemaining} நாட்கள் இருப்பு (${casualUsed} பயன்படுத்தப்பட்டது)\n• Sick Leave: ${slRemaining} நாட்கள் இருப்பு (${sickUsed} பயன்படுத்தப்பட்டது)\n• Earned Leave: ${elRemaining} நாட்கள் இருப்பு\n• மொத்தம் கிடைக்கும் ஊதியத்துடன் கூடிய விடுப்புகள்: ${totalRemaining} நாட்கள்`
+      : lang === 'hi'
+      ? `आपका (${targetEmpId}) लीव बैलेंस विवरण:\n• आकस्मिक अवकाश (CL): ${clRemaining} शेष (उपयोग: ${casualUsed})\n• चिकित्सा अवकाश (SL): ${slRemaining} शेष (उपयोग: ${sickUsed})\n• अर्जित अवकाश (EL): ${elRemaining} शेष\n• कुल उपलब्ध सवेतन छुट्टियाँ: ${totalRemaining} दिन`
+      : `Here is your verified leave balance summary (${targetEmpId}):\n• Casual Leave (CL): ${clRemaining} remaining (${casualUsed} used of ${clQuota})\n• Sick Leave (SL): ${slRemaining} remaining (${sickUsed} used of ${slQuota})\n• Earned Leave (EL): ${elRemaining} remaining (${earnedUsed} used of ${elQuota})\n• Total Paid Leaves Available: ${totalRemaining} days`;
+
+    return {
+      responseText,
+      payload: {
+        type: 'table',
+        title: `My Leave Balances (${targetEmpId})`,
+        columns,
+        rows,
+        metrics: [
+          { label: 'Total Remaining', value: `${totalRemaining} Days`, color: 'success' },
+          { label: 'Casual Balance', value: `${clRemaining} Days`, color: 'primary' },
+          { label: 'Sick Balance', value: `${slRemaining} Days`, color: 'info' },
+          { label: 'Earned Balance', value: `${elRemaining} Days`, color: 'warning' },
+        ],
+        exportAvailable: true,
+        navigationTarget: 'leaves'
+      },
+      newFilters: { module: 'leaves' },
+      followUpSuggestions: [
+        'En attendance intha maasam',
+        'En shift timing enna?',
+        'Sandwich leave rules enna?',
+        'Holiday policy enna?'
+      ]
+    };
+  }
+
+  // 2B. GET_MY_ATTENDANCE: Calculate deterministic month attendance totals in code
+  if (intent === 'GET_MY_ATTENDANCE') {
+    const targetEmpId = data.currentUser?.employeeId || data.currentUser?.id || 'EMP-001';
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const myLogs = data.attendanceRecords.filter(a => 
+      (a.employeeId === targetEmpId) && (a.date || '').startsWith(currentMonth)
+    );
+
+    const presentDays = myLogs.filter(a => a.status === 'Present').length;
+    const lateDays = myLogs.filter(a => a.status === 'Late' || (a.lateStatus && a.lateStatus.toLowerCase().includes('late'))).length;
+    const onLeaveDays = myLogs.filter(a => a.status === 'On Leave').length;
+    const absentDays = myLogs.filter(a => a.status === 'Absent').length;
+    const totalWorkingHours = Math.round(myLogs.reduce((sum, a) => sum + (Number(a.workingHours) || 0), 0) * 10) / 10;
+
+    const columns: TableColumn[] = [
+      { key: 'metric', label: 'Attendance Metric' },
+      { key: 'value', label: 'Current Month Total' },
+      { key: 'status', label: 'Status' },
+    ];
+
+    const rows = [
+      { id: 1, metric: 'Present Days', value: `${presentDays} Days`, status: 'Recorded' },
+      { id: 2, metric: 'Late Arrivals', value: `${lateDays} Days`, status: lateDays > 0 ? 'Late Punch' : 'Zero Delay' },
+      { id: 3, metric: 'Approved Leaves', value: `${onLeaveDays} Days`, status: 'On Leave' },
+      { id: 4, metric: 'Absent Days', value: `${absentDays} Days`, status: absentDays > 0 ? 'Loss of Pay' : 'Nil' },
+      { id: 5, metric: 'Total Logged Hours', value: `${totalWorkingHours} Hours`, status: 'Active Biometrics' },
+    ];
+
+    const responseText = myLogs.length === 0
+      ? (lang === 'ta'
+          ? `இந்த மாதத்திற்கு (${currentMonth}) உங்களுக்கான வருகைப்பதிவு (Attendance Punches) எதுவும் இன்னும் பதிவாகவில்லை.`
+          : `No attendance punch records found for your account (${targetEmpId}) in the current month (${currentMonth}).`)
+      : (lang === 'ta'
+          ? `இந்த மாதத்தில் (${currentMonth}) உங்கள் வருகைப்பதிவு விபரம்:\n• Present: ${presentDays} நாட்கள்\n• Late: ${lateDays} நாட்கள்\n• On Leave: ${onLeaveDays} நாட்கள்\n• Absent: ${absentDays} நாட்கள்\n• மொத்த வேலை நேரம்: ${totalWorkingHours} மணிநேரம்`
+          : `Your attendance record for the current month (${currentMonth}):\n• Present: ${presentDays} days\n• Late: ${lateDays} days\n• On Leave: ${onLeaveDays} days\n• Absent: ${absentDays} days\n• Total Hours Worked: ${totalWorkingHours} hrs`);
+
+    return {
+      responseText,
+      payload: {
+        type: 'table',
+        title: `My Attendance Summary (${currentMonth})`,
+        columns,
+        rows,
+        metrics: [
+          { label: 'Present Days', value: presentDays, color: 'success' },
+          { label: 'Late Comers', value: lateDays, color: lateDays > 0 ? 'warning' : 'info' },
+          { label: 'Logged Hours', value: `${totalWorkingHours}h`, color: 'primary' },
+          { label: 'Total Records', value: myLogs.length, color: 'info' }
+        ],
+        exportAvailable: true,
+        navigationTarget: 'attendance'
+      },
+      newFilters: { module: 'attendance' },
+      followUpSuggestions: [
+        'En leave balance evlo?',
+        'En shift timing enna?',
+        'Inniku absent yaru?',
+        'Excel-la kudu'
+      ]
+    };
+  }
+
+  // 2C. GET_MY_SHIFT: Retrieve employee assigned shift policy
+  if (intent === 'GET_MY_SHIFT') {
+    const targetEmpId = data.currentUser?.employeeId || data.currentUser?.id || 'EMP-001';
+    const targetEmp = data.employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || data.currentUser;
+    const shiftName = targetEmp?.workShift || 'General Shift (09:00 AM - 06:00 PM)';
+
+    const columns: TableColumn[] = [
+      { key: 'property', label: 'Shift Policy Rule' },
+      { key: 'value', label: 'Assigned Configuration' },
+    ];
+
+    const rows = [
+      { id: 1, property: 'Assigned Shift Name', value: shiftName },
+      { id: 2, property: 'Standard Timing', value: '09:00 AM – 06:00 PM' },
+      { id: 3, property: 'Early Check-In Window', value: 'Opens 3 Hours Prior (06:00 AM)' },
+      { id: 4, property: 'Grace Period', value: '15 Minutes (Late penalty after 09:15 AM)' },
+      { id: 5, property: 'Break Duration', value: '45 Minutes' },
+      { id: 6, property: 'Working Hours', value: '8.25 Hours' },
+      { id: 7, property: 'Weekly Off', value: (targetEmp as any)?.shiftDetails?.weeklyOff || 'Sunday' },
+    ];
+
+    const responseText = lang === 'ta'
+      ? `உங்களுக்கு ஒதுக்கப்பட்டுள்ள பணி ஷிப்ட் (Assigned Shift Timing):\n• ஷிப்ட்: ${shiftName}\n• நேரம்: காலை 09:00 AM முதல் மாலை 06:00 PM வரை\n• Grace Period: 15 நிமிடங்கள் (09:15 AM வரை)\n• வார விடுமுறை: ${(targetEmp as any)?.shiftDetails?.weeklyOff || 'ஞாயிற்றுக்கிழமை (Sunday)'}`
+      : `Here is your assigned shift policy & work timings (${targetEmpId}):\n• Shift: ${shiftName}\n• Working Hours: 09:00 AM to 06:00 PM\n• Grace Period: 15 minutes (Check-in by 09:15 AM)\n• Early Punch Window: Available from 06:00 AM (3 hrs early)\n• Weekly Off: ${(targetEmp as any)?.shiftDetails?.weeklyOff || 'Sunday'}`;
+
+    return {
+      responseText,
+      payload: {
+        type: 'table',
+        title: `Assigned Shift Timing (${shiftName})`,
+        columns,
+        rows,
+        metrics: [
+          { label: 'Shift Start', value: '09:00 AM', color: 'primary' },
+          { label: 'Shift End', value: '06:00 PM', color: 'info' },
+          { label: 'Grace Period', value: '15 Mins', color: 'warning' },
+          { label: 'Working Hours', value: '8.25h', color: 'success' }
+        ],
+        exportAvailable: false,
+        navigationTarget: 'attendance'
+      },
+      newFilters: { module: 'attendance' },
+      followUpSuggestions: [
+        'En attendance intha maasam',
+        'En leave balance evlo?',
+        'Holiday policy enna?',
+        'Inniku absent yaru?'
+      ]
+    };
+  }
+
+  // 2D. GET_MY_CREDENTIAL_EMAIL: Verified Credential Email Dispatch Status
+  if (intent === 'GET_MY_CREDENTIAL_EMAIL') {
+    const targetEmpId = data.currentUser?.employeeId || data.currentUser?.id || 'EMP-001';
+    const targetEmp = data.employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || data.currentUser;
+    const emailStatus = targetEmp?.credentialEmailStatus || 'NOT_SENT';
+    const emailSentAt = targetEmp?.credentialEmailSentAt || null;
+    const isAccepted = emailStatus === 'SENT' && Boolean(emailSentAt);
+
+    const columns: TableColumn[] = [
+      { key: 'property', label: 'Email Property' },
+      { key: 'value', label: 'Verified Status' },
+    ];
+
+    const rows = [
+      { id: 1, property: 'Recipient Email', value: targetEmp?.email || 'Not configured' },
+      { id: 2, property: 'Employee Code', value: targetEmpId },
+      { id: 3, property: 'Backend Mail Delivery Status', value: isAccepted ? 'SENT (Delivered)' : `PENDING / FAILED (${emailStatus})` },
+      { id: 4, property: 'Dispatched Timestamp', value: emailSentAt || 'Cannot be verified / Not Sent' },
+    ];
+
+    const responseText = isAccepted
+      ? (lang === 'ta'
+          ? `உங்கள் லாகின் Credential மின்னஞ்சல் வெற்றிகரமாக அனுப்பப்பட்டு (${emailSentAt}) உறுதிப்படுத்தப்பட்டுள்ளது.`
+          : `Your HRMS portal credential email was verified as sent and accepted by the mail service on ${emailSentAt}.`)
+      : (lang === 'ta'
+          ? `உங்கள் லாகின் Credential மின்னஞ்சல் இன்னும் Mail Service-ஆல் ஏற்றுக்கொள்ளப்படவில்லை அல்லது அனுப்பப்படவில்லை (நிலை: ${emailStatus}). தேவைப்பட்டால் HR குழுவை தொடர்பு கொள்ளவும்.`
+          : `Credential email has not been accepted or dispatched by the backend mail service (Status: ${emailStatus}). Please contact HR to re-trigger credentials.`);
+
+    return {
+      responseText,
+      payload: {
+        type: 'table',
+        title: 'Credential Email Dispatch Verification',
+        columns,
+        rows,
+        metrics: [
+          { label: 'Mail Status', value: isAccepted ? 'SENT' : 'NOT SENT', color: isAccepted ? 'success' : 'danger' },
+          { label: 'Sent At', value: emailSentAt || 'None', color: 'info' }
+        ],
+        exportAvailable: false,
+        navigationTarget: 'employees'
+      },
+      newFilters: { module: 'employees' },
+      followUpSuggestions: [
+        'En leave balance evlo?',
+        'En attendance intha maasam',
+        'En shift timing enna?'
+      ]
+    };
+  }
+
   // 3. GET_LEAVE_RECORDS: Check approved leaves for yesterday, today, or requested date
   if (intent === 'GET_LEAVE_RECORDS') {
     let leaves = data.leaveRequests.filter(l => {
@@ -331,8 +576,8 @@ export function executeHRMSQuery(
       employeeName: r.employeeName,
       employeeId: r.employeeId,
       department: r.department,
-      checkIn: r.checkIn || '09:15 AM',
-      lateStatus: r.lateStatus || 'Late (<30m)'
+      checkIn: r.checkIn || 'Not Recorded',
+      lateStatus: r.lateStatus || 'Late'
     }));
 
     return {
@@ -487,9 +732,9 @@ export function executeHRMSQuery(
   // 8. GET_ATTENDANCE: Overview
   if (intent === 'GET_ATTENDANCE') {
     const totalEmployees = data.employees.length;
-    const presentCount = data.attendanceRecords.filter(a => a.status === 'Present').length || 18;
-    const lateCount = data.attendanceRecords.filter(a => a.status === 'Late').length || 3;
-    const leaveCount = data.attendanceRecords.filter(a => a.status === 'On Leave').length || 2;
+    const presentCount = data.attendanceRecords.filter(a => a.status === 'Present').length;
+    const lateCount = data.attendanceRecords.filter(a => a.status === 'Late').length;
+    const leaveCount = data.attendanceRecords.filter(a => a.status === 'On Leave').length;
     const absentCount = Math.max(0, totalEmployees - (presentCount + lateCount + leaveCount));
 
     return {
@@ -505,10 +750,10 @@ export function executeHRMSQuery(
           { label: 'Absent', value: absentCount, color: 'danger' }
         ],
         chartData: [
-          { label: 'Present', count: presentCount, percentage: Math.round((presentCount / totalEmployees) * 100), color: '#22C55E' },
-          { label: 'Late', count: lateCount, percentage: Math.round((lateCount / totalEmployees) * 100), color: '#F59E0B' },
-          { label: 'On Leave', count: leaveCount, percentage: Math.round((leaveCount / totalEmployees) * 100), color: '#0E7490' },
-          { label: 'Absent', count: absentCount, percentage: Math.round((absentCount / totalEmployees) * 100), color: '#EF4444' }
+          { label: 'Present', count: presentCount, percentage: Math.round((presentCount / (totalEmployees || 1)) * 100), color: '#22C55E' },
+          { label: 'Late', count: lateCount, percentage: Math.round((lateCount / (totalEmployees || 1)) * 100), color: '#F59E0B' },
+          { label: 'On Leave', count: leaveCount, percentage: Math.round((leaveCount / (totalEmployees || 1)) * 100), color: '#0E7490' },
+          { label: 'Absent', count: absentCount, percentage: Math.round((absentCount / (totalEmployees || 1)) * 100), color: '#EF4444' }
         ],
         navigationTarget: 'attendance',
         exportAvailable: true
@@ -1255,29 +1500,44 @@ export function executeHRMSQuery(
   }
 
   if (intent === 'GET_EMPLOYEE_DETAILS' || (isEmployeeInquiry && matchedEmp)) {
-    const emp = matchedEmp || data.employees[0];
-    if (emp) {
-      const columns: TableColumn[] = [
-        { key: 'field', label: 'Field' },
-        { key: 'value', label: 'Details' }
-      ];
-
-      const rows = [
-        { id: 1, field: 'Full Name', value: `${emp.firstName} ${emp.lastName}` },
-        { id: 2, field: 'Employee ID', value: emp.employeeId },
-        { id: 3, field: 'Department', value: emp.department },
-        { id: 4, field: 'Designation', value: emp.designation },
-        { id: 5, field: 'Email Address', value: emp.email },
-        { id: 6, field: 'Phone Number', value: emp.phone || '—' },
-        { id: 7, field: 'Role', value: (emp as any).role || emp.designation },
-        { id: 8, field: 'Employment Status', value: emp.status },
-        { id: 9, field: 'Joining Date', value: emp.joiningDate || '2023-01-15' }
-      ];
-
+    if (!matchedEmp) {
       return {
         responseText: lang === 'ta'
-          ? `${emp.firstName} ${emp.lastName} (${emp.employeeId}) அவர்களின் முழு விபரங்கள்:`
-          : `Profile and employment records for ${emp.firstName} ${emp.lastName} (${emp.employeeId}):`,
+          ? 'குறிப்பிட்ட ஊழியரின் விபரம் தரவுத்தளத்தில் கிடைக்கவில்லை. தயவுசெய்து சரியான Employee ID அல்லது பெயரை குறிப்பிடவும்.'
+          : 'The specified employee record could not be verified in the active database. Please verify the Employee ID or full name.',
+        payload: { type: 'none' },
+        newFilters: state.lastFilters,
+        followUpSuggestions: [
+          'Total employees evlo peru?',
+          'Inniku absent yaru?',
+          'Nethu yaru leave?'
+        ],
+        isError: true
+      };
+    }
+
+    const emp = matchedEmp;
+    const columns: TableColumn[] = [
+      { key: 'field', label: 'Field' },
+      { key: 'value', label: 'Details' }
+    ];
+
+    const rows = [
+      { id: 1, field: 'Full Name', value: `${emp.firstName} ${emp.lastName}` },
+      { id: 2, field: 'Employee ID', value: emp.employeeId },
+      { id: 3, field: 'Department', value: emp.department },
+      { id: 4, field: 'Designation', value: emp.designation },
+      { id: 5, field: 'Email Address', value: emp.email },
+      { id: 6, field: 'Phone Number', value: emp.phone || '—' },
+      { id: 7, field: 'Role', value: (emp as any).role || emp.designation },
+      { id: 8, field: 'Employment Status', value: emp.status },
+      { id: 9, field: 'Joining Date', value: emp.joiningDate || 'Not Available' }
+    ];
+
+    return {
+      responseText: lang === 'ta'
+        ? `${emp.firstName} ${emp.lastName} (${emp.employeeId}) அவர்களின் முழு விபரங்கள்:`
+        : `Profile and employment records for ${emp.firstName} ${emp.lastName} (${emp.employeeId}):`,
         payload: {
           type: 'table',
           title: `Employee Profile: ${emp.firstName} ${emp.lastName}`,
@@ -1298,7 +1558,6 @@ export function executeHRMSQuery(
           'Total employees evlo peru?'
         ]
       };
-    }
   }
 
   // 18. GENERAL_HELP or SMART CONVERSATIONAL FALLBACK

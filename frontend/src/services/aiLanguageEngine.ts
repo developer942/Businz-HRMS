@@ -576,6 +576,37 @@ export function normalizeIntent(
     return 'GET_LATE_EMPLOYEES';
   }
 
+  // 1. Personal Employee Leave Balance (Deterministic Quotas & Approved Leaves)
+  if (
+    /\b(my leave balance|en leave balance|mera leave balance|my leave quota|remaining leave|remaining leaves|balance leave|leave balance|leaves balance|leaves left|my leaves left|my remaining leaves|how many leaves do i have|how many leaves left|leave quota balance|cl balance|sl balance|el balance|leave balance evlo|leave balance sollunga|leave balance enna|enakku evlo leave irukku|ennoda leave balance|mere kitne leave bache|naaku enni leaves unnayi|விடுப்பு இருப்பு)\b/i.test(lower) ||
+    (/\b(my|en|ennoda|mera|naa|meri)\b/i.test(lower) && /\b(leave|leaves|chhutti|selavu)\b/i.test(lower) && /\b(balance|quota|remaining|left|evlo|kitni|enni|irukku)\b/i.test(lower))
+  ) {
+    return 'GET_MY_LEAVE_BALANCE';
+  }
+
+  // 2. Personal Employee Attendance Totals (Month-to-date present, late, absent)
+  if (
+    /\b(my attendance|en attendance|ennoda attendance|mera attendance|naa attendance|my present days|my late days|my attendance this month|en attendance intha maasam|is mahine mera attendance|ee month naa attendance|how many days was i present|how many days present|ethana naal present|evalavu naal present)\b/i.test(lower) ||
+    (/\b(my|en|ennoda|mera|naa)\b/i.test(lower) && /\b(attendance|punches|present days|working hours)\b/i.test(lower))
+  ) {
+    return 'GET_MY_ATTENDANCE';
+  }
+
+  // 3. Personal Employee Assigned Shift Timing
+  if (
+    /\b(my shift|en shift|ennoda shift|mera shift|naa shift|my shift timing|my shift timings|en shift timing enna|what is my shift|what is my shift timing|my shift schedule|my work timing|my office timing|en shift eppo|mera shift time kya hai)\b/i.test(lower) ||
+    (/\b(my|en|ennoda|mera|naa)\b/i.test(lower) && /\b(shift|shift timing|work timing|office timing)\b/i.test(lower))
+  ) {
+    return 'GET_MY_SHIFT';
+  }
+
+  // 4. Personal Credential Email Status Verification
+  if (
+    /\b(credential email|credentials email|login email|password email|my login email|credential anupitingala|email anupitingala|email sent-aa|credential email sent|did you send my email|welcome email|login details email)\b/i.test(lower)
+  ) {
+    return 'GET_MY_CREDENTIAL_EMAIL';
+  }
+
   // Holiday Policies & Company Holiday Calendar
   // Holiday Policies & Company Holiday Calendar
   if (

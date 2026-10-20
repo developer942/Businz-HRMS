@@ -15,6 +15,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { MissedPunchRequestType } from '../../types/attendanceEnterprise';
 import { AttendanceTimePickerModal } from './AttendanceTimePickerModal';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface MissedPunchModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export const MissedPunchModal: React.FC<MissedPunchModalProps> = ({
   const [attachmentFileName, setAttachmentFileName] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Time picker modal state
   const [timePickerTarget, setTimePickerTarget] = useState<'in' | 'out' | null>(null);
@@ -108,29 +110,36 @@ export const MissedPunchModal: React.FC<MissedPunchModalProps> = ({
     // Find existing attendance punches for reference
     const matchedRecord = attendanceRecords.find(a => a.employeeId === employeeId && a.date === date);
 
-    const res = submitMissedPunchRequest({
-      employeeId,
-      employeeName,
-      department,
-      date,
-      requestType,
-      existingCheckIn: matchedRecord?.checkIn || null,
-      existingCheckOut: matchedRecord?.checkOut || null,
-      requestedCheckIn: needsIn ? checkInTime : (matchedRecord?.checkIn || '09:00 AM'),
-      requestedCheckOut: needsOut ? checkOutTime : (matchedRecord?.checkOut || '06:00 PM'),
-      reason,
-      description,
-      attachmentUrl: attachmentFileName ? `uploads/${attachmentFileName}` : undefined
-    });
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    if (res.success) {
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-      }, 1400);
-    } else {
-      setError(res.message);
+    try {
+      const res = submitMissedPunchRequest({
+        employeeId,
+        employeeName,
+        department,
+        date,
+        requestType,
+        existingCheckIn: matchedRecord?.checkIn || null,
+        existingCheckOut: matchedRecord?.checkOut || null,
+        requestedCheckIn: needsIn ? checkInTime : (matchedRecord?.checkIn || '09:00 AM'),
+        requestedCheckOut: needsOut ? checkOutTime : (matchedRecord?.checkOut || '06:00 PM'),
+        reason,
+        description,
+        attachmentUrl: attachmentFileName ? `uploads/${attachmentFileName}` : undefined
+      });
+
+      if (res.success) {
+        setIsSuccess(true);
+        setTimeout(() => {
+          setIsSuccess(false);
+          onClose();
+        }, 1400);
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -173,7 +182,7 @@ export const MissedPunchModal: React.FC<MissedPunchModalProps> = ({
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4 text-sm">
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="flex-1 overflow-y-auto p-6 space-y-4 text-sm">
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 animate-shake">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -288,6 +297,7 @@ export const MissedPunchModal: React.FC<MissedPunchModalProps> = ({
               rows={3}
               value={description}
               onChange={e => setDescription(e.target.value)}
+              onKeyDown={preventSpaceEnterPropagation}
               placeholder="e.g. I completed my work but forgot to check out at 07:15 PM."
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-600 transition-all resize-none"
               required
@@ -339,9 +349,10 @@ export const MissedPunchModal: React.FC<MissedPunchModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-sm font-semibold shadow-sm flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <CheckCircle2 className="w-4 h-4" /> Submit Request
+              <CheckCircle2 className="w-4 h-4" /> {isSubmitting ? 'Submitting...' : 'Submit Request'}
             </button>
           </div>
         </form>

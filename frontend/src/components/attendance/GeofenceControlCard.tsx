@@ -249,7 +249,8 @@ export const GeofenceControlCard: React.FC<GeofenceControlCardProps> = ({ onLoca
       officeName,
       centerLat,
       centerLng,
-      radiusMeters
+      radiusMeters,
+      enforceStrictly: enabled
     });
 
     setSaveToast(true);

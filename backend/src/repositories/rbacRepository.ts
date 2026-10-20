@@ -37,6 +37,7 @@ export const CORE_MODULES: ModuleDefinition[] = [
   { id: 'mod-14', key: 'documents', name: 'Documents', category: 'HR Core', isCustom: false, description: 'Contracts, KYC files, policy documents & certificates' },
   { id: 'mod-15', key: 'notifications', name: 'Notifications', category: 'System', isCustom: false, description: 'System alerts, broadcast announcements & push alerts' },
   { id: 'mod-16', key: 'settings', name: 'Settings', category: 'System', isCustom: false, description: 'System configurations, company identity & policy engines' },
+  { id: 'mod-17', key: 'customer_data', name: 'Customer Data Collection', category: 'Operations', isCustom: false, description: 'Field customer capture, visiting card OCR scanning, WhatsApp consent and templates' },
 ];
 
 export const SPECIAL_PERMISSIONS_CATALOG: SpecialPermissionItem[] = [
@@ -180,7 +181,7 @@ export class RbacRepository {
     // 2. HR (Employee + Attendance + Leave + Task + Payroll + Reports + All Employee Data)
     const hrModules: Record<string, PermissionAction[]> = {};
     this.modules.forEach(m => {
-      if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'payroll', 'advance_salary', 'reports', 'documents', 'notifications', 'expenses', 'dashboard'].includes(m.key)) {
+      if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'payroll', 'advance_salary', 'reports', 'documents', 'notifications', 'expenses', 'dashboard', 'customer_data'].includes(m.key)) {
         hrModules[m.key] = [...ALL_ACTIONS];
       } else {
         hrModules[m.key] = ['view'];
@@ -255,6 +256,7 @@ export class RbacRepository {
       reports: ['view', 'export'],
       documents: ['view'],
       notifications: ['view'],
+      customer_data: ['view', 'create', 'edit', 'export'],
     };
     this.permissionsByRole['role-manager'] = {
       roleId: 'role-manager',
@@ -286,6 +288,7 @@ export class RbacRepository {
       performance: ['view'],
       site_visit: ['view'],
       notifications: ['view'],
+      customer_data: ['view', 'create'],
     };
     this.permissionsByRole['role-team-leader'] = {
       roleId: 'role-team-leader',
@@ -314,6 +317,7 @@ export class RbacRepository {
       expenses: ['view', 'create'],
       documents: ['view'],
       notifications: ['view'],
+      customer_data: ['view', 'create'],
     };
     this.permissionsByRole['role-employee'] = {
       roleId: 'role-employee',

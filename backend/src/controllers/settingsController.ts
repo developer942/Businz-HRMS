@@ -154,12 +154,15 @@ export const testCompanySmtpConnection = async (req: Request, res: Response, nex
   try {
     const { verifySmtpConnection } = await import('../services/emailService.js');
     const companyId = req.user?.company_id || req.body.companyId || (req.headers['x-company-id'] as string) || 'company-a';
-    const { smtpHost, smtpPort, secure, senderEmail, appPassword } = req.body;
+    const { smtpHost, smtpPort, secure, senderEmail, appPassword, testRecipientEmail } = req.body;
 
     if (!senderEmail || !senderEmail.trim()) {
       res.status(400).json({
         success: false,
-        error: { message: 'Corporate Sender Email is required.' },
+        error: {
+          code: 'SMTP_CONFIG_INVALID',
+          message: 'Corporate Sender Email is required.',
+        },
       });
       return;
     }
@@ -171,6 +174,7 @@ export const testCompanySmtpConnection = async (req: Request, res: Response, nex
       secure,
       senderEmail,
       appPassword,
+      testRecipientEmail,
     });
 
     res.status(200).json({
@@ -181,7 +185,7 @@ export const testCompanySmtpConnection = async (req: Request, res: Response, nex
     res.status(400).json({
       success: false,
       error: {
-        code: 'SMTP_CONNECTION_FAILED',
+        code: err.code || 'SMTP_CONNECTION_FAILED',
         message: err.message || 'SMTP Authentication failed. Please check host, port, email, and 16-digit App Password.',
       },
     });

@@ -880,10 +880,35 @@ export const supabaseDirect = {
 
   async updateShift(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
+      const dbPayload: Record<string, any> = {
+        updated_at: new Date().toISOString()
+      };
+      if (updates.shiftName !== undefined || updates.name !== undefined || updates.shift_name !== undefined) {
+        dbPayload.shift_name = updates.shiftName || updates.name || updates.shift_name;
+      }
+      if (updates.startTime !== undefined || updates.start_time !== undefined) {
+        dbPayload.start_time = updates.startTime || updates.start_time;
+      }
+      if (updates.endTime !== undefined || updates.end_time !== undefined) {
+        dbPayload.end_time = updates.endTime || updates.end_time;
+      }
+      if (updates.breakDurationMins !== undefined || updates.break_duration_mins !== undefined) {
+        dbPayload.break_duration_mins = Number(updates.breakDurationMins ?? updates.break_duration_mins);
+      }
+      if (updates.workingHours !== undefined || updates.working_hours !== undefined) {
+        dbPayload.working_hours = Number(updates.workingHours ?? updates.working_hours);
+      }
+      if (updates.gracePeriodMins !== undefined || updates.grace_period_mins !== undefined) {
+        dbPayload.grace_period_mins = Number(updates.gracePeriodMins ?? updates.grace_period_mins);
+      }
+      if (updates.color !== undefined) {
+        dbPayload.color = updates.color;
+      }
+
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
-        body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+        body: JSON.stringify(dbPayload),
       });
       return res.ok;
     } catch (err) {

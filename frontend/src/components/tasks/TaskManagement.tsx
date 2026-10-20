@@ -8,7 +8,6 @@ import {
   Plus,
   BarChart3, 
   CheckSquare,
-  Sparkles,
   FileCheck
 } from 'lucide-react';
 

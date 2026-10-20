@@ -1177,33 +1177,53 @@ input[type="number"] {
   position: relative;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-card.compact {
   padding: 8px 12px;
   border-radius: 9px;
   min-height: 72px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-card.compact .kpi-card-header {
   font-size: 9.5px;
   margin-bottom: 2px;
   letter-spacing: 0.04em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-card.compact .kpi-card-body {
   margin-top: 1px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-card.compact .kpi-value {
   font-size: 1.2rem;
   line-height: 1.1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-card.compact .kpi-caption {
   font-size: 10.5px;
   margin-top: 2px;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-card.compact .kpi-trend-badge {
@@ -1229,6 +1249,8 @@ input[type="number"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-value-row {
@@ -1237,6 +1259,8 @@ input[type="number"] {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 2px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-value {
@@ -1246,6 +1270,11 @@ input[type="number"] {
   color: #0B1A2D;
   letter-spacing: -0.03em;
   line-height: 1.1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-trend-badge {
@@ -1299,6 +1328,8 @@ input[type="number"] {
   margin-top: 4px;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-caption {
@@ -1308,6 +1339,11 @@ input[type="number"] {
   color: #64748B;
   margin-top: 4px;
   line-height: 1.35;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-icon-wrapper {

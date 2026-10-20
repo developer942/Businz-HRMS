@@ -27,6 +27,7 @@ import { AssetManagement } from '../assets/AssetManagement';
 import { Settings } from '../settings/Settings';
 import { UserProfile } from '../profile/UserProfile';
 import { TrackingModule } from '../tracking/TrackingModule';
+import { CustomerModule } from '../customer/CustomerModule';
 import { AIAssistantWidget } from '../ai/AIAssistantWidget';
 import { isCeoOrHrUser } from '../../services/authService';
 
@@ -157,6 +158,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         return <Settings onLogout={onLogout} initialSection="my_profile" />;
       case 'tracking':
         return <TrackingModule />;
+      case 'customer_data':
+        return <CustomerModule />;
       default:
         return <Dashboard />;
     }

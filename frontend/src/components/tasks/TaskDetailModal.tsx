@@ -23,6 +23,7 @@ import { TaskItemEnhanced, TaskAssigneeStatus, TaskDailyReport, computeDueStatus
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface TaskDetailModalProps {
   taskId: string;
@@ -501,11 +502,11 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Description</label>
-                  <textarea className="form-control" rows={3} value={editTaskForm.description} onChange={e => setEditTaskForm(prev => ({ ...prev, description: e.target.value }))} />
+                  <textarea className="form-control" rows={3} value={editTaskForm.description} onChange={e => setEditTaskForm(prev => ({ ...prev, description: e.target.value }))} onKeyDown={preventSpaceEnterPropagation} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Expected Output</label>
-                  <textarea className="form-control" rows={3} value={editTaskForm.expectedOutput} onChange={e => setEditTaskForm(prev => ({ ...prev, expectedOutput: e.target.value }))} />
+                  <textarea className="form-control" rows={3} value={editTaskForm.expectedOutput} onChange={e => setEditTaskForm(prev => ({ ...prev, expectedOutput: e.target.value }))} onKeyDown={preventSpaceEnterPropagation} />
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
@@ -876,6 +877,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                     placeholder={`Explain specific work completed on ${dailyDate}...`} 
                     value={dailyWorkDone} 
                     onChange={e => setDailyWorkDone(e.target.value)} 
+                    onKeyDown={preventSpaceEnterPropagation}
                     style={{
                       width: '100%',
                       fontSize: '0.82rem',
@@ -1200,7 +1202,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
 
             {/* Inline Add Link Form */}
             {isAddingLink && (
-              <form onSubmit={handleAddLink} style={{ marginBottom: '14px', padding: '14px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+              <form onSubmit={handleAddLink} onKeyDown={handleFormKeyDown} style={{ marginBottom: '14px', padding: '14px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', marginBottom: '10px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
@@ -1535,9 +1537,9 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
             <div className="modal-content" style={{ maxWidth: '420px', borderRadius: '12px' }}>
               <div className="modal-header" style={{ padding: '14px 18px', background: '#0E7490', color: '#fff' }}>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: '#fff' }}>Sign-Off &amp; Close Task</h3>
-                <button onClick={() => setShowClosePrompt(false)} style={{ color: '#fff' }}><X size={16} /></button>
+                <button type="button" onClick={() => setShowClosePrompt(false)} style={{ color: '#fff' }}><X size={16} /></button>
               </div>
-              <form onSubmit={handleExecuteClose} className="modal-body" style={{ padding: '16px' }}>
+              <form onSubmit={handleExecuteClose} onKeyDown={handleFormKeyDown} className="modal-body" style={{ padding: '16px' }}>
                 <p style={{ fontSize: '0.78rem', color: '#64748B', marginBottom: '10px' }}>
                   Verify that all deliverables, daily reports, and document evidence have been approved.
                 </p>
@@ -1546,6 +1548,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                   placeholder="Verification remarks..." 
                   value={closeRemarks} 
                   onChange={e => setCloseRemarks(e.target.value)} 
+                  onKeyDown={preventSpaceEnterPropagation}
                   className="form-control" 
                   style={{ fontSize: '0.8rem', marginBottom: '12px' }} 
                 />
@@ -1563,9 +1566,9 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
             <div className="modal-content" style={{ maxWidth: '420px', borderRadius: '12px' }}>
               <div className="modal-header" style={{ padding: '14px 18px', background: '#F59E0B', color: '#fff' }}>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: '#fff' }}>Reopen Task</h3>
-                <button onClick={() => setShowReopenPrompt(false)} style={{ color: '#fff' }}><X size={16} /></button>
+                <button type="button" onClick={() => setShowReopenPrompt(false)} style={{ color: '#fff' }}><X size={16} /></button>
               </div>
-              <form onSubmit={handleExecuteReopen} className="modal-body" style={{ padding: '16px' }}>
+              <form onSubmit={handleExecuteReopen} onKeyDown={handleFormKeyDown} className="modal-body" style={{ padding: '16px' }}>
                 <p style={{ fontSize: '0.78rem', color: '#64748B', marginBottom: '10px' }}>
                   Provide reason for reopening this task. Action will be audited.
                 </p>
@@ -1574,6 +1577,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                   placeholder="Reason for reopening..." 
                   value={reopenReason} 
                   onChange={e => setReopenReason(e.target.value)} 
+                  onKeyDown={preventSpaceEnterPropagation}
                   className="form-control" 
                   style={{ fontSize: '0.8rem', marginBottom: '12px' }} 
                   required 

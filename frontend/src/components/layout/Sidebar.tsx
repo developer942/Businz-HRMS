@@ -23,7 +23,8 @@ import {
   MapPin,
   Pin,
   PinOff,
-  X
+  X,
+  Contact2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -176,6 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'WORKFLOW & OPS' },
     { id: 'tracking', label: 'Tracking', icon: MapPin, section: 'WORKFLOW & OPS' },
+    { id: 'customer_data', label: 'Customer Data Collection', icon: Contact2, section: 'WORKFLOW & OPS' },
     { 
       id: 'performance', 
       label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'My Performance' : 'Performance', 

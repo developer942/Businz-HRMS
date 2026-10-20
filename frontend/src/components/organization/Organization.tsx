@@ -20,7 +20,6 @@ import {
   Layers,
   ArrowRight,
   ExternalLink,
-  Sparkles,
   AlertCircle
 } from 'lucide-react';
 

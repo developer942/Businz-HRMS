@@ -3,10 +3,17 @@ import { HRMSProvider, useHRMS } from './context/HRMSContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './components/auth/LoginPage';
 import { authService, toAppUser } from './services/authService';
+import { initGlobalKeyboardGuard } from './utils/keyboardUtils';
 
 const AuthenticatedApp: React.FC = () => {
   const { switchRole, updateCurrentUser, setActiveModule, resetToDashboard } = useHRMS();
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'anonymous'>('checking');
+
+  useEffect(() => {
+    // Install global keyboard protection across entire HRMS
+    const cleanupKeyboardGuard = initGlobalKeyboardGuard();
+    return () => cleanupKeyboardGuard();
+  }, []);
 
   useEffect(() => {
     let active = true;

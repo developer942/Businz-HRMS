@@ -464,7 +464,7 @@ export const getEmployeeLoginAccount = async (req, res, next) => {
                 email: emp.email,
                 accountStatus: authUser?.accountStatus || emp.accountStatus || 'ACTIVE',
                 authAccount: authUser ? 'Created' : 'Not Created',
-                credentialEmailStatus: authUser?.credentialEmailStatus || emp.credentialEmailStatus || 'SENT',
+                credentialEmailStatus: authUser?.credentialEmailStatus || emp.credentialEmailStatus || 'NOT_SENT',
                 credentialEmailSentAt: authUser?.credentialEmailSentAt || emp.credentialEmailSentAt || null,
                 lastLoginAt: authUser?.lastLoginAt || emp.lastLoginAt || 'Never',
                 mustChangePassword: authUser?.mustChangePassword ?? emp.mustChangePassword ?? false,

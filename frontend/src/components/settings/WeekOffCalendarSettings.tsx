@@ -11,7 +11,6 @@ import {
   Clock, 
   Sliders, 
   Info, 
-  Sparkles, 
   Save, 
   RotateCcw,
   Briefcase,

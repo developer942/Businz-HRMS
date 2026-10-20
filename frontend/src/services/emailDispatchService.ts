@@ -101,7 +101,7 @@ export async function dispatchCredentialEmail(payload: EmployeeCredentialEmailPa
   const gmailUrl = getGmailComposeUrl(payload);
   const mailtoUrl = getMailtoUrl(payload);
 
-  let dispatchStatus: 'SENT' | 'FAILED' = 'SENT';
+  let dispatchStatus: 'SENT' | 'FAILED' = 'FAILED';
 
   // Try dispatching to backend server if alive
   try {
@@ -122,13 +122,17 @@ export async function dispatchCredentialEmail(payload: EmployeeCredentialEmailPa
     });
     if (apiRes.ok) {
       const data = await apiRes.json();
-      if (data.status === 'FAILED') {
+      if (data.status === 'SENT') {
+        dispatchStatus = 'SENT';
+      } else {
         dispatchStatus = 'FAILED';
       }
+    } else {
+      dispatchStatus = 'FAILED';
     }
   } catch {
-    // If backend is running standalone client, mark dispatched via client
-    dispatchStatus = 'SENT';
+    // Backend unavailable or mail transport rejected
+    dispatchStatus = 'FAILED';
   }
 
   const record: EmailDispatchRecord = {

@@ -20,7 +20,7 @@ import {
   Building2 
 } from 'lucide-react';
 
-export type AttendanceCategoryType = 'total' | 'absent' | 'present' | 'early' | 'missed';
+export type AttendanceCategoryType = 'total' | 'absent' | 'present' | 'early' | 'missed' | 'late';
 
 interface CategoryItem {
   employee: Employee;
@@ -103,6 +103,14 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       accentColor: '#8b5cf6',
       badgeBg: '#ede9fe',
       badgeColor: '#6d28d9'
+    },
+    late: {
+      title: 'Late Arrivals Today',
+      subtitle: 'Employees who clocked in after the shift start time / grace window today',
+      icon: <Clock size={22} color="#f59e0b" />,
+      accentColor: '#f59e0b',
+      badgeBg: '#fef3c7',
+      badgeColor: '#b45309'
     }
   }[category];
 
@@ -196,6 +204,12 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
     }
     if (category === 'missed') {
       return item.attendance && item.attendance.checkIn && !item.attendance.checkOut;
+    }
+    if (category === 'late') {
+      return item.attendance && (
+        item.attendance.status === 'Late' ||
+        (item.attendance.lateStatus && item.attendance.lateStatus.toLowerCase().includes('late') && item.attendance.lateStatus !== 'On Time')
+      );
     }
     if (category === 'absent') {
       const isPres = item.attendance && (

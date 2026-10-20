@@ -3,6 +3,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 import { 
   X, 
   Clock, 
@@ -303,7 +304,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
               </p>
             </div>
           ) : (
-            <form onSubmit={handleValidationAndProceed}>
+            <form onSubmit={handleValidationAndProceed} onKeyDown={handleFormKeyDown}>
               {/* Employee & Record Information Card */}
               <div style={{
                 backgroundColor: '#F8FAFC',
@@ -870,6 +871,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
                   placeholder="Explain why this attendance status or punch is being manually modified by HR/CEO (e.g. Employee forgot to punch out at main gate terminal)..."
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
+                  onKeyDown={preventSpaceEnterPropagation}
                   style={{
                     width: '100%',
                     padding: '10px 14px',

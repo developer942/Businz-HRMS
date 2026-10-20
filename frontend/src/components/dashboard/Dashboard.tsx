@@ -438,12 +438,20 @@ export const Dashboard: React.FC = () => {
 
   // Metrics for Today's Attendance Donut Card
   const totalAttendanceCount = totalStaff;
-  const donutPresent = presentToday;
+  const lateEmployees = attendanceWorkforceEmployees.filter(emp => {
+    const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
+    return att && (
+      att.status === 'Late' ||
+      (att.lateStatus && typeof att.lateStatus === 'string' && att.lateStatus.toLowerCase().includes('late') && att.lateStatus !== 'On Time')
+    );
+  });
+  const donutLate = lateEmployees.length;
+  const donutPresent = Math.max(0, presentToday - donutLate);
   const donutLeave = attendanceWorkforceEmployees.filter(emp =>
     filteredAttendance.some(a => doesAttendanceMatchEmployee(a, emp) && a.status === 'On Leave') ||
     leaveRequests.some(l => doesLeaveMatchEmployee(l, emp) && doesLeaveCoverToday(l))
   ).length;
-  const donutAbsent = Math.max(0, totalAttendanceCount - donutPresent - donutLeave);
+  const donutAbsent = Math.max(0, totalAttendanceCount - donutPresent - donutLate - donutLeave);
 
   // Dynamic Celebrations derived from real employees
   const celebrations = useMemo(() => {
@@ -895,6 +903,7 @@ export const Dashboard: React.FC = () => {
             present={donutPresent}
             absent={donutAbsent}
             leave={donutLeave}
+            late={donutLate}
             onSelectCategory={(cat) => setSelectedCategory(cat)}
             onOpenLeaves={() => setActiveModule('leaves')}
           />

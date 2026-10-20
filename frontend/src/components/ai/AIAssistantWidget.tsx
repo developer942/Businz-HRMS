@@ -28,7 +28,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { isCeoOrHrUser } from '../../services/authService';
 import {
-  Sparkles,
+  Settings,
   RotateCcw,
   Maximize2,
   Minimize2,
@@ -460,38 +460,8 @@ export const AIAssistantWidget: React.FC = () => {
       return;
     }
 
-    // Process Query via Gemini API (if key provided) or local high-speed engine
+    // Process Query: Compute verified calculations deterministically first, then optionally ground Gemini
     setTimeout(async () => {
-      let geminiResponseText: string | null = null;
-      let geminiModelUsed: string | null = null;
-      const currentApiKey = getStoredGeminiApiKey();
-
-      if (currentApiKey || hasGeminiKey) {
-        try {
-          const geminiResult = await callGeminiGenerateContent(
-            queryText,
-            {
-              employees,
-              leaveRequests,
-              attendanceRecords,
-              enhancedTasks,
-              performanceScores,
-              payrollRecords,
-              departments,
-              userRole: role
-            },
-            activeLang,
-            convState.conversationHistory,
-            currentApiKey,
-            selectedModel
-          );
-          geminiResponseText = geminiResult.text;
-          geminiModelUsed = geminiResult.modelUsed;
-        } catch (err: any) {
-          console.warn('Gemini API call error, falling back to local HRMS query engine:', err);
-        }
-      }
-
       const queryResult = executeHRMSQuery(
         intent,
         entities,
@@ -518,7 +488,45 @@ export const AIAssistantWidget: React.FC = () => {
         queryText
       );
 
-      const finalResponseText = geminiResponseText || queryResult.responseText;
+      let geminiResponseText: string | null = null;
+      let geminiModelUsed: string | null = null;
+      const currentApiKey = getStoredGeminiApiKey();
+
+      // Only invoke LLM when not a security error, grounding it strictly on deterministic facts
+      if ((currentApiKey || hasGeminiKey) && !queryResult.isError) {
+        try {
+          const geminiResult = await callGeminiGenerateContent(
+            queryText,
+            {
+              employees,
+              leaveRequests,
+              attendanceRecords,
+              enhancedTasks,
+              performanceScores,
+              payrollRecords,
+              departments,
+              userRole: role,
+              currentUser,
+              verifiedFacts: queryResult.responseText
+            },
+            activeLang,
+            convState.conversationHistory,
+            currentApiKey,
+            selectedModel
+          );
+          if (geminiResult.text && geminiResult.text.trim()) {
+            geminiResponseText = geminiResult.text;
+            geminiModelUsed = geminiResult.modelUsed;
+          }
+        } catch (err: any) {
+          console.warn('Gemini API call error, falling back to local verified HRMS query engine:', err);
+        }
+      }
+
+      // Deterministic calculation is authoritative; Gemini provides natural multilingual phrasing
+      const finalResponseText = (queryResult.isError || !geminiResponseText) 
+        ? queryResult.responseText 
+        : geminiResponseText;
 
       const assistantMsg: AIMessage = {
         id: `asst-${Date.now()}`,
@@ -1028,7 +1036,7 @@ export const AIAssistantWidget: React.FC = () => {
               <div className="vrm-ai-modal-card" onClick={e => e.stopPropagation()}>
                 <div className="vrm-ai-modal-header">
                   <h4 className="vrm-ai-modal-title">
-                    <Sparkles size={16} color="#0E7490" />
+                    <Settings size={16} color="#0E7490" />
                     <span>Gemini AI Configuration</span>
                   </h4>
                   <button

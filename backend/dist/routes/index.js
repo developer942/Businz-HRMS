@@ -12,6 +12,8 @@ import { salaryStructureRouter } from './salaryStructureRoutes.js';
 import { overtimeRouter } from './overtimeRoutes.js';
 import { rbacRouter } from './rbacRoutes.js';
 import { aiRouter } from './aiRoutes.js';
+import { customerRouter } from './customerRoutes.js';
+import { whatsappRouter } from './whatsappRoutes.js';
 export const apiRouter = Router();
 // Health check available at /health and /api/v1/health
 apiRouter.use(healthRouter);
@@ -29,4 +31,6 @@ apiRouter.use('/rbac', rbacRouter);
 apiRouter.use('/settings/roles-permissions', rbacRouter);
 apiRouter.use('/ai', aiRouter);
 apiRouter.use('/', overtimeRouter);
+apiRouter.use('/customers', customerRouter);
+apiRouter.use('/whatsapp', whatsappRouter);
 //# sourceMappingURL=index.js.map

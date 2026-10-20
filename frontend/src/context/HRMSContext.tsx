@@ -195,6 +195,20 @@ import {
   ShiftWindowEvaluation
 } from '../services/shiftAttendanceEngine';
 import { formatTimeDisplay, formatDateDDMMYYYY } from '../utils/dateUtils';
+import { 
+  getTodayKolkata, 
+  validateRequestDate, 
+  validateDateRange, 
+  checkDuplicateLeaveRequest, 
+  checkDuplicateShiftRequest,
+  checkDuplicateAdvanceRequest,
+  checkDuplicateFieldAssignment,
+  checkDuplicateMissedPunchRequest,
+  checkDuplicateOtRequest,
+  checkDuplicateExpense,
+  PAST_DATE_ERROR_MESSAGE, 
+  DUPLICATE_REQUEST_ERROR_MESSAGE 
+} from '../utils/requestValidation';
 
 export const calculateDistanceMeters = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
   const R = 6371e3; // metres
@@ -216,8 +230,10 @@ const INITIAL_GEOFENCE_CONFIG: GeofenceConfig = {
   officeName: '',
   centerLat: 0,
   centerLng: 0,
-  radiusMeters: 50000,
-  enforceStrictly: false
+  radiusMeters: 250,
+  enforceStrictly: true,
+  googleMapsLink: '',
+  address: ''
 };
 
 const DEPRECATED_DEFAULT_LOAN_POLICY_NAMES = new Set([
@@ -247,6 +263,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'CEO': {
     dashboard: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -267,6 +284,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'HR Manager': {
     dashboard: ['view', 'export'],
@@ -287,6 +305,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'edit'],
     assets: ['view', 'create', 'edit', 'export'],
     settings: ['view'],
+    customer_data: ['view', 'create', 'edit', 'export'],
   },
   'HR Admin': {
     dashboard: ['view', 'export'],
@@ -307,6 +326,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'edit'],
+    customer_data: ['view', 'create', 'edit', 'export'],
   },
   'HR': {
     dashboard: ['view', 'export'],
@@ -327,6 +347,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'edit'],
+    customer_data: ['view', 'create', 'edit', 'export'],
   },
   'Admin': {
     dashboard: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -347,6 +368,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Department Manager': {
     dashboard: ['view'],
@@ -367,6 +389,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: ['view'],
     settings: ['view'],
+    customer_data: ['view', 'create', 'edit', 'export'],
   },
   'Employee': {
     dashboard: ['view'],
@@ -387,6 +410,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: ['view'],
     settings: ['view'],
+    customer_data: ['view', 'create'],
   },
   'Finance Manager': {
     dashboard: ['view'],
@@ -869,6 +893,7 @@ interface HRMSContextType {
   expenses: Expense[];
   addExpense: (exp: Omit<Expense, 'id' | 'status'>) => void;
   approveExpense: (id: string, approvedBy: string, nextStatus: Expense['status']) => void;
+  deleteExpense: (id: string) => void;
 
   notifications: NotificationItem[];
   markNotificationRead: (id: string) => void;
@@ -1278,7 +1303,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [geofenceConfig]);
 
   const updateGeofenceConfig = (config: Partial<GeofenceConfig>) => {
-    setGeofenceConfig(prev => ({ ...prev, ...config }));
+    setGeofenceConfig(prev => {
+      const updated = { ...prev, ...config };
+      if (updated.enabled && config.enforceStrictly === undefined && updated.enforceStrictly === undefined) {
+        updated.enforceStrictly = true;
+      }
+      return updated;
+    });
   };
 
   const isGeofenceAdmin = true; // Fully unlocked for all roles
@@ -1693,7 +1724,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const shiftStartTime = matchedShift?.startTime || '09:00 AM';
-    const shiftGraceMins = matchedShift?.gracePeriodMins ?? (matchedShift as any)?.gracePeriodMinutes ?? attendancePolicyConfig?.gracePeriodMinutes ?? 15;
+    const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], matchedShift?.id, matchedShift?.shiftName).policy : null;
+    const shiftGraceMins = (
+      effectiveLatePolicy?.graceTimeMinutes ?? 
+      effectiveLatePolicy?.gracePeriodMinutes ?? 
+      15
+    );
 
     // Calculate working hours & OT
     let computedWorkingHours = existingRec.workingHours;
@@ -2088,6 +2124,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!req.reason || !req.reason.trim()) {
       return { success: false, message: 'Reason is required for attendance correction request.' };
     }
+    const dupCheck = checkDuplicateMissedPunchRequest(missedPunchRequests, req.employeeId, req.date, req.requestType);
+    if (dupCheck.hasDuplicate) {
+      return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
+    }
     const newReq: MissedPunchRequest = {
       ...req,
       id: `MPR-${Date.now().toString().slice(-4)}`,
@@ -2408,6 +2448,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         success: false,
         message: `OT Submission Blocked: ${otElig.reason}`
       };
+    }
+
+    const dupCheck = checkDuplicateOtRequest(overtimeRequests, req.employeeId, req.date);
+    if (dupCheck.hasDuplicate) {
+      return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
     }
 
     const newReq: OvertimeRequest = {
@@ -2759,7 +2804,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       matchedShift = shifts[0];
     }
     const shiftStartTime = matchedShift?.startTime || '09:00 AM';
-    const shiftGraceMins = matchedShift?.gracePeriodMins ?? (matchedShift as any)?.gracePeriodMinutes ?? attendancePolicyConfig?.gracePeriodMinutes ?? 15;
+    const effectiveLatePolicy = resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], matchedShift?.id, matchedShift?.shiftName).policy;
+    const effectiveGraceMins = (
+      effectiveLatePolicy?.graceTimeMinutes ?? 
+      effectiveLatePolicy?.gracePeriodMinutes ?? 
+      15
+    );
 
     let finalStatus = entry.status;
     let finalLateStatus: AttendanceRecord['lateStatus'] = 'On Time';
@@ -2772,7 +2822,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const inMins = parseTimeToMinutes(cleanCheckIn);
       const startMins = parseTimeToMinutes(shiftStartTime) ?? 9 * 60;
       if (inMins !== null) {
-        if (inMins > (startMins + shiftGraceMins)) {
+        if (inMins > (startMins + effectiveGraceMins)) {
           finalLateMinutes = inMins - startMins;
           finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
           if (finalStatus === 'Present' || finalStatus === 'Late') {
@@ -3756,14 +3806,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: `Requested amount exceeds your maximum eligible loan limit of ${formatCurrency(effectiveLimit)}.` };
     }
 
-    const now = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const minNeededDate = tomorrow.toISOString().split('T')[0];
-    if (requestData.neededByDate && requestData.neededByDate < minNeededDate) {
-      return { success: false, message: `Funds needed by date must be a future date (${minNeededDate} onwards). Past dates cannot be requested.` };
+    if (requestData.neededByDate) {
+      const dateVal = validateRequestDate(requestData.neededByDate);
+      if (!dateVal.valid) {
+        return { success: false, message: dateVal.error || PAST_DATE_ERROR_MESSAGE };
+      }
+      const dupCheck = checkDuplicateAdvanceRequest(loanRecords, requestData.employeeId, requestData.neededByDate);
+      if (dupCheck.hasDuplicate) {
+        return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
+      }
     }
 
+    const now = new Date();
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
     const deductionStartMonth = requestData.deductionStartMonth || defaultDeductionMonth;
@@ -6226,6 +6280,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const wantsCheckIn = methodText.includes('check-in') || methodText.includes('checkin') || methodText.includes('in') || !wantsCheckOut;
     const punchType = wantsCheckOut ? 'Check-Out' : 'Check-In';
 
+    const emp = employees.find(e => e.id === empId || e.employeeId === empId);
+    const isCeo = emp?.role === 'CEO' || 
+                  emp?.designation?.toLowerCase().includes('ceo') || 
+                  emp?.designation?.toLowerCase().includes('chief executive');
+
     const isGpsOrFacePunch =
       methodText.includes('gps') ||
       methodText.includes('face') ||
@@ -6233,13 +6292,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       methodText.includes('location');
     const shouldEnforceGeofence = Boolean(
       geofenceConfig.enabled &&
-      geofenceConfig.enforceStrictly &&
-      isGpsOrFacePunch
+      (geofenceConfig.enforceStrictly !== false) &&
+      isGpsOrFacePunch &&
+      !isCeo
     );
 
     if (shouldEnforceGeofence) {
-      if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number') {
-        const message = 'GPS location is required. Please allow location permission and try again.';
+      if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number' || (location.lat === 0 && location.lng === 0)) {
+        const message = 'GPS location is required to punch attendance. Please enable location/GPS services on your device and browser.';
         addNotification({
           title: `${punchType} Blocked`,
           message,
@@ -6256,8 +6316,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         geofenceConfig.centerLng
       );
 
-      if (actualDistance > geofenceConfig.radiusMeters) {
-        const message = `You are outside the office geofence (${actualDistance}m away). Attendance is allowed only within ${geofenceConfig.radiusMeters}m of ${geofenceConfig.officeName || 'the office location'}.`;
+      if (actualDistance > geofenceConfig.radiusMeters || location.inGeofence === false) {
+        const message = `Outside Office Geofence! You are ${actualDistance}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'the office location'}.`;
         addNotification({
           title: `${punchType} Blocked`,
           message,
@@ -6282,14 +6342,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const now = clockValidation.trustedNow;
     const today = evalResult.shiftDate;
     const nowTime = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
-    const emp = employees.find(e => e.id === empId || e.employeeId === empId);
     const empName = emp ? `${emp.firstName} ${emp.lastName}` : 'Employee';
     const dept = emp ? emp.department : 'General';
 
     // Calculate shift timing & late status
     const empShift = evalResult.assignedShift;
     const shiftStartMins = empShift ? parseTimeToMinutes(empShift.startTime) : 9 * 60; // 09:00 default
-    const graceMins = empShift?.gracePeriodMins ?? (attendanceConfig?.lateGraceMinutes ?? 15);
+    const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], empShift?.id, empShift?.shiftName).policy : null;
+    const graceMins = (
+      effectiveLatePolicy?.graceTimeMinutes ?? 
+      effectiveLatePolicy?.gracePeriodMinutes ?? 
+      (attendanceConfig?.lateGraceMinutes ?? 15)
+    );
     const checkInMins = parseTimeToMinutes(nowTime);
 
     let calculatedLateStatus: AttendanceRecord['lateStatus'] = 'On Time';
@@ -6474,21 +6538,34 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const applyLeave = (req: Omit<LeaveRequest, 'id' | 'status' | 'appliedDate'>) => {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const minAllowedDate = tomorrow.toISOString().split('T')[0];
+    const today = getTodayKolkata();
 
-    // Strictly enforce future date only: block past dates (yesterday, previous months)
+    const rangeVal = validateDateRange(req.startDate, req.endDate);
+    if (!rangeVal.valid) {
+      alert(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
+      addNotification({
+        title: 'Invalid Leave Dates',
+        message: rangeVal.error || PAST_DATE_ERROR_MESSAGE,
+        priority: 'Important',
+        category: 'Leave'
+      });
+      return;
+    }
+
+    const dupCheck = checkDuplicateLeaveRequest(leaveRequests, req.employeeId, req.startDate, req.endDate);
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      addNotification({
+        title: 'Duplicate Leave Request',
+        message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE,
+        priority: 'Important',
+        category: 'Leave'
+      });
+      return;
+    }
+
     let safeStartDate = req.startDate;
     let safeEndDate = req.endDate;
-    if (!safeStartDate || safeStartDate < minAllowedDate) {
-      console.warn(`[applyLeave] Past start date (${req.startDate}) blocked. Enforcing minimum future date: ${minAllowedDate}`);
-      safeStartDate = minAllowedDate;
-    }
-    if (!safeEndDate || safeEndDate < safeStartDate) {
-      safeEndDate = safeStartDate;
-    }
 
     const emp = employees.find(e => e.employeeId === req.employeeId || e.id === req.employeeId) || employees[0] || ({
       id: req.employeeId,
@@ -7103,6 +7180,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
   const requestShiftChange = (req: Omit<ShiftRequest, 'id' | 'status'>) => {
+    const dateVal = validateRequestDate(req.requestedDate);
+    if (!dateVal.valid) {
+      alert(dateVal.error || PAST_DATE_ERROR_MESSAGE);
+      addNotification({
+        title: 'Invalid Request Date',
+        message: dateVal.error || PAST_DATE_ERROR_MESSAGE,
+        priority: 'Important',
+        category: 'Shift'
+      });
+      return;
+    }
+
+    const dupCheck = checkDuplicateShiftRequest(shiftRequests, req.employeeId, req.requestedDate);
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      addNotification({
+        title: 'Duplicate Shift Request',
+        message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE,
+        priority: 'Important',
+        category: 'Shift'
+      });
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const newReq: ShiftRequest = {
       ...req,
@@ -8435,9 +8536,31 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addExpense = (exp: Omit<Expense, 'id' | 'status'>) => {
+    const amountNum = toNum(exp.amount);
+    if (amountNum <= 0) {
+      alert('Please enter a valid expense amount greater than zero.');
+      return;
+    }
+    if (amountNum > 100000) {
+      alert('Expense claim amount cannot exceed ₹1,00,000 (1 Lakh) per claim.');
+      return;
+    }
+
+    const dateVal = validateRequestDate(exp.date);
+    if (!dateVal.valid) {
+      alert(dateVal.error || PAST_DATE_ERROR_MESSAGE);
+      return;
+    }
+    const dupCheck = checkDuplicateExpense(expenses, exp.employeeId, exp.date, exp.category, amountNum);
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
+
     const tempId = `EXP-${Date.now()}`;
     const newExp: Expense = {
       ...exp,
+      amount: amountNum,
       id: tempId,
       status: 'Pending Manager'
     };
@@ -8450,7 +8573,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     supabaseDirect.insertExpense({
       employee_id: targetEmp?.employeeId || exp.employeeId || targetEmp?.id || '',
       category: exp.category,
-      amount: exp.amount,
+      amount: amountNum,
       date: exp.date,
       description: exp.description,
       receipt_url: exp.receiptUrl,
@@ -8467,7 +8590,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Expense Claim Submitted',
-      message: `${exp.employeeName} submitted an expense claim for $${exp.amount}.`,
+      message: `${exp.employeeName} submitted an expense claim for ₹${amountNum.toLocaleString('en-IN')}.`,
       priority: 'Normal',
       category: 'Announcement'
     });
@@ -8490,6 +8613,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
     if (id.length === 36) {
       supabaseDirect.updateExpenseStatus(id, nextStatus);
+    }
+  };
+
+  const deleteExpense = (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    if (isCloudInitialized.current && !isSyncingFromCloud.current) {
+      const updated = expenses.filter(e => e.id !== id);
+      supabaseDirect.saveCompanySetting('expenses_data', updated).catch(() => {});
+    }
+    if (id.length === 36) {
+      supabaseDirect.deleteExpense(id).catch(() => {});
     }
   };
 
@@ -9226,6 +9360,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [trackingAlerts]);
 
   const createFieldAssignment = (data: Omit<FieldAssignment, 'id' | 'createdAt' | 'updatedAt'>): FieldAssignment => {
+    const effectiveEndDate = data.scheduleType === 'One Day' ? data.startDate : (data.endDate || data.startDate);
+    const rangeVal = validateDateRange(data.startDate, effectiveEndDate);
+    if (!rangeVal.valid) {
+      alert(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
+      throw new Error(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
+    }
+    const dupCheck = checkDuplicateFieldAssignment(
+      fieldAssignments,
+      data.employeeId,
+      data.startDate,
+      effectiveEndDate
+    );
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      throw new Error(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+    }
+
     const now = new Date().toISOString();
     const newAssignment: FieldAssignment = {
       ...data,
@@ -9742,7 +9893,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       // Synchronize Expenses (DB table primary, company settings fallback)
-      const savedExpenses = Array.isArray(settings.expenses_data) ? settings.expenses_data : [];
+      const rawSavedExpenses = Array.isArray(settings.expenses_data) ? settings.expenses_data : [];
+      const savedExpenses = rawSavedExpenses.map((exp: any) => ({
+        ...exp,
+        amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0))
+      }));
       const expenseKey = (exp: Expense) => [
         exp.employeeId,
         exp.category,
@@ -9759,7 +9914,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           employeeName: exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff',
           department: exp.employee?.department_id || 'General',
           category: exp.category || 'Travel',
-          amount: Number(exp.amount) || 0,
+          amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0)),
           date: exp.date,
           description: exp.description || '',
           receiptUrl: exp.receipt_url || '',
@@ -10470,6 +10625,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       expenses,
       addExpense,
       approveExpense,
+      deleteExpense,
       notifications: combinedNotifications,
       markNotificationRead,
       markAllNotificationsRead,

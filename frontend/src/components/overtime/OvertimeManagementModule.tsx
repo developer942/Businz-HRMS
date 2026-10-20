@@ -22,7 +22,6 @@ import {
   X,
   Eye,
   Sliders,
-  Sparkles,
   ShieldCheck,
   FileText
 } from 'lucide-react';
@@ -457,7 +456,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
             border: '1px solid #E9D5FF',
             whiteSpace: 'nowrap'
           }}>
-            <Sparkles size={12} strokeWidth={2.5} />
+            <Clock size={12} strokeWidth={2.5} />
             Manual OT
           </span>
         );
@@ -504,7 +503,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                 fontWeight: 600
               }}
             >
-              <Sparkles size={15} color="#0E7490" />
+              <Plus size={15} color="#0E7490" />
               <span>Add Manual OT</span>
             </button>
           )}

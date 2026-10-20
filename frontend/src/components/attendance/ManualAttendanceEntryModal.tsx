@@ -14,6 +14,8 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
+import { resolveEffectiveLatePolicy } from '../../services/policyEngine';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface ManualAttendanceEntryModalProps {
   isOpen: boolean;
@@ -33,7 +35,8 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     attendanceRecords,
     addManualAttendanceRecord,
     currentUser,
-    shifts
+    shifts,
+    masterAttendancePolicies
   } = useHRMS();
 
   const [selectedEmpId, setSelectedEmpId] = useState<string>(
@@ -75,18 +78,38 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     if (!selectedEmployee) return shifts[0];
     const empId = selectedEmployee.id;
     const empCode = selectedEmployee.employeeId;
-    return shifts.find(s => s.id === existingRecord?.shiftId) ||
+    const empWorkShift = selectedEmployee.workShift;
+    return (
+      shifts.find(s => s.id === existingRecord?.shiftId) ||
       shifts.find(s => s.shiftName?.toLowerCase() === existingRecord?.shiftName?.toLowerCase()) ||
+      (empWorkShift ? shifts.find(s => s.id === empWorkShift || s.shiftName?.toLowerCase() === empWorkShift.toLowerCase()) : null) ||
       shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? (a === empId || a === empCode) : (a.employeeId === empId || a.employeeId === empCode)))) ||
-      shifts[0];
+      shifts[0]
+    );
   }, [shifts, selectedEmployee, existingRecord]);
 
+  // Resolve applicable late policy for the selected employee and shift
+  const effectiveLatePolicy = useMemo(() => {
+    if (!selectedEmployee) return null;
+    return resolveEffectiveLatePolicy(
+      selectedEmployee,
+      masterAttendancePolicies || [],
+      assignedShift?.id,
+      assignedShift?.shiftName
+    ).policy;
+  }, [selectedEmployee, masterAttendancePolicies, assignedShift]);
+
   const shiftStartTimeStr = assignedShift?.startTime || '09:00 AM';
-  const shiftGraceMins = assignedShift?.gracePeriodMins ?? 15;
+  // Late policy grace period takes precedence over shift grace
+  const effectiveGraceMins = (
+    effectiveLatePolicy?.graceTimeMinutes ??
+    effectiveLatePolicy?.gracePeriodMinutes ??
+    15
+  );
 
   const inMins = parseTimeToMinutes(checkInTime);
   const shiftMins = parseTimeToMinutes(shiftStartTimeStr) ?? (9 * 60);
-  const isCurrentlyLate = inMins !== null && inMins > (shiftMins + shiftGraceMins);
+  const isCurrentlyLate = inMins !== null && shiftMins !== null && inMins > (shiftMins + effectiveGraceMins);
   const lateMinutesDiff = inMins !== null && shiftMins !== null ? Math.max(0, inMins - shiftMins) : 0;
 
   // Sync state when existing record or defaults change
@@ -305,7 +328,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
           <div
             className="modal-body"
             style={{
@@ -568,7 +591,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                         setCheckInTime(val);
                         const tMins = parseTimeToMinutes(val);
                         if (tMins !== null && shiftMins !== null) {
-                          if (tMins > (shiftMins + shiftGraceMins)) {
+                          if (tMins > (shiftMins + effectiveGraceMins)) {
                             setStatus('Late');
                           } else if (status === 'Late') {
                             setStatus('Present');
@@ -601,7 +624,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                                 setCheckInTime(t);
                                 const tMins = parseTimeToMinutes(t);
                                 if (tMins !== null && shiftMins !== null) {
-                                  if (tMins > (shiftMins + shiftGraceMins)) {
+                                  if (tMins > (shiftMins + effectiveGraceMins)) {
                                     setStatus('Late');
                                   } else if (status === 'Late') {
                                     setStatus('Present');
@@ -627,11 +650,11 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 600 }}>
                             {isCurrentlyLate ? (
                               <span style={{ color: '#D97706', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '6px' }}>
-                                ⚠️ Late Arrival (+{lateMinutesDiff}m) — Shift starts at {shiftStartTimeStr} ({shiftGraceMins}m grace)
+                                ⚠️ Late Arrival (+{lateMinutesDiff}m) — Shift starts at {shiftStartTimeStr} ({effectiveGraceMins}m grace from Late Policy)
                               </span>
                             ) : (
                               <span style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#ECFDF5', padding: '2px 8px', borderRadius: '6px' }}>
-                                🟢 On Time — Shift starts at {shiftStartTimeStr} ({shiftGraceMins}m grace)
+                                🟢 On Time — Shift starts at {shiftStartTimeStr} ({effectiveGraceMins}m grace from Late Policy)
                               </span>
                             )}
                           </div>
@@ -799,6 +822,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                 rows={2}
                 value={reason}
                 onChange={e => setReason(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
                 placeholder="Provide detailed justification for manual entry or punch regularization..."
                 style={{
                   width: '100%',

@@ -1,6 +1,11 @@
 import { z } from 'zod';
+import { 
+  getTodayKolkata, 
+  PAST_DATE_ERROR_MESSAGE, 
+  INVALID_DATE_RANGE_ORDER_MESSAGE 
+} from '../utils/requestValidation.js';
 
-export const createAssignmentSchema = z.object({
+export const baseAssignmentSchema = z.object({
   employeeId: z.string().min(1, 'employeeId is required'),
   customerSiteName: z.string().min(1, 'customerSiteName is required'),
   dutyType: z.enum(['Site Visit', 'Customer Visit', 'Vendor Visit', 'Travel', 'Field Work', 'Other']).optional(),
@@ -22,7 +27,31 @@ export const createAssignmentSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const updateAssignmentSchema = createAssignmentSchema.partial().extend({
+export const createAssignmentSchema = baseAssignmentSchema.refine(
+  (data) => {
+    const sDate = data.startDate || data.scheduledDate;
+    if (!sDate) return true;
+    const today = getTodayKolkata();
+    return sDate >= today;
+  },
+  {
+    message: PAST_DATE_ERROR_MESSAGE,
+    path: ['startDate'],
+  }
+).refine(
+  (data) => {
+    const sDate = data.startDate || data.scheduledDate;
+    const eDate = data.endDate;
+    if (!sDate || !eDate) return true;
+    return eDate >= sDate;
+  },
+  {
+    message: INVALID_DATE_RANGE_ORDER_MESSAGE,
+    path: ['endDate'],
+  }
+);
+
+export const updateAssignmentSchema = baseAssignmentSchema.partial().extend({
   status: z.enum(['Scheduled', 'Active', 'Completed', 'Cancelled', 'Assigned', 'In Progress']).optional(),
 });
 

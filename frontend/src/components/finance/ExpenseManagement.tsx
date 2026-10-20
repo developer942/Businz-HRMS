@@ -30,6 +30,16 @@ import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { downloadPDF, downloadCSV, downloadExcel, ExportColumn } from '../../utils/exportUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { Expense } from '../../types/hrms';
+import { 
+  getTodayKolkata, 
+  validateRequestDate, 
+  checkDuplicateExpense, 
+  PAST_DATE_ERROR_MESSAGE, 
+  DUPLICATE_REQUEST_ERROR_MESSAGE,
+  MAX_EXPENSE_CLAIM_AMOUNT,
+  validateExpenseAmount
+} from '../../utils/requestValidation';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface ExpenseManagementProps {
   openAddModal?: boolean;
@@ -37,7 +47,7 @@ interface ExpenseManagementProps {
 }
 
 export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddModal, onCloseQuickAdd }) => {
-  const { expenses, addExpense, approveExpense, currentUser, employees, hasPermission } = useHRMS();
+  const { expenses, addExpense, approveExpense, deleteExpense, currentUser, employees, hasPermission } = useHRMS();
   const [showModal, setShowModal] = useState<boolean>(openAddModal || false);
   const [viewingReceiptExpense, setViewingReceiptExpense] = useState<Expense | null>(null);
 
@@ -86,7 +96,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
     employeeId: currentUser.employeeId || 'EMP-001',
     category: 'Travel' as Expense['category'],
     amount: 1500,
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayKolkata(),
     description: '',
     receiptUrl: '',
     fileName: '',
@@ -94,6 +104,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   });
   const [formError, setFormError] = useState<string>('');
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState<boolean>(false);
 
   React.useEffect(() => {
     if (openAddModal) {
@@ -179,8 +190,11 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
     e.preventDefault();
     setFormError('');
 
-    if (toNum(expForm.amount) <= 0) {
-      setFormError('Please enter a valid expense amount greater than zero.');
+    if (isSubmittingExpense) return;
+
+    const amountVal = validateExpenseAmount(expForm.amount);
+    if (!amountVal.valid) {
+      setFormError(amountVal.error || 'Please enter a valid expense amount.');
       return;
     }
 
@@ -189,33 +203,50 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       return;
     }
 
+    const dateVal = validateRequestDate(expForm.date);
+    if (!dateVal.valid) {
+      setFormError(dateVal.error || PAST_DATE_ERROR_MESSAGE);
+      return;
+    }
+
     const targetEmpId = isEmployeeRole ? (currentUser.employeeId || 'EMP-001') : expForm.employeeId;
     const emp = employees.find(e => e.employeeId === targetEmpId) || employees[0];
 
-    addExpense({
-      employeeId: targetEmpId,
-      employeeName: `${emp.firstName} ${emp.lastName}`,
-      department: emp.department,
-      category: expForm.category,
-      amount: Number(expForm.amount),
-      date: expForm.date,
-      description: expForm.description || `${expForm.category} Business Expense Claim`,
-      receiptUrl: expForm.receiptUrl
-    });
+    const dupCheck = checkDuplicateExpense(expenses, targetEmpId, expForm.date, expForm.category, Number(expForm.amount));
+    if (dupCheck.hasDuplicate) {
+      setFormError(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
 
-    // Reset & close
-    setShowModal(false);
-    setExpForm({
-      employeeId: currentUser.employeeId || 'EMP-001',
-      category: 'Travel',
-      amount: 1500,
-      date: new Date().toISOString().split('T')[0],
-      description: '',
-      receiptUrl: '',
-      fileName: '',
-      fileSize: ''
-    });
-    if (onCloseQuickAdd) onCloseQuickAdd();
+    setIsSubmittingExpense(true);
+    try {
+      addExpense({
+        employeeId: targetEmpId,
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        department: emp.department,
+        category: expForm.category,
+        amount: Number(expForm.amount),
+        date: expForm.date,
+        description: expForm.description || `${expForm.category} Business Expense Claim`,
+        receiptUrl: expForm.receiptUrl
+      });
+
+      // Reset & close
+      setShowModal(false);
+      setExpForm({
+        employeeId: currentUser.employeeId || 'EMP-001',
+        category: 'Travel',
+        amount: 1500,
+        date: getTodayKolkata(),
+        description: '',
+        receiptUrl: '',
+        fileName: '',
+        fileSize: ''
+      });
+      if (onCloseQuickAdd) onCloseQuickAdd();
+    } finally {
+      setIsSubmittingExpense(false);
+    }
   };
 
   // User identity helpers for role scoping
@@ -417,6 +448,13 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
     setSelectedRowIds([]);
   };
 
+  const handleBatchDelete = () => {
+    if (!canApprove) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedRowIds.length} selected claim(s)?`)) return;
+    selectedRowIds.forEach(id => deleteExpense(id));
+    setSelectedRowIds([]);
+  };
+
   const selectedPendingCount = expenses.filter(e => selectedRowIds.includes(e.id) && isPendingStatus(e.status)).length;
   const selectedApprovedCount = expenses.filter(e => selectedRowIds.includes(e.id) && e.status === 'Approved').length;
 
@@ -471,16 +509,30 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
       {/* KPI Cards: Shows personal totals for Employee role */}
       <div className="kpi-grid" style={{ marginBottom: '24px' }}>
-        <div className="kpi-card" style={{ borderRadius: '16px' }}>
+        <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
           <div className="kpi-card-header">
-            <span>{isEmployeeRole ? 'My Total Claimed Amount' : 'Total Claimed Amount'}</span>
-            <div className="kpi-icon-wrapper blue"><IndianRupee size={20} /></div>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {isEmployeeRole ? 'My Total Claimed Amount' : 'Total Claimed Amount'}
+            </span>
+            <div className="kpi-icon-wrapper blue" style={{ flexShrink: 0 }}><IndianRupee size={20} /></div>
           </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value" style={{ color: '#0E7490', fontWeight: 800 }}>
+          <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div 
+              className="kpi-value" 
+              title={`₹${totalClaimed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              style={{ 
+                color: '#0E7490', 
+                fontWeight: 800, 
+                minWidth: 0, 
+                maxWidth: '100%', 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis', 
+                whiteSpace: 'nowrap' 
+              }}
+            >
               ₹{totalClaimed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isEmployeeRole 
                 ? `Across ${scopedExpenses.length} personal claims submitted` 
                 : `Across ${expenses.length} claims submitted`}
@@ -488,16 +540,29 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
           </div>
         </div>
 
-        <div className="kpi-card" style={{ borderRadius: '16px' }}>
+        <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
           <div className="kpi-card-header">
-            <span>{isEmployeeRole ? 'My Pending Verification' : 'Pending Review & Verification'}</span>
-            <div className="kpi-icon-wrapper amber"><FileText size={20} /></div>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {isEmployeeRole ? 'My Pending Verification' : 'Pending Review & Verification'}
+            </span>
+            <div className="kpi-icon-wrapper amber" style={{ flexShrink: 0 }}><FileText size={20} /></div>
           </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value" style={{ color: '#D97706', fontWeight: 800 }}>
+          <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div 
+              className="kpi-value" 
+              style={{ 
+                color: '#D97706', 
+                fontWeight: 800, 
+                minWidth: 0, 
+                maxWidth: '100%', 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis', 
+                whiteSpace: 'nowrap' 
+              }}
+            >
               {pendingFinance}
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isEmployeeRole 
                 ? 'Your claims awaiting bill audit & reimbursement' 
                 : 'Claims awaiting bill audit & reimbursement'}
@@ -505,16 +570,30 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
           </div>
         </div>
 
-        <div className="kpi-card" style={{ borderRadius: '16px' }}>
+        <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
           <div className="kpi-card-header">
-            <span>{isEmployeeRole ? 'My Total Reimbursed Amount' : 'Total Reimbursed Payouts'}</span>
-            <div className="kpi-icon-wrapper emerald"><CheckCircle2 size={20} /></div>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {isEmployeeRole ? 'My Total Reimbursed Amount' : 'Total Reimbursed Payouts'}
+            </span>
+            <div className="kpi-icon-wrapper emerald" style={{ flexShrink: 0 }}><CheckCircle2 size={20} /></div>
           </div>
-          <div className="kpi-card-body">
-            <div className="kpi-value" style={{ color: '#059669', fontWeight: 800 }}>
+          <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div 
+              className="kpi-value" 
+              title={`₹${totalReimbursed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              style={{ 
+                color: '#059669', 
+                fontWeight: 800, 
+                minWidth: 0, 
+                maxWidth: '100%', 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis', 
+                whiteSpace: 'nowrap' 
+              }}
+            >
               ₹{totalReimbursed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isEmployeeRole 
                 ? 'Disbursed directly via corporate payroll' 
                 : 'Disbursed directly via corporate payroll'}
@@ -776,9 +855,21 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                       </td>
 
                       {/* Amount */}
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.94rem' }}>
+                      <td style={{ maxWidth: '140px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
+                          <span 
+                            title={`₹${toNum(exp.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                            style={{ 
+                              fontWeight: 800, 
+                              color: '#0E7490', 
+                              fontSize: '0.94rem',
+                              display: 'inline-block',
+                              maxWidth: '130px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
                             ₹{toNum(exp.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
@@ -940,6 +1031,33 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                               title="Download Official Expense Reimbursement Payout Voucher"
                             >
                               <Download size={13} /> Voucher
+                            </button>
+                          )}
+
+                          {/* HR/CEO Delete Action */}
+                          {canApprove && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Are you sure you want to delete claim ${exp.id}?`)) {
+                                  deleteExpense(exp.id);
+                                }
+                              }}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#94A3B8',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                borderRadius: '6px'
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
+                              onMouseLeave={e => e.currentTarget.style.color = '#94A3B8'}
+                              title="Delete claim"
+                            >
+                              <Trash2 size={14} />
                             </button>
                           )}
                         </div>
@@ -1149,6 +1267,28 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
             </button>
           )}
 
+          {canApprove && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={handleBatchDelete}
+              style={{
+                borderRadius: '8px',
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                backgroundColor: '#DC2626',
+                border: '1px solid #EF4444',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+              title="Delete selected claims permanently"
+            >
+              <Trash2 size={13} /> Delete Selected ({selectedRowIds.length})
+            </button>
+          )}
+
           {!isEmployeeRole && (
             <button
               type="button"
@@ -1239,7 +1379,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, overflow: 'hidden' }}>
+            <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, overflow: 'hidden' }}>
               <div className="modal-body" style={{ padding: '24px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
                 {formError && (
                   <div style={{
@@ -1337,21 +1477,30 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-                      Amount (₹) <span style={{ color: '#EF4444' }}>*</span>
-                    </label>
-                    <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem', margin: 0 }}>
+                        Amount (₹) <span style={{ color: '#EF4444' }}>*</span>
+                      </label>
+                      <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 700 }}>
+                        Max: ₹1,00,000 (1 Lakh)
+                      </span>
+                    </div>
+                    <div style={{ position: 'relative', marginTop: '6px' }}>
                       <IndianRupee size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#0E7490' }} />
                       <input 
                         className="form-control" 
                         type="number" 
                         min="1" 
+                        max={MAX_EXPENSE_CLAIM_AMOUNT}
                         step="0.01" 
                         value={expForm.amount} 
                         onChange={e => setExpForm({ ...expForm, amount: Number(e.target.value) })} 
                         style={{ paddingLeft: '34px', borderRadius: '10px', fontWeight: 700, color: '#0F172A' }}
                         required 
                       />
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px' }}>
+                      Single expense claim limit: ₹1,00,000 (1 Lakh).
                     </div>
                   </div>
                 </div>
@@ -1365,6 +1514,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                     type="date"
                     className="form-control"
                     value={expForm.date}
+                    min={getTodayKolkata()}
                     onChange={e => setExpForm({ ...expForm, date: e.target.value })}
                     style={{ borderRadius: '10px' }}
                     required
@@ -1381,6 +1531,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                     rows={2} 
                     value={expForm.description} 
                     onChange={e => setExpForm({ ...expForm, description: e.target.value })} 
+                    onKeyDown={preventSpaceEnterPropagation}
                     placeholder="Provide context on where and why this expense was incurred (e.g., Client site travel to Coimbatore)..."
                     style={{ borderRadius: '10px' }}
                     required
@@ -1542,10 +1693,17 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                 </button>
                 <button 
                   type="submit" 
+                  disabled={isSubmittingExpense}
                   className="btn btn-primary btn-sm"
-                  style={{ borderRadius: '10px', padding: '8px 20px', fontWeight: 700 }}
+                  style={{ 
+                    borderRadius: '10px', 
+                    padding: '8px 20px', 
+                    fontWeight: 700,
+                    opacity: isSubmittingExpense ? 0.7 : 1,
+                    cursor: isSubmittingExpense ? 'not-allowed' : 'pointer'
+                  }}
                 >
-                  Submit Claim
+                  {isSubmittingExpense ? 'Submitting Claim...' : 'Submit Claim'}
                 </button>
               </div>
             </form>
@@ -1632,22 +1790,47 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
-              gap: '12px'
+              gap: '12px',
+              minWidth: 0,
+              overflow: 'hidden'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+                <div style={{ flexShrink: 0 }}>
                   <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 600, display: 'block' }}>CATEGORY</span>
                   <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1E293B' }}>{viewingReceiptExpense.category}</span>
                 </div>
-                <div>
+                <div style={{ minWidth: 0, maxWidth: '240px' }}>
                   <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 600, display: 'block' }}>CLAIMED AMOUNT</span>
-                  <span style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0E7490' }}>
-                    ₹{toNum(viewingReceiptExpense.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  <span 
+                    title={formatCurrency(viewingReceiptExpense.amount)}
+                    style={{ 
+                      fontSize: '1.05rem', 
+                      fontWeight: 800, 
+                      color: '#0E7490',
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {formatCurrency(viewingReceiptExpense.amount)}
                   </span>
                 </div>
-                <div>
+                <div style={{ minWidth: 0, flex: 1, maxWidth: '260px' }}>
                   <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 600, display: 'block' }}>PURPOSE / NOTES</span>
-                  <span style={{ fontSize: '0.82rem', color: '#334155' }}>{viewingReceiptExpense.description}</span>
+                  <span 
+                    title={viewingReceiptExpense.description}
+                    style={{ 
+                      fontSize: '0.82rem', 
+                      color: '#334155',
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {viewingReceiptExpense.description}
+                  </span>
                 </div>
               </div>
 
@@ -1662,10 +1845,19 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                 fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px'
+                gap: '6px',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                flexShrink: 1
               }}>
-                <ShieldCheck size={14} />
-                <span>Verify claimed {formatCurrency(viewingReceiptExpense.amount)} matches bill receipt total</span>
+                <ShieldCheck size={14} style={{ flexShrink: 0 }} />
+                <span 
+                  title={`Verify claimed ${formatCurrency(viewingReceiptExpense.amount)} matches bill receipt total`}
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  Verify claimed {formatCurrency(viewingReceiptExpense.amount)} matches bill receipt total
+                </span>
               </div>
             </div>
 
@@ -1825,13 +2017,31 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
               background: '#F8FAFC'
             }}>
-              <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+              <div style={{ fontSize: '0.8rem', color: '#64748B', whiteSpace: 'nowrap' }}>
                 Status: <strong style={{ color: '#0F172A' }}>{viewingReceiptExpense.status}</strong>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                {canApprove && (
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete claim ${viewingReceiptExpense.id}?`)) {
+                        deleteExpense(viewingReceiptExpense.id);
+                        setViewingReceiptExpense(null);
+                      }
+                    }}
+                    style={{ borderRadius: '10px', padding: '8px 14px', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    title="Delete claim permanently"
+                  >
+                    <Trash2 size={14} /> Delete Claim
+                  </button>
+                )}
                 {canApprove && (viewingReceiptExpense.status === 'Pending Finance' || viewingReceiptExpense.status === 'Pending Manager') && (
                   <>
                     <button
@@ -1841,7 +2051,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                         approveExpense(viewingReceiptExpense.id, currentUser.name, 'Rejected');
                         setViewingReceiptExpense(null);
                       }}
-                      style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 600 }}
+                      style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 600, whiteSpace: 'nowrap' }}
                     >
                       <XCircle size={15} /> Reject Claim
                     </button>
@@ -1852,10 +2062,28 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                         approveExpense(viewingReceiptExpense.id, currentUser.name, 'Approved');
                         setViewingReceiptExpense(null);
                       }}
-                      style={{ borderRadius: '10px', padding: '8px 18px', fontWeight: 700 }}
-                      title="Approve and send to Accounts for payout"
+                      style={{ 
+                        borderRadius: '10px', 
+                        padding: '8px 18px', 
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title={`Approve and send to Accounts for payout (${formatCurrency(viewingReceiptExpense.amount)})`}
                     >
-                      <CheckCircle2 size={15} /> Approve &amp; Send to Accounts ({formatCurrency(viewingReceiptExpense.amount)})
+                      <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> 
+                      <span>Approve &amp; Send to Accounts</span>
+                      <span style={{ 
+                        maxWidth: '120px', 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis', 
+                        whiteSpace: 'nowrap', 
+                        display: 'inline-block' 
+                      }}>
+                        ({formatCurrency(viewingReceiptExpense.amount)})
+                      </span>
                     </button>
                   </>
                 )}
@@ -1867,9 +2095,30 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                       handleMarkPaid(viewingReceiptExpense.id);
                       setViewingReceiptExpense(null);
                     }}
-                    style={{ borderRadius: '10px', padding: '8px 18px', fontWeight: 700, backgroundColor: '#0E7490', borderColor: '#0E7490', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    style={{ 
+                      borderRadius: '10px', 
+                      padding: '8px 18px', 
+                      fontWeight: 700, 
+                      backgroundColor: '#0E7490', 
+                      borderColor: '#0E7490', 
+                      display: 'inline-flex', 
+                      alignItems: 'center', 
+                      gap: '6px',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title={`Mark as Paid (${formatCurrency(viewingReceiptExpense.amount)})`}
                   >
-                    <IndianRupee size={15} /> Mark as Paid ({formatCurrency(viewingReceiptExpense.amount)})
+                    <IndianRupee size={15} style={{ flexShrink: 0 }} /> 
+                    <span>Mark as Paid</span>
+                    <span style={{ 
+                      maxWidth: '120px', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      whiteSpace: 'nowrap', 
+                      display: 'inline-block' 
+                    }}>
+                      ({formatCurrency(viewingReceiptExpense.amount)})
+                    </span>
                   </button>
                 )}
                 {(viewingReceiptExpense.status === 'Reimbursed' || viewingReceiptExpense.status === 'Approved') && (
@@ -1886,7 +2135,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                       border: '1px solid #A5F3FC',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '6px'
+                      gap: '6px',
+                      whiteSpace: 'nowrap'
                     }}
                   >
                     <Download size={15} /> Download Voucher
@@ -1896,7 +2146,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => setViewingReceiptExpense(null)}
-                  style={{ borderRadius: '10px', padding: '8px 16px' }}
+                  style={{ borderRadius: '10px', padding: '8px 16px', whiteSpace: 'nowrap' }}
                 >
                   Close Viewer
                 </button>

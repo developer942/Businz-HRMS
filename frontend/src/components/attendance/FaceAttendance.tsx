@@ -23,6 +23,7 @@ import {
   Search
 } from 'lucide-react';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
+import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import type { FaceLog } from '../../types/hrms';
 
 const getLocalDateString = (d = new Date()) => {
@@ -209,6 +210,7 @@ export const FaceAttendance: React.FC = () => {
     isInside: boolean;
     address: string;
   } | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
 
   // Sync selected employee whenever logged-in user changes
   useEffect(() => {
@@ -358,9 +360,34 @@ export const FaceAttendance: React.FC = () => {
     }
     const emp = employees.find(e => e.employeeId === selectedEmpId);
     const empName = emp ? `${emp.firstName} ${emp.lastName}` : 'Employee';
+    const isCeo = emp?.role === 'CEO' || 
+                  emp?.designation?.toLowerCase().includes('ceo') || 
+                  emp?.designation?.toLowerCase().includes('chief executive');
 
-    // Location tracking: shared attendance guard blocks punches outside the saved geofence.
+    // Strict Geofence Validation: shared attendance guard blocks punches outside the saved geofence
     const isInsideGeofence = !geofenceConfig.enabled || distance <= geofenceConfig.radiusMeters;
+
+    if (geofenceConfig.enabled && !isCeo) {
+      if (!userLat || !userLng || (userLat === 0 && userLng === 0)) {
+        setScanResult({
+          status: 'error',
+          message: 'GPS Location Access Required: Please enable GPS/Location on your device and browser to punch attendance.'
+        });
+        setIsScanning(false);
+        punchInProgressRef.current = false;
+        return;
+      }
+
+      if (!isInsideGeofence) {
+        setScanResult({
+          status: 'error',
+          message: `Outside Office Geofence! You are ${distance}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'office premises'}.`
+        });
+        setIsScanning(false);
+        punchInProgressRef.current = false;
+        return;
+      }
+    }
 
     // Enforce Shift Window Validation
     const currentShiftState = getEmployeeShiftAttendanceState(selectedEmpId);
@@ -479,13 +506,15 @@ export const FaceAttendance: React.FC = () => {
           if (error.code === error.PERMISSION_DENIED) {
             errorMsg = 'Location Permission DENIED by Browser! You must enable location access in browser settings to check in.';
           } else if (error.code === error.POSITION_UNAVAILABLE) {
-            errorMsg = 'GPS Location signal unavailable. Please ensure location/GPS is enabled on your device.';
+            errorMsg = 'Device GPS / Location is turned OFF. Please turn ON location on your phone or PC.';
+          } else if (error.code === error.TIMEOUT) {
+            errorMsg = 'GPS location request timed out. Please check your GPS and tap to try again.';
           }
           setScanResult({ status: 'error', message: errorMsg });
           setIsScanning(false);
           punchInProgressRef.current = false;
         },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 30000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     } else {
       const distance = locationMode === 'outside' ? geofenceConfig.radiusMeters + 250 : 28;
@@ -498,6 +527,7 @@ export const FaceAttendance: React.FC = () => {
 
   const fetchGpsStatus = () => {
     setGpsLoading(true);
+    setGpsError(null);
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -513,29 +543,25 @@ export const FaceAttendance: React.FC = () => {
           });
           setGpsLoading(false);
         },
-        () => {
-          // Simulated inside geofence
-          const dist = 28;
-          setGpsData({
-            lat: geofenceConfig.centerLat + 0.00018,
-            lng: geofenceConfig.centerLng + 0.00015,
-            distance: dist,
-            isInside: true,
-            address: `${geofenceConfig.officeName} Gate 1 (${dist}m away)`
-          });
+        (error) => {
+          console.error('GPS status error:', error);
+          let errorMsg = 'GPS Location Access Required. Please enable GPS and allow location access in your browser.';
+          if (error.code === error.PERMISSION_DENIED) {
+            errorMsg = 'Location Permission DENIED! Please enable location access in browser settings.';
+          } else if (error.code === error.POSITION_UNAVAILABLE) {
+            errorMsg = 'Device GPS / Location is turned OFF. Please turn ON location on your phone or PC.';
+          } else if (error.code === error.TIMEOUT) {
+            errorMsg = 'GPS location request timed out. Please tap Refresh.';
+          }
+          setGpsData(null);
+          setGpsError(errorMsg);
           setGpsLoading(false);
         },
-        { enableHighAccuracy: true, timeout: 8000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     } else {
-      const dist = 28;
-      setGpsData({
-        lat: geofenceConfig.centerLat + 0.00018,
-        lng: geofenceConfig.centerLng + 0.00015,
-        distance: dist,
-        isInside: true,
-        address: `${geofenceConfig.officeName} Gate 1 (${dist}m away)`
-      });
+      setGpsData(null);
+      setGpsError('GPS Geolocation is not supported by your browser or device.');
       setGpsLoading(false);
     }
   };
@@ -549,13 +575,18 @@ export const FaceAttendance: React.FC = () => {
       firstName: currentUser.name || 'Alex',
       lastName: '',
       employeeId: currentUser.employeeId || 'EMP-001',
-      avatar: currentUser.avatar || ''
+      avatar: currentUser.avatar || '',
+      role: currentUser.role
     };
+
+    const isCeo = activeEmp.role === 'CEO' || 
+                  (activeEmp as any).designation?.toLowerCase().includes('ceo') || 
+                  (activeEmp as any).designation?.toLowerCase().includes('chief executive');
 
     if (!gpsData) {
       setScanResult({
         status: 'error',
-        message: 'GPS location is required. Please tap Refresh, allow location permission, and try again.'
+        message: gpsError || 'GPS location is required. Please turn ON device location/GPS, allow permissions, and tap Refresh.'
       });
       punchInProgressRef.current = false;
       return;
@@ -566,6 +597,15 @@ export const FaceAttendance: React.FC = () => {
     const dist = gpsData.distance;
     const isInside = gpsData.isInside;
     const addr = gpsData?.address || `${geofenceConfig.officeName} (GPS Clock-In)`;
+
+    if (geofenceConfig.enabled && !isInside && !isCeo) {
+      setScanResult({
+        status: 'error',
+        message: `Outside Office Geofence! You are ${dist}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'the office'}.`
+      });
+      punchInProgressRef.current = false;
+      return;
+    }
 
     // Enforce Shift Window Validation
     const currentShiftState = getEmployeeShiftAttendanceState(selectedEmpId);
@@ -651,19 +691,19 @@ export const FaceAttendance: React.FC = () => {
 
   const validUserEmpIds = useMemo(() => {
     return new Set(
-      [currentUser.employeeId, currentUser.id, currentUserEmp?.employeeId, currentUserEmp?.id, selectedEmpId]
+      [currentUser.employeeId, currentUser.id, currentUserEmp?.employeeId, currentUserEmp?.id]
         .filter(Boolean)
         .map(s => String(s).trim().toLowerCase())
     );
-  }, [currentUser, currentUserEmp, selectedEmpId]);
+  }, [currentUser, currentUserEmp]);
 
   const validUserNames = useMemo(() => {
-    const list = [currentUser.name];
+    const list: string[] = [];
+    if (currentUser.name) list.push(currentUser.name.trim().toLowerCase());
     if (currentUserEmp) {
-      list.push(`${currentUserEmp.firstName} ${currentUserEmp.lastName}`.trim());
-      list.push(currentUserEmp.firstName);
+      list.push(`${currentUserEmp.firstName} ${currentUserEmp.lastName}`.trim().toLowerCase());
     }
-    return list.filter(Boolean).map(s => String(s).trim().toLowerCase());
+    return Array.from(new Set(list.filter(Boolean)));
   }, [currentUser, currentUserEmp]);
 
   // Strict Scoping: checks if a record belongs to the logged-in user
@@ -673,11 +713,11 @@ export const FaceAttendance: React.FC = () => {
       const logEmpId = String(item.employeeId || '').trim().toLowerCase();
       const logEmpName = String(item.employeeName || (item.firstName ? `${item.firstName} ${item.lastName}` : '')).trim().toLowerCase();
 
-      // Direct Employee ID match
+      // Direct Employee ID match (Highest reliability)
       if (logEmpId && validUserEmpIds.has(logEmpId)) return true;
 
-      // Direct Name match
-      if (logEmpName && validUserNames.some(name => logEmpName === name || logEmpName.includes(name) || name.includes(logEmpName))) {
+      // Direct Full Name match (Exact full name match - NO loose substring matching)
+      if (logEmpName && validUserNames.includes(logEmpName)) {
         return true;
       }
 
@@ -905,20 +945,79 @@ export const FaceAttendance: React.FC = () => {
     return null;
   }, [myTodayAttendance, myTodayFaceLogs]);
 
-  // Current user's monthly attendance records
+  // Current user's monthly attendance records (Consolidated & deduplicated per date)
   const myMonthlyRecords = useMemo(() => {
-    return attendanceRecords
+    const rawList = attendanceRecords
       .filter(a => {
         const d = normalizeToYYYYMMDD(a.date);
         const sd = normalizeToYYYYMMDD(a.shiftDate);
         const matchesMonth = (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
         return matchesMonth && isLogForCurrentUser(a);
-      })
-      .sort((a, b) => {
-        const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
-        const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
-        return String(db).localeCompare(String(da));
       });
+
+    const byDate = new Map<string, any>();
+    rawList.forEach(rec => {
+      const dateKey = normalizeToYYYYMMDD(rec.date || rec.shiftDate);
+      if (!dateKey) return;
+
+      const existing = byDate.get(dateKey);
+      if (!existing) {
+        byDate.set(dateKey, { ...rec });
+        return;
+      }
+
+      // Consolidate duplicate punches for the same day
+      const existingHasIn = existing.checkIn && existing.checkIn !== '--:--' && existing.checkIn.trim() !== '';
+      const existingHasOut = existing.checkOut && existing.checkOut !== '--:--' && existing.checkOut.trim() !== '';
+      const recHasIn = rec.checkIn && rec.checkIn !== '--:--' && rec.checkIn.trim() !== '';
+      const recHasOut = rec.checkOut && rec.checkOut !== '--:--' && rec.checkOut.trim() !== '';
+
+      const existingHours = Number(existing.workingHours || 0);
+      const recHours = Number(rec.workingHours || 0);
+
+      // Prefer record that has complete check-out or higher worked hours
+      const preferRec = (recHasOut && !existingHasOut) || (recHours > existingHours);
+      const base = preferRec ? { ...rec } : { ...existing };
+
+      let finalCheckIn = base.checkIn;
+      if (existingHasIn && recHasIn) {
+        const inMin1 = parseTimeToMinutes(existing.checkIn);
+        const inMin2 = parseTimeToMinutes(rec.checkIn);
+        if (inMin1 !== null && inMin2 !== null) {
+          finalCheckIn = inMin1 <= inMin2 ? existing.checkIn : rec.checkIn;
+        }
+      } else {
+        finalCheckIn = existing.checkIn || rec.checkIn;
+      }
+
+      let finalCheckOut = base.checkOut;
+      if (existingHasOut && recHasOut) {
+        const outMin1 = parseTimeToMinutes(existing.checkOut);
+        const outMin2 = parseTimeToMinutes(rec.checkOut);
+        if (outMin1 !== null && outMin2 !== null) {
+          finalCheckOut = outMin1 >= outMin2 ? existing.checkOut : rec.checkOut;
+        }
+      } else {
+        finalCheckOut = existing.checkOut || rec.checkOut;
+      }
+
+      const finalHours = Math.max(existingHours, recHours);
+
+      byDate.set(dateKey, {
+        ...base,
+        checkIn: finalCheckIn,
+        checkOut: finalCheckOut,
+        workingHours: finalHours > 0 ? finalHours : base.workingHours,
+        checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
+        checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto
+      });
+    });
+
+    return Array.from(byDate.values()).sort((a, b) => {
+      const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
+      const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
+      return String(db).localeCompare(String(da));
+    });
   }, [attendanceRecords, selectedMonth, isLogForCurrentUser]);
 
   // Monthly summary stats for current user
@@ -945,19 +1044,52 @@ export const FaceAttendance: React.FC = () => {
     };
   }, [myMonthlyRecords]);
 
-  // All Staff Monthly records
+  // All Staff Monthly records (Consolidated & deduplicated per employee per date)
   const allStaffMonthlyRecords = useMemo(() => {
-    return attendanceRecords
+    const rawList = attendanceRecords
       .filter(a => {
         const d = normalizeToYYYYMMDD(a.date);
         const sd = normalizeToYYYYMMDD(a.shiftDate);
         return (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
-      })
-      .sort((a, b) => {
-        const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
-        const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
-        return String(db).localeCompare(String(da));
       });
+
+    const byEmpDate = new Map<string, any>();
+    rawList.forEach(rec => {
+      const dateKey = normalizeToYYYYMMDD(rec.date || rec.shiftDate);
+      const empKey = String(rec.employeeId || rec.employeeName || '').toLowerCase();
+      if (!dateKey || !empKey) return;
+      const uniqueKey = `${empKey}_${dateKey}`;
+
+      const existing = byEmpDate.get(uniqueKey);
+      if (!existing) {
+        byEmpDate.set(uniqueKey, { ...rec });
+        return;
+      }
+
+      const existingHasOut = existing.checkOut && existing.checkOut !== '--:--' && existing.checkOut.trim() !== '';
+      const recHasOut = rec.checkOut && rec.checkOut !== '--:--' && rec.checkOut.trim() !== '';
+      const existingHours = Number(existing.workingHours || 0);
+      const recHours = Number(rec.workingHours || 0);
+
+      const preferRec = (recHasOut && !existingHasOut) || (recHours > existingHours);
+      const base = preferRec ? { ...rec } : { ...existing };
+      const finalHours = Math.max(existingHours, recHours);
+
+      byEmpDate.set(uniqueKey, {
+        ...base,
+        checkIn: existing.checkIn || rec.checkIn,
+        checkOut: (existingHasOut && recHasOut) ? (preferRec ? rec.checkOut : existing.checkOut) : (existing.checkOut || rec.checkOut),
+        workingHours: finalHours > 0 ? finalHours : base.workingHours,
+        checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
+        checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto
+      });
+    });
+
+    return Array.from(byEmpDate.values()).sort((a, b) => {
+      const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
+      const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
+      return String(db).localeCompare(String(da));
+    });
   }, [attendanceRecords, selectedMonth]);
 
   // Filtered all staff monthly by search
@@ -1916,119 +2048,176 @@ export const FaceAttendance: React.FC = () => {
               </div>
 
               {/* Geofence & Location Status Card */}
-              <div style={{
-                padding: '18px',
-                borderRadius: '14px',
-                border: '1.5px solid #cbd5e1',
-                backgroundColor: gpsData?.isInside ? '#f0fdf4' : '#fffbeb',
-                borderColor: gpsData?.isInside ? '#86efac' : '#fde68a'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{
-                      width: '10px',
-                      height: '10px',
-                      borderRadius: '50%',
-                      backgroundColor: gpsData?.isInside ? '#22c55e' : '#f59e0b',
-                      display: 'inline-block',
-                      boxShadow: gpsData?.isInside ? '0 0 8px #22c55e' : 'none'
-                    }} />
-                    <span style={{ fontSize: '0.84rem', fontWeight: 800, color: gpsData?.isInside ? '#15803d' : '#b45309' }}>
-                      {gpsLoading ? 'Detecting Location...' : gpsData?.isInside ? 'INSIDE GEOFENCE BOUNDARY' : 'OUTSIDE GEOFENCE'}
-                    </span>
+              {gpsError ? (
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '14px',
+                  border: '1.5px solid #fca5a5',
+                  backgroundColor: '#fef2f2',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        backgroundColor: '#ef4444',
+                        display: 'inline-block'
+                      }} />
+                      <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#b91c1c' }}>
+                        LOCATION / GPS OFF OR UNAVAILABLE
+                      </span>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={fetchGpsStatus} 
+                      disabled={gpsLoading}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <RefreshCw size={13} className={gpsLoading ? 'spin' : ''} /> Retry
+                    </button>
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={fetchGpsStatus} 
-                    disabled={gpsLoading}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <RefreshCw size={13} className={gpsLoading ? 'spin' : ''} /> Refresh
-                  </button>
+                  <div style={{ fontSize: '0.78rem', color: '#7f1d1d', fontWeight: 600 }}>
+                    {gpsError}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                    Turn ON location/GPS on your device (phone/PC) and click Retry to verify geofence.
+                  </div>
                 </div>
+              ) : (
+                <div style={{
+                  padding: '18px',
+                  borderRadius: '14px',
+                  border: '1.5px solid #cbd5e1',
+                  backgroundColor: gpsData?.isInside ? '#f0fdf4' : '#fffbeb',
+                  borderColor: gpsData?.isInside ? '#86efac' : '#fde68a'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        backgroundColor: gpsData?.isInside ? '#22c55e' : '#f59e0b',
+                        display: 'inline-block',
+                        boxShadow: gpsData?.isInside ? '0 0 8px #22c55e' : 'none'
+                      }} />
+                      <span style={{ fontSize: '0.84rem', fontWeight: 800, color: gpsData?.isInside ? '#15803d' : '#b45309' }}>
+                        {gpsLoading ? 'Detecting Location...' : gpsData?.isInside ? 'INSIDE GEOFENCE BOUNDARY' : 'OUTSIDE GEOFENCE'}
+                      </span>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={fetchGpsStatus} 
+                      disabled={gpsLoading}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <RefreshCw size={13} className={gpsLoading ? 'spin' : ''} /> Refresh
+                    </button>
+                  </div>
 
-                <div style={{ fontSize: '0.78rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div><strong>Designated Office:</strong> {geofenceConfig.officeName}</div>
-                  <div><strong>Allowed Zone Radius:</strong> {geofenceConfig.radiusMeters} meters</div>
-                  <div><strong>Detected Distance:</strong> {gpsData ? `${gpsData.distance}m away` : 'Calculating...'}</div>
-                  <div><strong>Current Coordinates:</strong> {gpsData ? `${gpsData.lat.toFixed(5)}, ${gpsData.lng.toFixed(5)}` : 'Waiting for GPS...'}</div>
+                  <div style={{ fontSize: '0.78rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div><strong>Designated Office:</strong> {geofenceConfig.officeName}</div>
+                    <div><strong>Allowed Zone Radius:</strong> {geofenceConfig.radiusMeters} meters</div>
+                    <div><strong>Detected Distance:</strong> {gpsData ? `${gpsData.distance}m away` : 'Calculating...'}</div>
+                    <div><strong>Current Coordinates:</strong> {gpsData ? `${gpsData.lat.toFixed(5)}, ${gpsData.lng.toFixed(5)}` : 'Waiting for GPS...'}</div>
+                  </div>
+
+                  {gpsData && !gpsData.isInside && (
+                    <div style={{ marginTop: '10px', padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700 }}>
+                      ⚠️ Punch Blocked: You must be within {geofenceConfig.radiusMeters}m of office to punch attendance.
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               {/* Smart GPS Punch Button */}
-              <div style={{ marginTop: '6px' }}>
-                {isCompletedToday ? (
-                  <button
-                    type="button"
-                    disabled
-                    style={{
-                      width: '100%',
-                      padding: '13px 20px',
-                      borderRadius: '10px',
-                      backgroundColor: '#e2e8f0',
-                      color: '#64748b',
-                      fontWeight: 800,
-                      fontSize: '0.9rem',
-                      border: 'none',
-                      cursor: 'not-allowed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px'
-                    }}
-                  >
-                    <CheckCircle2 size={18} /> Today's GPS Attendance Completed
-                  </button>
-                ) : hasActiveCheckIn ? (
-                  <button
-                    type="button"
-                    disabled={gpsLoading || isCheckedOut || !shiftEval.canCheckOut}
-                    onClick={() => handleGpsPunch('Check-Out')}
-                    style={{
-                      width: '100%',
-                      padding: '13px 20px',
-                      borderRadius: '10px',
-                      backgroundColor: (!isCheckedOut && shiftEval.canCheckOut) ? '#0e7490' : '#cbd5e1',
-                      color: '#ffffff',
-                      fontWeight: 800,
-                      fontSize: '0.9rem',
-                      border: 'none',
-                      cursor: (!isCheckedOut && shiftEval.canCheckOut && !gpsLoading) ? 'pointer' : 'not-allowed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      boxShadow: (!isCheckedOut && shiftEval.canCheckOut) ? '0 4px 14px rgba(14, 116, 144, 0.35)' : 'none'
-                    }}
-                  >
-                    <Clock size={18} /> Confirm GPS Clock-Out
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={gpsLoading || !shiftEval.canCheckIn}
-                    onClick={() => handleGpsPunch('Check-In')}
-                    style={{
-                      width: '100%',
-                      padding: '13px 20px',
-                      borderRadius: '10px',
-                      backgroundColor: shiftEval.canCheckIn ? '#10b981' : '#cbd5e1',
-                      color: '#ffffff',
-                      fontWeight: 800,
-                      fontSize: '0.9rem',
-                      border: 'none',
-                      cursor: (shiftEval.canCheckIn && !gpsLoading) ? 'pointer' : 'not-allowed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      boxShadow: shiftEval.canCheckIn ? '0 4px 14px rgba(16, 185, 129, 0.35)' : 'none'
-                    }}
-                  >
-                    <CheckCircle2 size={18} /> Confirm GPS Clock-In
-                  </button>
-                )}
-              </div>
+              {(() => {
+                const activeEmpModal = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
+                const isEmpCeo = activeEmpModal?.role === 'CEO' || 
+                                 activeEmpModal?.designation?.toLowerCase().includes('ceo') || 
+                                 activeEmpModal?.designation?.toLowerCase().includes('chief executive');
+                const isAllowedByGeofence = Boolean(gpsData && (gpsData.isInside || isEmpCeo));
+
+                return (
+                  <div style={{ marginTop: '6px' }}>
+                    {isCompletedToday ? (
+                      <button
+                        type="button"
+                        disabled
+                        style={{
+                          width: '100%',
+                          padding: '13px 20px',
+                          borderRadius: '10px',
+                          backgroundColor: '#e2e8f0',
+                          color: '#64748b',
+                          fontWeight: 800,
+                          fontSize: '0.9rem',
+                          border: 'none',
+                          cursor: 'not-allowed',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        <CheckCircle2 size={18} /> Today's GPS Attendance Completed
+                      </button>
+                    ) : hasActiveCheckIn ? (
+                      <button
+                        type="button"
+                        disabled={gpsLoading || isCheckedOut || !shiftEval.canCheckOut || !isAllowedByGeofence}
+                        onClick={() => handleGpsPunch('Check-Out')}
+                        style={{
+                          width: '100%',
+                          padding: '13px 20px',
+                          borderRadius: '10px',
+                          backgroundColor: (!isCheckedOut && shiftEval.canCheckOut && isAllowedByGeofence) ? '#0e7490' : '#cbd5e1',
+                          color: '#ffffff',
+                          fontWeight: 800,
+                          fontSize: '0.9rem',
+                          border: 'none',
+                          cursor: (!isCheckedOut && shiftEval.canCheckOut && isAllowedByGeofence && !gpsLoading) ? 'pointer' : 'not-allowed',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          boxShadow: (!isCheckedOut && shiftEval.canCheckOut && isAllowedByGeofence) ? '0 4px 14px rgba(14, 116, 144, 0.35)' : 'none'
+                        }}
+                      >
+                        <Clock size={18} /> Confirm GPS Clock-Out
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={gpsLoading || !shiftEval.canCheckIn || !isAllowedByGeofence}
+                        onClick={() => handleGpsPunch('Check-In')}
+                        style={{
+                          width: '100%',
+                          padding: '13px 20px',
+                          borderRadius: '10px',
+                          backgroundColor: (shiftEval.canCheckIn && isAllowedByGeofence) ? '#10b981' : '#cbd5e1',
+                          color: '#ffffff',
+                          fontWeight: 800,
+                          fontSize: '0.9rem',
+                          border: 'none',
+                          cursor: (shiftEval.canCheckIn && isAllowedByGeofence && !gpsLoading) ? 'pointer' : 'not-allowed',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          boxShadow: (shiftEval.canCheckIn && isAllowedByGeofence) ? '0 4px 14px rgba(16, 185, 129, 0.35)' : 'none'
+                        }}
+                      >
+                        <CheckCircle2 size={18} /> Confirm GPS Clock-In
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Portal link */}
               <div style={{ textAlign: 'center', marginTop: '4px' }}>

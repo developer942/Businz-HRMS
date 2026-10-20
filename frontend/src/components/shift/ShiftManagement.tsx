@@ -16,6 +16,14 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { 
+  getTodayKolkata, 
+  validateRequestDate, 
+  checkDuplicateShiftRequest, 
+  PAST_DATE_ERROR_MESSAGE, 
+  DUPLICATE_REQUEST_ERROR_MESSAGE 
+} from '../../utils/requestValidation';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface ShiftManagementProps {
   openAddModal?: boolean;
@@ -124,7 +132,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     endTime: '18:00',
     breakDurationMins: 45,
     workingHours: 8.25,
-    gracePeriodMins: 15,
     color: '#0E7490'
   });
 
@@ -135,15 +142,16 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     endTime: '18:00',
     breakDurationMins: 45,
     workingHours: 8.25,
-    gracePeriodMins: 15,
     color: '#0E7490'
   });
 
   // Shift Swap Request Form State
+  const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
+  const [swapFormError, setSwapFormError] = useState<string | null>(null);
   const [swapForm, setSwapForm] = useState({
     currentShift: myAssignedShiftName,
     requestedShift: shifts.find(s => s.shiftName !== myAssignedShiftName)?.shiftName || (shifts[1]?.shiftName || 'Shift 2 (09:30 AM - 06:30 PM)'),
-    requestedDate: new Date().toISOString().split('T')[0],
+    requestedDate: getTodayKolkata(),
     reason: 'Personal schedule adjustment'
   });
 
@@ -174,7 +182,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       endTime: shiftForm.endTime,
       breakDurationMins: Number(shiftForm.breakDurationMins),
       workingHours: Number(shiftForm.workingHours) || computedHours,
-      gracePeriodMins: Number(shiftForm.gracePeriodMins),
+      gracePeriodMins: 0,
       assignments: [],
       color: shiftForm.color
     });
@@ -187,7 +195,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       endTime: '18:00',
       breakDurationMins: 45,
       workingHours: 8.25,
-      gracePeriodMins: 15,
       color: '#0E7490'
     });
     triggerToast(`Added new shift "${shiftForm.shiftName}" successfully!`);
@@ -202,7 +209,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       endTime: s.endTime,
       breakDurationMins: s.breakDurationMins,
       workingHours: s.workingHours,
-      gracePeriodMins: s.gracePeriodMins,
       color: s.color || '#0E7490'
     });
   };
@@ -224,7 +230,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       endTime: editShiftForm.endTime,
       breakDurationMins: Number(editShiftForm.breakDurationMins),
       workingHours: Number(editShiftForm.workingHours) || computedHours,
-      gracePeriodMins: Number(editShiftForm.gracePeriodMins),
       color: editShiftForm.color
     });
 
@@ -241,19 +246,52 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   };
 
   // Handle Employee Shift Swap Request
-  const handleRequestSwap = (e: React.FormEvent) => {
+  const handleRequestSwap = async (e: React.FormEvent) => {
     e.preventDefault();
-    requestShiftChange({
-      employeeId: currentUser.employeeId || currentEmp?.employeeId || currentEmp?.id || userEmpId || 'EMP-008',
-      employeeName: currentUser.name || (currentEmp ? `${currentEmp.firstName} ${currentEmp.lastName}`.trim() : 'Staff Member'),
-      currentShift: swapForm.currentShift || myAssignedShiftName,
-      requestedShift: swapForm.requestedShift,
-      requestedDate: swapForm.requestedDate,
-      reason: swapForm.reason
-    });
-    setShowSwapModal(false);
-    if (onCloseQuickAdd) onCloseQuickAdd();
-    triggerToast('Shift change swap request submitted successfully! Pending HR / CEO approval.');
+    setSwapFormError(null);
+
+    // Rule 1: Validate date is not in the past (authoritative Asia/Kolkata check)
+    const dateCheck = validateRequestDate(swapForm.requestedDate);
+    if (!dateCheck.isValid) {
+      setSwapFormError(dateCheck.error || PAST_DATE_ERROR_MESSAGE);
+      return;
+    }
+
+    const targetEmpId = currentUser.employeeId || currentEmp?.employeeId || currentEmp?.id || userEmpId || 'EMP-008';
+
+    // Rule 2: Prevent duplicate active (Pending / Approved) requests for the same date
+    const dupCheck = checkDuplicateShiftRequest(shiftRequests, targetEmpId, swapForm.requestedDate);
+    if (dupCheck.hasDuplicate) {
+      setSwapFormError(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
+
+    // Prevent double-click / rapid concurrent submissions
+    if (isSubmittingSwap) return;
+    setIsSubmittingSwap(true);
+
+    try {
+      requestShiftChange({
+        employeeId: targetEmpId,
+        employeeName: currentUser.name || (currentEmp ? `${currentEmp.firstName} ${currentEmp.lastName}`.trim() : 'Staff Member'),
+        currentShift: swapForm.currentShift || myAssignedShiftName,
+        requestedShift: swapForm.requestedShift,
+        requestedDate: swapForm.requestedDate,
+        reason: swapForm.reason
+      });
+
+      setShowSwapModal(false);
+      if (onCloseQuickAdd) onCloseQuickAdd();
+      triggerToast('Shift change swap request submitted successfully! Pending HR / CEO approval.');
+      setSwapForm({
+        currentShift: myAssignedShiftName,
+        requestedShift: shifts.find(s => s.shiftName !== myAssignedShiftName)?.shiftName || shifts[0]?.shiftName || '',
+        requestedDate: getTodayKolkata(),
+        reason: 'Personal schedule adjustment'
+      });
+    } finally {
+      setIsSubmittingSwap(false);
+    }
   };
 
   // Handle CEO / HR Approval
@@ -282,7 +320,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
           <p className="page-subtitle">
             {isEmployee 
               ? 'View your assigned shift timetable, working hours, and request a shift swap with HR & CEO approval.' 
-              : 'Configure system shifts, working hours, grace periods, and review employee shift change requests.'}
+              : 'Configure system shifts, working hours, and review employee shift change requests.'}
           </p>
         </div>
         <div className="header-actions">
@@ -379,12 +417,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                   {myShift ? `${myShift.breakDurationMins} Mins` : '--'}
                 </div>
               </div>
-              <div>
-                <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Grace Period</div>
-                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', marginTop: '4px' }}>
-                  {myShift ? `${myShift.gracePeriodMins} Mins` : '--'}
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -475,7 +507,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                   <div><strong>Timing:</strong> {s.startTime} - {s.endTime}</div>
                   <div><strong>Working:</strong> {s.workingHours === 8.25 ? '8h 15m' : `${s.workingHours} Hours`}</div>
                   <div><strong>Break:</strong> {s.breakDurationMins} Mins</div>
-                  <div><strong>Grace Period:</strong> {s.gracePeriodMins} Mins</div>
                   <div style={{ gridColumn: 'span 2', paddingTop: '4px', borderTop: '1px dashed #E2E8F0', color: '#64748B' }}>
                     <strong>Assigned Staff:</strong> {employees.filter(e => 
                       (e.workShift && (e.workShift === s.shiftName || e.workShift.toLowerCase().includes(s.shiftName.toLowerCase()))) ||
@@ -660,9 +691,9 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
           <div className="modal-content" style={{ maxWidth: '520px' }}>
             <div className="modal-header">
               <h2>Add New Shift Schedule</h2>
-              <button onClick={() => { setShowAddShiftModal(false); if (onCloseQuickAdd) onCloseQuickAdd(); }}>✕</button>
+              <button type="button" onClick={() => { setShowAddShiftModal(false); if (onCloseQuickAdd) onCloseQuickAdd(); }}>✕</button>
             </div>
-            <form onSubmit={handleAddShift}>
+            <form onSubmit={handleAddShift} onKeyDown={handleFormKeyDown}>
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Shift Title / Name <span style={{ color: '#EF4444' }}>*</span></label>
@@ -684,15 +715,9 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                     <input className="form-control" type="time" value={shiftForm.endTime} onChange={e => setShiftForm({ ...shiftForm, endTime: e.target.value })} />
                   </div>
                 </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Grace Period (Minutes)</label>
-                    <input className="form-control" type="number" min="0" max="60" value={shiftForm.gracePeriodMins} onChange={e => setShiftForm({ ...shiftForm, gracePeriodMins: Number(e.target.value) })} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Break Duration (Minutes)</label>
-                    <input className="form-control" type="number" min="0" max="120" value={shiftForm.breakDurationMins} onChange={e => setShiftForm({ ...shiftForm, breakDurationMins: Number(e.target.value) })} />
-                  </div>
+                <div className="form-group">
+                  <label className="form-label">Break Duration (Minutes)</label>
+                  <input className="form-control" type="number" min="0" max="120" value={shiftForm.breakDurationMins} onChange={e => setShiftForm({ ...shiftForm, breakDurationMins: Number(e.target.value) })} />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
@@ -722,9 +747,9 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Edit3 size={18} color="#0E7490" /> Edit Shift: {editingShift.shiftName}
               </h2>
-              <button onClick={() => setEditingShift(null)}>✕</button>
+              <button type="button" onClick={() => setEditingShift(null)}>✕</button>
             </div>
-            <form onSubmit={handleSaveEditShift}>
+            <form onSubmit={handleSaveEditShift} onKeyDown={handleFormKeyDown}>
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Shift Title / Name <span style={{ color: '#EF4444' }}>*</span></label>
@@ -749,15 +774,9 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                     <input className="form-control" type="time" value={editShiftForm.endTime} onChange={e => setEditShiftForm({ ...editShiftForm, endTime: e.target.value })} required />
                   </div>
                 </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Grace Period (Minutes)</label>
-                    <input className="form-control" type="number" min="0" max="60" value={editShiftForm.gracePeriodMins} onChange={e => setEditShiftForm({ ...editShiftForm, gracePeriodMins: Number(e.target.value) })} required />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Break Duration (Minutes)</label>
-                    <input className="form-control" type="number" min="0" max="120" value={editShiftForm.breakDurationMins} onChange={e => setEditShiftForm({ ...editShiftForm, breakDurationMins: Number(e.target.value) })} required />
-                  </div>
+                <div className="form-group">
+                  <label className="form-label">Break Duration (Minutes)</label>
+                  <input className="form-control" type="number" min="0" max="120" value={editShiftForm.breakDurationMins} onChange={e => setEditShiftForm({ ...editShiftForm, breakDurationMins: Number(e.target.value) })} required />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
@@ -785,10 +804,27 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
           <div className="modal-content" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
               <h2>Request Shift Swap / Change</h2>
-              <button onClick={() => { setShowSwapModal(false); if (onCloseQuickAdd) onCloseQuickAdd(); }}>✕</button>
+              <button type="button" onClick={() => { setShowSwapModal(false); if (onCloseQuickAdd) onCloseQuickAdd(); }}>✕</button>
             </div>
-            <form onSubmit={handleRequestSwap}>
+            <form onSubmit={handleRequestSwap} onKeyDown={handleFormKeyDown}>
               <div className="modal-body">
+                {swapFormError && (
+                  <div style={{
+                    padding: '10px 14px',
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    borderRadius: '8px',
+                    color: '#B91C1C',
+                    fontSize: '0.85rem',
+                    marginBottom: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                    <span>{swapFormError}</span>
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">Current Shift</label>
                   <input className="form-control" value={swapForm.currentShift} readOnly style={{ backgroundColor: '#F8FAFC' }} />
@@ -801,16 +837,31 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                 </div>
                 <div className="form-group">
                   <label className="form-label">Effective Date <span style={{ color: '#EF4444' }}>*</span></label>
-                  <input className="form-control" type="date" value={swapForm.requestedDate} onChange={e => setSwapForm({ ...swapForm, requestedDate: e.target.value })} required />
+                  <input 
+                    className="form-control" 
+                    type="date" 
+                    min={getTodayKolkata()}
+                    value={swapForm.requestedDate} 
+                    onChange={e => {
+                      setSwapFormError(null);
+                      setSwapForm({ ...swapForm, requestedDate: e.target.value });
+                    }} 
+                    required 
+                  />
+                  <small style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', display: 'block' }}>
+                    Select today or a future date. Past dates are strictly disabled.
+                  </small>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Reason for Request <span style={{ color: '#EF4444' }}>*</span></label>
-                  <textarea className="form-control" rows={3} value={swapForm.reason} onChange={e => setSwapForm({ ...swapForm, reason: e.target.value })} placeholder="State the reason for this shift change (e.g. personal commute, family necessity, exam)..." required />
+                  <textarea className="form-control" rows={3} value={swapForm.reason} onChange={e => setSwapForm({ ...swapForm, reason: e.target.value })} onKeyDown={preventSpaceEnterPropagation} placeholder="State the reason for this shift change (e.g. personal commute, family necessity, exam)..." required />
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowSwapModal(false); if (onCloseQuickAdd) onCloseQuickAdd(); }}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-sm">Submit Request</button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowSwapModal(false); setSwapFormError(null); if (onCloseQuickAdd) onCloseQuickAdd(); }}>Cancel</button>
+                <button type="submit" disabled={isSubmittingSwap} className="btn btn-primary btn-sm">
+                  {isSubmittingSwap ? 'Submitting...' : 'Submit Request'}
+                </button>
               </div>
             </form>
           </div>
@@ -825,7 +876,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <h2 style={{ color: '#DC2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={20} /> Decline Shift Request
               </h2>
-              <button onClick={() => setRejectModal(null)}>✕</button>
+              <button type="button" onClick={() => setRejectModal(null)}>✕</button>
             </div>
             <div className="modal-body">
               <p style={{ fontSize: '0.88rem', color: '#475569', marginBottom: '14px' }}>
@@ -838,6 +889,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                   rows={3} 
                   value={rejectionReason} 
                   onChange={e => setRejectionReason(e.target.value)} 
+                  onKeyDown={preventSpaceEnterPropagation}
                   placeholder="e.g. Shift is at full staff capacity for that day..."
                 />
               </div>
@@ -858,7 +910,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#DC2626' }}>
                 <ShieldAlert size={20} /> Delete Shift Confirmation
               </h2>
-              <button onClick={() => setDeleteConfirmModal(null)}><X size={18} /></button>
+              <button type="button" onClick={() => setDeleteConfirmModal(null)}><X size={18} /></button>
             </div>
             
             <div className="modal-body" style={{ textAlign: 'center', padding: '24px 16px' }}>

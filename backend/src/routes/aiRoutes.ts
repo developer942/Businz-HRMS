@@ -3,8 +3,10 @@ import {
   getAiStatus,
   listModels,
   generateAiContent,
-  saveAiConfig
+  saveAiConfig,
+  getEmployeeVerifiedContext,
 } from '../controllers/aiController.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
 
 export const aiRouter = Router();
 
@@ -13,3 +15,7 @@ aiRouter.get('/status', getAiStatus);
 aiRouter.post('/models', listModels);
 aiRouter.post('/generate', generateAiContent);
 aiRouter.post('/config', saveAiConfig);
+
+// Authenticated verified database context endpoint for chatbot
+aiRouter.get('/employee-context', authenticateToken, getEmployeeVerifiedContext);
+aiRouter.post('/employee-context', authenticateToken, getEmployeeVerifiedContext);

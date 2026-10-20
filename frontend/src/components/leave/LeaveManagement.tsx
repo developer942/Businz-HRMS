@@ -26,10 +26,19 @@ import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalcu
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
 import { toNum } from '../../utils/numbers';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { 
+  getTodayKolkata, 
+  validateDateRange, 
+  checkDuplicateLeaveRequest, 
+  PAST_DATE_ERROR_MESSAGE, 
+  DUPLICATE_REQUEST_ERROR_MESSAGE, 
+  INVALID_DATE_RANGE_ORDER_MESSAGE 
+} from '../../utils/requestValidation';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface LeaveManagementProps {
   openApplyModal?: boolean;
@@ -115,7 +124,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       hour12: true
     });
   };
-  const minRequestDate = getLocalDateString(1);
+  const minRequestDate = getTodayKolkata();
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
+  const [isSubmittingWfh, setIsSubmittingWfh] = useState(false);
 
   // Multi-row selection state
   const [selectedLeaveIds, setSelectedLeaveIds] = useState<string[]>([]);
@@ -179,39 +190,53 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     }
   }, [wfhForm.startDate, wfhForm.endDate]);
 
-  const handleWfhSubmit = (e: React.FormEvent) => {
+  const handleWfhSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentMin = getLocalDateString(1);
-    if (!wfhForm.startDate || wfhForm.startDate < currentMin) {
-      alert(`Work From Home start date must be a future date (${formatDateDDMMYYYY(currentMin)} onwards). Past dates (yesterday, previous months) cannot be requested.`);
+    const currentMin = getTodayKolkata();
+
+    // Rule 1: Validate date range (authoritative Asia/Kolkata check)
+    const rangeCheck = validateDateRange(wfhForm.startDate, wfhForm.endDate);
+    if (!rangeCheck.isValid) {
+      alert(rangeCheck.error || PAST_DATE_ERROR_MESSAGE);
       return;
     }
-    if (!wfhForm.endDate || wfhForm.endDate < wfhForm.startDate) {
-      alert('Work From Home end date cannot be before start date.');
-      return;
-    }
+
     const targetEmpId = isEmployeeRole ? currentEmployeeId : wfhForm.employeeId;
     const emp = employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || currentEmployee || employees[0];
 
-    applyLeave({
-      employeeId: targetEmpId,
-      employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : currentEmployeeName,
-      department: emp?.department || currentUser.department || 'General',
-      leaveType: 'Work From Home',
-      startDate: wfhForm.startDate,
-      endDate: wfhForm.endDate,
-      daysCount: wfhDaysCount,
-      reason: wfhForm.reason || 'Work From Home request'
-    });
+    // Rule 2: Prevent duplicate or overlapping active (Pending / Approved) leave requests
+    const dupCheck = checkDuplicateLeaveRequest(leaveRequests, targetEmpId, wfhForm.startDate, wfhForm.endDate);
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
 
-    setShowWfhModal(false);
-    if (onCloseQuickAdd) onCloseQuickAdd();
-    setWfhForm(prev => ({
-      ...prev,
-      startDate: minRequestDate,
-      endDate: minRequestDate,
-      reason: ''
-    }));
+    if (isSubmittingWfh) return;
+    setIsSubmittingWfh(true);
+
+    try {
+      applyLeave({
+        employeeId: targetEmpId,
+        employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : currentEmployeeName,
+        department: emp?.department || currentUser.department || 'General',
+        leaveType: 'Work From Home',
+        startDate: wfhForm.startDate,
+        endDate: wfhForm.endDate,
+        daysCount: wfhDaysCount,
+        reason: wfhForm.reason || 'Work From Home request'
+      });
+
+      setShowWfhModal(false);
+      if (onCloseQuickAdd) onCloseQuickAdd();
+      setWfhForm(prev => ({
+        ...prev,
+        startDate: minRequestDate,
+        endDate: minRequestDate,
+        reason: ''
+      }));
+    } finally {
+      setIsSubmittingWfh(false);
+    }
   };
 
   const wfhTotalCount = useMemo(() => {
@@ -464,34 +489,47 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     }
   }, [inspectLeave, computeSandwichCalculation, sandwichPolicies, weeklySchedules]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentMin = getLocalDateString(1);
-    if (!form.startDate || form.startDate < currentMin) {
-      alert(`Leave start date must be a future date (${formatDateDDMMYYYY(currentMin)} onwards). Past dates (yesterday, previous months) cannot be requested.`);
+
+    // Rule 1: Validate date range (authoritative Asia/Kolkata check)
+    const rangeCheck = validateDateRange(form.startDate, form.endDate);
+    if (!rangeCheck.isValid) {
+      alert(rangeCheck.error || PAST_DATE_ERROR_MESSAGE);
       return;
     }
-    if (!form.endDate || form.endDate < form.startDate) {
-      alert('Leave end date cannot be before start date.');
-      return;
-    }
+
     const targetEmpId = isEmployeeRole ? currentEmployeeId : form.employeeId;
     const emp = employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || currentEmployee || employees[0];
-    
-    applyLeave({
-      employeeId: targetEmpId,
-      employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : currentEmployeeName,
-      department: emp?.department || currentUser.department || 'General',
-      leaveType: form.leaveType,
-      startDate: form.startDate,
-      endDate: form.endDate,
-      daysCount: liveCalculation?.totalDays || 1,
-      reason: form.reason || 'Personal leave request',
-      sandwichDetails: liveCalculation || undefined
-    });
 
-    setShowModal(false);
-    if (onCloseQuickAdd) onCloseQuickAdd();
+    // Rule 2: Prevent duplicate or overlapping active (Pending / Approved) leave requests
+    const dupCheck = checkDuplicateLeaveRequest(leaveRequests, targetEmpId, form.startDate, form.endDate);
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
+
+    if (isSubmittingLeave) return;
+    setIsSubmittingLeave(true);
+
+    try {
+      applyLeave({
+        employeeId: targetEmpId,
+        employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : currentEmployeeName,
+        department: emp?.department || currentUser.department || 'General',
+        leaveType: form.leaveType,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        daysCount: liveCalculation?.totalDays || 1,
+        reason: form.reason || 'Personal leave request',
+        sandwichDetails: liveCalculation || undefined
+      });
+
+      setShowModal(false);
+      if (onCloseQuickAdd) onCloseQuickAdd();
+    } finally {
+      setIsSubmittingLeave(false);
+    }
   };
 
   const openOverrideModal = (leave: LeaveRequest) => {
@@ -1547,6 +1585,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 </p>
               </div>
               <button 
+                type="button"
                 onClick={() => {
                   setShowModal(false);
                   if (onCloseQuickAdd) onCloseQuickAdd();
@@ -1568,7 +1607,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               </button>
             </div>
             
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
               <div className="modal-body" style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 
                 {/* Employee selection if Admin/Manager */}
@@ -1768,6 +1807,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     rows={2} 
                     value={form.reason} 
                     onChange={e => setForm({ ...form, reason: e.target.value })} 
+                    onKeyDown={preventSpaceEnterPropagation}
                     placeholder="Personal leave, medical reason, etc."
                     style={{ borderRadius: '10px', backgroundColor: '#f8fafc', fontSize: '0.85rem' }}
                   />
@@ -1825,6 +1865,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
                 <button 
                   type="submit" 
+                  disabled={isSubmittingLeave}
                   className="btn btn-primary btn-sm"
                   style={{
                     borderRadius: '10px',
@@ -1834,7 +1875,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     fontWeight: 700
                   }}
                 >
-                  Submit Leave Request ({liveCalculation?.totalDays || 1} Days)
+                  {isSubmittingLeave ? 'Submitting...' : `Submit Leave Request (${liveCalculation?.totalDays || 1} Days)`}
                 </button>
               </div>
 
@@ -2417,6 +2458,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 </p>
               </div>
               <button 
+                type="button"
                 onClick={() => setOverrideLeave(null)}
                 style={{ width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #E2E8F0', backgroundColor: '#F8FAFC', cursor: 'pointer' }}
               >
@@ -2424,7 +2466,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               </button>
             </div>
 
-            <form onSubmit={handleSaveOverride}>
+            <form onSubmit={handleSaveOverride} onKeyDown={handleFormKeyDown}>
               <div className="modal-body" style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 
                 {/* Day Selection to Exclude/Include */}
@@ -2520,6 +2562,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     placeholder="Enter explicit reason for override (e.g. Executive approval for family emergency, weekend exempt from LOP). Kept private from employee."
                     value={overrideForm.internalReason}
                     onChange={e => setOverrideForm({ ...overrideForm, internalReason: e.target.value })}
+                    onKeyDown={preventSpaceEnterPropagation}
                     required
                     style={{ borderRadius: '10px' }}
                   />
@@ -2596,7 +2639,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               </button>
             </div>
 
-            <form onSubmit={handleWfhSubmit}>
+            <form onSubmit={handleWfhSubmit} onKeyDown={handleFormKeyDown}>
               <div className="modal-body" style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {/* Employee selection if Admin/Manager */}
                 {!isEmployeeRole && (
@@ -2713,6 +2756,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     className="form-control"
                     value={wfhForm.reason}
                     onChange={e => setWfhForm({ ...wfhForm, reason: e.target.value })}
+                    onKeyDown={preventSpaceEnterPropagation}
                     required
                     style={{ borderRadius: '10px' }}
                   />
@@ -2733,6 +2777,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 </button>
                 <button
                   type="submit"
+                  disabled={isSubmittingWfh}
                   className="btn btn-primary"
                   style={{
                     backgroundColor: '#0E7490',
@@ -2745,7 +2790,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     gap: '6px'
                   }}
                 >
-                  <Home size={16} /> Submit WFH Request
+                  <Home size={16} /> {isSubmittingWfh ? 'Submitting...' : 'Submit WFH Request'}
                 </button>
               </div>
             </form>

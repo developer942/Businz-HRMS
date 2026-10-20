@@ -222,7 +222,6 @@ export const AttendanceSettings: React.FC = () => {
         shiftName: shiftForm.shiftName,
         startTime: shiftForm.startTime,
         endTime: shiftForm.endTime,
-        gracePeriodMins: Number(shiftForm.gracePeriodMins),
         breakDurationMins: Number(shiftForm.breakDurationMins),
         workingHours: Number(shiftForm.workingHours),
         color: shiftForm.color
@@ -233,7 +232,7 @@ export const AttendanceSettings: React.FC = () => {
         shiftName: shiftForm.shiftName,
         startTime: shiftForm.startTime,
         endTime: shiftForm.endTime,
-        gracePeriodMins: Number(shiftForm.gracePeriodMins),
+        gracePeriodMins: 0,
         breakDurationMins: Number(shiftForm.breakDurationMins),
         workingHours: Number(shiftForm.workingHours),
         assignments: [],
@@ -251,7 +250,7 @@ export const AttendanceSettings: React.FC = () => {
       shiftName: shift.shiftName,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      gracePeriodMins: shift.gracePeriodMins || 15,
+      gracePeriodMins: shift.gracePeriodMins ?? 15,
       breakDurationMins: shift.breakDurationMins || 45,
       workingHours: shift.workingHours || 8.25,
       color: shift.color || '#0E7490'
@@ -832,17 +831,7 @@ export const AttendanceSettings: React.FC = () => {
                         />
                       </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '10px' }}>
-                      <div>
-                        <label style={modalLabelStyle}>Grace Window (Mins)</label>
-                        <input
-                          type="number"
-                          required
-                          value={shiftForm.gracePeriodMins}
-                          onChange={e => setShiftForm({ ...shiftForm, gracePeriodMins: Number(e.target.value) })}
-                          style={modalInputStyle}
-                        />
-                      </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '10px' }}>
                       <div>
                         <label style={modalLabelStyle}>Working Hours</label>
                         <input
@@ -884,7 +873,7 @@ export const AttendanceSettings: React.FC = () => {
                         <div>
                           <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a' }}>{sp.shiftName}</div>
                           <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                            Hours: {sp.startTime} - {sp.endTime} ({sp.workingHours || 8} hrs) • Grace: {sp.gracePeriodMins || 15}m
+                            Hours: {sp.startTime} - {sp.endTime} ({sp.workingHours || 8} hrs)
                           </div>
                         </div>
                       </div>

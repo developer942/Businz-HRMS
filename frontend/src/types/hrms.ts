@@ -21,6 +21,7 @@ export type Role =
 export * from './tasks';
 export * from './sandwichLeave';
 export * from './settings';
+export * from './customer';
 import { SandwichCalculationResult, HROverrideDetails, SandwichCalculationDayDetail } from './sandwichLeave';
 import type {
   LateDeductionResult,
@@ -52,7 +53,8 @@ export type ModuleName =
   | 'assets'
   | 'settings'
   | 'tracking'
-  | 'profile';
+  | 'profile'
+  | 'customer_data';
 
 export interface User {
   id: string;
@@ -559,6 +561,8 @@ export interface GeofenceConfig {
   centerLng: number;
   radiusMeters: number;
   enforceStrictly: boolean;
+  googleMapsLink?: string;
+  address?: string;
 }
 
 export interface AssetItem {

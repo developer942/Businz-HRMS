@@ -9,6 +9,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { OvertimeRequest } from '../../types/attendanceEnterprise';
 import { formatCurrency } from '../../utils/numbers';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 interface EmployeeOtRequestModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
   const [attachmentFileName, setAttachmentFileName] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Auto-detect check-out from today's attendance if available
   useEffect(() => {
@@ -115,31 +117,38 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
     const employeeName = currentUser?.name || 'Employee';
     const department = currentUser?.department || 'Engineering';
 
-    const res = submitOtRequest({
-      employeeId,
-      employeeName,
-      department,
-      date,
-      shiftEnd,
-      actualCheckOut,
-      potentialOtHours,
-      requestedOtHours,
-      reason,
-      workDescription,
-      multiplier,
-      hourlyRate,
-      calculatedAmount,
-      attachmentUrl: attachmentFileName ? `uploads/${attachmentFileName}` : undefined
-    });
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    if (res.success) {
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-      }, 1200);
-    } else {
-      setError(res.message);
+    try {
+      const res = submitOtRequest({
+        employeeId,
+        employeeName,
+        department,
+        date,
+        shiftEnd,
+        actualCheckOut,
+        potentialOtHours,
+        requestedOtHours,
+        reason,
+        workDescription,
+        multiplier,
+        hourlyRate,
+        calculatedAmount,
+        attachmentUrl: attachmentFileName ? `uploads/${attachmentFileName}` : undefined
+      });
+
+      if (res.success) {
+        setIsSuccess(true);
+        setTimeout(() => {
+          setIsSuccess(false);
+          onClose();
+        }, 1200);
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -216,7 +225,7 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
           <div
             className="modal-body"
             style={{
@@ -544,6 +553,7 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
                 rows={3}
                 value={workDescription}
                 onChange={e => setWorkDescription(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
                 placeholder="List specific milestones, ticket numbers, or structural activities completed during these extra hours..."
                 style={{
                   width: '100%',
@@ -630,6 +640,7 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               className="btn btn-primary"
               style={{
                 padding: '8px 20px',
@@ -638,10 +649,12 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
                 fontWeight: 700,
                 backgroundColor: '#0E7490',
                 borderColor: '#0E7490',
-                boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
+                boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)',
+                opacity: isSubmitting ? 0.7 : 1,
+                cursor: isSubmitting ? 'not-allowed' : 'pointer'
               }}
             >
-              Submit OT Claim
+              {isSubmitting ? 'Submitting...' : 'Submit OT Claim'}
             </button>
           </div>
         </form>

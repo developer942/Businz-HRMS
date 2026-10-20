@@ -8,8 +8,8 @@ export const requireRoles = (allowedRoles) => {
             res.status(401).json({
                 success: false,
                 error: {
-                    code: 'UNAUTHORIZED',
-                    message: 'Authentication required',
+                    code: 'HRMS_UNAUTHENTICATED',
+                    message: 'Authentication required. Please sign in to your HRMS account.',
                     details: [],
                 },
             });
@@ -23,8 +23,8 @@ export const requireRoles = (allowedRoles) => {
             res.status(403).json({
                 success: false,
                 error: {
-                    code: 'FORBIDDEN',
-                    message: `Your role (${req.user.role}) does not have permission for this action`,
+                    code: 'HRMS_FORBIDDEN',
+                    message: `Insufficient permissions: Your role (${req.user.role}) does not have permission for this action. Required: ${allowedRoles.join(', ')}`,
                     details: [`Allowed roles: ${allowedRoles.join(', ')}`],
                 },
             });

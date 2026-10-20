@@ -69,11 +69,11 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
   }, [currentUser, attendanceRecords, leaveRequests]);
 
   // Donut chart SVG geometry (Big, Bold & Perfectly Proportioned)
-  const size = 200;
+  const size = 172;
   const cx = size / 2;
   const cy = size / 2;
-  const r = 70;
-  const strokeWidth = 28;
+  const r = 60;
+  const strokeWidth = 24;
   const circumference = 2 * Math.PI * r;
 
   const { totalWorkingDays, present, leave, late, absent, attendanceRate } = stats;
@@ -250,7 +250,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               y={cy - 2}
               textAnchor="middle"
               fill="#0B1A2D"
-              fontSize="30px"
+              fontSize="26px"
               fontWeight="800"
               fontFamily="'Plus Jakarta Sans', sans-serif"
               style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -260,10 +260,10 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
             </text>
             <text
               x={cx}
-              y={cy + 17}
+              y={cy + 15}
               textAnchor="middle"
               fill="#64748B"
-              fontSize="10.5px"
+              fontSize="9.5px"
               fontWeight="750"
               letterSpacing="0.06em"
               fontFamily="'Plus Jakarta Sans', sans-serif"
@@ -298,9 +298,14 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                 Present
               </span>
             </div>
-            <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D' }}>
-              {((present / safeTotal) * 100).toFixed(0)}% <span style={{ color: '#64748B', fontWeight: 500 }}>{present} Days</span>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D', minWidth: '32px', textAlign: 'right' }}>
+                {((present / safeTotal) * 100).toFixed(0)}%
+              </span>
+              <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '46px', textAlign: 'right' }}>
+                {present} Days
+              </span>
+            </div>
           </div>
 
           {/* On Leave */}
@@ -324,9 +329,14 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                 On Leave
               </span>
             </div>
-            <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D' }}>
-              {((leave / safeTotal) * 100).toFixed(0)}% <span style={{ color: '#64748B', fontWeight: 500 }}>{leave} Days</span>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D', minWidth: '32px', textAlign: 'right' }}>
+                {((leave / safeTotal) * 100).toFixed(0)}%
+              </span>
+              <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '46px', textAlign: 'right' }}>
+                {leave} Days
+              </span>
+            </div>
           </div>
 
           {/* Half Day / Late */}
@@ -350,9 +360,14 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                 Half Day / Late
               </span>
             </div>
-            <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D' }}>
-              {((late / safeTotal) * 100).toFixed(0)}% <span style={{ color: '#64748B', fontWeight: 500 }}>{late} Days</span>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D', minWidth: '32px', textAlign: 'right' }}>
+                {((late / safeTotal) * 100).toFixed(0)}%
+              </span>
+              <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '46px', textAlign: 'right' }}>
+                {late} Days
+              </span>
+            </div>
           </div>
 
           {/* Absent */}
@@ -376,9 +391,14 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                 Absent
               </span>
             </div>
-            <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D' }}>
-              {((absent / safeTotal) * 100).toFixed(0)}% <span style={{ color: '#64748B', fontWeight: 500 }}>{absent} {absent === 1 ? 'Day' : 'Days'}</span>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D', minWidth: '32px', textAlign: 'right' }}>
+                {((absent / safeTotal) * 100).toFixed(0)}%
+              </span>
+              <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '46px', textAlign: 'right' }}>
+                {absent} {absent === 1 ? 'Day' : 'Days'}
+              </span>
+            </div>
           </div>
 
           {/* Late Policy Warning System Banner */}

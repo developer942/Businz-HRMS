@@ -24,7 +24,16 @@ export const GPSGeofenceSettings: React.FC = () => {
     return (val && val !== 'Businz HQ' && val !== 'Corporate Headquarters') ? val : '';
   });
 
-  const [googleMapsLink, setGoogleMapsLink] = useState<string>('');
+  const [googleMapsLink, setGoogleMapsLink] = useState<string>(() => {
+    if (geofenceConfig.googleMapsLink) return geofenceConfig.googleMapsLink;
+    const numLat = Number(geofenceConfig.centerLat);
+    const numLng = Number(geofenceConfig.centerLng);
+    if (numLat && numLng) {
+      return `https://www.google.com/maps?q=${numLat},${numLng}`;
+    }
+    return '';
+  });
+
   const [lat, setLat] = useState<number | ''>(() => {
     const val = Number(geofenceConfig.centerLat);
     return (val && val !== 13.151968 && val !== 28.703197 && val !== 0) ? val : '';
@@ -33,11 +42,35 @@ export const GPSGeofenceSettings: React.FC = () => {
     const val = Number(geofenceConfig.centerLng);
     return (val && val !== 80.2086053 && val !== 77.098123 && val !== 0) ? val : '';
   });
-  const [radius, setRadius] = useState<number>(() => Number(geofenceConfig.radiusMeters) || 200);
+  const [radius, setRadius] = useState<number>(() => Number(geofenceConfig.radiusMeters) || 250);
   const [address, setAddress] = useState<string>(() => {
-    const val = geofenceConfig.officeName;
+    const val = geofenceConfig.address || geofenceConfig.officeName;
     return (val && val !== 'Businz HQ' && val !== 'Corporate Headquarters' && val !== 'Corporate Office Address') ? val : '';
   });
+
+  // Sync state when geofenceConfig loads or changes from VPS
+  useEffect(() => {
+    if (geofenceConfig.centerLat && geofenceConfig.centerLng) {
+      const numLat = Number(geofenceConfig.centerLat);
+      const numLng = Number(geofenceConfig.centerLng);
+      if (lat === '' || lat === 0) setLat(numLat);
+      if (lng === '' || lng === 0) setLng(numLng);
+      if (!name && geofenceConfig.officeName && geofenceConfig.officeName !== 'Businz HQ') {
+        setName(geofenceConfig.officeName);
+      }
+      if (!address && (geofenceConfig.address || geofenceConfig.officeName)) {
+        setAddress(geofenceConfig.address || geofenceConfig.officeName || '');
+      }
+      if (geofenceConfig.radiusMeters) {
+        setRadius(Number(geofenceConfig.radiusMeters));
+      }
+      if (!googleMapsLink) {
+        setGoogleMapsLink(
+          geofenceConfig.googleMapsLink || `https://www.google.com/maps?q=${numLat},${numLng}`
+        );
+      }
+    }
+  }, [geofenceConfig]);
 
   const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -263,56 +296,127 @@ export const GPSGeofenceSettings: React.FC = () => {
     }
   };
 
-  // Google Maps Link Parser
-  const handleExtractFromGoogleMapsLink = () => {
-    if (!googleMapsLink.trim()) return;
+  // Google Maps Link & Address Parser (Handles short links, DMS, queries, !3d!4d, @coords, and geocoding)
+  const handleExtractFromGoogleMapsLink = async () => {
+    const raw = googleMapsLink.trim();
+    if (!raw) return;
+
+    setLinkExtractMsg('Detecting location coordinates...');
 
     let foundLat: number | null = null;
     let foundLng: number | null = null;
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {}
 
-    // Pattern 1: @lat,lng,zoom e.g. @28.703197,77.098123,17z
-    const atMatch = googleMapsLink.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    // Pattern 1: @lat,lng,zoom e.g. @13.0827,80.2707,17z
+    const atMatch = decoded.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (atMatch) {
       foundLat = parseFloat(atMatch[1]);
       foundLng = parseFloat(atMatch[2]);
     }
 
-    // Pattern 2: ?q=lat,lng or &q=lat,lng
+    // Pattern 2: !3d<lat>!4d<lng> (Standard Google Maps Place URLs)
     if (!foundLat) {
-      const qMatch = googleMapsLink.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      const dataMatch = decoded.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+      if (dataMatch) {
+        foundLat = parseFloat(dataMatch[1]);
+        foundLng = parseFloat(dataMatch[2]);
+      }
+    }
+
+    // Pattern 3: ?q=lat,lng or query=lat,lng or loc=lat,lng or center=lat,lng
+    if (!foundLat) {
+      const qMatch = decoded.match(/[?&](?:q|query|loc|center|destination)=(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)/i);
       if (qMatch) {
         foundLat = parseFloat(qMatch[1]);
         foundLng = parseFloat(qMatch[2]);
       }
     }
 
-    // Pattern 3: ll=lat,lng
+    // Pattern 4: ll=lat,lng
     if (!foundLat) {
-      const llMatch = googleMapsLink.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      const llMatch = decoded.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
       if (llMatch) {
         foundLat = parseFloat(llMatch[1]);
         foundLng = parseFloat(llMatch[2]);
       }
     }
 
-    // Pattern 4: Raw coordinates string "28.703197, 77.098123"
+    // Pattern 5: Raw coordinates string "13.0827, 80.2707"
     if (!foundLat) {
-      const rawMatch = googleMapsLink.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+      const rawMatch = decoded.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
       if (rawMatch) {
         foundLat = parseFloat(rawMatch[1]);
         foundLng = parseFloat(rawMatch[2]);
       }
     }
 
+    // Pattern 6: DMS coordinates (e.g. 13°04'57.7"N 80°16'14.5"E)
+    if (!foundLat) {
+      const dmsMatch = decoded.match(/(\d+)°(\d+)'([\d.]+)"([NS])[,\s]+(\d+)°(\d+)'([\d.]+)"([EW])/i);
+      if (dmsMatch) {
+        const latDeg = parseFloat(dmsMatch[1]) + parseFloat(dmsMatch[2]) / 60 + parseFloat(dmsMatch[3]) / 3600;
+        const latSign = dmsMatch[4].toUpperCase() === 'S' ? -1 : 1;
+        const lngDeg = parseFloat(dmsMatch[5]) + parseFloat(dmsMatch[6]) / 60 + parseFloat(dmsMatch[7]) / 3600;
+        const lngSign = dmsMatch[8].toUpperCase() === 'W' ? -1 : 1;
+        foundLat = latDeg * latSign;
+        foundLng = lngDeg * lngSign;
+      }
+    }
+
+    // Pattern 7: Short links (e.g. maps.app.goo.gl or goo.gl/maps) -> Backend resolver
+    if (!foundLat && (raw.includes('goo.gl') || raw.includes('maps.app'))) {
+      try {
+        const resp = await fetch('https://hrms.businz.com/api/v1/settings/resolve-map-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: raw })
+        });
+        if (resp.ok) {
+          const resData = await resp.json();
+          if (resData.success && resData.lat && resData.lng) {
+            foundLat = parseFloat(resData.lat);
+            foundLng = parseFloat(resData.lng);
+          }
+        }
+      } catch (err) {
+        console.warn('Backend link resolver fallback:', err);
+      }
+    }
+
+    // Pattern 8: If it's a place name or address query (e.g. user entered "Kathirvedu, Chennai")
+    if (!foundLat && !raw.startsWith('http://') && !raw.startsWith('https://')) {
+      try {
+        const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(raw)}&limit=1`, {
+          headers: { 'Accept-Language': 'en' }
+        });
+        if (resp.ok) {
+          const results = await resp.json();
+          if (Array.isArray(results) && results.length > 0) {
+            foundLat = parseFloat(results[0].lat);
+            foundLng = parseFloat(results[0].lon);
+            if (results[0].display_name) {
+              setAddress(results[0].display_name);
+              if (!name) setName(results[0].display_name);
+            }
+          }
+        }
+      } catch {}
+    }
+
     if (foundLat && foundLng && !isNaN(foundLat) && !isNaN(foundLng)) {
-      setLat(foundLat);
-      setLng(foundLng);
-      setLinkExtractMsg(`✓ Coordinates extracted: ${foundLat.toFixed(6)}, ${foundLng.toFixed(6)}`);
-      fetchAddress(foundLat, foundLng);
+      const fixedLat = Number(foundLat.toFixed(6));
+      const fixedLng = Number(foundLng.toFixed(6));
+      setLat(fixedLat);
+      setLng(fixedLng);
+      setLinkExtractMsg(`✓ Location detected: ${fixedLat}, ${fixedLng}`);
+      fetchAddress(fixedLat, fixedLng);
       setTimeout(() => setLinkExtractMsg(null), 4000);
     } else {
-      setLinkExtractMsg('Could not auto-detect coordinates from this link. Please enter Latitude & Longitude directly or click on the map.');
-      setTimeout(() => setLinkExtractMsg(null), 5000);
+      setLinkExtractMsg('Could not detect coordinates from this link. You can click directly on the map or enter Latitude and Longitude.');
+      setTimeout(() => setLinkExtractMsg(null), 6000);
     }
   };
 
@@ -330,6 +434,7 @@ export const GPSGeofenceSettings: React.FC = () => {
         setLat(curLat);
         setLng(curLng);
         fetchAddress(curLat, curLng);
+        setGoogleMapsLink(`https://www.google.com/maps?q=${curLat},${curLng}`);
         setIsDetectingLocation(false);
       },
       (err) => {
@@ -345,12 +450,15 @@ export const GPSGeofenceSettings: React.FC = () => {
     const numLat = typeof lat === 'number' ? lat : parseFloat(String(lat)) || 0;
     const numLng = typeof lng === 'number' ? lng : parseFloat(String(lng)) || 0;
     const finalName = name.trim() || address.trim() || 'Office Geofence';
+    const finalLink = googleMapsLink.trim() || (numLat !== 0 && numLng !== 0 ? `https://www.google.com/maps?q=${numLat},${numLng}` : '');
 
     updateGeofenceConfig({
       officeName: finalName,
       centerLat: numLat,
       centerLng: numLng,
       radiusMeters: radius,
+      googleMapsLink: finalLink,
+      address: address.trim() || finalName,
       enabled: Boolean(numLat !== 0 && numLng !== 0),
       enforceStrictly: Boolean(numLat !== 0 && numLng !== 0)
     });
@@ -367,11 +475,11 @@ export const GPSGeofenceSettings: React.FC = () => {
     const cleanLng = (geofenceConfig.centerLng && geofenceConfig.centerLng !== 80.2086053 && geofenceConfig.centerLng !== 77.098123) ? geofenceConfig.centerLng : '';
 
     setName(cleanName);
-    setGoogleMapsLink('');
+    setGoogleMapsLink(geofenceConfig.googleMapsLink || (cleanLat && cleanLng ? `https://www.google.com/maps?q=${cleanLat},${cleanLng}` : ''));
     setLat(cleanLat);
     setLng(cleanLng);
-    setRadius(Number(geofenceConfig.radiusMeters) || 200);
-    setAddress(cleanName);
+    setRadius(Number(geofenceConfig.radiusMeters) || 250);
+    setAddress(geofenceConfig.address || cleanName);
   };
 
   return (
@@ -668,10 +776,14 @@ export const GPSGeofenceSettings: React.FC = () => {
                 <option value={100}>100 M</option>
                 <option value={150}>150 M</option>
                 <option value={200}>200 M</option>
+                <option value={250}>250 M (Campus Zone)</option>
                 <option value={300}>300 M</option>
                 <option value={500}>500 M</option>
                 <option value={1000}>1000 M (1 KM)</option>
                 <option value={2000}>2000 M (2 KM)</option>
+                {![30, 50, 100, 150, 200, 250, 300, 500, 1000, 2000].includes(radius) && (
+                  <option value={radius}>{radius} M (Configured)</option>
+                )}
               </select>
 
               <button
@@ -940,7 +1052,7 @@ export const GPSGeofenceSettings: React.FC = () => {
 
         {lat !== '' && lng !== '' && (
           <a
-            href={`https://www.google.com/maps?q=${lat},${lng}`}
+            href={googleMapsLink || `https://www.google.com/maps?q=${lat},${lng}`}
             target="_blank"
             rel="noreferrer"
             style={{

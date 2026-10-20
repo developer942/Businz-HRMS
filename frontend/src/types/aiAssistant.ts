@@ -37,6 +37,10 @@ export type ScriptType =
   | 'Mixed';
 
 export type CanonicalIntent = 
+  | 'GET_MY_LEAVE_BALANCE'
+  | 'GET_MY_ATTENDANCE'
+  | 'GET_MY_SHIFT'
+  | 'GET_MY_CREDENTIAL_EMAIL'
   | 'GET_LEAVE_RECORDS'
   | 'GET_ATTENDANCE'
   | 'GET_ABSENT_EMPLOYEES'

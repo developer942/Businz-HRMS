@@ -87,17 +87,31 @@ export async function verifySmtpConnection(params) {
     if (params.companyId) {
         saved = await settingsRepository.getCompanySmtpConfig(params.companyId);
     }
+    // 1. Password resolution: newly entered password takes precedence over saved password
     let pass = (params.appPassword || '').replace(/\s+/g, '').trim();
+    // Masked bullets (e.g. ••••••••) are placeholder representations, not valid credentials
+    if (pass.includes('•')) {
+        pass = '';
+    }
     if (!pass && saved?.appPasswordEncrypted) {
-        pass = decryptCredential(saved.appPasswordEncrypted);
+        pass = decryptCredential(saved.appPasswordEncrypted).replace(/\s+/g, '').trim();
     }
     if (!pass) {
-        throw new Error('Google Account App Password (16 digits) is required for SMTP verification.');
+        const err = new Error('Google Account App Password (16 characters) is required for SMTP verification.');
+        err.code = 'SMTP_CONFIG_INVALID';
+        throw err;
     }
-    const senderEmail = (params.senderEmail || saved?.senderEmail || 'developer@businz.com').trim();
-    const cleanHost = (params.smtpHost || saved?.smtpHost || '').trim() || (senderEmail.includes('gmail') || senderEmail.includes('businz') ? 'smtp.gmail.com' : 'smtp.gmail.com');
-    const cleanPort = Number(params.smtpPort || saved?.smtpPort) || (cleanHost.includes('gmail') ? 587 : 465);
-    const secure = params.secure !== undefined ? Boolean(params.secure) : (saved?.secure !== undefined ? Boolean(saved.secure) : cleanPort === 465);
+    const senderEmail = (params.senderEmail || saved?.senderEmail || '').trim();
+    if (!senderEmail) {
+        const err = new Error('Corporate Sender Email address is required.');
+        err.code = 'SMTP_CONFIG_INVALID';
+        throw err;
+    }
+    // 2. Google Workspace SMTP specifications (smtp.gmail.com:587 with STARTTLS)
+    const cleanHost = (params.smtpHost || saved?.smtpHost || 'smtp.gmail.com').trim() || 'smtp.gmail.com';
+    const cleanPort = Number(params.smtpPort || saved?.smtpPort) || 587;
+    // Port 587 MUST use STARTTLS (secure: false). Port 465 uses direct SSL (secure: true).
+    const secure = cleanPort === 465;
     const transporter = nodemailer.createTransport({
         host: cleanHost,
         port: cleanPort,
@@ -112,19 +126,82 @@ export async function verifySmtpConnection(params) {
         }
     });
     try {
+        // 3. SMTP Verification Handshake
         await transporter.verify();
+        // 4. Send a test email ONLY if a test recipient was explicitly selected
+        const recipient = (params.testRecipientEmail || '').trim();
+        if (recipient) {
+            if (!recipient.includes('@') || !recipient.includes('.')) {
+                const err = new Error(`Invalid test recipient email address: "${recipient}".`);
+                err.code = 'SMTP_CONFIG_INVALID';
+                throw err;
+            }
+            await transporter.sendMail({
+                from: `"${saved?.senderName || 'Businz HRMS'}" <${senderEmail}>`,
+                to: recipient,
+                subject: 'Businz HRMS - Google Workspace SMTP Connection Verified',
+                text: `Hello,\n\nThis is a live test email confirming that your Google Workspace SMTP relay (${cleanHost}:${cleanPort}) has been successfully connected to Businz HRMS.\n\nSender: ${senderEmail}\nTimestamp: ${new Date().toISOString()}\n\nBest regards,\nBusinz Enterprise HRMS`,
+                html: `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background-color: #FFFFFF;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+            <div style="background-color: #0E7490; color: #FFFFFF; font-weight: bold; padding: 6px 12px; border-radius: 6px; font-size: 14px;">Businz HRMS</div>
+            <span style="color: #22C55E; font-weight: 600; font-size: 13px;">● Live SMTP Handshake Verified</span>
+          </div>
+          <h2 style="color: #0F172A; margin: 0 0 12px; font-size: 20px;">Gmail SMTP Integration Active</h2>
+          <p style="color: #475569; font-size: 14px; line-height: 1.5; margin: 0 0 20px;">
+            This test email confirms that your Google Workspace / Gmail SMTP relay has been verified and is ready to dispatch official HRMS emails (Offer Letters, OTPs, Payslips).
+          </p>
+          <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <tr><td style="color: #64748B; padding: 4px 0; width: 140px;">SMTP Server:</td><td style="color: #0F172A; font-weight: 600;">${cleanHost}:${cleanPort} (STARTTLS)</td></tr>
+              <tr><td style="color: #64748B; padding: 4px 0;">Corporate Sender:</td><td style="color: #0F172A; font-weight: 600;">${senderEmail}</td></tr>
+              <tr><td style="color: #64748B; padding: 4px 0;">Delivered To:</td><td style="color: #0E7490; font-weight: 600;">${recipient}</td></tr>
+              <tr><td style="color: #64748B; padding: 4px 0;">Handshake Time:</td><td style="color: #0F172A;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
+            </table>
+          </div>
+          <p style="color: #94A3B8; font-size: 12px; margin: 0;">Sent via authenticated Google Workspace SMTP relay directly from your active Businz HRMS configuration.</p>
+        </div>`,
+            });
+            return {
+                success: true,
+                message: `SMTP connection verified and test email successfully delivered to ${recipient}.`
+            };
+        }
         return {
             success: true,
-            message: `Connection successful! Authenticated with ${cleanHost}:${cleanPort} for ${senderEmail}.`
+            message: `Connection successful! Verified Google Workspace SMTP handshake with ${cleanHost}:${cleanPort} for ${senderEmail} (STARTTLS).`
         };
     }
     catch (err) {
+        let rawMsg = err.message || 'SMTP Authentication failed';
         // Sanitize any password leakage from error message
-        let safeMessage = err.message || 'SMTP Authentication failed';
-        if (pass && safeMessage.includes(pass)) {
-            safeMessage = safeMessage.replace(pass, '••••••••');
+        if (pass && rawMsg.includes(pass)) {
+            rawMsg = rawMsg.replace(new RegExp(pass.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '••••••••');
         }
-        throw new Error(safeMessage);
+        const isAuthError = err.responseCode === 535 ||
+            err.code === 'EAUTH' ||
+            rawMsg.includes('535') ||
+            rawMsg.includes('Username and Password not accepted') ||
+            rawMsg.includes('Invalid login') ||
+            rawMsg.includes('BadCredentials');
+        const isConnError = err.code === 'ECONNREFUSED' ||
+            err.code === 'ETIMEDOUT' ||
+            err.code === 'ENOTFOUND' ||
+            err.code === 'ESOCKET' ||
+            rawMsg.includes('getaddrinfo') ||
+            rawMsg.includes('connect ECONNREFUSED');
+        if (isAuthError) {
+            const customErr = new Error(`SMTP Authentication Failed (535 5.7.8): Google rejected credentials for "${senderEmail}". Please verify your email and 16-character Google App Password (ensure 2-Step Verification is ON at myaccount.google.com).`);
+            customErr.code = 'SMTP_AUTH_FAILED';
+            throw customErr;
+        }
+        if (isConnError) {
+            const customErr = new Error(`SMTP Connection Failed (${err.code || 'Network'}): Unable to connect to ${cleanHost}:${cleanPort}. Please check outbound firewall and port 587 access.`);
+            customErr.code = 'SMTP_CONNECTION_FAILED';
+            throw customErr;
+        }
+        const customErr = new Error(rawMsg);
+        customErr.code = err.code || 'SMTP_FAILED';
+        throw customErr;
     }
 }
 /**
@@ -185,89 +262,114 @@ export async function sendCredentialEmail(payload) {
     const transporter = getMailTransporter();
     const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
     const bodyText = formatCredentialEmailBody(payload);
-    if (transporter) {
-        try {
-            await transporter.sendMail({
-                from: mailFrom,
-                to: payload.to,
-                subject: 'Welcome to Businz HRMS – Your Login Credentials',
-                text: bodyText,
-                html: `
-          <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; color: #1e293b;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <h2 style="color: #0E7490; margin: 0; font-size: 22px;">Businz Enterprise HRMS</h2>
-              <p style="color: #64748B; font-size: 13px; margin-top: 4px; font-weight: 500;">Enterprise Human Resource Management System (HRMS)</p>
-            </div>
-            
-            <p style="font-size: 15px; margin-bottom: 12px;">Dear <strong>${payload.employeeName}</strong>,</p>
-            <p style="font-size: 14px; color: #334155; line-height: 1.6; margin-bottom: 20px;">
-              Welcome to Businz! Your official HRMS employee account has been created. You can now log in to the employee portal using the credentials provided below:
-            </p>
-            
-            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 18px 20px; margin-bottom: 22px;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 6px 0; color: #64748B; font-size: 13px; width: 42%;">User ID / Employee Code:</td>
-                  <td style="padding: 6px 0; color: #0E7490; font-weight: 700; font-size: 15px;">${payload.employeeCode}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #64748B; font-size: 13px;">Registered Email:</td>
-                  <td style="padding: 6px 0; color: #1E293B; font-weight: 600; font-size: 14px;">${payload.to}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #64748B; font-size: 13px;">Temporary Password:</td>
-                  <td style="padding: 6px 0; color: #DC2626; font-weight: 700; font-size: 15px; font-family: monospace;">${payload.temporaryPassword}</td>
-                </tr>
-              </table>
-            </div>
-
-            <div style="text-align: center; margin: 26px 0;">
-              <a href="${payload.loginUrl || 'http://localhost:5173/login'}" style="background-color: #0E7490; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 14px; display: inline-block;">
-                Log In to Employee Portal &rarr;
-              </a>
-            </div>
-
-            <div style="border-top: 1px solid #E2E8F0; padding-top: 16px; margin-top: 24px; font-size: 12px; color: #64748B; line-height: 1.6;">
-              <p style="margin: 0 0 6px 0;"><strong>Security Notice:</strong></p>
-              <ul style="margin: 0; padding-left: 18px;">
-                <li>For your security, you will be required to change your password upon your first login.</li>
-                <li>Please do not share these credentials with anyone.</li>
-              </ul>
-            </div>
-            
-            <div style="margin-top: 24px; text-align: center; font-size: 12px; color: #94A3B8;">
-              Businz Enterprise HRMS • Chennai, Tamil Nadu, India
-            </div>
-          </div>
-        `
-            });
-            console.log(`[SMTP EMAIL SUCCESS] Credential email sent to ${payload.to} via SMTP`);
-        }
-        catch (smtpErr) {
-            console.warn(`[SMTP EMAIL NOTICE] Could not deliver via SMTP to ${payload.to} (${smtpErr.message}). Logged to outbound queue.`);
-        }
+    if (!transporter) {
+        const unconfiguredRecord = {
+            id: `mail-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject: 'Welcome to Businz HRMS – Your Login Credentials',
+            employeeCode: payload.employeeCode,
+            status: 'FAILED',
+            sentAt,
+            error: 'SMTP mail service is not configured. Email was not dispatched.',
+        };
+        outboundEmailLog.push(unconfiguredRecord);
+        console.warn(`[SMTP EMAIL NOTICE] Cannot send credential email to ${payload.to}: SMTP transporter not configured.`);
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: unconfiguredRecord.error,
+        };
     }
-    // Record successful dispatch
-    const successRecord = {
-        id: `mail-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        to: payload.to,
-        subject: 'Welcome to Businz HRMS – Your Login Credentials',
-        employeeCode: payload.employeeCode,
-        status: 'SENT',
-        sentAt,
-    };
-    outboundEmailLog.push(successRecord);
-    // Terminal log
-    console.log('\n================== [CREDENTIAL EMAIL AUTOMATICALLY SENT] ==================');
-    console.log(`Recipient (To): ${payload.to}`);
-    console.log(`Employee Name : ${payload.employeeName}`);
-    console.log(`Employee ID   : ${payload.employeeCode}`);
-    console.log(`Login Password: ${payload.temporaryPassword}`);
-    console.log('==========================================================================\n');
-    return {
-        status: 'SENT',
-        sentAt,
-    };
+    try {
+        await transporter.sendMail({
+            from: mailFrom,
+            to: payload.to,
+            subject: 'Welcome to Businz HRMS – Your Login Credentials',
+            text: bodyText,
+            html: `
+        <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; color: #1e293b;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h2 style="color: #0E7490; margin: 0; font-size: 22px;">Businz Enterprise HRMS</h2>
+            <p style="color: #64748B; font-size: 13px; margin-top: 4px; font-weight: 500;">Enterprise Human Resource Management System (HRMS)</p>
+          </div>
+          
+          <p style="font-size: 15px; margin-bottom: 12px;">Dear <strong>${payload.employeeName}</strong>,</p>
+          <p style="font-size: 14px; color: #334155; line-height: 1.6; margin-bottom: 20px;">
+            Welcome to Businz! Your official HRMS employee account has been created. You can now log in to the employee portal using the credentials provided below:
+          </p>
+          
+          <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 18px 20px; margin-bottom: 22px;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; color: #64748B; font-size: 13px; width: 42%;">User ID / Employee Code:</td>
+                <td style="padding: 6px 0; color: #0E7490; font-weight: 700; font-size: 15px;">${payload.employeeCode}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748B; font-size: 13px;">Registered Email:</td>
+                <td style="padding: 6px 0; color: #1E293B; font-weight: 600; font-size: 14px;">${payload.to}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748B; font-size: 13px;">Temporary Password:</td>
+                <td style="padding: 6px 0; color: #DC2626; font-weight: 700; font-size: 15px; font-family: monospace;">${payload.temporaryPassword}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="text-align: center; margin: 26px 0;">
+            <a href="${payload.loginUrl || 'http://localhost:5173/login'}" style="background-color: #0E7490; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 14px; display: inline-block;">
+              Log In to Employee Portal &rarr;
+            </a>
+          </div>
+
+          <div style="border-top: 1px solid #E2E8F0; padding-top: 16px; margin-top: 24px; font-size: 12px; color: #64748B; line-height: 1.6;">
+            <p style="margin: 0 0 6px 0;"><strong>Security Notice:</strong></p>
+            <ul style="margin: 0; padding-left: 18px;">
+              <li>For your security, you will be required to change your password upon your first login.</li>
+              <li>Please do not share these credentials with anyone.</li>
+            </ul>
+          </div>
+          
+          <div style="margin-top: 24px; text-align: center; font-size: 12px; color: #94A3B8;">
+            Businz Enterprise HRMS • Chennai, Tamil Nadu, India
+          </div>
+        </div>
+      `
+        });
+        // Record successful dispatch only after mail service accepted it
+        const successRecord = {
+            id: `mail-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject: 'Welcome to Businz HRMS – Your Login Credentials',
+            employeeCode: payload.employeeCode,
+            status: 'SENT',
+            sentAt,
+        };
+        outboundEmailLog.push(successRecord);
+        console.log(`[SMTP EMAIL SUCCESS] Credential email sent to ${payload.to} via SMTP`);
+        return {
+            status: 'SENT',
+            sentAt,
+        };
+    }
+    catch (smtpErr) {
+        const errorMsg = smtpErr?.message || 'SMTP delivery rejected by mail server';
+        console.warn(`[SMTP EMAIL FAILED] Could not deliver via SMTP to ${payload.to}: ${errorMsg}`);
+        const failedRecord = {
+            id: `mail-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject: 'Welcome to Businz HRMS – Your Login Credentials',
+            employeeCode: payload.employeeCode,
+            status: 'FAILED',
+            sentAt,
+            error: errorMsg,
+        };
+        outboundEmailLog.push(failedRecord);
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: errorMsg,
+        };
+    }
 }
 export function getOutboundEmailLogs(employeeCode) {
     if (employeeCode) {
@@ -316,52 +418,76 @@ HRMS Team`;
     // Attempt real SMTP dispatch if configured
     const transporter = getMailTransporter();
     const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
-    if (transporter) {
-        try {
-            await transporter.sendMail({
-                from: mailFrom,
-                to: payload.to,
-                subject,
-                text: body,
-                html: `
-          <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background-color: #ffffff;">
-            <h3 style="color: #0E7490; margin-top: 0;">HRMS Password Reset Verification</h3>
-            <p>Hello <strong>${payload.employeeName}</strong>,</p>
-            <p>We received a request to reset your HRMS password. Your verification code is:</p>
-            <div style="background-color: #F8FAFC; border: 1px dashed #0E7490; border-radius: 8px; padding: 16px; text-align: center; margin: 18px 0;">
-              <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #0E7490; font-family: monospace;">${payload.otp}</span>
-            </div>
-            <p style="font-size: 13px; color: #64748B;">This code is valid for 10 minutes and can only be used once.</p>
-            <p style="font-size: 12px; color: #94A3B8; margin-top: 20px;">If you did not request this password reset, please ignore this email.</p>
-          </div>
-        `
-            });
-            console.log(`[SMTP OTP SUCCESS] OTP sent to ${payload.to} via SMTP`);
-        }
-        catch (smtpErr) {
-            console.warn(`[SMTP OTP NOTICE] Could not deliver OTP via SMTP to ${payload.to} (${smtpErr.message}).`);
-        }
+    if (!transporter) {
+        const unconfiguredRecord = {
+            id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject,
+            employeeCode: payload.employeeCode,
+            status: 'FAILED',
+            sentAt,
+            error: 'SMTP mail service is not configured. OTP email was not dispatched.',
+        };
+        outboundEmailLog.push(unconfiguredRecord);
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: unconfiguredRecord.error,
+        };
     }
-    const successRecord = {
-        id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        to: payload.to,
-        subject,
-        employeeCode: payload.employeeCode,
-        status: 'SENT',
-        sentAt,
-    };
-    outboundEmailLog.push(successRecord);
-    // In development / testing, console log the email body so it can be verified easily in terminal
-    console.log('\n================== [OUTBOUND EMAIL DISPATCH] ==================');
-    console.log(`To: ${payload.to}`);
-    console.log(`Subject: ${subject}`);
-    console.log('Body:');
-    console.log(body);
-    console.log('===============================================================\n');
-    return {
-        status: 'SENT',
-        sentAt,
-    };
+    try {
+        await transporter.sendMail({
+            from: mailFrom,
+            to: payload.to,
+            subject,
+            text: body,
+            html: `
+        <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background-color: #ffffff;">
+          <h3 style="color: #0E7490; margin-top: 0;">HRMS Password Reset Verification</h3>
+          <p>Hello <strong>${payload.employeeName}</strong>,</p>
+          <p>We received a request to reset your HRMS password. Your verification code is:</p>
+          <div style="background-color: #F8FAFC; border: 1px dashed #0E7490; border-radius: 8px; padding: 16px; text-align: center; margin: 18px 0;">
+            <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #0E7490; font-family: monospace;">${payload.otp}</span>
+          </div>
+          <p style="font-size: 13px; color: #64748B;">This code is valid for 10 minutes and can only be used once.</p>
+          <p style="font-size: 12px; color: #94A3B8; margin-top: 20px;">If you did not request this password reset, please ignore this email.</p>
+        </div>
+      `
+        });
+        const successRecord = {
+            id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject,
+            employeeCode: payload.employeeCode,
+            status: 'SENT',
+            sentAt,
+        };
+        outboundEmailLog.push(successRecord);
+        console.log(`[SMTP OTP SUCCESS] OTP sent to ${payload.to} via SMTP`);
+        return {
+            status: 'SENT',
+            sentAt,
+        };
+    }
+    catch (smtpErr) {
+        const errorMsg = smtpErr?.message || 'SMTP delivery rejected by mail server';
+        console.warn(`[SMTP OTP FAILED] Could not deliver OTP via SMTP to ${payload.to}: ${errorMsg}`);
+        const failedRecord = {
+            id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject,
+            employeeCode: payload.employeeCode,
+            status: 'FAILED',
+            sentAt,
+            error: errorMsg,
+        };
+        outboundEmailLog.push(failedRecord);
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: errorMsg,
+        };
+    }
 }
 export async function sendOfferLetterEmail(payload) {
     const sentAt = new Date().toISOString();

@@ -1,5 +1,6 @@
 import { leaveRepository } from '../repositories/leaveRepository.js';
 import { createLeaveSchema, reviewLeaveSchema } from '../validators/leaveValidators.js';
+import { rangesOverlap, isActiveRequestStatus, DUPLICATE_REQUEST_ERROR_MESSAGE } from '../utils/requestValidation.js';
 export const getLeaves = async (req, res, next) => {
     try {
         const { employeeId, status } = req.query;
@@ -26,6 +27,24 @@ export const createLeave = async (req, res, next) => {
                 error: {
                     code: 'VALIDATION_ERROR',
                     message: 'employeeId, startDate, and endDate are required',
+                    details: [],
+                },
+            });
+            return;
+        }
+        // Rule 2: Prevent duplicate active requests (Pending/Approved) with overlapping dates
+        const existingLeaves = await leaveRepository.getLeaves({ employeeId: targetEmpId });
+        const hasDuplicate = existingLeaves.some(l => {
+            if (!isActiveRequestStatus(l.status))
+                return false;
+            return rangesOverlap(validated.startDate, validated.endDate, l.startDate, l.endDate);
+        });
+        if (hasDuplicate) {
+            res.status(409).json({
+                success: false,
+                error: {
+                    code: 'DUPLICATE_REQUEST',
+                    message: DUPLICATE_REQUEST_ERROR_MESSAGE,
                     details: [],
                 },
             });

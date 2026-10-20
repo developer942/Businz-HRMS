@@ -3,6 +3,14 @@ import { X, Calendar, Clock, MapPin, Building, ShieldCheck, Check, Navigation, A
 import { useHRMS } from '../../context/HRMSContext';
 import { DutyType, ScheduleType, AttendanceType, FieldAssignment } from '../../types/tracking';
 import { TrackingMap } from './TrackingMap';
+import { 
+  getTodayKolkata, 
+  validateDateRange, 
+  checkDuplicateFieldAssignment, 
+  PAST_DATE_ERROR_MESSAGE, 
+  DUPLICATE_REQUEST_ERROR_MESSAGE 
+} from '../../utils/requestValidation';
+import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 export interface AssignFieldDutyModalProps {
   onClose: () => void;
@@ -13,9 +21,9 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
   onClose,
   initialData
 }) => {
-  const { employees, createFieldAssignment, updateFieldAssignment, currentUser, departments } = useHRMS();
+  const { employees, fieldAssignments, createFieldAssignment, updateFieldAssignment, currentUser, departments } = useHRMS();
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayKolkata();
 
   // Form states
   const [selectedEmpId, setSelectedEmpId] = useState<string>(initialData?.employeeId || employees[0]?.employeeId || employees[0]?.id || '');
@@ -40,6 +48,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
   const [allowedRadiusMeters, setAllowedRadiusMeters] = useState<number>(initialData?.allowedRadiusMeters || 200);
   const [notes, setNotes] = useState<string>(initialData?.notes || '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const getEmployeeDepartmentDisplay = (emp?: typeof employees[number]): string => {
     if (!emp) return '';
@@ -111,57 +120,84 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
       return;
     }
 
-    if (initialData) {
-      updateFieldAssignment(initialData.id, {
-        employeeId: selectedEmp.employeeId || selectedEmp.id,
-        employeeName: `${selectedEmp.firstName} ${selectedEmp.lastName}`,
-        employeeAvatar: selectedEmp.avatar,
-        department: selectedEmp.department,
-        dutyType,
-        scheduleType,
-        startDate,
-        endDate: scheduleType === 'One Day' ? startDate : endDate,
-        startTime,
-        endTime,
-        customerSiteName: customerSiteName.trim(),
-        siteAddress: siteAddress.trim(),
-        purpose: purpose.trim(),
-        trackingRequired,
-        travelKmRequired,
-        attendanceType,
-        siteLat: attendanceType === 'Site Geofence' ? siteLat : undefined,
-        siteLng: attendanceType === 'Site Geofence' ? siteLng : undefined,
-        allowedRadiusMeters,
-        notes: notes.trim()
-      });
-    } else {
-      createFieldAssignment({
-        employeeId: selectedEmp.employeeId || selectedEmp.id,
-        employeeName: `${selectedEmp.firstName} ${selectedEmp.lastName}`,
-        employeeAvatar: selectedEmp.avatar,
-        department: selectedEmp.department,
-        dutyType,
-        scheduleType,
-        startDate,
-        endDate: scheduleType === 'One Day' ? startDate : endDate,
-        startTime,
-        endTime,
-        customerSiteName: customerSiteName.trim(),
-        siteAddress: siteAddress.trim(),
-        purpose: purpose.trim(),
-        trackingRequired,
-        travelKmRequired,
-        attendanceType,
-        siteLat: attendanceType === 'Site Geofence' ? siteLat : undefined,
-        siteLng: attendanceType === 'Site Geofence' ? siteLng : undefined,
-        allowedRadiusMeters,
-        notes: notes.trim(),
-        status: 'Scheduled',
-        createdBy: currentUser.employeeId || currentUser.id
-      });
+    const effectiveEndDate = scheduleType === 'One Day' ? startDate : endDate;
+    const rangeVal = validateDateRange(startDate, effectiveEndDate);
+    if (!rangeVal.valid) {
+      setErrorMessage(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
+      return;
     }
 
-    onClose();
+    const dupCheck = checkDuplicateFieldAssignment(
+      fieldAssignments,
+      selectedEmp.employeeId || selectedEmp.id,
+      startDate,
+      effectiveEndDate,
+      initialData?.id
+    );
+    if (dupCheck.hasDuplicate) {
+      setErrorMessage(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      return;
+    }
+
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      if (initialData) {
+        updateFieldAssignment(initialData.id, {
+          employeeId: selectedEmp.employeeId || selectedEmp.id,
+          employeeName: `${selectedEmp.firstName} ${selectedEmp.lastName}`,
+          employeeAvatar: selectedEmp.avatar,
+          department: selectedEmp.department,
+          dutyType,
+          scheduleType,
+          startDate,
+          endDate: scheduleType === 'One Day' ? startDate : endDate,
+          startTime,
+          endTime,
+          customerSiteName: customerSiteName.trim(),
+          siteAddress: siteAddress.trim(),
+          purpose: purpose.trim(),
+          trackingRequired,
+          travelKmRequired,
+          attendanceType,
+          siteLat: attendanceType === 'Site Geofence' ? siteLat : undefined,
+          siteLng: attendanceType === 'Site Geofence' ? siteLng : undefined,
+          allowedRadiusMeters,
+          notes: notes.trim()
+        });
+      } else {
+        createFieldAssignment({
+          employeeId: selectedEmp.employeeId || selectedEmp.id,
+          employeeName: `${selectedEmp.firstName} ${selectedEmp.lastName}`,
+          employeeAvatar: selectedEmp.avatar,
+          department: selectedEmp.department,
+          dutyType,
+          scheduleType,
+          startDate,
+          endDate: scheduleType === 'One Day' ? startDate : endDate,
+          startTime,
+          endTime,
+          customerSiteName: customerSiteName.trim(),
+          siteAddress: siteAddress.trim(),
+          purpose: purpose.trim(),
+          trackingRequired,
+          travelKmRequired,
+          attendanceType,
+          siteLat: attendanceType === 'Site Geofence' ? siteLat : undefined,
+          siteLng: attendanceType === 'Site Geofence' ? siteLng : undefined,
+          allowedRadiusMeters,
+          notes: notes.trim(),
+          status: 'Scheduled',
+          createdBy: currentUser.employeeId || currentUser.id
+        });
+      }
+      onClose();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to save field assignment');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -234,7 +270,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
         </div>
 
         {/* Modal Form */}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {errorMessage && (
               <div
@@ -373,6 +409,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 <input
                   type="date"
                   value={startDate}
+                  min={getTodayKolkata()}
                   onChange={(e) => setStartDate(e.target.value)}
                   style={{
                     width: '100%',
@@ -394,7 +431,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    min={startDate}
+                    min={startDate || getTodayKolkata()}
                     style={{
                       width: '100%',
                       padding: '8px 10px',
@@ -497,6 +534,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 placeholder="Detail the work or site inspection objective..."
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
                 rows={2}
                 style={{
                   width: '100%',
@@ -750,6 +788,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 placeholder="Optional instructions for field personnel..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
                 style={{
                   width: '100%',
                   padding: '9px 12px',
@@ -791,6 +830,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               style={{
                 padding: '9px 22px',
                 borderRadius: '10px',
@@ -799,7 +839,8 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 color: '#FFFFFF',
                 fontWeight: 700,
                 fontSize: '0.88rem',
-                cursor: 'pointer',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                opacity: isSubmitting ? 0.7 : 1,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
@@ -807,7 +848,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
               }}
             >
               <Check size={16} />
-              <span>{initialData ? 'Update Assignment' : 'Create Assignment'}</span>
+              <span>{isSubmitting ? 'Saving...' : (initialData ? 'Update Assignment' : 'Create Assignment')}</span>
             </button>
           </div>
         </form>
