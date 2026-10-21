@@ -302,12 +302,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
       {/* Search & Filter Toolbar Card */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        padding: '20px 24px',
-        border: '1px solid #E7ECF3',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+      <div className="customer-card-box" style={{
         display: 'flex',
         flexDirection: 'column',
         gap: '16px'
@@ -317,53 +312,56 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '12px'
+          gap: '12px',
+          width: '100%'
         }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B' }}>
+          <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B', lineHeight: 1.25 }}>
               Customer Records Directory
             </h3>
-            <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B' }}>
+            <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B', wordBreak: 'break-word' }}>
               Search, filter, export customer contacts and initiate approved WhatsApp communications.
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <button
               onClick={handleExportExcel}
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '9px 18px',
-                borderRadius: '12px',
+                padding: '8px 16px',
+                borderRadius: '10px',
                 border: '1px solid #CBD5E1',
                 backgroundColor: '#FFFFFF',
                 color: '#1E293B',
-                fontSize: '0.875rem',
+                fontSize: '0.825rem',
                 fontWeight: 600,
-                cursor: 'pointer'
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
               }}
             >
-              <Download size={16} /> Export Excel (.xlsx)
+              <Download size={15} /> Export Excel (.xlsx)
             </button>
 
             {onNavigateToAddCustomer && (
               <button
                 onClick={onNavigateToAddCustomer}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '9px 18px',
-                  borderRadius: '12px',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
                   border: 'none',
                   backgroundColor: '#0E7490',
                   color: '#FFFFFF',
-                  fontSize: '0.875rem',
+                  fontSize: '0.825rem',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)'
+                  boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)',
+                  whiteSpace: 'nowrap'
                 }}
               >
                 + Add Customer
@@ -373,7 +371,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
         </div>
 
         {/* Quick Search */}
-        <div style={{ position: 'relative', maxWidth: '460px' }}>
+        <div style={{ position: 'relative', width: '100%', maxWidth: '460px', boxSizing: 'border-box' }}>
           <input
             type="text"
             placeholder="Search by Name, Company, or Phone..."
@@ -385,7 +383,8 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
               borderRadius: '10px',
               border: '1px solid #CBD5E1',
               fontSize: '0.875rem',
-              outline: 'none'
+              outline: 'none',
+              boxSizing: 'border-box'
             }}
           />
           <Search size={16} color="#94A3B8" style={{ position: 'absolute', left: '12px', top: '11px' }} />

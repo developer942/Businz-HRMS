@@ -63,48 +63,38 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
   ];
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="customer-module-wrapper">
       {/* Module Title Header Card */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        padding: '24px 28px',
-        border: '1px solid #E7ECF3',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+      <div className="customer-header-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flex: '1 1 auto' }}>
           <div style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '14px',
+            width: '44px',
+            height: '44px',
+            borderRadius: '12px',
             backgroundColor: '#ECFEFF',
             color: '#0E7490',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            flexShrink: 0
           }}>
-            <Users size={26} />
+            <Users size={24} />
           </div>
-          <div>
-            <h1 style={{ fontSize: '1.65rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h1 style={{ fontSize: '1.45rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0', wordBreak: 'break-word', lineHeight: 1.25 }}>
               Customer Data Collection
             </h1>
-            <p style={{ fontSize: '0.875rem', color: '#64748B', margin: 0 }}>
+            <p style={{ fontSize: '0.85rem', color: '#64748B', margin: 0, wordBreak: 'break-word' }}>
               Field Customer Capture, Visiting Card OCR, and Meta WhatsApp Business Cloud Messaging
             </p>
           </div>
         </div>
 
         {/* WhatsApp Cloud API Connection Status Indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '100%', flexWrap: 'wrap' }}>
           {isWhatsAppConfigured ? (
             <div style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '8px',
               padding: '6px 14px',
@@ -113,14 +103,16 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
               border: '1px solid #BBF7D0',
               color: '#15803D',
               fontSize: '0.8rem',
-              fontWeight: 600
+              fontWeight: 600,
+              maxWidth: '100%',
+              wordBreak: 'break-word'
             }}>
-              <CheckCircle2 size={15} />
-              Meta WhatsApp Connected {configuredSender ? `(${configuredSender})` : ''}
+              <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
+              <span>Meta WhatsApp Connected {configuredSender ? `(${configuredSender})` : ''}</span>
             </div>
           ) : (
             <div style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '8px',
               padding: '6px 14px',
@@ -129,9 +121,11 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
               border: '1px solid #FDE68A',
               color: '#B45309',
               fontSize: '0.8rem',
-              fontWeight: 600
+              fontWeight: 600,
+              maxWidth: '100%',
+              flexWrap: 'wrap'
             }}>
-              <AlertCircle size={15} />
+              <AlertCircle size={15} style={{ flexShrink: 0 }} />
               <span>WhatsApp Cloud API Pending</span>
               <button
                 onClick={() => setActiveModule('settings')}
@@ -142,7 +136,8 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
                   textDecoration: 'underline',
                   cursor: 'pointer',
                   fontWeight: 700,
-                  fontSize: '0.8rem'
+                  fontSize: '0.8rem',
+                  padding: 0
                 }}
               >
                 Configure in Settings
@@ -153,13 +148,7 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
       </div>
 
       {/* Modern Segmented Navigation Tabs */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        borderBottom: '1px solid #E2E8F0',
-        paddingBottom: '2px'
-      }}>
+      <div className="customer-tabs-scroll-container">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -167,24 +156,16 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
+              className="customer-tab-btn"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '12px 20px',
-                borderRadius: '12px 12px 0 0',
-                border: 'none',
                 backgroundColor: isActive ? '#FFFFFF' : 'transparent',
                 color: isActive ? '#0E7490' : '#64748B',
                 fontWeight: isActive ? 700 : 500,
-                fontSize: '0.9rem',
-                cursor: 'pointer',
-                borderBottom: isActive ? '3px solid #0E7490' : '3px solid transparent',
-                transition: 'all 0.15s ease'
+                borderBottom: isActive ? '3px solid #0E7490' : '3px solid transparent'
               }}
             >
-              <Icon size={18} color={isActive ? '#0E7490' : '#64748B'} />
-              {tab.label}
+              <Icon size={17} color={isActive ? '#0E7490' : '#64748B'} style={{ flexShrink: 0 }} />
+              <span>{tab.label}</span>
             </button>
           );
         })}

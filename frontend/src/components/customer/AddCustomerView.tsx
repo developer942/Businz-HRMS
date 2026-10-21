@@ -455,98 +455,61 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
   };
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box' }}>
       {/* Top Banner Card */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        padding: '24px',
-        border: '1px solid #E7ECF3',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-          <div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1E293B', margin: '0 0 6px 0' }}>
+      <div className="customer-card-box">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', width: '100%' }}>
+          <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+            <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0', lineHeight: 1.25 }}>
               Add New Customer
             </h2>
-            <p style={{ fontSize: '0.875rem', color: '#64748B', margin: 0 }}>
+            <p style={{ fontSize: '0.85rem', color: '#64748B', margin: 0, wordBreak: 'break-word' }}>
               Capture customer visiting card via camera or file upload with instant AI OCR, or enter details manually.
             </p>
           </div>
 
           {/* Mode Selector Segmented Tabs */}
-          <div style={{
-            display: 'flex',
-            backgroundColor: '#F1F5F9',
-            padding: '4px',
-            borderRadius: '12px',
-            border: '1px solid #E2E8F0',
-            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)'
-          }}>
+          <div className="customer-mode-selector">
             <button
               type="button"
               onClick={() => { setCaptureMode('camera'); handleOpenScanner('camera'); }}
+              className="customer-mode-btn"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                border: 'none',
                 backgroundColor: captureMode === 'camera' ? '#0E7490' : 'transparent',
                 color: captureMode === 'camera' ? '#FFFFFF' : '#475569',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: captureMode === 'camera' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none',
-                transition: 'all 0.15s ease'
+                boxShadow: captureMode === 'camera' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none'
               }}
             >
-              <Camera size={16} /> Scan Card
+              <Camera size={14} style={{ flexShrink: 0 }} />
+              <span>Scan Card</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setCaptureMode('upload'); handleOpenScanner('upload'); }}
+              className="customer-mode-btn"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                border: 'none',
                 backgroundColor: captureMode === 'upload' ? '#0E7490' : 'transparent',
                 color: captureMode === 'upload' ? '#FFFFFF' : '#475569',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: captureMode === 'upload' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none',
-                transition: 'all 0.15s ease'
+                boxShadow: captureMode === 'upload' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none'
               }}
             >
-              <Upload size={16} /> Upload Photo
+              <Upload size={14} style={{ flexShrink: 0 }} />
+              <span>Upload Photo</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setCaptureMode('manual'); }}
+              className="customer-mode-btn"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                border: 'none',
                 backgroundColor: captureMode === 'manual' ? '#0E7490' : 'transparent',
                 color: captureMode === 'manual' ? '#FFFFFF' : '#475569',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: captureMode === 'manual' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none',
-                transition: 'all 0.15s ease'
+                boxShadow: captureMode === 'manual' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none'
               }}
             >
-              <FileText size={16} /> Manual Entry
+              <FileText size={14} style={{ flexShrink: 0 }} />
+              <span>Manual Entry</span>
             </button>
           </div>
         </div>
@@ -628,18 +591,15 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
       {/* Main Content Area: Side-by-Side Split when card is present */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: cardImageBase64 ? 'minmax(280px, 340px) 1fr' : '1fr',
-        gap: '24px',
-        alignItems: 'start'
+        gridTemplateColumns: cardImageBase64 ? 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))' : '1fr',
+        gap: '20px',
+        alignItems: 'start',
+        width: '100%',
+        boxSizing: 'border-box'
       }}>
         {/* Left Column: Sticky Visiting Card Preview & Tools (when card is captured) */}
         {cardImageBase64 && (
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '16px',
-            padding: '20px',
-            border: '1px solid #E7ECF3',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+          <div className="customer-card-box" style={{
             position: 'sticky',
             top: '24px'
           }}>
@@ -753,14 +713,8 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
         )}
 
         {/* Right Column: Main Customer Form */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          padding: '28px',
-          border: '1px solid #E7ECF3',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)'
-        }}>
-          <div style={{ marginBottom: '20px' }}>
+        <div className="customer-card-box">
+          <div style={{ marginBottom: '18px' }}>
             <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#1E293B', margin: 0 }}>
               Customer Details
             </h3>
@@ -772,15 +726,17 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
               backgroundColor: '#ECFEFF',
               border: '1px solid #A5F3FC',
               borderRadius: '12px',
-              padding: '16px 20px',
+              padding: '14px 16px',
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'stretch',
               justifyContent: 'space-between',
-              flexWrap: 'wrap',
+              flexDirection: 'column',
               gap: '12px',
-              marginBottom: '20px'
+              marginBottom: '20px',
+              width: '100%',
+              boxSizing: 'border-box'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                 <div style={{
                   width: '38px',
                   height: '38px',
@@ -794,54 +750,58 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                 }}>
                   <Camera size={20} />
                 </div>
-                <div>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 600, color: '#0E7490', fontSize: '0.95rem' }}>
                     Camera Card Scanner Mode
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: '#155E75', marginTop: '2px' }}>
-                    Capture visiting card via webcam with automatic edge detection & AI text extraction.
+                  <div style={{ fontSize: '0.8rem', color: '#155E75', marginTop: '2px', wordBreak: 'break-word' }}>
+                    Capture visiting card via camera with automatic edge detection & AI text extraction.
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
                 <button
                   type="button"
                   onClick={() => handleOpenScanner('camera')}
                   style={{
+                    flex: '1 1 140px',
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: '6px',
-                    padding: '8px 16px',
+                    padding: '8px 14px',
                     backgroundColor: '#0E7490',
                     color: '#FFFFFF',
                     border: 'none',
                     borderRadius: '8px',
-                    fontSize: '0.85rem',
+                    fontSize: '0.825rem',
                     fontWeight: 600,
                     cursor: 'pointer',
                     boxShadow: '0 2px 4px rgba(14, 116, 144, 0.25)'
                   }}
                 >
-                  <Camera size={15} /> Open Camera Scanner
+                  <Camera size={14} /> Open Camera Scanner
                 </button>
                 <button
                   type="button"
                   onClick={() => { setCaptureMode('upload'); handleOpenScanner('upload'); }}
                   style={{
+                    flex: '1 1 140px',
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: '6px',
                     padding: '8px 14px',
                     backgroundColor: '#FFFFFF',
                     color: '#0E7490',
                     border: '1px solid #A5F3FC',
                     borderRadius: '8px',
-                    fontSize: '0.85rem',
+                    fontSize: '0.825rem',
                     fontWeight: 600,
                     cursor: 'pointer'
                   }}
                 >
-                  <Upload size={15} /> Upload Photo Instead
+                  <Upload size={14} /> Upload Photo Instead
                 </button>
               </div>
             </div>
@@ -973,7 +933,13 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))',
+            gap: '16px',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
             {/* Customer ID (Auto-generated) */}
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748B', marginBottom: '6px' }}>
@@ -1498,20 +1464,25 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
-          gap: '12px'
+          flexWrap: 'wrap',
+          gap: '12px',
+          width: '100%',
+          boxSizing: 'border-box'
         }}>
           <button
             type="button"
             onClick={handleResetForm}
             style={{
-              padding: '12px 20px',
+              padding: '10px 18px',
               borderRadius: '12px',
               border: '1px solid #CBD5E1',
               backgroundColor: '#FFFFFF',
               color: '#475569',
-              fontSize: '0.9rem',
+              fontSize: '0.875rem',
               fontWeight: 600,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              flex: '1 1 auto',
+              textAlign: 'center'
             }}
           >
             Clear Form
@@ -1522,18 +1493,20 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
             onClick={() => handleSubmit(false)}
             disabled={saving}
             style={{
-              padding: '12px 28px',
+              padding: '10px 24px',
               borderRadius: '12px',
               border: 'none',
               backgroundColor: saving ? '#94A3B8' : '#0E7490',
               color: '#FFFFFF',
-              fontSize: '0.95rem',
+              fontSize: '0.9rem',
               fontWeight: 700,
               cursor: saving ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '8px',
-              boxShadow: '0 2px 4px rgba(14, 116, 144, 0.25)'
+              boxShadow: '0 2px 4px rgba(14, 116, 144, 0.25)',
+              flex: '2 1 auto'
             }}
           >
             <Check size={18} />

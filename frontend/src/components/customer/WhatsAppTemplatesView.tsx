@@ -247,25 +247,20 @@ export const WhatsAppTemplatesView: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box' }}>
       {/* Top Header Card */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        padding: '24px',
-        border: '1px solid #E7ECF3',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+      <div className="customer-card-box" style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
-        gap: '16px'
+        gap: '14px'
       }}>
-        <div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1E293B', margin: '0 0 6px 0' }}>
+        <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+          <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0', lineHeight: 1.25 }}>
             WhatsApp Templates
           </h2>
-          <p style={{ fontSize: '0.875rem', color: '#64748B', margin: 0 }}>
+          <p style={{ fontSize: '0.85rem', color: '#64748B', margin: 0, wordBreak: 'break-word' }}>
             Create, manage and submit pre-approved Meta WhatsApp Cloud API templates with dynamic customer personalization.
           </p>
         </div>
@@ -273,21 +268,22 @@ export const WhatsAppTemplatesView: React.FC = () => {
         <button
           onClick={handleOpenNew}
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '10px 20px',
-            borderRadius: '12px',
+            padding: '9px 18px',
+            borderRadius: '10px',
             border: 'none',
             backgroundColor: '#0E7490',
             color: '#FFFFFF',
-            fontSize: '0.9rem',
+            fontSize: '0.85rem',
             fontWeight: 600,
             cursor: 'pointer',
-            boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)'
+            boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)',
+            whiteSpace: 'nowrap'
           }}
         >
-          <Plus size={18} /> Create New Template
+          <Plus size={16} /> Create New Template
         </button>
       </div>
 

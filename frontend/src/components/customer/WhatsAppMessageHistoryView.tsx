@@ -157,24 +157,19 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box' }}>
       {/* Top Filter Card */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        padding: '20px 24px',
-        border: '1px solid #E7ECF3',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+      <div className="customer-card-box" style={{
         display: 'flex',
         flexDirection: 'column',
         gap: '16px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
+          <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B', lineHeight: 1.25 }}>
               WhatsApp Message Audit History
             </h3>
-            <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B' }}>
+            <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B', wordBreak: 'break-word' }}>
               Track Meta delivery milestones: API acceptance, sent, device delivery, read receipts and error diagnostics.
             </p>
           </div>
@@ -183,7 +178,7 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
             onClick={fetchHistory}
             disabled={loading}
             style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
               padding: '8px 16px',
@@ -191,9 +186,10 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
               border: '1px solid #CBD5E1',
               backgroundColor: '#FFFFFF',
               color: '#475569',
-              fontSize: '0.85rem',
+              fontSize: '0.825rem',
               fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer'
+              cursor: loading ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap'
             }}
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -201,7 +197,7 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
         </div>
 
         {/* Filter Controls */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '12px', width: '100%' }}>
           <div style={{ position: 'relative' }}>
             <input
               type="text"
