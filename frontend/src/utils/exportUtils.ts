@@ -11,7 +11,7 @@
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { formatDateDDMMYYYY } from './dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, isValidISODate, parseDDMMYYYY } from './dateUtils';
 
 export interface ExportColumn {
   key: string;
@@ -22,6 +22,70 @@ const escapeCsv = (val: any): string => {
   if (val === null || val === undefined) return '""';
   const str = String(val).replace(/"/g, '""');
   return `"${str}"`;
+};
+
+const isDateColumn = (column: ExportColumn): boolean => {
+  const words = `${column.key} ${column.label}`
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  return words.some(word => ['date', 'dob', 'birthday', 'timestamp', 'created', 'updated', 'submitted', 'reviewed'].includes(word));
+};
+
+const parseExportDate = (value: unknown): { date: Date; includesTime: boolean } | null => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return { date: value, includesTime: true };
+  if (typeof value !== 'string') return null;
+  const clean = value.trim();
+  if (isValidISODate(clean)) {
+    const [year, month, day] = clean.split('-').map(Number);
+    return { date: new Date(year, month - 1, day), includesTime: false };
+  }
+  const parsedDmy = parseDDMMYYYY(clean);
+  if (parsedDmy) {
+    const [year, month, day] = parsedDmy.split('-').map(Number);
+    return { date: new Date(year, month - 1, day), includesTime: false };
+  }
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(clean)) {
+    const date = new Date(clean);
+    if (!Number.isNaN(date.getTime())) return { date, includesTime: true };
+  }
+  return null;
+};
+
+export const formatExportValue = (value: unknown, column: ExportColumn): unknown => {
+  if (value === null || value === undefined) return '';
+  if (!isDateColumn(column)) return value;
+  const parsed = parseExportDate(value);
+  if (!parsed) return value;
+  return parsed.includesTime ? formatDateTimeDDMMYYYY(parsed.date) : formatDateDDMMYYYY(parsed.date);
+};
+
+export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportColumn[]): XLSX.WorkSheet => {
+  const sheetData = data.map(item => {
+    const row: Record<string, any> = {};
+    cols.forEach(column => {
+      const raw = item[column.key];
+      const parsed = isDateColumn(column) ? parseExportDate(raw) : null;
+      row[column.label] = parsed?.date ?? (raw !== null && raw !== undefined ? raw : '');
+    });
+    return row;
+  });
+  const worksheet = XLSX.utils.json_to_sheet(sheetData, { cellDates: true });
+  cols.forEach((column, columnIndex) => {
+    if (!isDateColumn(column)) return;
+    data.forEach((item, rowIndex) => {
+      const parsed = parseExportDate(item[column.key]);
+      if (!parsed) return;
+      const address = XLSX.utils.encode_cell({ r: rowIndex + 1, c: columnIndex });
+      if (worksheet[address]) worksheet[address].z = parsed.includesTime ? 'dd/mm/yyyy hh:mm' : 'dd/mm/yyyy';
+    });
+  });
+  worksheet['!cols'] = cols.map(column => {
+    const maxValLen = Math.max(column.label.length, ...data.slice(0, 50).map(item => String(item[column.key] ?? '').length));
+    return { wch: Math.min(Math.max(maxValLen + 4, 14), 45) };
+  });
+  return worksheet;
 };
 
 /**
@@ -43,7 +107,7 @@ export function downloadCSV(
     : Object.keys(data[0]).map(k => ({ key: k, label: k }));
 
   const headers = cols.map(c => escapeCsv(c.label)).join(',');
-  const rows = data.map(item => cols.map(c => escapeCsv(item[c.key])).join(','));
+  const rows = data.map(item => cols.map(c => escapeCsv(formatExportValue(item[c.key], c))).join(','));
 
   // UTF-8 BOM (\uFEFF) ensures Excel & Numbers on macOS/Windows properly display INR symbols and unicode
   const csvContent = '\uFEFF' + [headers, ...rows].join('\r\n');
@@ -74,26 +138,7 @@ export function downloadExcel(
     ? columns
     : Object.keys(data[0]).map(k => ({ key: k, label: k }));
 
-  // Create clean array of row objects with human-readable headers
-  const sheetData = data.map(item => {
-    const row: Record<string, any> = {};
-    cols.forEach(c => {
-      const raw = item[c.key];
-      row[c.label] = raw !== null && raw !== undefined ? raw : '';
-    });
-    return row;
-  });
-
-  const ws = XLSX.utils.json_to_sheet(sheetData);
-
-  // Auto-calculate column widths for great readability on Mac & Windows
-  ws['!cols'] = cols.map(c => {
-    const maxValLen = Math.max(
-      c.label.length,
-      ...data.slice(0, 50).map(d => String(d[c.key] ?? '').length)
-    );
-    return { wch: Math.min(Math.max(maxValLen + 4, 14), 45) };
-  });
+  const ws = buildExcelWorksheet(data, cols);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
@@ -157,8 +202,8 @@ export function downloadPDF(
   // 4. Build Structured Table
   const tableHead = [cols.map(c => c.label)];
   const tableBody = data.map(item => cols.map(c => {
-    const val = item[c.key];
-    return val !== null && val !== undefined ? String(val) : '-';
+    const val = formatExportValue(item[c.key], c);
+    return val !== null && val !== undefined && val !== '' ? String(val) : '-';
   }));
 
   const renderTable = typeof autoTable === 'function' ? autoTable : ((autoTable as any)?.default || (autoTable as any)?.autoTable);

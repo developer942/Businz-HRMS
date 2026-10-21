@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   CalendarCheck, 
   Clock, 
@@ -938,8 +939,7 @@ export const AttendanceSettings: React.FC = () => {
                       </div>
                       <div>
                         <label style={modalLabelStyle}>Date <span style={{ color: '#EF4444' }}>*</span></label>
-                        <input
-                          type="date"
+                        <DateInput
                           required
                           value={holidayForm.date}
                           onChange={e => setHolidayForm({ ...holidayForm, date: e.target.value })}

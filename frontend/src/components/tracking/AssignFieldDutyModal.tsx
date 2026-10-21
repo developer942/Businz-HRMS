@@ -11,6 +11,7 @@ import {
   DUPLICATE_REQUEST_ERROR_MESSAGE 
 } from '../../utils/requestValidation';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
+import { DateInput } from '../common/DateInput';
 
 export interface AssignFieldDutyModalProps {
   onClose: () => void;
@@ -406,8 +407,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
                   {scheduleType === 'One Day' ? 'Date *' : 'Start Date *'}
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={startDate}
                   min={getTodayKolkata()}
                   onChange={(e) => setStartDate(e.target.value)}
@@ -427,8 +427,7 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                   <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
                     End Date <span style={{ color: '#EF4444' }}>*</span>
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     min={startDate || getTodayKolkata()}

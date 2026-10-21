@@ -321,67 +321,28 @@ export const customerService = {
 
   // 3. Save / Add Customer
   async saveCustomer(customerData: Partial<CustomerContact>): Promise<CustomerContact> {
-    try {
-      const res = await fetch(`${getApiBase()}/customers`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(customerData)
-      });
+    const res = await fetch(`${getApiBase()}/customers`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(customerData)
+    });
 
-      const body = await res.json();
-      if (!res.ok || !body.success) {
-        const err = new Error(body?.error?.message || 'Failed to save customer');
-        (err as any).existingCustomer = body?.error?.existingCustomer;
-        (err as any).code = body?.error?.code;
-        throw err;
-      }
-
-      const saved = body.data as CustomerContact;
-      // Sync local cache
-      const list = getLocalCustomers();
-      const existingIdx = list.findIndex(c => c.id === saved.id || c.customerId === saved.customerId);
-      if (existingIdx >= 0) {
-        list[existingIdx] = saved;
-      } else {
-        list.unshift(saved);
-      }
-      saveLocalCustomers(list);
-
-      return saved;
-    } catch (err: any) {
-      if (err.code === 'DUPLICATE_CUSTOMER') {
-        throw err;
-      }
-      // Offline fallback creation
-      const localId = `cust_${Date.now()}`;
-      const fallbackCustomer: CustomerContact = {
-        id: localId,
-        customerId: `CUST-${Date.now().toString().slice(-4)}`,
-        companyId: customerData.companyId || 'company-a',
-        customerName: customerData.customerName || 'Customer',
-        companyName: customerData.companyName,
-        designation: customerData.designation,
-        contactNumber: customerData.contactNumber || '',
-        alternateContactNumber: customerData.alternateContactNumber,
-        email: customerData.email,
-        address: customerData.address,
-        website: customerData.website,
-        collectedById: customerData.collectedById || 'emp-local',
-        collectedByName: customerData.collectedByName || 'Field Officer',
-        collectedDate: customerData.collectedDate || new Date().toISOString().split('T')[0],
-        visitingCardUrl: customerData.visitingCardUrl,
-        notes: customerData.notes,
-        consentStatus: customerData.consentStatus || 'Unknown',
-        consentTimestamp: customerData.consentStatus === 'Opted In' ? new Date().toISOString() : undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      const list = getLocalCustomers();
-      list.unshift(fallbackCustomer);
-      saveLocalCustomers(list);
-      return fallbackCustomer;
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.success || !body?.data?.id) {
+      const err = new Error(body?.error?.message || `Customer was not saved (server returned ${res.status}).`);
+      (err as any).existingCustomer = body?.error?.existingCustomer;
+      (err as any).code = body?.error?.code;
+      (err as any).details = body?.error?.details;
+      throw err;
     }
+
+    const saved = body.data as CustomerContact;
+    const list = getLocalCustomers();
+    const existingIdx = list.findIndex(c => c.id === saved.id || c.customerId === saved.customerId);
+    if (existingIdx >= 0) list[existingIdx] = saved;
+    else list.unshift(saved);
+    saveLocalCustomers(list);
+    return saved;
   },
 
   // 4. Record / Update Consent Audit

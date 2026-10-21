@@ -1,6 +1,8 @@
 // Businz Enterprise HRMS - direct VPS database REST service
 // Keeps database connectivity available even if the main Node.js API is offline.
 
+import { validateRequestReason } from '../utils/requestValidation';
+
 const resolveDatabaseRestBaseUrl = (): string => {
   const env = (import.meta as any).env || {};
   const configured = env.VITE_DB_REST_URL || env.VITE_DATABASE_REST_URL || env.VITE_SUPABASE_URL;
@@ -827,9 +829,9 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   // SHIFTS
   // --------------------------------------------------------------------------
-  async getShifts(): Promise<any[]> {
+  async getShifts(companyId = 'company-a'): Promise<any[]> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?select=*&order=created_at.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?company_id=eq.${encodeURIComponent(companyId)}&select=*,assignments:shift_assignments(id,shift_id,employee_id,employee:employees(employee_id))&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];
@@ -841,6 +843,7 @@ export const supabaseDirect = {
   },
 
   async insertShift(shift: {
+    company_id?: string;
     shift_name: string;
     start_time: string;
     end_time: string;
@@ -851,6 +854,7 @@ export const supabaseDirect = {
   }): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
       const payload = {
+        company_id: shift.company_id || 'company-a',
         shift_name: shift.shift_name,
         start_time: shift.start_time,
         end_time: shift.end_time,
@@ -917,6 +921,53 @@ export const supabaseDirect = {
     }
   },
 
+  async saveEmployeeShiftAssignment(employeeIdOrCode: string, shiftId: string, effectiveFrom: string): Promise<boolean> {
+    try {
+      if (!shiftId || !/^[0-9a-f-]{36}$/i.test(shiftId)) return false;
+      const employeeUuid = await resolveEmployeeUuid(employeeIdOrCode);
+      if (!employeeUuid) return false;
+      const currentUserRaw = localStorage.getItem('vrm_hrms_current_user');
+      let companyId = 'company-a';
+      try {
+        const currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : null;
+        companyId = currentUser?.company_id || currentUser?.companyId || companyId;
+      } catch {}
+
+      const effective = effectiveFrom.slice(0, 10);
+      const previousDay = new Date(`${effective}T12:00:00`);
+      previousDay.setDate(previousDay.getDate() - 1);
+      const previousIso = `${previousDay.getFullYear()}-${String(previousDay.getMonth() + 1).padStart(2, '0')}-${String(previousDay.getDate()).padStart(2, '0')}`;
+
+      const closeResponse = await fetch(
+        `${DATABASE_REST_URL}/rest/v1/shift_assignments?employee_id=eq.${encodeURIComponent(employeeUuid)}&effective_from=lt.${encodeURIComponent(effective)}&or=(effective_to.is.null,effective_to.gte.${encodeURIComponent(effective)})`,
+        {
+          method: 'PATCH',
+          headers: getHeaders(),
+          body: JSON.stringify({ effective_to: previousIso, updated_at: new Date().toISOString() }),
+        },
+      );
+      if (!closeResponse.ok) return false;
+
+      const saveResponse = await fetch(`${DATABASE_REST_URL}/rest/v1/shift_assignments?on_conflict=employee_id,effective_from`, {
+        method: 'POST',
+        headers: { ...getHeaders(), Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify({
+          employee_id: employeeUuid,
+          shift_id: shiftId,
+          company_id: companyId,
+          effective_from: effective,
+          effective_to: null,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (saveResponse.ok && typeof window !== 'undefined') window.dispatchEvent(new Event('hrms:shift-assignments-changed'));
+      return saveResponse.ok;
+    } catch (error) {
+      console.warn('[DatabaseRest] saveEmployeeShiftAssignment error:', error);
+      return false;
+    }
+  },
+
   async deleteShift(id: string): Promise<boolean> {
     try {
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?id=eq.${encodeURIComponent(id)}`, {
@@ -959,10 +1010,15 @@ export const supabaseDirect = {
     start_date: string;
     end_date: string;
     days_count: number;
-    reason?: string;
+    reason: string;
     status?: string;
   }): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
+      const reasonValidation = validateRequestReason(req.reason);
+      if (!reasonValidation.valid) {
+        return { success: false, error: reasonValidation.error };
+      }
+
       const employeeUuid = await resolveEmployeeUuid(req.employee_id);
       if (!employeeUuid) {
         return { success: false, error: `Employee '${req.employee_id}' was not found in Supabase employees table.` };
@@ -986,7 +1042,7 @@ export const supabaseDirect = {
         start_date: req.start_date,
         end_date: req.end_date,
         days_count: Math.max(1, Math.round(req.days_count)),
-        reason: req.reason || 'Personal leave',
+        reason: reasonValidation.value,
         status: normStatus,
         applied_date: new Date().toISOString().split('T')[0],
       };

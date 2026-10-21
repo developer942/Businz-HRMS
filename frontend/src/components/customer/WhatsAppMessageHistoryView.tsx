@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { WhatsAppMessage, WhatsAppMessageStatus } from '../../types/customer';
 import { customerService } from '../../services/customerService';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
+import { formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
 import { 
   History, 
   Search, 
@@ -243,8 +245,7 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
           </div>
 
           <div>
-            <input
-              type="date"
+            <DateInput
               value={dateFrom}
               onChange={e => setDateFrom(e.target.value)}
               style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.875rem' }}
@@ -253,8 +254,7 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
           </div>
 
           <div>
-            <input
-              type="date"
+            <DateInput
               value={dateTo}
               onChange={e => setDateTo(e.target.value)}
               style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.875rem' }}
@@ -328,7 +328,7 @@ export const WhatsAppMessageHistoryView: React.FC = () => {
                     </td>
 
                     <td style={{ padding: '14px 18px', color: '#64748B', whiteSpace: 'nowrap' }}>
-                      {new Date(m.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                      {formatDateTimeDDMMYYYY(m.createdAt)}
                     </td>
 
                     <td style={{ padding: '14px 18px' }}>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   Calendar, 
   Plus, 
@@ -375,8 +376,7 @@ export const HolidayCalendarSettings: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>Date <span style={{ color: '#EF4444' }}>*</span></label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
                     value={holidayForm.date}
                     onChange={e => setHolidayForm({ ...holidayForm, date: e.target.value })}

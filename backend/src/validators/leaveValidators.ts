@@ -3,8 +3,18 @@ import {
   getTodayKolkata, 
   validateDateRange, 
   PAST_DATE_ERROR_MESSAGE, 
-  INVALID_DATE_RANGE_ORDER_MESSAGE 
+  INVALID_DATE_RANGE_ORDER_MESSAGE,
+  REQUEST_REASON_ERROR_MESSAGE,
+  validateRequestReason
 } from '../utils/requestValidation.js';
+
+export const requestReasonSchema = z.string({
+  required_error: REQUEST_REASON_ERROR_MESSAGE,
+  invalid_type_error: REQUEST_REASON_ERROR_MESSAGE,
+}).max(500, 'Reason cannot exceed 500 characters').transform(value => value.trim()).refine(
+  value => validateRequestReason(value).valid,
+  REQUEST_REASON_ERROR_MESSAGE
+);
 
 export const createLeaveSchema = z.object({
   employeeId: z.string().max(50).optional(),
@@ -26,7 +36,7 @@ export const createLeaveSchema = z.object({
   ]).default('Casual'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate must be in format YYYY-MM-DD'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'endDate must be in format YYYY-MM-DD'),
-  reason: z.string().max(500, 'Reason cannot exceed 500 characters').optional().default('Personal Leave'),
+  reason: requestReasonSchema,
   daysCount: z.number().positive().max(365, 'daysCount cannot exceed 365').optional(),
 }).refine(
   (data) => {

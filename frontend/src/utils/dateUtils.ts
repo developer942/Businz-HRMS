@@ -3,6 +3,27 @@
  * Formats dates strictly as DD/MM/YYYY across all modules and tables.
  */
 
+const isValidDateParts = (year: number, month: number, day: number): boolean => {
+  if (!Number.isInteger(year) || year < 1 || year > 9999 || month < 1 || month > 12 || day < 1) return false;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day <= daysInMonth;
+};
+
+export const parseDDMMYYYY = (value: string): string | null => {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (!isValidDateParts(year, month, day)) return null;
+  return `${match[3]}-${match[2]}-${match[1]}`;
+};
+
+export const isValidISODate = (value: string): boolean => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return Boolean(match && isValidDateParts(Number(match[1]), Number(match[2]), Number(match[3])));
+};
+
 export const formatDateDDMMYYYY = (dateInput: string | Date | null | undefined): string => {
   if (!dateInput) return '';
 
@@ -12,21 +33,21 @@ export const formatDateDDMMYYYY = (dateInput: string | Date | null | undefined):
 
     // If it's already in DD/MM/YYYY
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
-      return trimmed;
+      return parseDDMMYYYY(trimmed) ? trimmed : '';
     }
 
     // Standard ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss...
     const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (ymdMatch) {
       const [, yyyy, mm, dd] = ymdMatch;
-      return `${dd}/${mm}/${yyyy}`;
+      return isValidDateParts(Number(yyyy), Number(mm), Number(dd)) ? `${dd}/${mm}/${yyyy}` : '';
     }
 
     // DD-MM-YYYY format
     const dmyMatch = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})/);
     if (dmyMatch) {
       const [, dd, mm, yyyy] = dmyMatch;
-      return `${dd}/${mm}/${yyyy}`;
+      return isValidDateParts(Number(yyyy), Number(mm), Number(dd)) ? `${dd}/${mm}/${yyyy}` : '';
     }
   }
 
@@ -66,24 +87,17 @@ export const normalizeToYYYYMMDD = (val: string | Date | null | undefined): stri
   const clean = String(val).trim();
   if (!clean) return '';
   if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
-    return clean.slice(0, 10);
+    const iso = clean.slice(0, 10);
+    return isValidISODate(iso) ? iso : '';
   }
-  const parts = clean.split(/[-/]/);
-  if (parts.length === 3) {
-    if (parts[2].length === 4) {
-      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-    } else if (parts[0].length === 4) {
-      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-    }
-  }
-  const d = new Date(clean);
-  if (!isNaN(d.getTime())) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-  return clean;
+  return parseDDMMYYYY(clean) || '';
+};
+
+export const formatDateTimeDDMMYYYY = (value: string | Date | null | undefined): string => {
+  if (!value) return '';
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return formatDateDDMMYYYY(value);
+  return `${parsed.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' })}, ${parsed.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })}`;
 };
 
 /**

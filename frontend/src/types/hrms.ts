@@ -347,6 +347,7 @@ export interface ShiftRequest {
   employeeName: string;
   currentShift: string;
   requestedShift: string;
+  requestedShiftId?: string;
   requestedDate: string;
   reason: string;
   status: 'Pending' | 'Approved' | 'Rejected';

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   SandwichLeavePolicy, 
   SandwichCondition, 
@@ -1129,8 +1130,7 @@ export const SandwichLeavePolicySettings: React.FC = () => {
                       <label className="form-label" style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>
                         EFFECTIVE FROM <span style={{ color: '#EF4444' }}>*</span>
                       </label>
-                      <input
-                        type="date"
+                      <DateInput
                         className="form-control"
                         value={formData.effectiveFrom}
                         onChange={e => setFormData({ ...formData, effectiveFrom: e.target.value })}
@@ -1143,8 +1143,7 @@ export const SandwichLeavePolicySettings: React.FC = () => {
                       <label className="form-label" style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>
                         EFFECTIVE TO (OPTIONAL)
                       </label>
-                      <input
-                        type="date"
+                      <DateInput
                         className="form-control"
                         value={formData.effectiveTo}
                         onChange={e => setFormData({ ...formData, effectiveTo: e.target.value })}

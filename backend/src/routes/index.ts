@@ -14,6 +14,7 @@ import { rbacRouter } from './rbacRoutes.js';
 import { aiRouter } from './aiRoutes.js';
 import { customerRouter } from './customerRoutes.js';
 import { whatsappRouter } from './whatsappRoutes.js';
+import { expenseRouter } from './expenseRoutes.js';
 
 export const apiRouter = Router();
 
@@ -36,3 +37,4 @@ apiRouter.use('/ai', aiRouter);
 apiRouter.use('/', overtimeRouter);
 apiRouter.use('/customers', customerRouter);
 apiRouter.use('/whatsapp', whatsappRouter);
+apiRouter.use('/expenses', expenseRouter);

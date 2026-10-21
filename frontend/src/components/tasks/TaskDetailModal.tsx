@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   X, 
   CheckCircle2, 
@@ -487,7 +488,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Due Date</label>
-                  <input type="date" className="form-control" value={editTaskForm.dueDate} onChange={e => setEditTaskForm(prev => ({ ...prev, dueDate: e.target.value }))} />
+                  <DateInput className="form-control" value={editTaskForm.dueDate} onChange={e => setEditTaskForm(prev => ({ ...prev, dueDate: e.target.value }))} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Priority</label>
@@ -846,8 +847,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                     <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569' }}>
                       Report Date:
                     </label>
-                    <input 
-                      type="date" 
+            <DateInput
                       value={dailyDate} 
                       min={taskStartDateStr}
                       onChange={e => setDailyDate(e.target.value)} 

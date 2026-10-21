@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Shift, ShiftRequest } from '../../types/hrms';
 import { 
@@ -21,9 +21,13 @@ import {
   validateRequestDate, 
   checkDuplicateShiftRequest, 
   PAST_DATE_ERROR_MESSAGE, 
-  DUPLICATE_REQUEST_ERROR_MESSAGE 
+  DUPLICATE_REQUEST_ERROR_MESSAGE,
+  REQUEST_REASON_ERROR_MESSAGE,
+  validateRequestReason
 } from '../../utils/requestValidation';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
+import { getShiftAssignmentSummary, ShiftAssignmentSummary } from '../../services/shiftService';
+import { DateInput } from '../common/DateInput';
 
 interface ShiftManagementProps {
   openAddModal?: boolean;
@@ -78,6 +82,33 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   const [rejectModal, setRejectModal] = useState<{ requestId: string; employeeName: string } | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [assignmentSummary, setAssignmentSummary] = useState<Record<string, ShiftAssignmentSummary>>({});
+  const [assignmentLoading, setAssignmentLoading] = useState(true);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [selectedAssignmentSummary, setSelectedAssignmentSummary] = useState<ShiftAssignmentSummary | null>(null);
+
+  const loadAssignmentSummary = useCallback(async () => {
+    setAssignmentLoading(true);
+    setAssignmentError(null);
+    try {
+      const rows = await getShiftAssignmentSummary();
+      setAssignmentSummary(Object.fromEntries(rows.map(row => [row.shiftId, { ...row, count: row.employees.length }])));
+    } catch (error) {
+      setAssignmentSummary({});
+      setAssignmentError(error instanceof Error ? error.message : 'Unable to load assigned staff counts.');
+    } finally {
+      setAssignmentLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAssignmentSummary();
+  }, [loadAssignmentSummary, shifts.length, employees.length, shiftRequests]);
+
+  useEffect(() => {
+    window.addEventListener('hrms:shift-assignments-changed', loadAssignmentSummary);
+    return () => window.removeEventListener('hrms:shift-assignments-changed', loadAssignmentSummary);
+  }, [loadAssignmentSummary]);
 
   // Sync quick add modal trigger from header
   React.useEffect(() => {
@@ -148,11 +179,13 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   // Shift Swap Request Form State
   const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
   const [swapFormError, setSwapFormError] = useState<string | null>(null);
+  const [swapReasonError, setSwapReasonError] = useState<string | null>(null);
+  const swapReasonRef = useRef<HTMLTextAreaElement>(null);
   const [swapForm, setSwapForm] = useState({
     currentShift: myAssignedShiftName,
     requestedShift: shifts.find(s => s.shiftName !== myAssignedShiftName)?.shiftName || (shifts[1]?.shiftName || 'Shift 2 (09:30 AM - 06:30 PM)'),
     requestedDate: getTodayKolkata(),
-    reason: 'Personal schedule adjustment'
+    reason: ''
   });
 
   React.useEffect(() => {
@@ -249,6 +282,12 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   const handleRequestSwap = async (e: React.FormEvent) => {
     e.preventDefault();
     setSwapFormError(null);
+    const reasonValidation = validateRequestReason(swapForm.reason);
+    if (!reasonValidation.valid) {
+      setSwapReasonError(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
+      swapReasonRef.current?.focus();
+      return;
+    }
 
     // Rule 1: Validate date is not in the past (authoritative Asia/Kolkata check)
     const dateCheck = validateRequestDate(swapForm.requestedDate);
@@ -276,8 +315,9 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
         employeeName: currentUser.name || (currentEmp ? `${currentEmp.firstName} ${currentEmp.lastName}`.trim() : 'Staff Member'),
         currentShift: swapForm.currentShift || myAssignedShiftName,
         requestedShift: swapForm.requestedShift,
+        requestedShiftId: shifts.find(shift => shift.shiftName === swapForm.requestedShift)?.id,
         requestedDate: swapForm.requestedDate,
-        reason: swapForm.reason
+        reason: reasonValidation.value!
       });
 
       setShowSwapModal(false);
@@ -287,7 +327,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
         currentShift: myAssignedShiftName,
         requestedShift: shifts.find(s => s.shiftName !== myAssignedShiftName)?.shiftName || shifts[0]?.shiftName || '',
         requestedDate: getTodayKolkata(),
-        reason: 'Personal schedule adjustment'
+        reason: ''
       });
     } finally {
       setIsSubmittingSwap(false);
@@ -508,10 +548,22 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                   <div><strong>Working:</strong> {s.workingHours === 8.25 ? '8h 15m' : `${s.workingHours} Hours`}</div>
                   <div><strong>Break:</strong> {s.breakDurationMins} Mins</div>
                   <div style={{ gridColumn: 'span 2', paddingTop: '4px', borderTop: '1px dashed #E2E8F0', color: '#64748B' }}>
-                    <strong>Assigned Staff:</strong> {employees.filter(e => 
-                      (e.workShift && (e.workShift === s.shiftName || e.workShift.toLowerCase().includes(s.shiftName.toLowerCase()))) ||
-                      (s.assignments && s.assignments.some(a => a.employeeId === e.employeeId || a.employeeId === e.id))
-                    ).length} Employees
+                    <strong>Assigned Staff:</strong>{' '}
+                    {assignmentLoading ? (
+                      <span aria-live="polite">Loading…</span>
+                    ) : assignmentError ? (
+                      <button type="button" onClick={loadAssignmentSummary} style={{ border: 0, padding: 0, background: 'none', color: '#B91C1C', cursor: 'pointer', textDecoration: 'underline' }}>
+                        Unavailable — Retry
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAssignmentSummary(assignmentSummary[s.id] || { shiftId: s.id, shiftName: s.shiftName, count: 0, employees: [] })}
+                        style={{ border: 0, padding: 0, background: 'none', color: '#0E7490', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        {assignmentSummary[s.id]?.employees.length || 0} {(assignmentSummary[s.id]?.employees.length || 0) === 1 ? 'Employee' : 'Employees'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -524,6 +576,35 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <p style={{ margin: 0, fontSize: '0.88rem' }}>Click "+ Add New Shift" above to manually define your company working shifts.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {selectedAssignmentSummary && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="assigned-staff-title">
+          <div className="modal-content" style={{ maxWidth: '520px' }}>
+            <div className="modal-header">
+              <div>
+                <h2 id="assigned-staff-title">{selectedAssignmentSummary.shiftName} — Assigned Staff</h2>
+                <p style={{ margin: '4px 0 0', color: '#64748B' }}>
+                  {selectedAssignmentSummary.employees.length} {selectedAssignmentSummary.employees.length === 1 ? 'Employee' : 'Employees'}
+                </p>
+              </div>
+              <button type="button" onClick={() => setSelectedAssignmentSummary(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {selectedAssignmentSummary.employees.length === 0 ? (
+                <p style={{ color: '#64748B' }}>No active employees are assigned to this shift today.</p>
+              ) : selectedAssignmentSummary.employees.map(employee => (
+                <div key={employee.id} style={{ padding: '10px 0', borderBottom: '1px solid #E2E8F0' }}>
+                  <strong>{employee.name}</strong>
+                  <div style={{ color: '#64748B', fontSize: '0.82rem' }}>{employee.employeeId}{employee.department ? ` • ${employee.department}` : ''}</div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setSelectedAssignmentSummary(null)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -837,9 +918,8 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                 </div>
                 <div className="form-group">
                   <label className="form-label">Effective Date <span style={{ color: '#EF4444' }}>*</span></label>
-                  <input 
+            <DateInput
                     className="form-control" 
-                    type="date" 
                     min={getTodayKolkata()}
                     value={swapForm.requestedDate} 
                     onChange={e => {
@@ -854,7 +934,28 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                 </div>
                 <div className="form-group">
                   <label className="form-label">Reason for Request <span style={{ color: '#EF4444' }}>*</span></label>
-                  <textarea className="form-control" rows={3} value={swapForm.reason} onChange={e => setSwapForm({ ...swapForm, reason: e.target.value })} onKeyDown={preventSpaceEnterPropagation} placeholder="State the reason for this shift change (e.g. personal commute, family necessity, exam)..." required />
+                  <textarea
+                    ref={swapReasonRef}
+                    className="form-control"
+                    rows={3}
+                    value={swapForm.reason}
+                    onChange={e => {
+                      setSwapForm({ ...swapForm, reason: e.target.value });
+                      if (swapReasonError) setSwapReasonError(null);
+                    }}
+                    onBlur={() => {
+                      const result = validateRequestReason(swapForm.reason);
+                      setSwapReasonError(result.valid ? null : result.error || REQUEST_REASON_ERROR_MESSAGE);
+                    }}
+                    onKeyDown={preventSpaceEnterPropagation}
+                    placeholder="State the reason for this shift change (e.g. personal commute, family necessity, exam)..."
+                    required
+                    maxLength={500}
+                    aria-invalid={Boolean(swapReasonError)}
+                    aria-describedby="shift-request-reason-error"
+                    style={{ borderColor: swapReasonError ? '#DC2626' : undefined }}
+                  />
+                  {swapReasonError && <div id="shift-request-reason-error" style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{swapReasonError}</div>}
                 </div>
               </div>
               <div className="modal-footer">

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { MissedPunchRequestType } from '../../types/attendanceEnterprise';
+import { DateInput } from '../common/DateInput';
 import { AttendanceTimePickerModal } from './AttendanceTimePickerModal';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
@@ -226,8 +227,7 @@ export const MissedPunchModal: React.FC<MissedPunchModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Attendance Date <span className="text-rose-500">*</span>
             </label>
-            <input
-              type="date"
+            <DateInput
               value={date}
               max={new Date().toISOString().split('T')[0]}
               onChange={e => setDate(e.target.value)}

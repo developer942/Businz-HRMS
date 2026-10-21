@@ -1,6 +1,6 @@
 // VRM Enterprise HRMS — Auth & Login Lifecycle Audit Repository
 import { AuthAuditAction, AuthAuditLog } from '../types/auth.js';
-import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { query } from '../config/database.js';
 
 const SENSITIVE_KEYS = new Set([
   'password',
@@ -36,8 +36,6 @@ function sanitizeMetadata(data?: Record<string, any>): Record<string, any> | und
   return clean;
 }
 
-const inMemoryAuditLogs: AuthAuditLog[] = [];
-
 export class AuditRepository {
   async recordLog(
     action: AuthAuditAction,
@@ -46,33 +44,13 @@ export class AuditRepository {
     metadata?: Record<string, any>
   ): Promise<AuthAuditLog> {
     const sanitized = sanitizeMetadata(metadata);
-    const entry: AuthAuditLog = {
-      id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
-      action,
-      employee_id: employeeId,
-      performed_by: performedBy || 'System',
-      performed_at: new Date().toISOString(),
-      metadata: sanitized,
-    };
-
-    inMemoryAuditLogs.push(entry);
-
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase.from('auth_audit_logs').insert({
-          action: entry.action,
-          employee_id: entry.employee_id,
-          performed_by: entry.performed_by,
-          performed_at: entry.performed_at,
-          metadata: entry.metadata,
-        });
-      } catch (err) {
-        console.warn('Could not persist auth audit log to Supabase:', err);
-      }
-    }
-
-    return entry;
+    const result = await query<AuthAuditLog>(
+      `INSERT INTO auth_audit_logs (action, employee_id, performed_by, performed_at, metadata)
+       VALUES ($1, $2, $3, NOW(), $4::jsonb)
+       RETURNING id::text, action, employee_id, performed_by, performed_at::text, metadata`,
+      [action, employeeId, performedBy || 'System', JSON.stringify(sanitized || {})]
+    );
+    return result.rows[0];
   }
 
   async getLogs(filters?: {
@@ -80,25 +58,27 @@ export class AuditRepository {
     action?: AuthAuditAction;
     limit?: number;
   }): Promise<AuthAuditLog[]> {
-    let list = [...inMemoryAuditLogs];
-
+    const values: unknown[] = [];
+    const conditions: string[] = [];
     if (filters?.employeeId) {
-      const q = filters.employeeId.toLowerCase().trim();
-      list = list.filter((l) => (l.employee_id || '').toLowerCase().trim() === q);
+      values.push(filters.employeeId.trim());
+      conditions.push(`LOWER(employee_id) = LOWER($${values.length})`);
     }
-
     if (filters?.action) {
-      list = list.filter((l) => l.action === filters.action);
+      values.push(filters.action);
+      conditions.push(`action = $${values.length}`);
     }
-
-    // Sort descending by timestamp (most recent first)
-    list.sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime());
-
-    if (filters?.limit && filters.limit > 0) {
-      list = list.slice(0, filters.limit);
-    }
-
-    return list;
+    const requestedLimit = Math.min(Math.max(filters?.limit || 100, 1), 1000);
+    values.push(requestedLimit);
+    const result = await query<AuthAuditLog>(
+      `SELECT id::text, action, employee_id, performed_by, performed_at::text, metadata
+       FROM auth_audit_logs
+       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+       ORDER BY performed_at DESC
+       LIMIT $${values.length}`,
+      values
+    );
+    return result.rows;
   }
 }
 

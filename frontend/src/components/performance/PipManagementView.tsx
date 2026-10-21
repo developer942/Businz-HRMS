@@ -577,7 +577,7 @@ export const PipManagementView: React.FC<PipManagementViewProps> = ({
                       </div>
 
                       <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}>
-                        Due: {m.targetDate}
+                        Due: {formatDateDDMMYYYY(m.targetDate)}
                       </span>
                     </div>
                   );

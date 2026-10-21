@@ -6,6 +6,7 @@ import { StandardTablePagination } from '../common/StandardTablePagination';
 import { EmployeeFieldActivityModal } from './EmployeeFieldActivityModal';
 import { formatKm, formatTimeAmPm } from '../../services/trackingEngine';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { DateInput } from '../common/DateInput';
 
 export const TravelHistoryTab: React.FC = () => {
   const { fieldAssignments, tripSessions, employees, trackingAlerts, departments: orgDepartments } = useHRMS();
@@ -217,8 +218,7 @@ export const TravelHistoryTab: React.FC = () => {
               <option value="Field Work">Field Work</option>
             </select>
 
-            <input
-              type="date"
+            <DateInput
               value={startDateFilter}
               onChange={(e) => {
                 setStartDateFilter(e.target.value);

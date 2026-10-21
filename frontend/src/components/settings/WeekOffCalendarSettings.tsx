@@ -3,6 +3,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { HolidayItem } from '../../types/hrms';
 import { DAYS_OF_WEEK, isDateWeeklyOffBySchedule, parseWeeklyOffDays } from '../../utils/weeklyScheduleUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { DateInput } from '../common/DateInput';
 import { 
   Calendar, 
   ChevronLeft, 
@@ -1483,8 +1484,7 @@ export const WeekOffCalendarSettings: React.FC = () => {
                     <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 750, color: '#1E293B', marginBottom: '6px' }}>
                       Holiday Date <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       required
                       value={holidayForm.date}
                       onChange={e => setHolidayForm({ ...holidayForm, date: e.target.value })}

@@ -10,6 +10,7 @@ import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
+import { buildAttendanceReport } from '../../services/attendanceReportService';
 import { 
   Users, 
   UserCheck, 
@@ -46,7 +47,9 @@ export const Dashboard: React.FC = () => {
     faceLogs,
     holidayPolicies,
     masterLeavePolicies,
-    leavePolicies
+    leavePolicies,
+    fieldAssignments,
+    weeklySchedules
   } = useHRMS();
 
   const isCEO = 
@@ -394,17 +397,19 @@ export const Dashboard: React.FC = () => {
     return att && att.checkIn && !att.checkOut;
   });
 
-  const absentEmployees = attendanceWorkforceEmployees.filter(emp => {
-    const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
-    const isPres = att && (
-      att.status === 'Present' || 
-      att.status === 'Work From Home' || 
-      att.status === 'Late' ||
-      !!att.checkIn
-    );
-    const isLeave = att?.status === 'On Leave' || leaveRequests.some(l => doesLeaveMatchEmployee(l, emp) && doesLeaveCoverToday(l));
-    return !isPres && !isLeave;
+  const attendanceReport = buildAttendanceReport({
+    currentUser,
+    role: currentUser.role,
+    employees: attendanceWorkforceEmployees,
+    attendanceRecords: filteredAttendance,
+    leaveRequests,
+    shifts,
+    weeklySchedules,
+    holidayPolicies,
+    fieldAssignments,
+    date: todayStr
   });
+  const absentEmployees = attendanceReport.absent.map(row => row.employee);
 
   const presentToday = presentEmployees.length;
   const absentToday = absentEmployees.length;
@@ -1338,6 +1343,11 @@ export const Dashboard: React.FC = () => {
           employees={filteredEmployees}
           attendanceRecords={filteredAttendance}
           leaveRequests={leaveRequests}
+          shifts={shifts}
+          weeklySchedules={weeklySchedules}
+          holidayPolicies={holidayPolicies}
+          fieldAssignments={fieldAssignments}
+          currentUser={currentUser}
         />
       )}
     </div>

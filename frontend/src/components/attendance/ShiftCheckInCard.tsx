@@ -14,6 +14,7 @@ import {
   Info
 } from 'lucide-react';
 import { ShiftWindowEvaluation, formatShiftCountdown } from '../../services/shiftAttendanceEngine';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 interface ShiftCheckInCardProps {
   employeeId?: string;
@@ -262,7 +263,7 @@ export const ShiftCheckInCard: React.FC<ShiftCheckInCardProps> = ({
           </h3>
           <div style={{ fontSize: '13px', color: '#64748B', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <Calendar size={13} color="#94A3B8" />
-            <span>Shift Date: <strong style={{ color: '#334155' }}>{shiftEval.shiftDate}</strong></span>
+            <span>Shift Date: <strong style={{ color: '#334155' }}>{formatDateDDMMYYYY(shiftEval.shiftDate)}</strong></span>
           </div>
         </div>
 

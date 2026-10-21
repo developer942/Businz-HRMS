@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   CheckSquare, 
   Calendar, 
@@ -490,8 +491,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
           <div>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Task Date <span style={{ color: '#EF4444' }}>*</span></label>
-            <input 
-              type="date"
+            <DateInput
               value={taskDate}
               onChange={e => setTaskDate(e.target.value)}
               className="form-control"
@@ -615,8 +615,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
 
           <div>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Start Date</label>
-            <input 
-              type="date"
+            <DateInput
               value={startDate}
               min={getTodayKolkata()}
               onChange={e => setStartDate(e.target.value)}
@@ -627,8 +626,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
 
           <div>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Due Date <span style={{ color: '#EF4444' }}>*</span></label>
-            <input 
-              type="date"
+            <DateInput
               value={dueDate}
               min={startDate || getTodayKolkata()}
               onChange={e => { setDueDate(e.target.value); setErrors(prev => ({ ...prev, dueDate: '' })); }}

@@ -24,6 +24,8 @@ import {
 } from '../types/hrms';
 import { getLocalizedPack } from './aiLanguageEngine';
 import { formatCurrency } from '../utils/numbers';
+import { buildAttendanceReport } from './attendanceReportService';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 interface QueryContextData {
   currentUser: any;
@@ -42,6 +44,8 @@ interface QueryContextData {
   attendanceConfig?: GlobalAttendanceConfig;
   policyDocuments?: PolicyDocumentItem[];
   businessSettings?: any;
+  shifts?: any[];
+  fieldAssignments?: any[];
 }
 
 const DEFAULT_HOLIDAYS: HolidayItem[] = [
@@ -80,7 +84,7 @@ export function executeHRMSQuery(
   const pack = getLocalizedPack(lang);
   const dateKey = entities.dateKey || 'today';
   const dateLabel = pack.dateLabels[dateKey as keyof typeof pack.dateLabels] || pack.dateLabels.today;
-  const resolvedDate = entities.resolvedDate || new Date().toISOString().split('T')[0];
+  const resolvedDate = entities.resolvedDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
   // RBAC Permission checks
   const isEmployeeRole = data.role === 'Employee' || data.role === 'Assignee';
@@ -445,7 +449,7 @@ export function executeHRMSQuery(
       department: l.department,
       leaveType: l.leaveType,
       status: l.status,
-      dates: `${l.startDate} to ${l.endDate}`,
+      dates: `${formatDateDDMMYYYY(l.startDate)} to ${formatDateDDMMYYYY(l.endDate)}`,
       reason: l.reason
     }));
 
@@ -483,33 +487,29 @@ export function executeHRMSQuery(
 
   // 4. GET_ABSENT_EMPLOYEES: Check who is absent today or on resolved date
   if (intent === 'GET_ABSENT_EMPLOYEES') {
-    // Check attendance records marked as Absent or employees not in present/late/WFH
-    let absentees = data.attendanceRecords.filter(a => a.status === 'Absent' || a.status === 'On Leave');
-    
-    // Cross reference with total employees to list absent members
-    if (absentees.length === 0) {
-      const checkedInIds = new Set(data.attendanceRecords.filter(a => a.status === 'Present' || a.status === 'Late').map(a => a.employeeId));
-      const notCheckedIn = data.employees.filter(e => !checkedInIds.has(e.employeeId) && e.status === 'Active');
-      absentees = notCheckedIn.slice(0, 5).map(e => ({
-        id: `ATT-ABS-${e.employeeId}`,
-        employeeId: e.employeeId,
-        employeeName: `${e.firstName} ${e.lastName}`,
-        department: e.department,
-        date: resolvedDate,
-        checkIn: null,
-        checkOut: null,
-        workingHours: 0,
-        status: 'Absent' as const,
-        lateStatus: 'N/A' as const,
-        location: { lat: 0, lng: 0, address: 'Not Reported', inGeofence: false },
-        faceVerified: false,
-        method: 'Manual Punch' as const
-      }));
+    if (data.employees.length === 0) {
+      return {
+        responseText: 'Attendance data is currently unavailable. Please retry after the employee directory finishes loading.',
+        payload: { type: 'none' },
+        newFilters: { date: resolvedDate, module: 'attendance' },
+        followUpSuggestions: ['Retry today absent list'],
+        isError: true
+      };
     }
-
-    if (entities.department) {
-      absentees = absentees.filter(a => a.department.toLowerCase().includes(entities.department!.toLowerCase()));
-    }
+    const attendanceReport = buildAttendanceReport({
+      currentUser: data.currentUser,
+      role: data.role,
+      employees: data.employees,
+      attendanceRecords: data.attendanceRecords,
+      leaveRequests: data.leaveRequests,
+      shifts: data.shifts,
+      fieldAssignments: data.fieldAssignments,
+      weeklySchedules: data.weeklySchedules,
+      holidayPolicies: data.holidayPolicies,
+      date: resolvedDate,
+      department: entities.department
+    });
+    const absentees = attendanceReport.absent;
 
     const columns: TableColumn[] = [
       { key: 'employeeName', label: pack.tableHeaders.employee },
@@ -519,13 +519,13 @@ export function executeHRMSQuery(
       { key: 'date', label: pack.tableHeaders.date }
     ];
 
-    const rows = absentees.map(a => ({
-      id: a.id,
-      employeeName: a.employeeName,
-      employeeId: a.employeeId,
-      department: a.department,
-      status: a.status,
-      date: a.date || resolvedDate
+    const rows = absentees.map(({ employee, attendance }) => ({
+      id: attendance?.id || `ATT-ABS-${employee.employeeId}`,
+      employeeName: `${employee.firstName} ${employee.lastName}`.trim(),
+      employeeId: employee.employeeId,
+      department: employee.department,
+      status: 'Absent',
+      date: formatDateDDMMYYYY(resolvedDate)
     }));
 
     const responseText = pack.absentFound(rows.length, dateLabel);
@@ -731,11 +731,32 @@ export function executeHRMSQuery(
 
   // 8. GET_ATTENDANCE: Overview
   if (intent === 'GET_ATTENDANCE') {
-    const totalEmployees = data.employees.length;
-    const presentCount = data.attendanceRecords.filter(a => a.status === 'Present').length;
-    const lateCount = data.attendanceRecords.filter(a => a.status === 'Late').length;
-    const leaveCount = data.attendanceRecords.filter(a => a.status === 'On Leave').length;
-    const absentCount = Math.max(0, totalEmployees - (presentCount + lateCount + leaveCount));
+    if (data.employees.length === 0) {
+      return {
+        responseText: 'Attendance data is currently unavailable. Please retry after the employee directory finishes loading.',
+        payload: { type: 'none' },
+        newFilters: { date: resolvedDate, module: 'attendance' },
+        followUpSuggestions: ['Retry attendance report'],
+        isError: true
+      };
+    }
+    const attendanceReport = buildAttendanceReport({
+      currentUser: data.currentUser,
+      role: data.role,
+      employees: data.employees,
+      attendanceRecords: data.attendanceRecords,
+      leaveRequests: data.leaveRequests,
+      shifts: data.shifts,
+      fieldAssignments: data.fieldAssignments,
+      weeklySchedules: data.weeklySchedules,
+      holidayPolicies: data.holidayPolicies,
+      date: resolvedDate
+    });
+    const totalEmployees = attendanceReport.rows.length;
+    const presentCount = attendanceReport.present.length;
+    const lateCount = attendanceReport.late.length;
+    const leaveCount = attendanceReport.onLeave.length;
+    const absentCount = attendanceReport.absent.length;
 
     return {
       responseText: pack.attendanceFound(dateLabel),
@@ -1268,7 +1289,7 @@ export function executeHRMSQuery(
     const rows = holidays.map((h, idx) => ({
       id: h.id || idx + 1,
       name: h.name,
-      date: h.date,
+      date: formatDateDDMMYYYY(h.date),
       daysCount: `${h.daysCount} Day${h.daysCount > 1 ? 's' : ''}`,
       type: h.type,
       applicableLocation: h.applicableLocation || 'All Locations & Yards'
@@ -1531,7 +1552,7 @@ export function executeHRMSQuery(
       { id: 6, field: 'Phone Number', value: emp.phone || '—' },
       { id: 7, field: 'Role', value: (emp as any).role || emp.designation },
       { id: 8, field: 'Employment Status', value: emp.status },
-      { id: 9, field: 'Joining Date', value: emp.joiningDate || 'Not Available' }
+      { id: 9, field: 'Joining Date', value: formatDateDDMMYYYY(emp.joiningDate) || 'Not Available' }
     ];
 
     return {

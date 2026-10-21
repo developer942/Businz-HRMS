@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../common/DateInput';
 import {
   CalendarCheck,
   MapPin,
@@ -53,6 +54,8 @@ import { ManualAttendanceEntryModal } from './ManualAttendanceEntryModal';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatCurrency } from '../../utils/numbers';
+import { buildAttendanceReport } from '../../services/attendanceReportService';
+import { getLocalDateStr } from '../../utils/monthUtils';
 
 export const AttendanceManagementModule: React.FC = () => {
   const {
@@ -68,7 +71,11 @@ export const AttendanceManagementModule: React.FC = () => {
     updateAttendanceGlobalSettings,
     correctAttendanceRecord,
     addNotification,
-    shifts
+    shifts,
+    leaveRequests,
+    weeklySchedules,
+    holidayPolicies,
+    fieldAssignments
   } = useHRMS();
 
   // Master Navigation Tabs
@@ -139,7 +146,19 @@ export const AttendanceManagementModule: React.FC = () => {
     const presentCount = attendanceRecords.filter(r => r.status === 'Present').length;
     const onTimeCount = attendanceRecords.filter(r => r.status === 'Present' && (!r.lateStatus || r.lateStatus === 'On Time')).length;
     const lateCount = attendanceRecords.filter(r => r.lateStatus && r.lateStatus !== 'On Time' && r.lateStatus !== 'N/A').length;
-    const absentCount = attendanceRecords.filter(r => r.status === 'Absent' && !isCeoOrExemptEmp(r.employeeId)).length;
+    const todayReport = buildAttendanceReport({
+      currentUser,
+      role: currentUser?.role,
+      employees,
+      attendanceRecords,
+      leaveRequests,
+      shifts,
+      weeklySchedules,
+      holidayPolicies,
+      fieldAssignments,
+      date: getLocalDateStr()
+    });
+    const absentCount = todayReport.absent.length;
     const halfDayCount = attendanceRecords.filter(r => r.status === 'Half Day').length;
     const leaveCount = attendanceRecords.filter(r => r.status === 'On Leave').length;
     const wfhCount = attendanceRecords.filter(r => r.status === 'Work From Home').length;
@@ -170,7 +189,7 @@ export const AttendanceManagementModule: React.FC = () => {
       pendingOtClaimsCount,
       approvedOtPayout: Math.round(approvedOtPayout)
     };
-  }, [attendanceRecords, missedPunchRequests, overtimeRequests]);
+  }, [attendanceRecords, employees, currentUser, leaveRequests, shifts, weeklySchedules, holidayPolicies, fieldAssignments, missedPunchRequests, overtimeRequests]);
 
   // Filtered attendance records for Register
   const filteredRecords = useMemo(() => {
@@ -652,8 +671,7 @@ export const AttendanceManagementModule: React.FC = () => {
                 <option value="Holiday">Holiday</option>
               </select>
 
-              <input
-                type="date"
+              <DateInput
                 value={selectedDate}
                 onChange={e => { setSelectedDate(e.target.value); setCurrentPage(1); }}
                 className="vrm-filter-date"

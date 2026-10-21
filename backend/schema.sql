@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS public.departments (
 -- --- employees ---
 CREATE TABLE IF NOT EXISTS public.employees (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id          TEXT NOT NULL DEFAULT 'company-a',
     auth_id             UUID UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
     employee_id         TEXT NOT NULL UNIQUE,
     first_name          TEXT NOT NULL,
@@ -288,6 +289,7 @@ CREATE TABLE IF NOT EXISTS public.employee_documents (
 -- --- shifts ---
 CREATE TABLE IF NOT EXISTS public.shifts (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id         TEXT NOT NULL DEFAULT 'company-a',
     shift_name         TEXT NOT NULL,
     start_time         TIME NOT NULL,
     end_time           TIME NOT NULL,
@@ -342,7 +344,7 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
     start_date  DATE NOT NULL,
     end_date    DATE NOT NULL,
     days_count  INT NOT NULL CHECK (days_count > 0),
-    reason      TEXT,
+    reason      TEXT NOT NULL CHECK (char_length(btrim(reason)) BETWEEN 1 AND 500 AND (reason ~ '[[:alpha:]]' OR reason ~ '[ஃஅ-ஊஎ-ஐஒ-கங-சஜஞ-டண-தந-பம-ஹ]')),
     status      public.hr_request_status NOT NULL DEFAULT 'Pending',
     applied_date DATE NOT NULL DEFAULT CURRENT_DATE,
     approved_by UUID REFERENCES public.employees(id) ON DELETE SET NULL,
@@ -355,10 +357,44 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
 -- --- shift_assignments (join: shifts <-> employees) ---
 CREATE TABLE IF NOT EXISTS public.shift_assignments (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id  TEXT NOT NULL DEFAULT 'company-a',
     shift_id    UUID NOT NULL REFERENCES public.shifts(id) ON DELETE CASCADE,
     employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
-    CONSTRAINT unique_shift_employee UNIQUE (shift_id, employee_id)
+    effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+    effective_to DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_shift_employee_effective UNIQUE (employee_id, effective_from)
 );
+
+CREATE OR REPLACE FUNCTION public.get_shift_assignment_summary(
+  p_company_id TEXT, p_business_date DATE, p_scope_level TEXT DEFAULT 'all',
+  p_scope_employee_id TEXT DEFAULT NULL, p_scope_department TEXT DEFAULT NULL
+)
+RETURNS TABLE (shift_id UUID, shift_name TEXT, employee_count BIGINT, employees JSONB)
+LANGUAGE sql STABLE SECURITY INVOKER
+AS $$
+  WITH ranked_assignments AS (
+    SELECT assignment.shift_id, employee.id, employee.employee_id, employee.first_name, employee.last_name,
+      department.name AS department_name,
+      row_number() OVER (PARTITION BY employee.id ORDER BY assignment.effective_from DESC, assignment.created_at DESC, assignment.id DESC) AS assignment_rank
+    FROM public.shift_assignments assignment
+    JOIN public.employees employee ON employee.id = assignment.employee_id
+    LEFT JOIN public.departments department ON department.id = employee.department_id
+    WHERE assignment.company_id = p_company_id AND employee.company_id = p_company_id AND employee.status = 'Active'
+      AND assignment.effective_from <= p_business_date AND (assignment.effective_to IS NULL OR assignment.effective_to >= p_business_date)
+      AND (COALESCE(p_scope_level, 'all') NOT IN ('own', 'department', 'team')
+        OR (p_scope_level = 'own' AND p_scope_employee_id IS NOT NULL AND (employee.id::TEXT = p_scope_employee_id OR employee.employee_id = p_scope_employee_id))
+        OR (p_scope_level IN ('department', 'team') AND p_scope_department IS NOT NULL AND lower(COALESCE(department.name, '')) = lower(p_scope_department)))
+  ), current_assignments AS (SELECT * FROM ranked_assignments WHERE assignment_rank = 1)
+  SELECT shift.id, shift.shift_name, count(current.id),
+    COALESCE(jsonb_agg(jsonb_build_object('id', current.id, 'employeeId', current.employee_id,
+      'name', btrim(concat_ws(' ', current.first_name, current.last_name)), 'department', current.department_name)
+      ORDER BY current.employee_id) FILTER (WHERE current.id IS NOT NULL), '[]'::JSONB)
+  FROM public.shifts shift LEFT JOIN current_assignments current ON current.shift_id = shift.id
+  WHERE shift.company_id = p_company_id
+  GROUP BY shift.id, shift.shift_name, shift.created_at ORDER BY shift.created_at;
+$$;
 
 -- --- shift_requests ---
 CREATE TABLE IF NOT EXISTS public.shift_requests (
@@ -367,12 +403,44 @@ CREATE TABLE IF NOT EXISTS public.shift_requests (
     current_shift_id    UUID NOT NULL REFERENCES public.shifts(id) ON DELETE RESTRICT,
     requested_shift_id  UUID NOT NULL REFERENCES public.shifts(id) ON DELETE RESTRICT,
     requested_date      DATE NOT NULL,
-    reason              TEXT,
+    reason              TEXT NOT NULL CHECK (char_length(btrim(reason)) BETWEEN 1 AND 500 AND (reason ~ '[[:alpha:]]' OR reason ~ '[ஃஅ-ஊஎ-ஐஒ-கங-சஜஞ-டண-தந-பம-ஹ]')),
     status              public.hr_request_status NOT NULL DEFAULT 'Pending',
     approved_by         UUID REFERENCES public.employees(id) ON DELETE SET NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE OR REPLACE FUNCTION public.validate_request_reason_on_write()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    visible_reason TEXT;
+    invisible_code INTEGER;
+BEGIN
+    IF NEW.reason IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Please enter a valid reason in words. Spaces or symbols alone are not allowed.';
+    END IF;
+    NEW.reason := btrim(NEW.reason);
+    visible_reason := regexp_replace(NEW.reason, '[[:space:]]', '', 'g');
+    FOREACH invisible_code IN ARRAY ARRAY[173, 847, 1564, 6158, 8203, 8204, 8205, 8206, 8207, 8234, 8235, 8236, 8237, 8238, 8288, 65279]
+    LOOP
+        visible_reason := replace(visible_reason, chr(invisible_code), '');
+    END LOOP;
+    IF visible_reason = '' OR (visible_reason !~ '[[:alpha:]]' AND visible_reason !~ '[ஃஅ-ஊஎ-ஐஒ-கங-சஜஞ-டண-தந-பம-ஹ]') THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Please enter a valid reason in words. Spaces or symbols alone are not allowed.';
+    END IF;
+    IF char_length(NEW.reason) > 500 THEN
+        RAISE EXCEPTION USING ERRCODE = '22001', MESSAGE = 'Reason cannot exceed 500 characters.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_validate_leave_request_reason ON public.leave_requests;
+CREATE TRIGGER trg_validate_leave_request_reason BEFORE INSERT OR UPDATE OF reason ON public.leave_requests FOR EACH ROW EXECUTE FUNCTION public.validate_request_reason_on_write();
+DROP TRIGGER IF EXISTS trg_validate_shift_request_reason ON public.shift_requests;
+CREATE TRIGGER trg_validate_shift_request_reason BEFORE INSERT OR UPDATE OF reason ON public.shift_requests FOR EACH ROW EXECUTE FUNCTION public.validate_request_reason_on_write();
 
 -- --- tasks & multi-assignee task manager architecture ---
 CREATE TABLE IF NOT EXISTS public.tasks (
@@ -1437,6 +1505,35 @@ CREATE TABLE IF NOT EXISTS public.customer_contacts (
 
 CREATE INDEX IF NOT EXISTS idx_customer_contacts_lookup ON public.customer_contacts(company_id, contact_number);
 CREATE INDEX IF NOT EXISTS idx_customer_contacts_collected ON public.customer_contacts(company_id, collected_date DESC);
+
+CREATE TABLE IF NOT EXISTS public.customer_contact_id_sequences (
+    company_id TEXT NOT NULL,
+    sequence_year INTEGER NOT NULL,
+    last_value BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (company_id, sequence_year)
+);
+
+CREATE OR REPLACE FUNCTION public.next_customer_contact_id(p_company_id TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    current_year INTEGER := EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER;
+    next_value BIGINT;
+BEGIN
+    INSERT INTO public.customer_contact_id_sequences (company_id, sequence_year, last_value)
+    VALUES (p_company_id, current_year, 1)
+    ON CONFLICT (company_id, sequence_year)
+    DO UPDATE SET last_value = public.customer_contact_id_sequences.last_value + 1
+    RETURNING last_value INTO next_value;
+    RETURN 'CUST-' || current_year || '-' || LPAD(next_value::TEXT, 4, '0');
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.next_customer_contact_id(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.next_customer_contact_id(TEXT) TO service_role;
 
 DROP TRIGGER IF EXISTS trg_customer_contacts_updated_at ON public.customer_contacts;
 CREATE TRIGGER trg_customer_contacts_updated_at

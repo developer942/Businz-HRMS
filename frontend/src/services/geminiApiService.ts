@@ -1,6 +1,7 @@
 import { AIMessage } from '../types/aiAssistant';
 import { formatCurrency } from '../utils/numbers';
 import { API_BASE_URL } from '../config/api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 const STORAGE_KEY_API = 'VRM_GEMINI_API_KEY';
 const STORAGE_KEY_MODEL = 'VRM_GEMINI_MODEL';
@@ -263,19 +264,19 @@ export async function callGeminiGenerateContent(
   const today = new Date().toISOString().split('T')[0];
 
   const condensedEmployees = (hrmsContext.employees || []).slice(0, 50).map(e => 
-    `• [${e.employeeId}] ${e.firstName} ${e.lastName} | Dept: ${e.department || 'N/A'} | Desig: ${e.designation || 'N/A'} | Status: ${e.status || 'Active'} | Phone: ${e.phone || 'N/A'} | Email: ${e.email || 'N/A'} | Joining Date: ${e.joiningDate || 'N/A'}`
+    `• [${e.employeeId}] ${e.firstName} ${e.lastName} | Dept: ${e.department || 'N/A'} | Desig: ${e.designation || 'N/A'} | Status: ${e.status || 'Active'} | Phone: ${e.phone || 'N/A'} | Email: ${e.email || 'N/A'} | Joining Date: ${formatDateDDMMYYYY(e.joiningDate) || 'N/A'}`
   ).join('\n') || 'None recorded';
 
   const condensedAttendance = (hrmsContext.attendanceRecords || []).slice(0, 20).map(a => 
-    `• [${a.employeeId}] ${a.employeeName} (${a.department || 'N/A'}): Status ${a.status}, Check-in ${a.checkIn || 'None'}, Check-out ${a.checkOut || 'None'}, Date: ${a.date}`
+    `• [${a.employeeId}] ${a.employeeName} (${a.department || 'N/A'}): Status ${a.status}, Check-in ${a.checkIn || 'None'}, Check-out ${a.checkOut || 'None'}, Date: ${formatDateDDMMYYYY(a.date)}`
   ).join('\n') || 'No attendance punches recorded yet for today.';
 
   const condensedLeaves = (hrmsContext.leaveRequests || []).slice(0, 15).map(l => 
-    `• [${l.employeeId}] ${l.employeeName} (${l.department || 'N/A'}): ${l.leaveType}, ${l.startDate} to ${l.endDate}, Status: ${l.status}, Reason: "${l.reason}"`
+    `• [${l.employeeId}] ${l.employeeName} (${l.department || 'N/A'}): ${l.leaveType}, ${formatDateDDMMYYYY(l.startDate)} to ${formatDateDDMMYYYY(l.endDate)}, Status: ${l.status}, Reason: "${l.reason}"`
   ).join('\n') || 'No leave requests recorded.';
 
   const condensedTasks = (hrmsContext.enhancedTasks || []).slice(0, 15).map(t => 
-    `• [${t.taskNumber || t.id}] ${t.title} (Resp: ${t.responsiblePersonName || t.responsiblePersonId || 'N/A'}, Dept: ${t.department || 'N/A'}): Priority ${t.priority}, Due: ${t.dueDate}, Status: ${t.overallStatus || t.status}, Progress: ${t.overallProgress || t.progress || 0}%`
+    `• [${t.taskNumber || t.id}] ${t.title} (Resp: ${t.responsiblePersonName || t.responsiblePersonId || 'N/A'}, Dept: ${t.department || 'N/A'}): Priority ${t.priority}, Due: ${formatDateDDMMYYYY(t.dueDate)}, Status: ${t.overallStatus || t.status}, Progress: ${t.overallProgress || t.progress || 0}%`
   ).join('\n') || 'No active tasks recorded.';
 
   const condensedPerformance = (hrmsContext.performanceScores || []).slice(0, 15).map(p => 

@@ -24,6 +24,8 @@ import {
 
 import { AttendanceReportsView } from './AttendanceReportsView';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { getLocalDateStr } from '../../utils/monthUtils';
+import { buildAttendanceReport } from '../../services/attendanceReportService';
 
 interface ActivityPoint {
   time: string;
@@ -43,7 +45,10 @@ export const AttendanceHub: React.FC = () => {
     markAttendance, 
     attendanceCorrections, 
     reviewAttendanceCorrection,
-    shifts
+    shifts,
+    weeklySchedules,
+    holidayPolicies,
+    fieldAssignments
   } = useHRMS();
 
   // Navigation Sub-view: Defaults to Attendance Reports
@@ -156,7 +161,7 @@ export const AttendanceHub: React.FC = () => {
   const filteredEmpIds = new Set(activeEmployees.map(e => e.employeeId));
 
   // Real-time metrics based on records and leaves
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateStr();
   const todayRecords = attendanceRecords
     .filter(r => r.date === todayStr)
     .filter(r => filteredEmpIds.has(r.employeeId));
@@ -173,8 +178,19 @@ export const AttendanceHub: React.FC = () => {
   const leaveCount = leavesToday.length;
   const earlyClockoutCount = earlyCheckouts.length;
   const presentCount = presentRecords.length;
-  // If no one is present/clocked in yet, absent is totalStaffCount - presentCount - leaveCount
-  const absentCount = Math.max(0, totalStaffCount - presentCount - leaveCount);
+  const attendanceReport = buildAttendanceReport({
+    currentUser,
+    role: currentUser.role,
+    employees: activeEmployees,
+    attendanceRecords: todayRecords,
+    leaveRequests,
+    shifts,
+    weeklySchedules,
+    holidayPolicies,
+    fieldAssignments,
+    date: todayStr
+  });
+  const absentCount = attendanceReport.absent.length;
   const missedClockoutCount = missedCheckouts.length;
 
   // Percentages

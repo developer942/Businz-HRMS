@@ -10,6 +10,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { OvertimeRequest } from '../../types/attendanceEnterprise';
 import { formatCurrency } from '../../utils/numbers';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
+import { DateInput } from '../common/DateInput';
 
 interface EmployeeOtRequestModalProps {
   isOpen: boolean;
@@ -287,8 +288,7 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
                 >
                   OT Date <span style={{ color: '#EF4444' }}>*</span>
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={date}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={e => setDate(e.target.value)}

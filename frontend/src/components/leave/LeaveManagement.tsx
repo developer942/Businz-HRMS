@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { getEmployeeLeaveTypeBalances, getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
 import { 
@@ -25,16 +25,19 @@ import {
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
 import { toNum } from '../../utils/numbers';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
 import { 
   getTodayKolkata, 
   validateDateRange, 
   checkDuplicateLeaveRequest, 
   PAST_DATE_ERROR_MESSAGE, 
   DUPLICATE_REQUEST_ERROR_MESSAGE, 
-  INVALID_DATE_RANGE_ORDER_MESSAGE 
+  INVALID_DATE_RANGE_ORDER_MESSAGE,
+  REQUEST_REASON_ERROR_MESSAGE,
+  validateRequestReason
 } from '../../utils/requestValidation';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
+import { DateInput } from '../common/DateInput';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
@@ -111,22 +114,14 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
-  const formatReviewDateTime = (value?: string) => {
-    if (!value) return '';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString('en-IN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
+  const formatReviewDateTime = (value?: string) => formatDateTimeDDMMYYYY(value);
   const minRequestDate = getTodayKolkata();
   const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
   const [isSubmittingWfh, setIsSubmittingWfh] = useState(false);
+  const [leaveReasonError, setLeaveReasonError] = useState<string | null>(null);
+  const [wfhReasonError, setWfhReasonError] = useState<string | null>(null);
+  const leaveReasonRef = useRef<HTMLTextAreaElement>(null);
+  const wfhReasonRef = useRef<HTMLTextAreaElement>(null);
 
   // Multi-row selection state
   const [selectedLeaveIds, setSelectedLeaveIds] = useState<string[]>([]);
@@ -192,6 +187,13 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
   const handleWfhSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const reasonValidation = validateRequestReason(wfhForm.reason);
+    if (!reasonValidation.valid) {
+      setWfhReasonError(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
+      wfhReasonRef.current?.focus();
+      return;
+    }
+
     const currentMin = getTodayKolkata();
 
     // Rule 1: Validate date range (authoritative Asia/Kolkata check)
@@ -223,7 +225,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
         startDate: wfhForm.startDate,
         endDate: wfhForm.endDate,
         daysCount: wfhDaysCount,
-        reason: wfhForm.reason || 'Work From Home request'
+        reason: reasonValidation.value!
       });
 
       setShowWfhModal(false);
@@ -491,6 +493,12 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const reasonValidation = validateRequestReason(form.reason);
+    if (!reasonValidation.valid) {
+      setLeaveReasonError(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
+      leaveReasonRef.current?.focus();
+      return;
+    }
 
     // Rule 1: Validate date range (authoritative Asia/Kolkata check)
     const rangeCheck = validateDateRange(form.startDate, form.endDate);
@@ -521,7 +529,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
         startDate: form.startDate,
         endDate: form.endDate,
         daysCount: liveCalculation?.totalDays || 1,
-        reason: form.reason || 'Personal leave request',
+        reason: reasonValidation.value!,
         sandwichDetails: liveCalculation || undefined
       });
 
@@ -1737,9 +1745,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
                       FROM DATE (FUTURE DATES ONLY) <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-                    <input 
+            <DateInput
                       className="form-control" 
-                      type="date" 
                       value={form.startDate} 
                       min={minRequestDate}
                       onChange={e => {
@@ -1772,9 +1779,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
                       TO DATE <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-                    <input 
+                    <DateInput
                       className="form-control" 
-                      type="date" 
                       value={form.endDate} 
                       min={form.startDate || minRequestDate}
                       onChange={e => {
@@ -1800,17 +1806,30 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 {/* Reason Textarea */}
                 <div className="form-group" style={{ margin: 0 }}>
                   <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                    REASON
+                    REASON <span style={{ color: '#EF4444' }}>*</span>
                   </label>
                   <textarea 
+                    ref={leaveReasonRef}
                     className="form-control" 
                     rows={2} 
                     value={form.reason} 
-                    onChange={e => setForm({ ...form, reason: e.target.value })} 
+                    onChange={e => {
+                      setForm({ ...form, reason: e.target.value });
+                      if (leaveReasonError) setLeaveReasonError(null);
+                    }}
+                    onBlur={() => {
+                      const result = validateRequestReason(form.reason);
+                      setLeaveReasonError(result.valid ? null : result.error || REQUEST_REASON_ERROR_MESSAGE);
+                    }}
                     onKeyDown={preventSpaceEnterPropagation}
                     placeholder="Personal leave, medical reason, etc."
-                    style={{ borderRadius: '10px', backgroundColor: '#f8fafc', fontSize: '0.85rem' }}
+                    required
+                    maxLength={500}
+                    aria-invalid={Boolean(leaveReasonError)}
+                    aria-describedby="leave-reason-error"
+                    style={{ borderRadius: '10px', backgroundColor: '#f8fafc', fontSize: '0.85rem', borderColor: leaveReasonError ? '#DC2626' : undefined }}
                   />
+                  {leaveReasonError && <div id="leave-reason-error" style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{leaveReasonError}</div>}
                 </div>
 
                 {/* Live Sandwich Rule Preview Info Banner */}
@@ -2669,8 +2688,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155' }}>
                       START DATE (FUTURE DATES ONLY) <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       className="form-control"
                       value={wfhForm.startDate}
                       min={minRequestDate}
@@ -2704,8 +2722,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155' }}>
                       END DATE <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       className="form-control"
                       value={wfhForm.endDate}
                       min={wfhForm.startDate || minRequestDate}
@@ -2752,14 +2769,26 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     REASON FOR WORK FROM HOME <span style={{ color: '#EF4444' }}>*</span>
                   </label>
                   <textarea
+                    ref={wfhReasonRef}
                     rows={3}
                     className="form-control"
                     value={wfhForm.reason}
-                    onChange={e => setWfhForm({ ...wfhForm, reason: e.target.value })}
+                    onChange={e => {
+                      setWfhForm({ ...wfhForm, reason: e.target.value });
+                      if (wfhReasonError) setWfhReasonError(null);
+                    }}
+                    onBlur={() => {
+                      const result = validateRequestReason(wfhForm.reason);
+                      setWfhReasonError(result.valid ? null : result.error || REQUEST_REASON_ERROR_MESSAGE);
+                    }}
                     onKeyDown={preventSpaceEnterPropagation}
                     required
-                    style={{ borderRadius: '10px' }}
+                    maxLength={500}
+                    aria-invalid={Boolean(wfhReasonError)}
+                    aria-describedby="wfh-reason-error"
+                    style={{ borderRadius: '10px', borderColor: wfhReasonError ? '#DC2626' : undefined }}
                   />
+                  {wfhReasonError && <div id="wfh-reason-error" style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{wfhReasonError}</div>}
                 </div>
               </div>
 

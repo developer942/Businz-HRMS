@@ -1,5 +1,6 @@
 import { TableColumn, MetricCardItem } from '../types/aiAssistant';
 import { downloadCSV, downloadExcel, downloadPDF } from '../utils/exportUtils';
+import { formatDateTimeDDMMYYYY } from '../utils/dateUtils';
 
 /**
  * Exports data to an Excel (.xls) file with formatted styling
@@ -53,7 +54,7 @@ export function exportToPDF(
     return;
   }
 
-  const dateGenerated = new Date().toLocaleString();
+  const dateGenerated = formatDateTimeDDMMYYYY(new Date());
   const filterList = appliedFilters 
     ? Object.entries(appliedFilters).filter(([_, v]) => Boolean(v)).map(([k, v]) => `<strong>${k}:</strong> ${v}`).join(' | ')
     : 'None';

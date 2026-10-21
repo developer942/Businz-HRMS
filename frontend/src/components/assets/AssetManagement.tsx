@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AssetItem } from '../../types/hrms';
 import { toNum, formatCurrency } from '../../utils/numbers';
+import { DateInput } from '../common/DateInput';
 import { 
   Laptop, 
   Plus, 
@@ -859,9 +860,8 @@ export const AssetManagement: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label">Purchase Date</label>
-                    <input 
+            <DateInput
                       className="form-control" 
-                      type="date" 
                       value={addForm.purchaseDate} 
                       onChange={e => {
                         const purchaseDate = e.target.value;
@@ -877,9 +877,8 @@ export const AssetManagement: React.FC = () => {
 
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label">Warranty Expiry</label>
-                    <input 
+                    <DateInput
                       className="form-control" 
-                      type="date" 
                       value={addForm.warrantyExpiry} 
                       onChange={e => {
                         setAddFormError(null);

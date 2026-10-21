@@ -1,16 +1,45 @@
 import { z } from 'zod';
+import { hasUnicodeLetter, isValidCustomerName, normalizeCustomerPhone, normalizeCustomerWebsite } from '../utils/customerContactValidation.js';
+const optionalText = (max) => z.string().trim().max(max).optional().nullable();
+const optionalPhone = z.string().trim().max(40).optional().nullable().transform((value, context) => {
+    if (!value)
+        return undefined;
+    const normalized = normalizeCustomerPhone(value);
+    if (!normalized) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter a valid alternate mobile or landline number' });
+        return z.NEVER;
+    }
+    return normalized;
+});
+const website = z.string().trim().max(2048).optional().nullable().transform((value, context) => {
+    if (!value)
+        return undefined;
+    const normalized = normalizeCustomerWebsite(value);
+    if (!normalized) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'Website must use http or https and contain a valid domain' });
+        return z.NEVER;
+    }
+    return normalized;
+});
 export const saveCustomerSchema = z.object({
     id: z.string().optional(),
     customerId: z.string().optional(),
     companyId: z.string().default('company-a'),
-    customerName: z.string().min(1, 'Customer Name is required'),
-    companyName: z.string().optional().nullable(),
-    designation: z.string().optional().nullable(),
-    contactNumber: z.string().min(7, 'A valid contact number is required'),
-    alternateContactNumber: z.string().optional().nullable(),
-    email: z.string().email('Invalid email address').optional().or(z.literal('')).nullable(),
-    address: z.string().optional().nullable(),
-    website: z.string().optional().nullable(),
+    customerName: z.string().trim().min(1, 'Customer Name is required').max(120).refine(isValidCustomerName, 'Customer Name must contain letters and only use valid name punctuation'),
+    companyName: optionalText(160),
+    designation: optionalText(120).refine(value => !value || hasUnicodeLetter(value), 'Designation must contain letters'),
+    contactNumber: z.string().trim().min(1, 'Primary Contact Number is required').max(40).transform((value, context) => {
+        const normalized = normalizeCustomerPhone(value);
+        if (!normalized) {
+            context.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter a valid phone number; India is the default country' });
+            return z.NEVER;
+        }
+        return normalized;
+    }),
+    alternateContactNumber: optionalPhone,
+    email: z.string().trim().max(254).email('Invalid email address').optional().or(z.literal('')).nullable(),
+    address: optionalText(1000),
+    website,
     visitingCardUrl: z.string().optional().nullable(),
     collectedById: z.string().optional().nullable(),
     collectedByName: z.string().default('Employee'),
@@ -19,7 +48,7 @@ export const saveCustomerSchema = z.object({
     consentTimestamp: z.string().optional().nullable(),
     consentSource: z.string().optional().nullable(),
     consentPurpose: z.string().optional().nullable(),
-    notes: z.string().optional().nullable()
+    notes: optionalText(2000)
 });
 export const recordConsentSchema = z.object({
     customerContactId: z.string().min(1, 'customerContactId is required'),

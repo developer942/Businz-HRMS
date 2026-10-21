@@ -1,6 +1,7 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
 import { LeaveRecord, LeaveBalance } from '../types/hrms.js';
 import { employeeRepository } from './employeeRepository.js';
+import { REQUEST_REASON_ERROR_MESSAGE, validateRequestReason } from '../utils/requestValidation.js';
 
 const toDatabaseLeaveType = (leaveType?: string): string => {
   const rawType = (leaveType || '').toLowerCase();
@@ -92,6 +93,10 @@ export class LeaveRepository {
     if (!data.employeeId) {
       throw new Error('employeeId is required to apply for leave');
     }
+    const reasonValidation = validateRequestReason(data.reason);
+    if (!reasonValidation.valid) {
+      throw new Error(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
+    }
 
     const emp = await employeeRepository.getEmployeeById(data.employeeId);
     const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : data.employeeId;
@@ -110,7 +115,7 @@ export class LeaveRepository {
       startDate: data.startDate || new Date().toISOString().split('T')[0],
       endDate: data.endDate || new Date().toISOString().split('T')[0],
       daysCount: data.daysCount || days || 1,
-      reason: data.reason || 'Personal Leave',
+      reason: reasonValidation.value!,
       status: 'Pending',
       appliedDate: new Date().toISOString().split('T')[0],
     };

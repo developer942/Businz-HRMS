@@ -5,6 +5,7 @@ import { SalaryComponentConfig } from '../../types/settings';
 import { API_BASE_URL } from '../../config/api';
 import { supabaseDirect } from '../../services/supabaseDirectService';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { DateInput } from '../common/DateInput';
 import { 
   X, 
   CheckCircle2, 
@@ -2179,8 +2180,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
               </div>
               <div className="form-group">
                 <label className="form-label">Date of Birth <span style={{ color: '#EF4444' }}>*</span></label>
-                <input 
-                  type="date" 
+            <DateInput
                   className="form-control" 
                   value={formData.dob} 
                   onChange={e => handleChange('dob', e.target.value)} 
@@ -2340,8 +2340,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Date of Joining <span style={{ color: '#EF4444' }}>*</span></label>
-                <input 
-                  type="date" 
+                <DateInput
                   className="form-control" 
                   value={formData.joiningDate} 
                   onChange={e => handleChange('joiningDate', e.target.value)} 
@@ -3083,8 +3082,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Employment Start Date</label>
-                    <input 
-                      type="date"
+                    <DateInput
                       className="form-control" 
                       value={formData.expStartDate} 
                       onChange={e => handleChange('expStartDate', e.target.value)}
@@ -3092,8 +3090,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   </div>
                   <div className="form-group">
                     <label className="form-label">Employment End Date</label>
-                    <input 
-                      type="date"
+                    <DateInput
                       min={formData.expStartDate || undefined}
                       className="form-control" 
                       value={formData.expEndDate} 
@@ -3564,7 +3561,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                           {existingDoc.name}
                         </div>
                         <div style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '2px' }}>
-                          {existingDoc.size} • {existingDoc.uploadDate}
+                          {existingDoc.size} • {formatDateDDMMYYYY(existingDoc.uploadDate)}
                         </div>
                         <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }} onClick={e => e.stopPropagation()}>
                           <button 
@@ -3650,7 +3647,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                       <div>
                         <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1E293B' }}>{doc.name}</div>
                         <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
-                          <span style={{ fontWeight: 600, color: '#0E7490' }}>{doc.category}</span> • {doc.size} • Uploaded on {doc.uploadDate}
+                          <span style={{ fontWeight: 600, color: '#0E7490' }}>{doc.category}</span> • {doc.size} • Uploaded on {formatDateDDMMYYYY(doc.uploadDate)}
                         </div>
                       </div>
                     </div>
@@ -3910,7 +3907,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   </div>
                   <div className="review-field-box">
                     <div className="review-field-label">Employment Tenure</div>
-                    <div className="review-field-val">{formData.expStartDate || 'N/A'} to {formData.expEndDate || 'Present'}</div>
+                    <div className="review-field-val">{formatDateDDMMYYYY(formData.expStartDate) || 'N/A'} to {formatDateDDMMYYYY(formData.expEndDate) || 'Present'}</div>
                   </div>
                   <div className="review-field-box">
                     <div className="review-field-label">Last Drawn Salary & Location</div>

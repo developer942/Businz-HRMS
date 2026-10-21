@@ -1,16 +1,11 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
 import { env } from '../config/env.js';
+import { hasDatabaseColumn, query } from '../config/database.js';
 import { AccountStatus, AuthenticatedUser, CredentialEmailStatus, UserRole } from '../types/auth.js';
 import { generateTemporaryPassword, validatePasswordComplexity } from '../services/passwordService.js';
 import { sendCredentialEmail } from '../services/emailService.js';
 import { auditRepository } from './auditRepository.js';
-
-const SYSTEM_SUPER_ADMIN_EMAIL = 'developer@businz.com';
-const SYSTEM_SUPER_ADMIN_PASSWORD = process.env.SYSTEM_SUPER_ADMIN_PASSWORD || 'developer@2026';
-const runtimePasswordOverrides = new Map<string, string>();
-const compactPasswords = (passwords: Array<string | undefined>) => passwords.filter((p): p is string => Boolean(p));
 
 export interface UserAccount {
   id: string;
@@ -39,28 +34,27 @@ export class AuthRepository {
   async findByIdentifier(identifier: string): Promise<UserAccount | null> {
     if (!identifier) return null;
     const clean = identifier.trim();
-    const cleanLower = clean.toLowerCase();
-
-    // Query Supabase PostgreSQL database directly
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        const query = supabase
-          .from('employees')
-          .select('id, auth_id, employee_id, first_name, last_name, email, department_id, designation, status, must_change_password, account_status, credential_email_status, credential_email_sent_at, last_login_at, password, roles(id, key, name)');
-
-        let response;
-        if (clean.includes('@')) {
-          response = await query.ilike('email', cleanLower).maybeSingle();
-        } else {
-          response = await query.ilike('employee_id', clean).maybeSingle();
-        }
-
-        const data = response.data as any;
-        if (data && !response.error) {
+    try {
+      const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
+      const result = await query(
+        `SELECT employee.id, employee.auth_id, employee.employee_id, employee.first_name, employee.last_name,
+                employee.email, employee.designation, employee.status, employee.must_change_password,
+                employee.account_status, employee.credential_email_status, employee.credential_email_sent_at,
+                employee.last_login_at, employee.password, department.name AS department,
+                role.key AS role_key, role.name AS role_name
+                ${hasCompanyId ? ', employee.company_id' : ''}
+         FROM employees employee
+         LEFT JOIN departments department ON department.id = employee.department_id
+         LEFT JOIN roles role ON role.id = employee.role_id
+         WHERE ${clean.includes('@') ? 'LOWER(employee.email) = LOWER($1)' : 'LOWER(employee.employee_id) = LOWER($1)'}
+         LIMIT 1`,
+        [clean]
+      );
+      const data = result.rows[0] as any;
+      if (data) {
           let userRole: UserRole = 'Employee';
-          const roleKey = data.roles?.key || '';
-          const roleName = data.roles?.name || '';
+          const roleKey = data.role_key || '';
+          const roleName = data.role_name || '';
           if (roleKey === 'ceo' || roleName === 'CEO') userRole = 'CEO';
           else if (roleKey === 'super_admin' || roleName === 'Super Admin') userRole = 'Super Admin';
           else if (roleKey === 'hr_admin' || roleName === 'HR Admin' || roleName === 'HR Manager') userRole = 'HR Manager';
@@ -78,24 +72,17 @@ export class AuthRepository {
           const rawDbPass = data.password || '';
           const passwordHash = rawDbPass.startsWith('$2') ? rawDbPass : (rawDbPass ? await bcrypt.hash(rawDbPass, 10) : '');
 
-          const isDefaultSuperAdmin =
-            cleanLower === SYSTEM_SUPER_ADMIN_EMAIL ||
-            cleanLower === 'emp-000' ||
-            data.email?.toLowerCase() === SYSTEM_SUPER_ADMIN_EMAIL ||
-            data.employee_id?.toLowerCase() === 'emp-000';
-
           const userAccount: UserAccount = {
             id: data.auth_id || data.id,
             email: data.email,
             passwordHash,
             plainPassword: rawDbPass,
-            additionalPlainPasswords: isDefaultSuperAdmin ? [SYSTEM_SUPER_ADMIN_PASSWORD || 'developer@2026'] : undefined,
             name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Staff',
             role: userRole,
             employeeId: data.employee_id,
             department: data.department || 'General',
             designation: data.designation || 'Staff',
-            company_id: (cleanLower.includes('nexus') || cleanLower.includes('companyb')) ? 'company-b' : 'company-a',
+            company_id: data.company_id || 'company-a',
             isActive: accountStatus === 'ACTIVE',
             mustChangePassword: data.must_change_password !== undefined ? data.must_change_password : false,
             accountStatus,
@@ -105,31 +92,10 @@ export class AuthRepository {
           };
 
           return userAccount;
-        }
-      } catch (err) {
-        console.warn('Supabase auth query error:', err);
       }
-    }
-
-    if (cleanLower === SYSTEM_SUPER_ADMIN_EMAIL || cleanLower === 'emp-000') {
-      const effectivePassword = runtimePasswordOverrides.get('emp-000') || SYSTEM_SUPER_ADMIN_PASSWORD || 'developer@2026';
-      const effectivePasswordHash = effectivePassword.startsWith('$2') ? effectivePassword : await bcrypt.hash(effectivePassword, 10);
-      return {
-        id: 'usr-company-a-admin',
-        email: SYSTEM_SUPER_ADMIN_EMAIL,
-        passwordHash: effectivePasswordHash,
-        plainPassword: effectivePassword.startsWith('$2') ? undefined : effectivePassword,
-        additionalPlainPasswords: [effectivePassword],
-        name: 'Businz Super Admin',
-        role: 'Super Admin',
-        employeeId: 'EMP-000',
-        department: 'Management',
-        designation: 'Super Administrator',
-        company_id: 'company-a',
-        isActive: true,
-        mustChangePassword: false,
-        accountStatus: 'ACTIVE',
-      };
+    } catch (error) {
+      console.error('[PostgreSQL] Authentication lookup failed:', error instanceof Error ? error.message : 'Unknown error');
+      throw new Error('Authentication service is temporarily unavailable');
     }
 
     return null;
@@ -159,12 +125,10 @@ export class AuthRepository {
   }): Promise<{ user: UserAccount; temporaryPassword: string }> {
     const temporaryPassword = params.temporaryPassword || generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(temporaryPassword, 10);
-    const authUserId = `usr-${Date.now().toString(16)}-${Math.random().toString(36).substring(2, 6)}`;
-
     const userRole: UserRole = params.role || 'Employee';
 
     const account: UserAccount = {
-      id: authUserId,
+      id: params.employeeDbId,
       email: params.email.toLowerCase().trim(),
       passwordHash,
       name: `${params.firstName || ''} ${params.lastName || ''}`.trim() || 'Businz Employee',
@@ -178,23 +142,13 @@ export class AuthRepository {
       credentialEmailStatus: 'PENDING',
     };
 
-
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase
-          .from('employees')
-          .update({
-            password: temporaryPassword,
-            must_change_password: true,
-            account_status: 'ACTIVE',
-            credential_email_status: 'PENDING',
-          })
-          .eq('id', params.employeeDbId);
-      } catch (err) {
-        console.warn('Could not sync auth metadata to Supabase:', err);
-      }
-    }
+    const updateResult = await query(
+      `UPDATE employees SET password = $1, must_change_password = TRUE, account_status = 'ACTIVE',
+                            credential_email_status = 'PENDING', updated_at = NOW()
+       WHERE id = $2`,
+      [passwordHash, params.employeeDbId]
+    );
+    if (!updateResult.rowCount) throw new Error('Employee login account could not be persisted');
 
     return { user: account, temporaryPassword };
   }
@@ -207,20 +161,11 @@ export class AuthRepository {
     status: CredentialEmailStatus,
     sentAt: string
   ): Promise<void> {
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase
-          .from('employees')
-          .update({
-            credential_email_status: status,
-            credential_email_sent_at: sentAt,
-          })
-          .ilike('email', email.toLowerCase().trim());
-      } catch (err) {
-        console.warn('Could not update email status in Supabase:', err);
-      }
-    }
+    await query(
+      `UPDATE employees SET credential_email_status = $1, credential_email_sent_at = $2, updated_at = NOW()
+       WHERE LOWER(email) = LOWER($3)`,
+      [status, sentAt, email.trim()]
+    );
   }
 
   /**
@@ -263,20 +208,11 @@ export class AuthRepository {
       { email: user.email }
     );
 
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase
-          .from('employees')
-          .update({
-            password: newPassword,
-            must_change_password: false,
-          })
-          .eq('email', user.email);
-      } catch (err) {
-        console.warn('Could not update password status in Supabase:', err);
-      }
-    }
+    await query(
+      `UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
+       WHERE LOWER(email) = LOWER($2)`,
+      [user.passwordHash, user.email]
+    );
 
     return { success: true };
   }
@@ -323,22 +259,13 @@ export class AuthRepository {
       { email: user.email, deliveryStatus: emailResult.status }
     );
 
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase
-          .from('employees')
-          .update({
-            password: newTempPassword,
-            must_change_password: true,
-            credential_email_status: emailResult.status,
-            credential_email_sent_at: emailResult.sentAt,
-          })
-          .ilike('employee_id', user.employeeId);
-      } catch (err) {
-        console.warn('Could not sync reset password to Supabase:', err);
-      }
-    }
+    await query(
+      `UPDATE employees
+       SET password = $1, must_change_password = TRUE, credential_email_status = $2,
+           credential_email_sent_at = $3, updated_at = NOW()
+       WHERE LOWER(employee_id) = LOWER($4)`,
+      [user.passwordHash, emailResult.status, emailResult.sentAt, user.employeeId]
+    );
 
     return {
       success: true,
@@ -362,23 +289,12 @@ export class AuthRepository {
     user.passwordHash = newPasswordHash;
     user.mustChangePassword = false;
 
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase
-          .from('employees')
-          .update({
-            password: newPasswordHash,
-            must_change_password: false,
-          })
-          .eq('employee_id', user.employeeId);
-      } catch (err) {
-        console.warn('Could not sync password status to Supabase:', err);
-      }
-    } else if (user.employeeId === 'EMP-000') {
-      runtimePasswordOverrides.set('emp-000', newPasswordHash);
-      runtimePasswordOverrides.set(user.email.toLowerCase(), newPasswordHash);
-    }
+    const updateResult = await query(
+      `UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
+       WHERE LOWER(employee_id) = LOWER($2)`,
+      [newPasswordHash, user.employeeId]
+    );
+    if (!updateResult.rowCount) return false;
 
     await auditRepository.recordLog(
       'PASSWORD_RESET_SUCCESS',
@@ -412,24 +328,12 @@ export class AuthRepository {
       email: user.email,
     });
 
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        const { error } = await supabase
-          .from('employees')
-          .update({
-            account_status: status,
-            status: status === 'ACTIVE' ? 'Active' : 'Inactive',
-          })
-          .ilike('employee_id', user.employeeId);
-        if (error) {
-          console.warn('Could not sync account status to database:', error.message);
-          return { success: false, message: `Database update failed: ${error.message}` };
-        }
-      } catch (err) {
-        console.warn('Could not sync account status to Supabase:', err);
-      }
-    }
+    const updateResult = await query(
+      `UPDATE employees SET account_status = $1, status = $2, updated_at = NOW()
+       WHERE LOWER(employee_id) = LOWER($3)`,
+      [status, status === 'ACTIVE' ? 'Active' : 'Inactive', user.employeeId]
+    );
+    if (!updateResult.rowCount) return { success: false, message: 'Database update failed: employee not found' };
 
     return { success: true };
   }
@@ -445,17 +349,11 @@ export class AuthRepository {
       lastLoginAt: timestamp,
     });
 
-    if (isRealSupabaseConfigured()) {
-      try {
-        const supabase = getSupabaseAdmin();
-        await supabase
-          .from('employees')
-          .update({ last_login_at: timestamp })
-          .ilike('employee_id', user.employeeId);
-      } catch {
-        // non-blocking
-      }
-    }
+    await query(
+      `UPDATE employees SET last_login_at = $1, updated_at = NOW()
+       WHERE LOWER(employee_id) = LOWER($2)`,
+      [timestamp, user.employeeId]
+    );
   }
 
   generateToken(user: UserAccount): string {

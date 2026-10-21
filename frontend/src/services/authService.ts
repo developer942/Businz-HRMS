@@ -1,6 +1,5 @@
 import type { Role, User } from '../types/hrms';
 import { API_BASE_URL } from '../config/api';
-import { supabaseDirect } from './supabaseDirectService';
 
 const getApiBase = () => `${API_BASE_URL}`;
 const TOKEN_KEY = 'vrm_auth_token';
@@ -187,206 +186,45 @@ export const authService = {
   async login(identifier: string, password: string): Promise<{ user: AuthUser; accessToken: string }> {
     const cleanId = identifier.trim().toLowerCase();
     const cleanPass = password.trim();
-
-    // 1. Authenticate with backend API
-    try {
-      const response = await safeFetch(`${getApiBase()}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: cleanId, password: cleanPass }),
-      });
-
-      if (response.ok) {
-        const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
-        if (body.data?.accessToken && body.data.user) {
-          sessionStorage.setItem(TOKEN_KEY, body.data.accessToken);
-          localStorage.setItem(TOKEN_KEY, body.data.accessToken);
-          localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
-          return body.data;
-        }
-      } else if (response.status === 400 || response.status === 401 || response.status === 403) {
-        const errMessage = await readError(response, 'Invalid User ID / Email or password.');
-        throw new Error(errMessage);
-      } else {
-        console.warn(`[Auth] Backend login unavailable (HTTP ${response.status}); trying direct VPS database login.`);
-      }
-    } catch (err: any) {
-      if (err.message && (err.message.includes('deactivated') || err.message.includes('disabled') || err.message.includes('Invalid'))) {
-        throw err;
-      }
-      // If backend network error / unreachable, fallback to direct VPS database authentication
-    }
-
-    // 2. Direct VPS database query
-    try {
-      const dbUser = await supabaseDirect.verifyLogin(cleanId, cleanPass);
-      if (dbUser) {
-        const empUser: AuthUser = {
-          id: dbUser.id || dbUser.employee_id,
-          name: `${dbUser.first_name || ''} ${dbUser.last_name || ''}`.trim() || 'Staff Member',
-          email: dbUser.email,
-          role: resolveEmployeeRole(dbUser),
-          employeeId: dbUser.employee_id,
-          department: dbUser.department || 'General',
-          designation: dbUser.designation || 'Staff',
-          mustChangePassword: dbUser.must_change_password ?? false,
-        };
-        const userPayload = btoa(unescape(encodeURIComponent(JSON.stringify(empUser))));
-        const token = 'vrm_session_' + userPayload;
-        sessionStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(empUser)));
-        return { user: empUser, accessToken: token };
-      }
-    } catch (e: any) {
-      if (e?.message?.includes('deactivated') || e?.message?.includes('disabled')) {
-        throw e;
-      }
-      console.warn('Direct database verification notice:', e);
-    }
-
-    // 3. Fallback System Administrator credentials (if backend is offline)
-    if (cleanPass === 'developer@2026') {
-      if (cleanId === 'developer@businz.com' || cleanId === 'emp-000') {
-        const empUser: AuthUser = {
-          id: 'usr-company-a-admin',
-          name: 'Businz Super Admin',
-          email: 'developer@businz.com',
-          role: 'Super Admin',
-          employeeId: 'EMP-000',
-          department: 'Management',
-          designation: 'Super Administrator',
-          company_id: 'company-a',
-          mustChangePassword: false,
-        };
-        const userPayload = btoa(unescape(encodeURIComponent(JSON.stringify(empUser))));
-        const token = 'vrm_session_' + userPayload;
-        sessionStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(empUser)));
-        return { user: empUser, accessToken: token };
-      }
-    }
-
-    throw new Error('Invalid User ID / Email or password.');
+    const response = await safeFetch(`${getApiBase()}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: cleanId, password: cleanPass }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Invalid User ID / Email or password.'));
+    const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
+    if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
+    sessionStorage.setItem(TOKEN_KEY, body.data.accessToken);
+    localStorage.setItem(TOKEN_KEY, body.data.accessToken);
+    localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    return body.data;
   },
 
   async getCurrentUser(): Promise<AuthUser> {
     const token = this.getToken();
     if (!token) throw new Error('No active session');
 
-    // 1. If direct session token, decode payload
-    if (token.startsWith('vrm_session_')) {
-      const rawPayload = token.slice('vrm_session_'.length);
-      try {
-        if (rawPayload && !/^\d+$/.test(rawPayload)) {
-          const jsonStr = decodeURIComponent(escape(atob(rawPayload)));
-          const u = JSON.parse(jsonStr);
-          if (u && u.email && u.role) {
-            const authUser: AuthUser = {
-              id: u.id || u.employeeId,
-              name: u.name || 'Staff Member',
-              email: u.email,
-              role: u.role,
-              employeeId: u.employeeId,
-              department: u.department || 'General',
-              designation: u.designation || u.role,
-              mustChangePassword: false,
-            };
-            try {
-              localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(authUser)));
-            } catch {
-              // ignore
-            }
-            return authUser;
-          }
-        }
-      } catch (e) {
-        // ignore
-      }
-
-      // Cached user object
-      const stored = localStorage.getItem('vrm_hrms_current_user');
-      if (stored) {
-        try {
-          const u = JSON.parse(stored);
-          if (u && u.email && u.role) {
-            return {
-              id: u.id || u.employeeId,
-              name: u.name,
-              email: u.email,
-              role: u.role,
-              employeeId: u.employeeId,
-              department: u.department || 'General',
-              designation: u.designation || u.role || 'Staff',
-              mustChangePassword: false,
-            };
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-
+    const response = await safeFetch(`${getApiBase()}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
       this.clearSession();
-      throw new Error('Your session has expired. Please sign in again.');
+      throw new Error(await readError(response, 'Your session has expired. Please sign in again.'));
     }
-
-    // 2. Real JWT token: query backend /auth/me
-    try {
-      const response = await safeFetch(`${getApiBase()}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const body = (await response.json()) as ApiResponse<AuthUser>;
-        if (body.data && body.data.email) {
-          try {
-            localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data)));
-          } catch {
-            // ignore
-          }
-          return body.data;
-        }
-      }
-    } catch (e) {
-      // If network/backend error, use stored user if available
+    const body = (await response.json()) as ApiResponse<AuthUser>;
+    if (!body.data?.email) {
+      this.clearSession();
+      throw new Error('Authentication response was incomplete.');
     }
-
-    // 3. Fallback to cached valid user if available
-    const stored = localStorage.getItem('vrm_hrms_current_user');
-    if (stored) {
-      try {
-        const u = JSON.parse(stored);
-        if (u && u.email && u.role) {
-          return {
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            role: u.role,
-            employeeId: u.employeeId,
-            department: u.department,
-            designation: u.designation,
-            mustChangePassword: false,
-          };
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    this.clearSession();
-    throw new Error('Your session has expired. Please sign in again.');
+    localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data)));
+    return body.data;
   },
 
   async changePassword(currentPassword: string, newPassword: string, confirmPassword: string): Promise<void> {
     const token = this.getToken();
     if (!token) throw new Error('Your session has expired. Please sign in again.');
 
-    if (token.startsWith('vrm_session_')) {
-      return;
-    }
-
-    try {
-      const response = await safeFetch(`${getApiBase()}/auth/change-password`, {
+    const response = await safeFetch(`${getApiBase()}/auth/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -394,15 +232,11 @@ export const authService = {
         },
         body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
       });
-      if (response.ok) {
-        const body = (await response.json()) as ApiResponse<{ accessToken?: string }>;
-        if (body.data?.accessToken) {
-          sessionStorage.setItem(TOKEN_KEY, body.data.accessToken);
-          return;
-        }
-      }
-    } catch (e) {
-      // ignore
+    if (!response.ok) throw new Error(await readError(response, 'Password could not be changed.'));
+    const body = (await response.json()) as ApiResponse<{ accessToken?: string }>;
+    if (body.data?.accessToken) {
+      sessionStorage.setItem(TOKEN_KEY, body.data.accessToken);
+      localStorage.setItem(TOKEN_KEY, body.data.accessToken);
     }
   },
 
@@ -418,79 +252,17 @@ export const authService = {
     employeeName?: string;
   }> {
     const cleanId = emailOrEmployeeId.trim().toLowerCase();
-
-    try {
-      const response = await safeFetch(`${getApiBase()}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email_or_employee_id: cleanId }),
-      });
-
-      if (response.ok) {
-        const body = (await response.json()) as ApiResponse<{ recipientMasked?: string }>;
-        return {
-          success: true,
-          message: 'If this account exists, a verification code has been sent.',
-          recipientMasked: body.data?.recipientMasked,
-        };
-      }
-
-      if (response.status === 429) {
-        throw new Error('Too many OTP requests. Please wait 15 minutes before requesting another code.');
-      }
-      if (response.status === 400) {
-        const msg = await readError(response, 'Please contact HR to update your registered email address.');
-        throw new Error(msg);
-      }
-    } catch (err: any) {
-      // If server unreachable or error is not validation/rate limit, run secure local simulator fallback
-      if (err.message?.includes('Too many') || err.message?.includes('contact HR')) {
-        throw err;
-      }
-      console.info('Backend unreachable, engaging secure client-side password reset simulator');
-    }
-
-    // Client-side simulator fallback
-    const now = Date.now();
-    const rateLimitKey = `vrm_pwd_req_${cleanId.toLowerCase()}`;
-    const recentRequests: number[] = JSON.parse(localStorage.getItem(rateLimitKey) || '[]')
-      .filter((t: number) => now - t < 15 * 60 * 1000);
-
-    if (recentRequests.length >= 3) {
-      throw new Error('Too many OTP requests. Please wait 15 minutes before requesting another code.');
-    }
-
-    recentRequests.push(now);
-    localStorage.setItem(rateLimitKey, JSON.stringify(recentRequests));
-
-    // Generate secure 6-digit OTP
-    const rawOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Hash OTP using SHA-256 for secure client storage
-    const msgBuffer = new TextEncoder().encode(rawOtp);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const otpHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-
-    const resetState = {
-      identifier: cleanId,
-      otpHash,
-      expiresAt: now + 10 * 60 * 1000, // 10 minutes
-      attemptCount: 0,
-      isUsed: false,
-    };
-    localStorage.setItem(`vrm_reset_record_${cleanId.toLowerCase()}`, JSON.stringify(resetState));
-
-    const maskedEmail = cleanId.includes('@') 
-      ? cleanId.replace(/(.{2})(.*)(?=@)/, (_g1, g2, g3) => g2 + '*'.repeat(Math.max(1, g3.length)))
-      : 'registered employee email';
-
+    const response = await safeFetch(`${getApiBase()}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_or_employee_id: cleanId }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Password reset request failed.'));
+    const body = (await response.json()) as ApiResponse<{ recipientMasked?: string }>;
     return {
       success: true,
       message: 'If this account exists, a verification code has been sent.',
-      recipientMasked: maskedEmail,
-      simulatedOtp: rawOtp,
-      employeeName: cleanId.includes('@') ? cleanId.split('@')[0] : cleanId,
+      recipientMasked: body.data?.recipientMasked,
     };
   },
 
@@ -502,72 +274,15 @@ export const authService = {
     const cleanId = emailOrEmployeeId.trim();
     const cleanOtp = otp.trim();
 
-    try {
-      const response = await safeFetch(`${getApiBase()}/auth/verify-reset-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email_or_employee_id: cleanId,
-          otp: cleanOtp,
-        }),
-      });
-
-      if (response.ok) {
-        const body = (await response.json()) as ApiResponse<{ resetToken: string }>;
-        if (body.data?.resetToken) {
-          return { success: true, resetToken: body.data.resetToken };
-        }
-      }
-
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Invalid or expired verification code.'));
-      }
-    } catch (err: any) {
-      if (err.message && !err.message.includes('Cannot connect')) {
-        throw err;
-      }
-    }
-
-    // Client-side simulator verification
-    const recordRaw = localStorage.getItem(`vrm_reset_record_${cleanId.toLowerCase()}`);
-    if (!recordRaw) {
-      throw new Error('Invalid or expired verification code.');
-    }
-
-    const record = JSON.parse(recordRaw);
-    if (record.isUsed || Date.now() > record.expiresAt) {
-      localStorage.removeItem(`vrm_reset_record_${cleanId.toLowerCase()}`);
-      throw new Error('Invalid or expired verification code.');
-    }
-
-    if (record.attemptCount >= 5) {
-      localStorage.removeItem(`vrm_reset_record_${cleanId.toLowerCase()}`);
-      throw new Error('Maximum verification attempts exceeded. Please request a new code.');
-    }
-
-    // Hash user-provided OTP and compare
-    const msgBuffer = new TextEncoder().encode(cleanOtp);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const providedHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-
-    if (providedHash !== record.otpHash) {
-      record.attemptCount += 1;
-      localStorage.setItem(`vrm_reset_record_${cleanId.toLowerCase()}`, JSON.stringify(record));
-      throw new Error('Invalid or expired verification code.');
-    }
-
-    // Mark as used
-    record.isUsed = true;
-    localStorage.setItem(`vrm_reset_record_${cleanId.toLowerCase()}`, JSON.stringify(record));
-
-    const syntheticToken = `sim-rst-${cleanId}-${Date.now()}`;
-    localStorage.setItem(`vrm_valid_token_${syntheticToken}`, cleanId);
-
-    return {
-      success: true,
-      resetToken: syntheticToken,
-    };
+    const response = await safeFetch(`${getApiBase()}/auth/verify-reset-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_or_employee_id: cleanId, otp: cleanOtp }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Invalid or expired verification code.'));
+    const body = (await response.json()) as ApiResponse<{ resetToken: string }>;
+    if (!body.data?.resetToken) throw new Error('Password reset response was incomplete.');
+    return { success: true, resetToken: body.data.resetToken };
   },
 
   /**
@@ -579,39 +294,16 @@ export const authService = {
       throw new Error('New password and confirmation do not match.');
     }
 
-    try {
-      const response = await safeFetch(`${getApiBase()}/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reset_token: resetToken,
-          new_password: newPassword,
-          confirm_password: confirmPassword,
-        }),
-      });
-
-      if (response.ok) {
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to reset password.'));
-      }
-    } catch (err: any) {
-      if (err.message && !err.message.includes('Cannot connect')) {
-        throw err;
-      }
-    }
-
-    // Client-side simulator reset
-    const userIdentifier = localStorage.getItem(`vrm_valid_token_${resetToken}`);
-    if (!userIdentifier && !resetToken.startsWith('sim-rst-')) {
-      throw new Error('Your reset token is invalid or expired. Please request a new code.');
-    }
-
-    // Store custom updated password in localStorage for client persistence
-    localStorage.setItem(`vrm_custom_pwd_${(userIdentifier || 'user').toLowerCase()}`, newPassword);
-    localStorage.removeItem(`vrm_valid_token_${resetToken}`);
+    const response = await safeFetch(`${getApiBase()}/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reset_token: resetToken,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Failed to reset password.'));
   },
 };
 

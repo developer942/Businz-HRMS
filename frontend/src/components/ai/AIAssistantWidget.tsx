@@ -129,7 +129,9 @@ export const AIAssistantWidget: React.FC = () => {
     weeklySchedules,
     attendanceConfig,
     policyDocuments,
-    businessSettings
+    businessSettings,
+    shifts,
+    fieldAssignments
   } = useHRMS();
 
   const role = currentUser?.role || 'Super Admin';
@@ -483,7 +485,9 @@ export const AIAssistantWidget: React.FC = () => {
           weeklySchedules,
           attendanceConfig,
           policyDocuments,
-          businessSettings
+          businessSettings,
+          shifts,
+          fieldAssignments
         },
         queryText
       );
@@ -493,7 +497,8 @@ export const AIAssistantWidget: React.FC = () => {
       const currentApiKey = getStoredGeminiApiKey();
 
       // Only invoke LLM when not a security error, grounding it strictly on deterministic facts
-      if ((currentApiKey || hasGeminiKey) && !queryResult.isError) {
+      const factualAttendanceIntent = intent === 'GET_ABSENT_EMPLOYEES' || intent === 'GET_ATTENDANCE' || intent === 'GET_LATE_EMPLOYEES' || intent === 'GET_MY_ATTENDANCE';
+      if ((currentApiKey || hasGeminiKey) && !queryResult.isError && !factualAttendanceIntent) {
         try {
           const geminiResult = await callGeminiGenerateContent(
             queryText,

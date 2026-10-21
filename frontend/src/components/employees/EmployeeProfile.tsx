@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Employee, Role } from '../../types/hrms';
 import { SalaryComponentConfig } from '../../types/settings';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
+import { DateInput } from '../common/DateInput';
 import { 
   X, 
   User, 
@@ -1539,8 +1540,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <label style={labelStyle}>Date of Birth</label>
           {isEditing ? (
             <div>
-              <input 
-                type="date" 
+              <DateInput
                 value={formData.dob} 
                 onChange={(e) => handleChange('dob', e.target.value)} 
                 max={maxDobDate}
@@ -1753,8 +1753,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Date of Joining</label>
           {isEditing ? (
-            <input 
-              type="date" 
+            <DateInput
               value={formData.joiningDate} 
               onChange={(e) => handleChange('joiningDate', e.target.value)} 
               style={inputStyle} 
@@ -3855,7 +3854,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 {formData.credentialEmailStatus}
               </span>
               <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>
-                ({formData.credentialEmailSentAt})
+                ({formatDateTimeDDMMYYYY(formData.credentialEmailSentAt)})
               </span>
             </div>
           </div>

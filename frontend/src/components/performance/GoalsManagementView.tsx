@@ -4,6 +4,7 @@ import { GoalItem, EmployeePerformanceDetail } from '../../types/performance';
 import { INITIAL_GOALS } from '../../data/performanceInitialData';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { getMonthInfo } from '../../utils/monthUtils';
+import { DateInput } from '../common/DateInput';
 import {
   Target,
   Plus,
@@ -628,8 +629,7 @@ export const GoalsManagementView: React.FC<GoalsManagementViewProps> = ({
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
                     Start Date
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={startDate}
                     onChange={e => setStartDate(e.target.value)}
                     style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #E2E8F0', fontSize: '13px' }}
@@ -640,8 +640,7 @@ export const GoalsManagementView: React.FC<GoalsManagementViewProps> = ({
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
                     Due Date
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={dueDate}
                     onChange={e => setDueDate(e.target.value)}
                     style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #E2E8F0', fontSize: '13px' }}

@@ -31,6 +31,7 @@ import {
   RolePermissionConfig,
   PermissionAuditLog,
 } from '../../types/rbac';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import {
   rbacService,
   ALL_PERMISSION_ACTIONS,
@@ -1176,7 +1177,7 @@ export const RolesPermissionsSettings: React.FC = () => {
                   auditLogs.map((log, idx) => (
                     <tr key={log.id || idx} style={{ borderBottom: '1px solid #F1F5F9', backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFCFD' }}>
                       <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: '#334155', whiteSpace: 'nowrap' }}>
-                        <div style={{ fontWeight: 700 }}>{log.date}</div>
+                        <div style={{ fontWeight: 700 }}>{formatDateDDMMYYYY(log.date)}</div>
                         <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{log.time}</div>
                       </td>
                       <td style={{ padding: '12px 16px', fontSize: '0.84rem', fontWeight: 700, color: '#0E7490' }}>

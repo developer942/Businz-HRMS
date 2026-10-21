@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   FileText, 
   Search, 
@@ -329,8 +330,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
             <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
               Date:
             </label>
-            <input 
-              type="date"
+            <DateInput
               value={selectedDate}
               onChange={e => { setSelectedDate(e.target.value); setCurrentPage(1); }}
               className="form-control"

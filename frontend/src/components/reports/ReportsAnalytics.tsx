@@ -5,6 +5,7 @@ import { toNum, formatCurrency } from '../../utils/numbers';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
+import { DateInput } from '../common/DateInput';
 
 export const ReportsAnalytics: React.FC = () => {
   const { 
@@ -131,7 +132,7 @@ export const ReportsAnalytics: React.FC = () => {
           employeeId: l.employeeId,
           department: l.department,
           leaveType: l.leaveType,
-          dates: `${l.startDate} to ${l.endDate}`,
+          dates: `${formatDateDDMMYYYY(l.startDate)} to ${formatDateDDMMYYYY(l.endDate)}`,
           appliedDays: toNum(l.daysCount) - (l.sandwichDays || 0),
           sandwichDays: l.sandwichDays || 0,
           totalDays: l.daysCount,
@@ -232,12 +233,12 @@ export const ReportsAnalytics: React.FC = () => {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Start Date:</label>
-            <input type="date" className="form-control" style={{ width: '140px', padding: '6px' }} value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })} />
+            <DateInput className="form-control" style={{ width: '140px', padding: '6px' }} value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>End Date:</label>
-            <input type="date" className="form-control" style={{ width: '140px', padding: '6px' }} value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} />
+            <DateInput className="form-control" style={{ width: '140px', padding: '6px' }} value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} />
           </div>
         </div>
       </div>

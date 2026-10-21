@@ -77,9 +77,9 @@ export class CustomerController {
   // 3. Check Duplicate Customer by Phone
   async checkDuplicate(req: Request, res: Response): Promise<void> {
     try {
-      const companyId = (req.body.companyId as string) || req.user?.company_id || 'company-a';
-      const phone = req.body.phone as string;
-      const excludeId = req.body.excludeId as string | undefined;
+      const companyId = req.user?.company_id || req.user?.companyId || 'company-a';
+      const phone = (req.query.contactNumber || req.query.phone) as string;
+      const excludeId = req.query.excludeId as string | undefined;
 
       if (!phone) {
         res.status(400).json({
@@ -122,7 +122,7 @@ export class CustomerController {
         return;
       }
 
-      const companyId = parsed.data.companyId || req.user?.company_id || 'company-a';
+      const companyId = req.user?.company_id || req.user?.companyId || 'company-a';
 
       // Check for duplicate phone
       const duplicate = await customerRepository.findDuplicateCustomer(companyId, parsed.data.contactNumber, parsed.data.id);
@@ -138,11 +138,12 @@ export class CustomerController {
         return;
       }
 
-      const collectedByName = parsed.data.collectedByName || req.user?.name || 'Employee';
-      const collectedById = parsed.data.collectedById || req.user?.id;
+      const collectedByName = req.user?.name || req.user?.employeeId || 'Employee';
+      const collectedById = req.user?.id;
 
       const saved = await customerRepository.saveCustomer({
         ...parsed.data,
+        customerId: parsed.data.id ? parsed.data.customerId : undefined,
         companyId,
         collectedByName,
         collectedById,

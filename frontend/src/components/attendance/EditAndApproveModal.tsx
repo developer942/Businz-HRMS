@@ -14,6 +14,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { MissedPunchRequest, OvertimeRequest } from '../../types/attendanceEnterprise';
 import { formatCurrency } from '../../utils/numbers';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 interface EditAndApproveModalProps {
   isOpen: boolean;
@@ -174,7 +175,7 @@ export const EditAndApproveModal: React.FC<EditAndApproveModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Target Date: <strong className="text-slate-700">{missedPunchRequest?.date || overtimeRequest?.date}</strong>
+                Target Date: <strong className="text-slate-700">{formatDateDDMMYYYY(missedPunchRequest?.date || overtimeRequest?.date)}</strong>
               </p>
             </div>
 

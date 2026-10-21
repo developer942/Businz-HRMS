@@ -533,7 +533,7 @@ export const SinglePersonPerformanceView: React.FC<SinglePersonPerformanceViewPr
                 <Award size={16} /> Evaluate / Update Score
               </button>
               <span style={{ fontSize: '11px', color: '#94A3B8', textAlign: 'center' }}>
-                Last reviewed: {currentEmp.lastEvaluationDate}
+                Last reviewed: {formatDateDDMMYYYY(currentEmp.lastEvaluationDate)}
               </span>
             </div>
           </div>
@@ -1628,7 +1628,7 @@ export const SinglePersonPerformanceView: React.FC<SinglePersonPerformanceViewPr
                 "{currentEmp.managerAppraisalNotes}"
               </div>
               <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#94A3B8' }}>
-                Recorded by <strong>{currentEmp.reportingManager}</strong> on {currentEmp.lastEvaluationDate}
+                Recorded by <strong>{currentEmp.reportingManager}</strong> on {formatDateDDMMYYYY(currentEmp.lastEvaluationDate)}
               </p>
             </div>
           </div>

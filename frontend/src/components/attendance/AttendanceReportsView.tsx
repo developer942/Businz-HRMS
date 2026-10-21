@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { FilterReportsModal, FilterReportsState, initialFilterReportsState } from '../common/FilterReportsModal';
+import { DateInput } from '../common/DateInput';
 import { 
   Calendar, 
   UserX, 
@@ -1024,8 +1025,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             FROM DATE
           </label>
           <div style={{ position: 'relative' }}>
-            <input 
-              type="date"
+            <DateInput
               className="form-control"
               value={normalizeToYYYYMMDD(fromDate) || fromDate}
               onChange={(e) => setFromDate(e.target.value)}
@@ -1049,8 +1049,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             TO DATE
           </label>
           <div style={{ position: 'relative' }}>
-            <input 
-              type="date"
+            <DateInput
               className="form-control"
               value={normalizeToYYYYMMDD(toDate) || toDate}
               onChange={(e) => setToDate(e.target.value)}

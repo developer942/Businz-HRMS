@@ -71,20 +71,11 @@ export class CustomerRepository {
         const year = new Date().getFullYear();
         const prefix = `CUST-${year}`;
         if (isRealSupabaseConfigured()) {
-            try {
-                const supabase = getSupabaseAdmin();
-                const { count, error } = await supabase
-                    .from('customer_contacts')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('company_id', companyId);
-                if (!error && typeof count === 'number') {
-                    const nextNum = (count + 1).toString().padStart(4, '0');
-                    return `${prefix}-${nextNum}`;
-                }
-            }
-            catch (err) {
-                console.warn('Database error in generateCustomerId:', err);
-            }
+            const supabase = getSupabaseAdmin();
+            const { data, error } = await supabase.rpc('next_customer_contact_id', { p_company_id: companyId });
+            if (error || !data)
+                throw new Error(`Customer ID generation failed: ${error?.message || 'empty database response'}`);
+            return String(data);
         }
         const companyCustomers = inMemoryCustomers.filter(c => c.companyId === companyId);
         const nextNum = (companyCustomers.length + 1).toString().padStart(4, '0');
@@ -94,23 +85,21 @@ export class CustomerRepository {
     async findDuplicateCustomer(companyId, phone, excludeId) {
         const normalized = this.normalizePhoneNumber(phone);
         if (isRealSupabaseConfigured()) {
-            try {
-                const supabase = getSupabaseAdmin();
-                let query = supabase
-                    .from('customer_contacts')
-                    .select('*')
-                    .eq('company_id', companyId)
-                    .or(`contact_number.eq.${phone},contact_number.eq.${normalized},contact_number.eq.+${normalized}`);
-                if (excludeId) {
-                    query = query.neq('id', excludeId);
-                }
-                const { data } = await query.maybeSingle();
-                if (data)
-                    return this.mapContactRow(data);
-            }
-            catch (err) {
-                console.warn('Database error in findDuplicateCustomer:', err);
-            }
+            const supabase = getSupabaseAdmin();
+            const variants = Array.from(new Set([phone, normalized, `+${normalized}`].filter(Boolean)));
+            let query = supabase
+                .from('customer_contacts')
+                .select('*')
+                .eq('company_id', companyId)
+                .in('contact_number', variants)
+                .limit(1);
+            if (excludeId)
+                query = query.neq('id', excludeId);
+            const { data, error } = await query.maybeSingle();
+            if (error)
+                throw new Error(`Duplicate check failed: ${error.message}`);
+            if (data)
+                return this.mapContactRow(data);
         }
         const match = inMemoryCustomers.find(c => c.companyId === companyId &&
             c.id !== excludeId &&
@@ -124,37 +113,33 @@ export class CustomerRepository {
         if (data.id) {
             // Update existing
             if (isRealSupabaseConfigured()) {
-                try {
-                    const supabase = getSupabaseAdmin();
-                    const { data: updated, error } = await supabase
-                        .from('customer_contacts')
-                        .update({
-                        customer_name: data.customerName,
-                        company_name: data.companyName,
-                        designation: data.designation,
-                        contact_number: data.contactNumber,
-                        alternate_contact_number: data.alternateContactNumber,
-                        email: data.email,
-                        address: data.address,
-                        website: data.website,
-                        visiting_card_url: data.visitingCardUrl,
-                        consent_status: data.consentStatus,
-                        consent_timestamp: data.consentTimestamp,
-                        consent_source: data.consentSource,
-                        consent_purpose: data.consentPurpose,
-                        notes: data.notes,
-                        updated_at: now
-                    })
-                        .eq('id', data.id)
-                        .select()
-                        .single();
-                    if (updated && !error) {
-                        return this.mapContactRow(updated);
-                    }
-                }
-                catch (err) {
-                    console.warn('Database error updating customer:', err);
-                }
+                const supabase = getSupabaseAdmin();
+                const { data: updated, error } = await supabase
+                    .from('customer_contacts')
+                    .update({
+                    customer_name: data.customerName,
+                    company_name: data.companyName,
+                    designation: data.designation,
+                    contact_number: data.contactNumber,
+                    alternate_contact_number: data.alternateContactNumber,
+                    email: data.email,
+                    address: data.address,
+                    website: data.website,
+                    visiting_card_url: data.visitingCardUrl,
+                    consent_status: data.consentStatus,
+                    consent_timestamp: data.consentTimestamp,
+                    consent_source: data.consentSource,
+                    consent_purpose: data.consentPurpose,
+                    notes: data.notes,
+                    updated_at: now
+                })
+                    .eq('id', data.id)
+                    .eq('company_id', companyId)
+                    .select()
+                    .single();
+                if (error || !updated)
+                    throw new Error(`Customer update failed: ${error?.message || 'record not found in company scope'}`);
+                return this.mapContactRow(updated);
             }
             const index = inMemoryCustomers.findIndex(c => c.id === data.id);
             if (index !== -1) {
@@ -164,7 +149,7 @@ export class CustomerRepository {
             }
         }
         // Create new customer
-        const customerId = data.customerId || await this.generateCustomerId(companyId);
+        const customerId = await this.generateCustomerId(companyId);
         const newRecord = {
             id: data.id || `cust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             companyId,
@@ -191,40 +176,35 @@ export class CustomerRepository {
             updatedAt: now
         };
         if (isRealSupabaseConfigured()) {
-            try {
-                const supabase = getSupabaseAdmin();
-                const { data: inserted, error } = await supabase
-                    .from('customer_contacts')
-                    .insert({
-                    company_id: newRecord.companyId,
-                    customer_id: newRecord.customerId,
-                    customer_name: newRecord.customerName,
-                    company_name: newRecord.companyName,
-                    designation: newRecord.designation,
-                    contact_number: newRecord.contactNumber,
-                    alternate_contact_number: newRecord.alternateContactNumber,
-                    email: newRecord.email,
-                    address: newRecord.address,
-                    website: newRecord.website,
-                    visiting_card_url: newRecord.visitingCardUrl,
-                    collected_by_id: newRecord.collectedById,
-                    collected_by_name: newRecord.collectedByName,
-                    collected_date: newRecord.collectedDate,
-                    consent_status: newRecord.consentStatus,
-                    consent_timestamp: newRecord.consentTimestamp,
-                    consent_source: newRecord.consentSource,
-                    consent_purpose: newRecord.consentPurpose,
-                    notes: newRecord.notes
-                })
-                    .select()
-                    .single();
-                if (inserted && !error) {
-                    return this.mapContactRow(inserted);
-                }
-            }
-            catch (err) {
-                console.warn('Database error inserting customer:', err);
-            }
+            const supabase = getSupabaseAdmin();
+            const { data: inserted, error } = await supabase
+                .from('customer_contacts')
+                .insert({
+                company_id: newRecord.companyId,
+                customer_id: newRecord.customerId,
+                customer_name: newRecord.customerName,
+                company_name: newRecord.companyName,
+                designation: newRecord.designation,
+                contact_number: newRecord.contactNumber,
+                alternate_contact_number: newRecord.alternateContactNumber,
+                email: newRecord.email,
+                address: newRecord.address,
+                website: newRecord.website,
+                visiting_card_url: newRecord.visitingCardUrl,
+                collected_by_id: newRecord.collectedById,
+                collected_by_name: newRecord.collectedByName,
+                collected_date: newRecord.collectedDate,
+                consent_status: newRecord.consentStatus,
+                consent_timestamp: newRecord.consentTimestamp,
+                consent_source: newRecord.consentSource,
+                consent_purpose: newRecord.consentPurpose,
+                notes: newRecord.notes
+            })
+                .select()
+                .single();
+            if (error || !inserted)
+                throw new Error(`Customer persistence failed: ${error?.message || 'empty database response'}`);
+            return this.mapContactRow(inserted);
         }
         inMemoryCustomers.unshift(newRecord);
         return newRecord;

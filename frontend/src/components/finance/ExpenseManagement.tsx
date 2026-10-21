@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { DateInput } from '../common/DateInput';
 import { 
   IndianRupee, 
   Plus, 
@@ -26,15 +27,13 @@ import {
   ChevronsRight
 } from 'lucide-react';
 import { toNum, formatCurrency } from '../../utils/numbers';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, isValidISODate } from '../../utils/dateUtils';
 import { downloadPDF, downloadCSV, downloadExcel, ExportColumn } from '../../utils/exportUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { Expense } from '../../types/hrms';
 import { 
   getTodayKolkata, 
-  validateRequestDate, 
   checkDuplicateExpense, 
-  PAST_DATE_ERROR_MESSAGE, 
   DUPLICATE_REQUEST_ERROR_MESSAGE,
   MAX_EXPENSE_CLAIM_AMOUNT,
   validateExpenseAmount
@@ -47,8 +46,8 @@ interface ExpenseManagementProps {
 }
 
 export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddModal, onCloseQuickAdd }) => {
-  const { expenses, addExpense, approveExpense, deleteExpense, currentUser, employees, hasPermission } = useHRMS();
-  const [showModal, setShowModal] = useState<boolean>(openAddModal || false);
+  const { expenses, addExpense, approveExpense, deleteExpense, currentUser, employees } = useHRMS();
+  const [showModal, setShowModal] = useState<boolean>(false);
   const [viewingReceiptExpense, setViewingReceiptExpense] = useState<Expense | null>(null);
 
   // Lightbox Zoom & Rotate state
@@ -71,6 +70,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
   const isEmployeeRole = currentUser.role === 'Employee' && !isAccountsUser && !isApprovalAuthority;
+  const isHrUser = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || currentUser.role === 'HR';
+  const canSubmitClaim = isEmployeeRole || isHrUser;
   const canApprove = isApprovalAuthority;
   // Accounts only hands over the amount after HR/CEO approval (cannot approve)
   const canDisburse = isAccountsUser;
@@ -93,7 +94,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   // Form State
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expForm, setExpForm] = useState({
-    employeeId: currentUser.employeeId || 'EMP-001',
+    employeeId: currentUser.employeeId || '',
     category: 'Travel' as Expense['category'],
     amount: 1500,
     date: getTodayKolkata(),
@@ -107,14 +108,14 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   const [isSubmittingExpense, setIsSubmittingExpense] = useState<boolean>(false);
 
   React.useEffect(() => {
-    if (openAddModal) {
+    if (openAddModal && canSubmitClaim) {
       setShowModal(true);
     }
-  }, [openAddModal]);
+  }, [openAddModal, canSubmitClaim]);
 
   React.useEffect(() => {
     if (currentUser.employeeId) {
-      setExpForm(prev => ({ ...prev, employeeId: currentUser.employeeId || 'EMP-001' }));
+      setExpForm(prev => ({ ...prev, employeeId: currentUser.employeeId || '' }));
     }
     if (isEmployeeRole) {
       setScopeTab('my');
@@ -186,7 +187,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
 
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -203,14 +204,21 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       return;
     }
 
-    const dateVal = validateRequestDate(expForm.date);
-    if (!dateVal.valid) {
-      setFormError(dateVal.error || PAST_DATE_ERROR_MESSAGE);
+    if (!isValidISODate(expForm.date)) {
+      setFormError('Please enter a valid expense date in DD/MM/YYYY format.');
+      return;
+    }
+    if (expForm.date > getTodayKolkata()) {
+      setFormError('Future expense dates are not allowed. Please select today or a past date.');
       return;
     }
 
-    const targetEmpId = isEmployeeRole ? (currentUser.employeeId || 'EMP-001') : expForm.employeeId;
-    const emp = employees.find(e => e.employeeId === targetEmpId) || employees[0];
+    const targetEmpId = isEmployeeRole ? (currentUser.employeeId || currentUser.id || '') : expForm.employeeId;
+    const emp = employees.find(employee => employee.employeeId === targetEmpId || employee.id === targetEmpId);
+    if (!emp) {
+      setFormError('Your employee profile could not be found. Please contact HR.');
+      return;
+    }
 
     const dupCheck = checkDuplicateExpense(expenses, targetEmpId, expForm.date, expForm.category, Number(expForm.amount));
     if (dupCheck.hasDuplicate) {
@@ -220,8 +228,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
     setIsSubmittingExpense(true);
     try {
-      addExpense({
-        employeeId: targetEmpId,
+      const result = await addExpense({
+        employeeId: emp.employeeId,
         employeeName: `${emp.firstName} ${emp.lastName}`,
         department: emp.department,
         category: expForm.category,
@@ -230,6 +238,11 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
         description: expForm.description || `${expForm.category} Business Expense Claim`,
         receiptUrl: expForm.receiptUrl
       });
+
+      if (!result.success) {
+        setFormError(result.message || 'Expense claim could not be saved. Please try again.');
+        return;
+      }
 
       // Reset & close
       setShowModal(false);
@@ -501,6 +514,12 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               onExportPDF={handleExportPDF}
               onExportCSV={handleExportCSV}
             />
+          )}
+
+          {canSubmitClaim && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowModal(true)}>
+              <Plus size={16} /> Submit Expense Claim
+            </button>
           )}
 
 
@@ -785,7 +804,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                   <td colSpan={isEmployeeRole ? 8 : 9} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748B' }}>
                     <AlertCircle size={28} style={{ margin: '0 auto 8px', color: '#94A3B8' }} />
                     <div style={{ fontWeight: 600 }}>No expense claims found matching the current criteria.</div>
-                    {isEmployeeRole && (
+                    {canSubmitClaim && (
                       <button 
                         className="btn btn-primary btn-sm" 
                         style={{ marginTop: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
@@ -1510,11 +1529,10 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                   <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
                     Expense Date <span style={{ color: '#EF4444' }}>*</span>
                   </label>
-                  <input 
-                    type="date"
+            <DateInput
                     className="form-control"
                     value={expForm.date}
-                    min={getTodayKolkata()}
+                    max={getTodayKolkata()}
                     onChange={e => setExpForm({ ...expForm, date: e.target.value })}
                     style={{ borderRadius: '10px' }}
                     required

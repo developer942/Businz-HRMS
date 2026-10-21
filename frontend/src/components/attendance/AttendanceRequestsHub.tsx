@@ -22,7 +22,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { MissedPunchRequest, OvertimeRequest } from '../../types/attendanceEnterprise';
 import { EditAndApproveModal } from './EditAndApproveModal';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/numbers';
 
 export const AttendanceRequestsHub: React.FC = () => {
@@ -267,7 +267,7 @@ export const AttendanceRequestsHub: React.FC = () => {
                       {item.status === 'Pending' ? 'PENDING HR/CEO REVIEW' : item.status}
                     </span>
                     <span style={{ fontSize: '11px', color: '#94A3B8' }}>
-                      Submitted: {item.submittedAt}
+                      Submitted: {formatDateTimeDDMMYYYY(item.submittedAt)}
                     </span>
                   </div>
                 </div>
@@ -307,7 +307,7 @@ export const AttendanceRequestsHub: React.FC = () => {
 
                 {item.hrRemarks && (
                   <div style={{ background: '#F8FAFC', padding: '8px 12px', borderRadius: '8px', border: '1px solid #E2E8F0', fontSize: '12px', color: '#475569', marginBottom: '10px' }}>
-                    <strong>HR Review Remarks:</strong> {item.hrRemarks} ({item.reviewedBy} at {item.reviewedAt})
+                    <strong>HR Review Remarks:</strong> {item.hrRemarks} ({item.reviewedBy} at {formatDateTimeDDMMYYYY(item.reviewedAt)})
                   </div>
                 )}
 

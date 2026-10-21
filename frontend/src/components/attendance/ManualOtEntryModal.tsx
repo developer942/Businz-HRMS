@@ -8,6 +8,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { OvertimeRequest } from '../../types/attendanceEnterprise';
 import { formatCurrency } from '../../utils/numbers';
+import { DateInput } from '../common/DateInput';
 
 interface ManualOtEntryModalProps {
   isOpen: boolean;
@@ -252,8 +253,7 @@ export const ManualOtEntryModal: React.FC<ManualOtEntryModalProps> = ({
                 >
                   Date <span style={{ color: '#EF4444' }}>*</span>
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={date}
                   onChange={e => setDate(e.target.value)}
                   style={{

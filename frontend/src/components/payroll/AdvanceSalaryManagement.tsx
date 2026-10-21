@@ -7,6 +7,7 @@ import {
 } from '../../types/hrms';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { getLocalDateStr } from '../../utils/monthUtils';
+import { DateInput } from '../common/DateInput';
 import { 
   Banknote, 
   Plus, 
@@ -1733,8 +1734,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                       <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>
                         Funds Needed By Date (Future Date Only) <span style={{ color: '#EF4444' }}>*</span>
                       </label>
-                      <input 
-                        type="date"
+            <DateInput
                         required
                         className="form-control"
                         min={getFutureRequestDateString()}
@@ -2310,8 +2310,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
                     <div className="form-group">
                       <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>Disbursement Date <span style={{ color: '#EF4444' }}>*</span></label>
-                      <input
-                        type="date" required className="form-control"
+                      <DateInput
+                        required className="form-control"
                         value={disbursementFormData.disbursedDate}
                         onChange={e => setDisbursementFormData({ ...disbursementFormData, disbursedDate: e.target.value })}
                       />
@@ -2473,8 +2473,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                     <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>
                       Payment Date <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-                    <input 
-                      type="date"
+                    <DateInput
                       required
                       className="form-control"
                       style={{ height: '42px', borderRadius: '10px', border: '1px solid #CBD5E1', padding: '0 14px', fontSize: '0.9rem' }}

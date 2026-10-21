@@ -2,9 +2,19 @@ import React, { useState, useRef, useEffect } from 'react';
 import { CustomerContact, ExtractedCardDetails, WhatsAppConsentStatus, FieldVerificationStatus } from '../../types/customer';
 import { customerService } from '../../services/customerService';
 import { getStoredGeminiOcrModel } from '../../services/geminiApiService';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { useHRMS } from '../../context/HRMSContext';
 import { VisitingCardScannerModal, ScanResult } from './VisitingCardScannerModal';
 import { ImageQualityReport } from '../../utils/cardImageProcessor';
+import {
+  CustomerContactErrors,
+  CustomerContactValues,
+  CustomerField,
+  normalizePhoneNumber,
+  normalizeWebsite,
+  validateCustomerContact,
+  validateCustomerField
+} from '../../utils/customerContactValidation';
 import { 
   Camera, 
   Upload, 
@@ -39,7 +49,8 @@ const FieldBadge: React.FC<{
   evidence?: string;
   reviewReason?: string;
 }> = ({ status, evidence, reviewReason }) => {
-  if (!status || status === 'not_found') {
+  if (!status) return null;
+  if (status === 'not_found') {
     return (
       <span
         title="Not detected on visiting card"
@@ -134,7 +145,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
   const pageFileInputRef = useRef<HTMLInputElement>(null);
 
   // Form Fields
-  const [customerId] = useState<string>(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+  const customerId = 'Assigned when saved';
   const [customerName, setCustomerName] = useState<string>('');
   const [companyName, setCompanyName] = useState<string>('');
   const [designation, setDesignation] = useState<string>('');
@@ -156,6 +167,64 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<CustomerContact | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<CustomerContactErrors>({});
+  const [touchedFields, setTouchedFields] = useState<Partial<Record<CustomerField, boolean>>>({});
+  const customerNameRef = useRef<HTMLInputElement>(null);
+  const companyNameRef = useRef<HTMLInputElement>(null);
+  const designationRef = useRef<HTMLInputElement>(null);
+  const contactNumberRef = useRef<HTMLInputElement>(null);
+  const alternateContactNumberRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const websiteRef = useRef<HTMLInputElement>(null);
+  const addressRef = useRef<HTMLTextAreaElement>(null);
+  const ocrRequestIdRef = useRef(0);
+  const userEditedFieldsRef = useRef<Set<CustomerField>>(new Set());
+  const editVersionsRef = useRef<Record<CustomerField, number>>({
+    customerName: 0,
+    companyName: 0,
+    designation: 0,
+    contactNumber: 0,
+    alternateContactNumber: 0,
+    email: 0,
+    website: 0,
+    address: 0,
+    notes: 0
+  });
+
+  const currentValues = (): CustomerContactValues => ({
+    customerName,
+    companyName,
+    designation,
+    contactNumber,
+    alternateContactNumber,
+    email,
+    website,
+    address,
+    notes
+  });
+
+  const updateField = (field: CustomerField, value: string, setter: React.Dispatch<React.SetStateAction<string>>) => {
+    userEditedFieldsRef.current.add(field);
+    editVersionsRef.current[field] += 1;
+    setter(value);
+    if (touchedFields[field]) {
+      setFieldErrors(previous => ({ ...previous, [field]: validateCustomerField(field, value) }));
+    }
+  };
+
+  const validateOnBlur = (field: CustomerField, value: string) => {
+    setTouchedFields(previous => ({ ...previous, [field]: true }));
+    setFieldErrors(previous => ({ ...previous, [field]: validateCustomerField(field, value) }));
+  };
+
+  const badgeStatus = (field: CustomerField, value: string, ocrStatus?: FieldVerificationStatus): FieldVerificationStatus | undefined => {
+    if (!ocrDetails) return undefined;
+    if (editVersionsRef.current[field] > 0) {
+      if (!value.trim()) return 'not_found';
+      return validateCustomerField(field, value) ? 'needs_review' : 'valid';
+    }
+    return ocrStatus;
+  };
 
   // Step 3: Interactive image rotation in high resolution
   const handleRotateImage = async (degrees: number) => {
@@ -224,51 +293,57 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
 
   // 3. Trigger OCR Extraction
   const triggerOcr = async (imageBase64: string, mimeType: string) => {
+    const requestId = ++ocrRequestIdRef.current;
+    const startingVersions = { ...editVersionsRef.current };
     setOcrLoading(true);
     setOcrSuccess(false);
     setErrorMessage(null);
     try {
       const extracted = await customerService.scanCardOcr(imageBase64, mimeType);
+      if (requestId !== ocrRequestIdRef.current) return;
       setOcrDetails(extracted);
       setOcrSuccess(true);
 
-      // Auto-fill extracted fields safely into form
+      const applyOcrValue = (field: CustomerField, value: string | null | undefined, setter: React.Dispatch<React.SetStateAction<string>>) => {
+        if (value && !userEditedFieldsRef.current.has(field) && editVersionsRef.current[field] === startingVersions[field]) setter(value);
+      };
+
       const person = extracted.person_name || extracted.customerName;
-      if (person) setCustomerName(person);
+      applyOcrValue('customerName', person, setCustomerName);
 
       const comp = extracted.company_name || extracted.companyName;
-      if (comp) setCompanyName(comp);
+      applyOcrValue('companyName', comp, setCompanyName);
 
-      if (extracted.designation) setDesignation(extracted.designation);
+      applyOcrValue('designation', extracted.designation, setDesignation);
 
       // Distinguish multiple phone numbers without combining
       if (extracted.phone_numbers && extracted.phone_numbers.length > 0) {
-        setContactNumber(extracted.phone_numbers[0]);
+        applyOcrValue('contactNumber', extracted.phone_numbers[0], setContactNumber);
         if (extracted.phone_numbers.length > 1) {
-          setAlternateContactNumber(extracted.phone_numbers[1]);
+          applyOcrValue('alternateContactNumber', extracted.phone_numbers[1], setAlternateContactNumber);
         }
       } else if (extracted.contactNumber) {
-        setContactNumber(extracted.contactNumber);
+        applyOcrValue('contactNumber', extracted.contactNumber, setContactNumber);
         if (extracted.alternateContactNumber) {
-          setAlternateContactNumber(extracted.alternateContactNumber);
+          applyOcrValue('alternateContactNumber', extracted.alternateContactNumber, setAlternateContactNumber);
         }
       }
 
       // Distinguish multiple emails
       if (extracted.emails && extracted.emails.length > 0) {
-        setEmail(extracted.emails[0]);
+        applyOcrValue('email', extracted.emails[0], setEmail);
       } else if (extracted.email) {
-        setEmail(extracted.email);
+        applyOcrValue('email', extracted.email, setEmail);
       }
 
-      if (extracted.address) setAddress(extracted.address);
-      if (extracted.website) setWebsite(extracted.website);
-      if (extracted.notes && !notes) setNotes(extracted.notes);
+      applyOcrValue('address', extracted.address, setAddress);
+      applyOcrValue('website', extracted.website, setWebsite);
+      applyOcrValue('notes', extracted.notes, setNotes);
     } catch (err: any) {
       // Failed scans must NOT lose entered details
       setErrorMessage(`OCR Notice: ${err.message || 'Auto-extraction failed'}. You can still review and enter fields manually.`);
     } finally {
-      setOcrLoading(false);
+      if (requestId === ocrRequestIdRef.current) setOcrLoading(false);
     }
   };
 
@@ -283,48 +358,55 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
 
   // 4. Save Customer Flow
   const handleSubmit = async (bypassDuplicate = false) => {
+    if (saving) return;
     setErrorMessage(null);
-
-    // Validation
-    if (!customerName.trim()) {
-      setErrorMessage('Customer Name is a required field.');
+    const values = currentValues();
+    const errors = validateCustomerContact(values);
+    const allTouched = Object.keys(values).reduce<Partial<Record<CustomerField, boolean>>>((result, field) => {
+      result[field as CustomerField] = true;
+      return result;
+    }, {});
+    setTouchedFields(allTouched);
+    setFieldErrors(errors);
+    const firstInvalid = (Object.keys(values) as CustomerField[]).find(field => errors[field]);
+    if (firstInvalid) {
+      const refs: Partial<Record<CustomerField, React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>>> = {
+        customerName: customerNameRef,
+        companyName: companyNameRef,
+        designation: designationRef,
+        contactNumber: contactNumberRef,
+        alternateContactNumber: alternateContactNumberRef,
+        email: emailRef,
+        website: websiteRef,
+        address: addressRef
+      };
+      refs[firstInvalid]?.current?.focus();
+      setErrorMessage('Please correct the highlighted customer details before saving.');
       return;
     }
-    if (!contactNumber.trim()) {
-      setErrorMessage('Contact Number is a required field.');
-      return;
-    }
 
-    // Duplicate Check
-    if (!bypassDuplicate) {
-      try {
+    try {
+      setSaving(true);
+      if (!bypassDuplicate) {
         const check = await customerService.checkDuplicate(contactNumber, currentUser?.company_id || 'company-a');
         if (check.isDuplicate && check.existingCustomer) {
           setDuplicateWarning(check.existingCustomer);
           return;
         }
-      } catch (err) {
-        console.warn('Duplicate check warning:', err);
       }
-    }
-
-    try {
-      setSaving(true);
+      const normalizedPrimary = normalizePhoneNumber(contactNumber)!;
+      const normalizedAlternate = alternateContactNumber.trim() ? normalizePhoneNumber(alternateContactNumber)! : undefined;
+      const normalizedWebsite = website.trim() ? normalizeWebsite(website)! : undefined;
       const payload: Partial<CustomerContact> = {
-        customerId,
-        companyId: currentUser?.company_id || 'company-a',
         customerName: customerName.trim(),
         companyName: companyName.trim() || undefined,
         designation: designation.trim() || undefined,
-        contactNumber: contactNumber.trim(),
-        alternateContactNumber: alternateContactNumber.trim() || undefined,
+        contactNumber: normalizedPrimary,
+        alternateContactNumber: normalizedAlternate,
         email: email.trim() || undefined,
         address: address.trim() || undefined,
-        website: website.trim() || undefined,
+        website: normalizedWebsite,
         notes: notes.trim() || undefined,
-        collectedById: currentUser?.id || 'emp-current',
-        collectedByName: currentUser?.name || 'Field Representative',
-        collectedDate: new Date().toISOString().split('T')[0],
         visitingCardUrl: cardImageBase64 || undefined,
         consentStatus,
         consentTimestamp: consentStatus === 'Opted In' ? new Date().toISOString() : undefined,
@@ -365,6 +447,11 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
     setSavedSuccess(null);
     setDuplicateWarning(null);
     setCaptureMode('manual');
+    setFieldErrors({});
+    setTouchedFields({});
+    ocrRequestIdRef.current += 1;
+    userEditedFieldsRef.current.clear();
+    (Object.keys(editVersionsRef.current) as CustomerField[]).forEach(field => { editVersionsRef.current[field] = 0; });
   };
 
   return (
@@ -916,37 +1003,42 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Customer Name *
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.customerName?.status}
+                  status={badgeStatus('customerName', customerName, ocrDetails?.fields?.customerName?.status)}
                   evidence={ocrDetails?.fields?.customerName?.evidence}
                   reviewReason={ocrDetails?.fields?.customerName?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <input
+                  ref={customerNameRef}
                   type="text"
                   value={customerName}
-                  onChange={e => setCustomerName(e.target.value)}
+                  onChange={e => updateField('customerName', e.target.value, setCustomerName)}
+                  onBlur={() => validateOnBlur('customerName', customerName)}
+                  maxLength={120}
+                  aria-invalid={Boolean(fieldErrors.customerName)}
                   placeholder="e.g. Rajesh Kumar"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.customerName?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.customerName?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.customerName ? '1.5px solid #DC2626' : badgeStatus('customerName', customerName, ocrDetails?.fields?.customerName?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('customerName', customerName, ocrDetails?.fields?.customerName?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none'
                   }}
                 />
                 <User size={16} color={ocrDetails?.fields?.customerName?.status === 'needs_review' ? '#F59E0B' : '#94A3B8'} style={{ position: 'absolute', left: '12px', top: '13px' }} />
               </div>
-              {ocrDetails?.fields?.customerName?.status === 'needs_review' && ocrDetails?.fields?.customerName?.reviewReason && (
+              {fieldErrors.customerName && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.customerName}</div>}
+              {badgeStatus('customerName', customerName, ocrDetails?.fields?.customerName?.status) === 'needs_review' && ocrDetails?.fields?.customerName?.reviewReason && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#B45309', marginTop: '4px' }}>
                   <AlertTriangle size={12} />
                   <span>{ocrDetails?.fields?.customerName?.reviewReason}</span>
                   {ocrDetails?.fields?.customerName?.evidence && !customerName && (
                     <button
                       type="button"
-                      onClick={() => setCustomerName(ocrDetails?.fields?.customerName?.evidence || '')}
+                      onClick={() => updateField('customerName', ocrDetails?.fields?.customerName?.evidence || '', setCustomerName)}
                       style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#0E7490', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
                     >
                       Use "{ocrDetails?.fields?.customerName?.evidence}"
@@ -963,37 +1055,42 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Company Name
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.companyName?.status}
+                  status={badgeStatus('companyName', companyName, ocrDetails?.fields?.companyName?.status)}
                   evidence={ocrDetails?.fields?.companyName?.evidence}
                   reviewReason={ocrDetails?.fields?.companyName?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <input
+                  ref={companyNameRef}
                   type="text"
                   value={companyName}
-                  onChange={e => setCompanyName(e.target.value)}
+                  onChange={e => updateField('companyName', e.target.value, setCompanyName)}
+                  onBlur={() => validateOnBlur('companyName', companyName)}
+                  maxLength={160}
+                  aria-invalid={Boolean(fieldErrors.companyName)}
                   placeholder="e.g. Apex Technologies Ltd"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.companyName?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.companyName?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.companyName ? '1.5px solid #DC2626' : badgeStatus('companyName', companyName, ocrDetails?.fields?.companyName?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('companyName', companyName, ocrDetails?.fields?.companyName?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none'
                   }}
                 />
                 <Building size={16} color={ocrDetails?.fields?.companyName?.status === 'needs_review' ? '#F59E0B' : '#94A3B8'} style={{ position: 'absolute', left: '12px', top: '13px' }} />
               </div>
-              {ocrDetails?.fields?.companyName?.status === 'needs_review' && ocrDetails?.fields?.companyName?.reviewReason && (
+              {fieldErrors.companyName && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.companyName}</div>}
+              {badgeStatus('companyName', companyName, ocrDetails?.fields?.companyName?.status) === 'needs_review' && ocrDetails?.fields?.companyName?.reviewReason && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#B45309', marginTop: '4px' }}>
                   <AlertTriangle size={12} />
                   <span>{ocrDetails?.fields?.companyName?.reviewReason}</span>
                   {ocrDetails?.fields?.companyName?.evidence && !companyName && (
                     <button
                       type="button"
-                      onClick={() => setCompanyName(ocrDetails?.fields?.companyName?.evidence || '')}
+                      onClick={() => updateField('companyName', ocrDetails?.fields?.companyName?.evidence || '', setCompanyName)}
                       style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#0E7490', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
                     >
                       Use "{ocrDetails?.fields?.companyName?.evidence}"
@@ -1010,26 +1107,31 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Designation
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.designation?.status}
+                  status={badgeStatus('designation', designation, ocrDetails?.fields?.designation?.status)}
                   evidence={ocrDetails?.fields?.designation?.evidence}
                   reviewReason={ocrDetails?.fields?.designation?.reviewReason}
                 />
               </div>
               <input
+                ref={designationRef}
                 type="text"
                 value={designation}
-                onChange={e => setDesignation(e.target.value)}
+                onChange={e => updateField('designation', e.target.value, setDesignation)}
+                onBlur={() => validateOnBlur('designation', designation)}
+                maxLength={120}
+                aria-invalid={Boolean(fieldErrors.designation)}
                 placeholder="e.g. Managing Director / Procurement Lead"
                 style={{
                   width: '100%',
                   padding: '10px 14px',
                   borderRadius: '10px',
-                  border: ocrDetails?.fields?.designation?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                  backgroundColor: ocrDetails?.fields?.designation?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                  border: fieldErrors.designation ? '1.5px solid #DC2626' : badgeStatus('designation', designation, ocrDetails?.fields?.designation?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                  backgroundColor: badgeStatus('designation', designation, ocrDetails?.fields?.designation?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                   fontSize: '0.9rem',
                   outline: 'none'
                 }}
               />
+              {fieldErrors.designation && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.designation}</div>}
             </div>
 
             {/* Multiple Phone Numbers Detected - Pill Selector */}
@@ -1052,9 +1154,9 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                         key={idx}
                         type="button"
                         onClick={() => {
-                          setContactNumber(ph);
+                          updateField('contactNumber', ph, setContactNumber);
                           const alt = ocrDetails.phone_numbers?.find(p => p !== ph);
-                          if (alt) setAlternateContactNumber(alt);
+                          if (alt) updateField('alternateContactNumber', alt, setAlternateContactNumber);
                         }}
                         style={{
                           display: 'inline-flex',
@@ -1094,30 +1196,36 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Contact Number (WhatsApp) *
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.contactNumber?.status}
+                  status={badgeStatus('contactNumber', contactNumber, ocrDetails?.fields?.contactNumber?.status)}
                   evidence={ocrDetails?.fields?.contactNumber?.evidence}
                   reviewReason={ocrDetails?.fields?.contactNumber?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <input
+                  ref={contactNumberRef}
                   type="text"
+                  inputMode="tel"
                   value={contactNumber}
-                  onChange={e => setContactNumber(e.target.value)}
+                  onChange={e => updateField('contactNumber', e.target.value, setContactNumber)}
+                  onBlur={() => validateOnBlur('contactNumber', contactNumber)}
+                  maxLength={40}
+                  aria-invalid={Boolean(fieldErrors.contactNumber)}
                   placeholder="e.g. +91 98765 43210"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.contactNumber?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.contactNumber?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.contactNumber ? '1.5px solid #DC2626' : badgeStatus('contactNumber', contactNumber, ocrDetails?.fields?.contactNumber?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('contactNumber', contactNumber, ocrDetails?.fields?.contactNumber?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none'
                   }}
                 />
                 <Phone size={16} color={ocrDetails?.fields?.contactNumber?.status === 'needs_review' ? '#F59E0B' : '#94A3B8'} style={{ position: 'absolute', left: '12px', top: '13px' }} />
               </div>
-              {ocrDetails?.fields?.contactNumber?.status === 'needs_review' && ocrDetails?.fields?.contactNumber?.reviewReason && (
+              {fieldErrors.contactNumber && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.contactNumber}</div>}
+              {badgeStatus('contactNumber', contactNumber, ocrDetails?.fields?.contactNumber?.status) === 'needs_review' && ocrDetails?.fields?.contactNumber?.reviewReason && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#B45309', marginTop: '4px' }}>
                   <AlertTriangle size={12} />
                   <span>{ocrDetails?.fields?.contactNumber?.reviewReason}</span>
@@ -1132,29 +1240,35 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Alternate Contact Number
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.alternateContactNumber?.status}
+                  status={badgeStatus('alternateContactNumber', alternateContactNumber, ocrDetails?.fields?.alternateContactNumber?.status)}
                   evidence={ocrDetails?.fields?.alternateContactNumber?.evidence}
                   reviewReason={ocrDetails?.fields?.alternateContactNumber?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <input
+                  ref={alternateContactNumberRef}
                   type="text"
+                  inputMode="tel"
                   value={alternateContactNumber}
-                  onChange={e => setAlternateContactNumber(e.target.value)}
+                  onChange={e => updateField('alternateContactNumber', e.target.value, setAlternateContactNumber)}
+                  onBlur={() => validateOnBlur('alternateContactNumber', alternateContactNumber)}
+                  maxLength={40}
+                  aria-invalid={Boolean(fieldErrors.alternateContactNumber)}
                   placeholder="e.g. 044-24567890"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.alternateContactNumber?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.alternateContactNumber?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.alternateContactNumber ? '1.5px solid #DC2626' : badgeStatus('alternateContactNumber', alternateContactNumber, ocrDetails?.fields?.alternateContactNumber?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('alternateContactNumber', alternateContactNumber, ocrDetails?.fields?.alternateContactNumber?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none'
                   }}
                 />
                 <Phone size={16} color="#94A3B8" style={{ position: 'absolute', left: '12px', top: '13px' }} />
               </div>
+              {fieldErrors.alternateContactNumber && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.alternateContactNumber}</div>}
             </div>
 
             {/* Multiple Email Addresses Detected - Pill Selector */}
@@ -1176,7 +1290,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => setEmail(em)}
+                        onClick={() => updateField('email', em, setEmail)}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -1213,30 +1327,35 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Email Address
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.email?.status}
+                  status={badgeStatus('email', email, ocrDetails?.fields?.email?.status)}
                   evidence={ocrDetails?.fields?.email?.evidence}
                   reviewReason={ocrDetails?.fields?.email?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <input
+                  ref={emailRef}
                   type="email"
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={e => updateField('email', e.target.value, setEmail)}
+                  onBlur={() => validateOnBlur('email', email)}
+                  maxLength={254}
+                  aria-invalid={Boolean(fieldErrors.email)}
                   placeholder="e.g. rajesh@apex.com"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.email?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.email?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.email ? '1.5px solid #DC2626' : badgeStatus('email', email, ocrDetails?.fields?.email?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('email', email, ocrDetails?.fields?.email?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none'
                   }}
                 />
                 <Mail size={16} color={ocrDetails?.fields?.email?.status === 'needs_review' ? '#F59E0B' : '#94A3B8'} style={{ position: 'absolute', left: '12px', top: '13px' }} />
               </div>
-              {ocrDetails?.fields?.email?.status === 'needs_review' && ocrDetails?.fields?.email?.reviewReason && (
+              {fieldErrors.email && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.email}</div>}
+              {badgeStatus('email', email, ocrDetails?.fields?.email?.status) === 'needs_review' && ocrDetails?.fields?.email?.reviewReason && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#B45309', marginTop: '4px' }}>
                   <AlertTriangle size={12} />
                   <span>{ocrDetails?.fields?.email?.reviewReason}</span>
@@ -1251,30 +1370,35 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Website
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.website?.status}
+                  status={badgeStatus('website', website, ocrDetails?.fields?.website?.status)}
                   evidence={ocrDetails?.fields?.website?.evidence}
                   reviewReason={ocrDetails?.fields?.website?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <input
+                  ref={websiteRef}
                   type="text"
                   value={website}
-                  onChange={e => setWebsite(e.target.value)}
+                  onChange={e => updateField('website', e.target.value, setWebsite)}
+                  onBlur={() => validateOnBlur('website', website)}
+                  maxLength={2048}
+                  aria-invalid={Boolean(fieldErrors.website)}
                   placeholder="e.g. www.apextechnologies.in"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.website?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.website?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.website ? '1.5px solid #DC2626' : badgeStatus('website', website, ocrDetails?.fields?.website?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('website', website, ocrDetails?.fields?.website?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none'
                   }}
                 />
                 <Globe size={16} color={ocrDetails?.fields?.website?.status === 'needs_review' ? '#F59E0B' : '#94A3B8'} style={{ position: 'absolute', left: '12px', top: '13px' }} />
               </div>
-              {ocrDetails?.fields?.website?.status === 'needs_review' && ocrDetails?.fields?.website?.reviewReason && (
+              {fieldErrors.website && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.website}</div>}
+              {badgeStatus('website', website, ocrDetails?.fields?.website?.status) === 'needs_review' && ocrDetails?.fields?.website?.reviewReason && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#B45309', marginTop: '4px' }}>
                   <AlertTriangle size={12} />
                   <span>{ocrDetails?.fields?.website?.reviewReason}</span>
@@ -1289,23 +1413,27 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   Full Address / Location
                 </label>
                 <FieldBadge
-                  status={ocrDetails?.fields?.address?.status}
+                  status={badgeStatus('address', address, ocrDetails?.fields?.address?.status)}
                   evidence={ocrDetails?.fields?.address?.evidence}
                   reviewReason={ocrDetails?.fields?.address?.reviewReason}
                 />
               </div>
               <div style={{ position: 'relative' }}>
                 <textarea
+                  ref={addressRef}
                   value={address}
-                  onChange={e => setAddress(e.target.value)}
+                  onChange={e => updateField('address', e.target.value, setAddress)}
+                  onBlur={() => validateOnBlur('address', address)}
+                  maxLength={1000}
+                  aria-invalid={Boolean(fieldErrors.address)}
                   rows={2}
                   placeholder="e.g. Plot No 42, Guindy Industrial Estate, Chennai 600032"
                   style={{
                     width: '100%',
                     padding: '10px 14px 10px 38px',
                     borderRadius: '10px',
-                    border: ocrDetails?.fields?.address?.status === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
-                    backgroundColor: ocrDetails?.fields?.address?.status === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
+                    border: fieldErrors.address ? '1.5px solid #DC2626' : badgeStatus('address', address, ocrDetails?.fields?.address?.status) === 'needs_review' ? '1.5px solid #F59E0B' : '1px solid #CBD5E1',
+                    backgroundColor: badgeStatus('address', address, ocrDetails?.fields?.address?.status) === 'needs_review' ? '#FFFBEB' : '#FFFFFF',
                     fontSize: '0.9rem',
                     outline: 'none',
                     resize: 'vertical'
@@ -1313,7 +1441,8 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                 />
                 <MapPin size={16} color={ocrDetails?.fields?.address?.status === 'needs_review' ? '#F59E0B' : '#94A3B8'} style={{ position: 'absolute', left: '12px', top: '14px' }} />
               </div>
-              {ocrDetails?.fields?.address?.status === 'needs_review' && ocrDetails?.fields?.address?.reviewReason && (
+              {fieldErrors.address && <div style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{fieldErrors.address}</div>}
+              {badgeStatus('address', address, ocrDetails?.fields?.address?.status) === 'needs_review' && ocrDetails?.fields?.address?.reviewReason && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#B45309', marginTop: '4px' }}>
                   <AlertTriangle size={12} />
                   <span>{ocrDetails?.fields?.address?.reviewReason}</span>
@@ -1348,7 +1477,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
             </label>
             <input
               type="text"
-              value={new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+              value={formatDateDDMMYYYY(new Date())}
               disabled
               style={{
                 width: '100%',

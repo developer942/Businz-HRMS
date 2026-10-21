@@ -889,7 +889,7 @@ export const EmployeeMyPerformanceView: React.FC<EmployeeMyPerformanceViewProps>
                       {m.title}
                     </span>
                   </div>
-                  <span style={{ fontSize: '11px', color: '#64748B' }}>Due: {m.targetDate}</span>
+                  <span style={{ fontSize: '11px', color: '#64748B' }}>Due: {formatDateDDMMYYYY(m.targetDate)}</span>
                 </div>
               ))}
             </div>

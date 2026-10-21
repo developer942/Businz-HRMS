@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
+import { DateInput } from '../common/DateInput';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import { resolveEffectiveLatePolicy } from '../../services/policyEngine';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
@@ -456,8 +457,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                 >
                   Attendance Date <span style={{ color: '#EF4444' }}>*</span>
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={date}
                   onChange={e => setDate(e.target.value)}
                   style={{

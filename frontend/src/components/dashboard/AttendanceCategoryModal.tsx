@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Employee, AttendanceRecord, LeaveRequest } from '../../types/hrms';
+import { Employee, AttendanceRecord, LeaveRequest, Shift, WeeklyScheduleItem, HolidayItem } from '../../types/hrms';
+import { FieldAssignment } from '../../types/tracking';
+import { buildAttendanceReport } from '../../services/attendanceReportService';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatTimeDisplay, formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { getLocalDateStr } from '../../utils/monthUtils';
@@ -40,6 +42,11 @@ interface AttendanceCategoryModalProps {
   employees: Employee[];
   attendanceRecords: AttendanceRecord[];
   leaveRequests?: LeaveRequest[];
+  shifts?: Shift[];
+  weeklySchedules?: WeeklyScheduleItem[];
+  holidayPolicies?: HolidayItem[];
+  fieldAssignments?: FieldAssignment[];
+  currentUser?: any;
 }
 
 export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = ({
@@ -48,7 +55,12 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
   onSelectEmployee,
   employees,
   attendanceRecords,
-  leaveRequests = []
+  leaveRequests = [],
+  shifts = [],
+  weeklySchedules = [],
+  holidayPolicies = [],
+  fieldAssignments = [],
+  currentUser
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDept, setSelectedDept] = useState<string>('all');
@@ -185,6 +197,20 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
     };
   });
 
+  const attendanceReport = buildAttendanceReport({
+    currentUser,
+    role: currentUser?.role,
+    employees: workforceEmployees,
+    attendanceRecords,
+    leaveRequests,
+    shifts,
+    weeklySchedules,
+    holidayPolicies,
+    fieldAssignments,
+    date: todayStr
+  });
+  const absentEmployeeIds = new Set(attendanceReport.absent.map(row => row.employee.employeeId));
+
   // Filter for the requested category
   const filteredByCategory = categoryItems.filter(item => {
     if (category === 'total') return true;
@@ -212,14 +238,7 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       );
     }
     if (category === 'absent') {
-      const isPres = item.attendance && (
-        item.attendance.status === 'Present' || 
-        item.attendance.status === 'Work From Home' || 
-        item.attendance.status === 'Late' ||
-        !!item.attendance.checkIn
-      );
-      const isLeave = item.attendance?.status === 'On Leave' || item.statusLabel === 'On Leave';
-      return !isPres && !isLeave;
+      return absentEmployeeIds.has(item.employee.employeeId);
     }
     return true;
   });

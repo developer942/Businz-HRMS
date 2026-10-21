@@ -12,6 +12,32 @@ export const COMPANY_TIMEZONE = 'Asia/Kolkata';
 export const PAST_DATE_ERROR_MESSAGE = "Past dates are not allowed. Please select today's date or a future date.";
 export const DUPLICATE_REQUEST_ERROR_MESSAGE = "You have already submitted a request for this date. Please check your existing request before submitting again.";
 export const INVALID_DATE_RANGE_ORDER_MESSAGE = "End date cannot be earlier than start date.";
+export const REQUEST_REASON_ERROR_MESSAGE = 'Please enter a valid reason in words. Spaces or symbols alone are not allowed.';
+
+const INVISIBLE_REASON_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0]/gu;
+const UNICODE_LETTER = /\p{L}/u;
+
+export const normalizeRequestReason = (value: string): string => value.trim();
+
+export const validateRequestReason = (
+  value: unknown
+): { valid: boolean; value?: string; error?: string } => {
+  if (typeof value !== 'string') {
+    return { valid: false, error: REQUEST_REASON_ERROR_MESSAGE };
+  }
+
+  const normalized = normalizeRequestReason(value);
+  const visibleText = normalized.replace(INVISIBLE_REASON_CHARACTERS, '').trim();
+  if (!visibleText || !UNICODE_LETTER.test(visibleText)) {
+    return { valid: false, error: REQUEST_REASON_ERROR_MESSAGE };
+  }
+
+  if (normalized.length > 500) {
+    return { valid: false, error: 'Reason cannot exceed 500 characters.' };
+  }
+
+  return { valid: true, value: normalized };
+};
 
 /**
  * Normalizes any date representation into standard ISO date string format: YYYY-MM-DD.

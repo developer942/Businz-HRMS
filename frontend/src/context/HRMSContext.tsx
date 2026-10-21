@@ -194,7 +194,8 @@ import {
   evaluateShiftAttendance,
   ShiftWindowEvaluation
 } from '../services/shiftAttendanceEngine';
-import { formatTimeDisplay, formatDateDDMMYYYY } from '../utils/dateUtils';
+import { formatTimeDisplay, formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../utils/dateUtils';
+import { createExpenseClaim, fetchExpenseClaims } from '../services/expenseService';
 import { 
   getTodayKolkata, 
   validateRequestDate, 
@@ -207,7 +208,9 @@ import {
   checkDuplicateOtRequest,
   checkDuplicateExpense,
   PAST_DATE_ERROR_MESSAGE, 
-  DUPLICATE_REQUEST_ERROR_MESSAGE 
+  DUPLICATE_REQUEST_ERROR_MESSAGE,
+  REQUEST_REASON_ERROR_MESSAGE,
+  validateRequestReason
 } from '../utils/requestValidation';
 
 export const calculateDistanceMeters = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -891,7 +894,7 @@ interface HRMSContextType {
   reviewReferral: (candidateId: string, status: 'Accepted' | 'Rejected', reviewerName: string, notes?: string, newStage?: Candidate['stage']) => void;
 
   expenses: Expense[];
-  addExpense: (exp: Omit<Expense, 'id' | 'status'>) => void;
+  addExpense: (exp: Omit<Expense, 'id' | 'status'>) => Promise<{ success: boolean; message?: string }>;
   approveExpense: (id: string, approvedBy: string, nextStatus: Expense['status']) => void;
   deleteExpense: (id: string) => void;
 
@@ -1871,7 +1874,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Attendance Corrected',
-      message: `Attendance for ${existingRec.employeeName} on ${existingRec.date} was updated by ${params.changedBy}. Reason: ${params.reason}`,
+      message: `Attendance for ${existingRec.employeeName} on ${formatDateDDMMYYYY(existingRec.date)} was updated by ${params.changedBy}. Reason: ${params.reason}`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2132,12 +2135,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...req,
       id: `MPR-${Date.now().toString().slice(-4)}`,
       status: 'Pending',
-      submittedAt: new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      submittedAt: formatDateTimeDDMMYYYY(new Date())
     };
     setMissedPunchRequests(prev => [newReq, ...prev]);
     addNotification({
       title: 'Correction Request Submitted',
-      message: `${req.employeeName} submitted a ${req.requestType} request for ${req.date}.`,
+      message: `${req.employeeName} submitted a ${req.requestType} request for ${formatDateDDMMYYYY(req.date)}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2157,7 +2160,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatDateTimeDDMMYYYY(new Date());
     const targetCheckIn = target.requestedCheckIn || '09:00 AM';
     const targetCheckOut = target.requestedCheckOut || '06:00 PM';
 
@@ -2269,7 +2272,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Correction Approved',
-      message: `Attendance request for ${target.employeeName} on ${target.date} was approved.`,
+      message: `Attendance request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was approved.`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2287,7 +2290,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       return;
     }
-    const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatDateTimeDDMMYYYY(new Date());
     setMissedPunchRequests(prev => prev.map(r => r.id === id ? {
       ...r,
       status: 'Rejected',
@@ -2298,7 +2301,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Correction Rejected',
-      message: `Correction request for ${target.employeeName} on ${target.date} was rejected.`,
+      message: `Correction request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was rejected.`,
       priority: 'Urgent',
       category: 'Attendance'
     });
@@ -2314,7 +2317,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const target = missedPunchRequests.find(r => r.id === id);
     if (!target) return;
 
-    const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatDateTimeDDMMYYYY(new Date());
 
     setMissedPunchRequests(prev => prev.map(r => r.id === id ? {
       ...r,
@@ -2424,7 +2427,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Correction Adjusted & Approved',
-      message: `Attendance for ${target.employeeName} on ${target.date} adjusted to ${adjustedCheckIn} - ${adjustedCheckOut}.`,
+      message: `Attendance for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} adjusted to ${adjustedCheckIn} - ${adjustedCheckOut}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2461,13 +2464,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       approvedOtHours: 0,
       status: 'Pending Approval',
       source: 'Employee Request',
-      submittedAt: new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      submittedAt: formatDateTimeDDMMYYYY(new Date())
     };
     setOvertimeRequests(prev => [newReq, ...prev]);
 
     addNotification({
       title: 'Overtime Request Submitted',
-      message: `${req.employeeName} submitted OT request for ${req.requestedOtHours} hrs on ${req.date}.`,
+      message: `${req.employeeName} submitted OT request for ${req.requestedOtHours} hrs on ${formatDateDDMMYYYY(req.date)}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2492,7 +2495,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       return;
     }
-    const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatDateTimeDDMMYYYY(new Date());
 
     const activeMultiplier = multiplier || target.multiplier || '1x Salary';
     const factor = activeMultiplier === '2x Salary' ? 2 : activeMultiplier === '1.5x Salary' ? 1.5 : 1;
@@ -2554,7 +2557,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'OT Request Approved',
-      message: `Approved ${approvedHours} hrs OT for ${target.employeeName} on ${target.date} by ${reviewedBy}.`,
+      message: `Approved ${approvedHours} hrs OT for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} by ${reviewedBy}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2572,7 +2575,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       return;
     }
-    const nowStr = new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatDateTimeDDMMYYYY(new Date());
 
     setOvertimeRequests(prev => prev.map(r => r.id === id ? {
       ...r,
@@ -2595,7 +2598,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'OT Request Rejected',
-      message: `OT request for ${target.employeeName} on ${target.date} was rejected by ${reviewedBy}.`,
+      message: `OT request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was rejected by ${reviewedBy}.`,
       priority: 'Urgent',
       category: 'Attendance'
     });
@@ -2616,7 +2619,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setOvertimeRequests(prev => prev.filter(r => r.id !== id));
     addNotification({
       title: 'OT Request Cancelled',
-      message: target ? `Overtime request for ${target.date} was cancelled.` : 'Overtime request removed.',
+      message: target ? `Overtime request for ${formatDateDDMMYYYY(target.date)} was cancelled.` : 'Overtime request removed.',
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2651,9 +2654,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       multiplier: entry.multiplier,
       hourlyRate: entry.hourlyRate,
       calculatedAmount,
-      submittedAt: new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+      submittedAt: formatDateTimeDDMMYYYY(new Date()),
       reviewedBy: entry.addedBy,
-      reviewedAt: new Date().toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+      reviewedAt: formatDateTimeDDMMYYYY(new Date()),
       reviewRemarks: `Directly credited by ${entry.addedBy}`
     };
 
@@ -2706,7 +2709,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Manual Overtime Added',
-      message: `Credited ${entry.hours} hrs OT to ${fullName} on ${entry.date}.`,
+      message: `Credited ${entry.hours} hrs OT to ${fullName} on ${formatDateDDMMYYYY(entry.date)}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
@@ -2958,12 +2961,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Manual Attendance Recorded',
-      message: `Manual attendance for ${fullName} on ${entry.date} recorded by ${entry.addedBy}.`,
+      message: `Manual attendance for ${fullName} on ${formatDateDDMMYYYY(entry.date)} recorded by ${entry.addedBy}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
 
-    return { success: true, message: `Attendance for ${fullName} on ${entry.date} successfully recorded!` };
+    return { success: true, message: `Attendance for ${fullName} on ${formatDateDDMMYYYY(entry.date)} successfully recorded!` };
   };
 
   const normalizeOtAllowedValue = (value: unknown, fallback = true): boolean => {
@@ -3285,7 +3288,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const sendLeaveReminder = (leave: LeaveRequest) => {
     pushSharedNotification({
       title: 'Leave Approval Reminder',
-      message: `Reminder from ${leave.employeeName} (${leave.employeeId}): ${leave.leaveType} application (${leave.startDate} to ${leave.endDate}, ${leave.daysCount} days) is pending HR / CEO review.`,
+      message: `Reminder from ${leave.employeeName} (${leave.employeeId}): ${leave.leaveType} application (${formatDateDDMMYYYY(leave.startDate)} to ${formatDateDDMMYYYY(leave.endDate)}, ${leave.daysCount} days) is pending HR / CEO review.`,
       priority: 'Urgent',
       category: 'Leave',
       link: 'leaves',
@@ -3294,7 +3297,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Reminder Sent to HR & CEO',
-      message: `Your reminder for ${leave.leaveType} (${leave.startDate} to ${leave.endDate}) was delivered to management.`,
+      message: `Your reminder for ${leave.leaveType} (${formatDateDDMMYYYY(leave.startDate)} to ${formatDateDDMMYYYY(leave.endDate)}) was delivered to management.`,
       priority: 'Normal',
       category: 'Leave',
       link: 'leaves'
@@ -5899,10 +5902,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       must_change_password: newEmp.mustChangePassword,
       account_status: newEmp.accountStatus,
       attendance_method: newEmp.attendanceMethod,
-    }).then(res => {
+    }).then(async res => {
       if (res.success && res.data) {
         const mapped = mapEmployeeFromDb(res.data, departments);
         setEmployees(prev => prev.map(e => e.id === newId ? { ...newEmp, ...mapped } : e));
+        const assignedShift = shifts.find(shift => shift.id === newEmp.workShift || shift.shiftName === newEmp.workShift);
+        if (assignedShift?.id?.length === 36) {
+          await supabaseDirect.saveEmployeeShiftAssignment(mapped.id || mapped.employeeId, assignedShift.id, getTodayKolkata());
+        }
         syncAllModulesFromDatabase(false);
         return;
       }
@@ -5999,7 +6006,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Direct cloud sync to Supabase if connected
     supabaseDirect.updateEmployee(employeeId, {
-      account_status: normStatus
+      account_status: normStatus,
+      status: isActivating ? 'Active' : 'Inactive'
+    }).then(result => {
+      if (result.success && typeof window !== 'undefined') window.dispatchEvent(new Event('hrms:shift-assignments-changed'));
     }).catch(err => console.warn('[DatabaseRest] updateEmployeeLoginStatus sync notice:', err));
 
     addNotification({
@@ -6098,6 +6108,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           e.id === id ||
           e.employeeId === id
         ) ? mergedEmployee : e));
+
+        if (normalizedEmpData.workShift) {
+          const assignedShift = shifts.find(shift => shift.id === normalizedEmpData.workShift || shift.shiftName === normalizedEmpData.workShift);
+          if (assignedShift?.id?.length === 36) {
+            await supabaseDirect.saveEmployeeShiftAssignment(mergedEmployee.id || mergedEmployee.employeeId, assignedShift.id, getTodayKolkata());
+          }
+        }
 
         const extensionSaved = await persistEmployeeProfileExtension(mergedEmployee);
         if (!extensionSaved) {
@@ -6539,6 +6556,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const applyLeave = (req: Omit<LeaveRequest, 'id' | 'status' | 'appliedDate'>) => {
     const today = getTodayKolkata();
+    const reasonValidation = validateRequestReason(req.reason);
+    if (!reasonValidation.valid) {
+      alert(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
+      return;
+    }
 
     const rangeVal = validateDateRange(req.startDate, req.endDate);
     if (!rangeVal.valid) {
@@ -6612,6 +6634,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const tempLeaveId = `LR-${Date.now()}`;
     const newReq: LeaveRequest = {
       ...req,
+      reason: reasonValidation.value!,
       id: tempLeaveId,
       status: 'Pending',
       appliedDate: today,
@@ -6640,7 +6663,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       start_date: safeStartDate,
       end_date: safeEndDate,
       days_count: finalDaysCount,
-      reason: req.reason,
+      reason: reasonValidation.value!,
       status: 'Pending',
     }).then(res => {
       if (res.data?.id) {
@@ -6672,7 +6695,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           totalDays: finalDaysCount,
           payType: sandwichCalc.payTypeApplied
         },
-        reason: `Sandwich policy applied for ${req.employeeName} (${req.startDate} to ${req.endDate}).`
+        reason: `Sandwich policy applied for ${req.employeeName} (${formatDateDDMMYYYY(req.startDate)} to ${formatDateDDMMYYYY(req.endDate)}).`
       });
     }
 
@@ -6849,7 +6872,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 1. Notify the employee who applied (targeted to their employee ID & name)
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Approved' : 'Leave Request Approved',
-      message: `Your ${target.leaveType} request (${target.startDate} to ${target.endDate}) was approved by ${approvedBy}.${comment ? ` Remarks: ${comment}` : ''} Attendance updated.`,
+      message: `Your ${target.leaveType} request (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}) was approved by ${approvedBy}.${comment ? ` Remarks: ${comment}` : ''} Attendance updated.`,
       priority: 'Normal',
       category: 'Leave',
       link: 'leaves',
@@ -6921,7 +6944,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 1. Notify the employee who applied (targeted to their employee ID & name)
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Declined' : 'Leave Request Rejected',
-      message: `Your ${target.leaveType} request (${target.startDate} to ${target.endDate}) was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
+      message: `Your ${target.leaveType} request (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}) was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
       priority: 'Urgent',
       category: 'Leave',
       link: 'leaves',
@@ -7012,6 +7035,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setShifts(prev => [...prev, newShift]);
     supabaseDirect.insertShift({
+      company_id: currentUser.company_id || currentUser.companyId || 'company-a',
       shift_name: shiftData.shiftName,
       start_time: shiftData.startTime,
       end_time: shiftData.endTime,
@@ -7180,6 +7204,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
   const requestShiftChange = (req: Omit<ShiftRequest, 'id' | 'status'>) => {
+    const reasonValidation = validateRequestReason(req.reason);
+    if (!reasonValidation.valid) {
+      alert(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
+      return;
+    }
+
     const dateVal = validateRequestDate(req.requestedDate);
     if (!dateVal.valid) {
       alert(dateVal.error || PAST_DATE_ERROR_MESSAGE);
@@ -7207,6 +7237,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const nowIso = new Date().toISOString();
     const newReq: ShiftRequest = {
       ...req,
+      reason: reasonValidation.value!,
       id: `SR-${Date.now()}`,
       status: 'Pending',
       createdAt: nowIso,
@@ -7218,7 +7249,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Notify approvers (CEO + HR) on their own login
     pushSharedNotification({
       title: 'New Shift Change Request',
-      message: `${req.employeeName} requested a shift change from ${req.currentShift} to ${req.requestedShift} (effective ${req.requestedDate}). Reason: ${req.reason || '-'}`,
+      message: `${req.employeeName} requested a shift change from ${req.currentShift} to ${req.requestedShift} (effective ${req.requestedDate}). Reason: ${reasonValidation.value}`,
       priority: 'Important',
       category: 'Shift',
       link: 'shifts',
@@ -7246,9 +7277,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
     const updated: ShiftRequest = { ...target, status: 'Approved', approvedBy, updatedAt: new Date().toISOString() };
+    const requestedShift = shifts.find(shift => shift.id === updated.requestedShiftId)
+      || shifts.find(shift => shift.shiftName === updated.requestedShift);
+    if (requestedShift?.id?.length === 36) {
+      supabaseDirect.saveEmployeeShiftAssignment(updated.employeeId, requestedShift.id, updated.requestedDate).catch(() => false);
+    }
 
     setShiftRequests(prev => prev.map(r => r.id === id ? updated : r));
-    if (updated.employeeId || updated.employeeName) {
+    if (updated.requestedDate <= getTodayKolkata() && (updated.employeeId || updated.employeeName)) {
       setEmployees(empList => empList.map(emp => {
         const matchesId = sameEmployeeKey(updated.employeeId, emp.employeeId) || sameEmployeeKey(updated.employeeId, emp.id);
         const matchesName = sameEmployeeKey(updated.employeeName, `${emp.firstName} ${emp.lastName}`);
@@ -7327,7 +7363,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const applyApprovedShiftsToEmployees = (requests: ShiftRequest[]) => {
     const latestByKey = new Map<string, ShiftRequest>();
     requests
-      .filter(r => r && r.status === 'Approved' && r.requestedShift)
+      .filter(r => r && r.status === 'Approved' && r.requestedShift && r.requestedDate <= getTodayKolkata())
       .forEach(r => {
         const ts = r.updatedAt || r.createdAt || '';
         [r.employeeId, r.employeeName].filter(Boolean).forEach(k => {
@@ -8535,26 +8571,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const addExpense = (exp: Omit<Expense, 'id' | 'status'>) => {
+  const addExpense = async (exp: Omit<Expense, 'id' | 'status'>): Promise<{ success: boolean; message?: string }> => {
     const amountNum = toNum(exp.amount);
     if (amountNum <= 0) {
-      alert('Please enter a valid expense amount greater than zero.');
-      return;
+      return { success: false, message: 'Please enter a valid expense amount greater than zero.' };
     }
     if (amountNum > 100000) {
-      alert('Expense claim amount cannot exceed ₹1,00,000 (1 Lakh) per claim.');
-      return;
-    }
-
-    const dateVal = validateRequestDate(exp.date);
-    if (!dateVal.valid) {
-      alert(dateVal.error || PAST_DATE_ERROR_MESSAGE);
-      return;
+      return { success: false, message: 'Expense claim amount cannot exceed ₹1,00,000 (1 Lakh) per claim.' };
     }
     const dupCheck = checkDuplicateExpense(expenses, exp.employeeId, exp.date, exp.category, amountNum);
     if (dupCheck.hasDuplicate) {
-      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
-      return;
+      return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
     }
 
     const tempId = `EXP-${Date.now()}`;
@@ -8564,29 +8591,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: tempId,
       status: 'Pending Manager'
     };
-    setExpenses(prev => [newExp, ...prev]);
-    if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-      supabaseDirect.saveCompanySetting('expenses_data', [newExp, ...expenses]).catch(() => {});
+    let savedExpense: Expense;
+    try {
+      savedExpense = await createExpenseClaim(newExp);
+    } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : 'Expense claim could not be saved. Please try again.' };
     }
-
-    const targetEmp = employees.find(e => e.id === exp.employeeId || e.employeeId === exp.employeeId);
-    supabaseDirect.insertExpense({
-      employee_id: targetEmp?.employeeId || exp.employeeId || targetEmp?.id || '',
-      category: exp.category,
-      amount: amountNum,
-      date: exp.date,
-      description: exp.description,
-      receipt_url: exp.receiptUrl,
-      status: 'Pending Manager',
-    }).then(res => {
-      if (res.data?.id) {
-        setExpenses(curr => curr.map(e => e.id === tempId ? { ...e, id: res.data.id } : e));
-      } else if (!res.success) {
-        console.warn('[HRMSContext] expense cloud insert notice:', res.error);
-      }
-    }).catch(err => {
-      console.warn('[HRMSContext] expense cloud insert notice:', err);
-    });
+    setExpenses(prev => [savedExpense, ...prev]);
+    if (isCloudInitialized.current && !isSyncingFromCloud.current) {
+      supabaseDirect.saveCompanySetting('expenses_data', [savedExpense, ...expenses]).catch(() => {});
+    }
 
     addNotification({
       title: 'Expense Claim Submitted',
@@ -8594,6 +8608,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       priority: 'Normal',
       category: 'Announcement'
     });
+    return { success: true };
   };
 
   const approveExpense = (id: string, approvedBy: string, nextStatus: Expense['status']) => {
@@ -9686,9 +9701,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         supabaseDirect.getTasks().catch(() => []),
         supabaseDirect.getAttendanceRecords().catch(() => []),
         supabaseDirect.getLeaveRequests().catch(() => []),
-        supabaseDirect.getShifts().catch(() => []),
+        supabaseDirect.getShifts(currentUser.company_id || currentUser.companyId || 'company-a').catch(() => []),
         supabaseDirect.getAssets().catch(() => []),
-        supabaseDirect.getExpenses().catch(() => []),
+        fetchExpenseClaims().catch(() => supabaseDirect.getExpenses().catch(() => [])),
         supabaseDirect.getJobOpenings().catch(() => []),
         supabaseDirect.getCandidates().catch(() => []),
         supabaseDirect.getPayrollRecords().catch(() => []),
@@ -9742,8 +9757,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           workingHours: s.working_hours ?? 8,
           gracePeriodMins: s.grace_period_mins ?? 15,
           color: s.color || '#0E7490',
-          assignedEmployeeCount: 0,
-          assignments: []
+          assignments: (s.assignments || []).map((assignment: any) => ({
+            id: assignment.id,
+            shiftId: assignment.shift_id || assignment.shiftId || s.id,
+            employeeId: assignment.employee?.employee_id || assignment.employee_id || assignment.employeeId,
+            effectiveFrom: assignment.effective_from || assignment.effectiveFrom || '',
+            status: assignment.status || 'ACTIVE',
+            assignedById: assignment.assigned_by_id || '',
+            createdAt: assignment.created_at || '',
+            updatedAt: assignment.updated_at || ''
+          })).filter((assignment: any) => assignment.employeeId),
+          assignedEmployeeCount: (s.assignments || []).length
         })));
       } else if (Array.isArray(settings?.shifts_data)) {
         setShifts(settings.shifts_data.filter((s: Shift) => s && s.id !== 'SH-01' && s.id !== 'SH-02' && s.id !== 'SH-03'));
@@ -9910,14 +9934,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (Array.isArray(rawExpenses) && rawExpenses.length > 0) {
         const mappedExpenses = rawExpenses.map((exp: any) => ({
           id: exp.id,
-          employeeId: exp.employee?.employee_id || exp.employee_id,
-          employeeName: exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff',
-          department: exp.employee?.department_id || 'General',
+          employeeId: exp.employeeId || exp.employee?.employee_id || exp.employee_id,
+          employeeName: exp.employeeName || (exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff'),
+          department: exp.department || exp.employee?.department_id || 'General',
           category: exp.category || 'Travel',
           amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0)),
           date: exp.date,
           description: exp.description || '',
-          receiptUrl: exp.receipt_url || '',
+          receiptUrl: exp.receiptUrl || exp.receipt_url || '',
           status: exp.status || 'Pending'
         }));
         const savedOnlyExpenses = savedExpenses.filter((exp: Expense) => (
