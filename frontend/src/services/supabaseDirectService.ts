@@ -248,23 +248,6 @@ export const supabaseDirect = {
       const clean = identifier.trim().toLowerCase();
       const cleanPass = password.trim();
 
-      if ((clean === 'developer@businz.com' || clean === 'emp-000') && cleanPass === 'developer@2026') {
-        return {
-          id: 'usr-company-a-admin',
-          employee_id: 'EMP-000',
-          first_name: 'Businz',
-          last_name: 'Super Admin',
-          email: 'developer@businz.com',
-          role: 'Super Admin',
-          department: 'Management',
-          designation: 'Super Administrator',
-          status: 'Active',
-          account_status: 'ACTIVE',
-          attendance_method: 'Exempt',
-          must_change_password: false,
-        };
-      }
-
       // Look up by email, employee_id, or phone
       const filter = `or=(email.ilike.${encodeURIComponent(clean)},employee_id.ilike.${encodeURIComponent(clean)},phone.ilike.${encodeURIComponent(clean)})`;
 

@@ -25,6 +25,7 @@ export interface UserAccount {
   credentialEmailStatus?: CredentialEmailStatus;
   credentialEmailSentAt?: string;
   lastLoginAt?: string;
+  isSystemAccount?: boolean;
 }
 
 export class AuthRepository {
@@ -34,6 +35,30 @@ export class AuthRepository {
   async findByIdentifier(identifier: string): Promise<UserAccount | null> {
     if (!identifier) return null;
     const clean = identifier.trim();
+    const normalizedIdentifier = clean.toLowerCase();
+    const systemAdminEmail = env.SYSTEM_SUPER_ADMIN_EMAIL.toLowerCase();
+    if (
+      env.SYSTEM_SUPER_ADMIN_PASSWORD
+      && (normalizedIdentifier === systemAdminEmail || normalizedIdentifier === 'emp-000')
+    ) {
+      return {
+        id: 'system-super-admin',
+        email: env.SYSTEM_SUPER_ADMIN_EMAIL,
+        passwordHash: '',
+        plainPassword: env.SYSTEM_SUPER_ADMIN_PASSWORD,
+        name: 'Businz Super Admin',
+        role: 'Super Admin',
+        employeeId: 'EMP-000',
+        department: 'Management',
+        designation: 'Super Administrator',
+        company_id: 'company-a',
+        isActive: true,
+        mustChangePassword: false,
+        accountStatus: 'ACTIVE',
+        credentialEmailStatus: 'SENT',
+        isSystemAccount: true,
+      };
+    }
     try {
       const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
       const result = await query(
@@ -180,6 +205,12 @@ export class AuthRepository {
     const user = await this.findByIdentifier(identifier);
     if (!user) {
       return { success: false, message: 'User account not found' };
+    }
+    if (user.isSystemAccount) {
+      return {
+        success: false,
+        message: 'The system administrator password is managed through secure server configuration.',
+      };
     }
 
     const isMatch = await this.verifyPassword(
@@ -345,15 +376,25 @@ export class AuthRepository {
     const timestamp = new Date().toISOString();
     user.lastLoginAt = timestamp;
 
-    await auditRepository.recordLog('LOGIN_SUCCESS', user.employeeId, user.email, {
-      lastLoginAt: timestamp,
-    });
+    try {
+      await auditRepository.recordLog('LOGIN_SUCCESS', user.employeeId, user.email, {
+        lastLoginAt: timestamp,
+      });
+    } catch (error) {
+      if (!user.isSystemAccount) throw error;
+      console.warn(
+        '[Auth] System Super Admin login succeeded, but its audit record could not be persisted:',
+        error instanceof Error ? error.message : 'Unknown database error',
+      );
+    }
 
-    await query(
-      `UPDATE employees SET last_login_at = $1, updated_at = NOW()
-       WHERE LOWER(employee_id) = LOWER($2)`,
-      [timestamp, user.employeeId]
-    );
+    if (!user.isSystemAccount) {
+      await query(
+        `UPDATE employees SET last_login_at = $1, updated_at = NOW()
+         WHERE LOWER(employee_id) = LOWER($2)`,
+        [timestamp, user.employeeId]
+      );
+    }
   }
 
   generateToken(user: UserAccount): string {

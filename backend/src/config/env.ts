@@ -21,6 +21,8 @@ const envSchema = z.object({
   DB_REST_KEY: z.string().default('vps-local-rest-key'),
   DB_REST_SERVICE_KEY: z.string().default('vps-local-rest-key'),
   JWT_SECRET: z.string().default('vrm-hrms-dev-jwt-secret-key-replace-in-production-2026'),
+  SYSTEM_SUPER_ADMIN_EMAIL: z.string().email().default('developer@businz.com'),
+  SYSTEM_SUPER_ADMIN_PASSWORD: z.string().min(12).optional(),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3000,*'),
   DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5432/hrms'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
