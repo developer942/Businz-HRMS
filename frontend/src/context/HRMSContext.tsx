@@ -1201,7 +1201,7 @@ const localDateTimeToIso = (date: string, time?: string | null): string | null =
 export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // VPS database architecture: purge any remaining business data from browser localStorage
   if (typeof window !== 'undefined') {
-    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v7';
+    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v8';
     if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
       const keysToRemove = [
         'vrm_hrms_employees', 'vrm_hrms_enhanced_tasks', 'vrm_hrms_attendance_records',
@@ -1332,8 +1332,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const directDepartment = typeof d.department === 'string' ? d.department : d.department_name || d.deptName;
     const relatedDepartment = d.departments?.name || d.department?.name;
     const rawVal = directDepartment || relatedDepartment || d.departmentId || d.department_id;
-    if (!rawVal) return 'General';
     const deptList = depts && depts.length > 0 ? depts : (typeof departments !== 'undefined' ? departments : []);
+    if (!rawVal) return deptList[0]?.name || '';
     const match = deptList.find((dep: any) =>
       dep.id === rawVal ||
       dep.code?.toLowerCase() === String(rawVal).toLowerCase() ||
@@ -1341,7 +1341,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
     if (match) return match.name;
     if (String(rawVal).toLowerCase() === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || String(rawVal).toLowerCase().includes('hr')) return 'HR';
-    if (String(rawVal).length >= 32 && String(rawVal).includes('-')) return 'General';
+    if (String(rawVal).length >= 32 && String(rawVal).includes('-')) return deptList[0]?.name || '';
     return String(rawVal);
   };
 
@@ -4347,7 +4347,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return {
             id: `desig-${lower.replace(/[^a-z0-9]/g, '-')}`,
             title,
-            department: 'General',
+            department: 'All Departments',
             level: 'Staff'
           };
         });
@@ -10164,7 +10164,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Organization Structure & Departments
         const cloudOrg = settings.org_structure;
         if (hasSetting('org_structure') && cloudOrg && typeof cloudOrg === 'object') {
-          const deptNames = dedupeStringList(cloudOrg.departments);
+          const deptNames = dedupeStringList(cloudOrg.departments).filter(n => n.trim().toLowerCase() !== 'general');
           const mergedOrg: OrganizationStructure = {
             departments: deptNames,
             designations: dedupeStringList(cloudOrg.designations),
@@ -10188,7 +10188,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             };
           }));
         } else if (Array.isArray(cloudDepts) && cloudDepts.length > 0) {
-          const loadedNames = dedupeStringList(cloudDepts.map(d => d.name));
+          const loadedNames = dedupeStringList(cloudDepts.map(d => d.name)).filter(n => n.trim().toLowerCase() !== 'general');
           setOrgStructure(prev => ({ ...prev, departments: loadedNames }));
           setDepartments(loadedNames.map(name => {
             const match = cloudDepts.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
@@ -10420,7 +10420,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const dedupedDepts: any[] = [];
           for (const d of settings.departments_data) {
             const key = (d?.name || '').trim().toLowerCase();
-            if (key && !seenDept.has(key)) {
+            if (key && key !== 'general' && !seenDept.has(key)) {
               seenDept.add(key);
               const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === key) : null;
               dedupedDepts.push({
