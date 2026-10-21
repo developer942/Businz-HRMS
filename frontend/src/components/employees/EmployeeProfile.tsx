@@ -3458,11 +3458,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </p>
           </div>
 
-          {isCEOorHR && (
+          {isCEOorHR && canActivateOrDeactivate && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => setShowResetConfirmModal(true)}
+                id="btn-toggle-account-status"
+                onClick={() => {
+                  setStatusToSet(formData.accountStatus === 'ACTIVE' ? 'DEACTIVATED' : 'ACTIVE');
+                  setShowStatusConfirmModal(true);
+                }}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -3471,40 +3475,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   borderRadius: '9px',
                   fontSize: '0.8rem',
                   fontWeight: 700,
-                  backgroundColor: '#ECFEFF',
-                  color: '#0E7490',
-                  border: '1px solid #A5F3FC',
+                  backgroundColor: formData.accountStatus === 'ACTIVE' ? '#FEF2F2' : '#ECFDF5',
+                  color: formData.accountStatus === 'ACTIVE' ? '#DC2626' : '#059669',
+                  border: `1px solid ${formData.accountStatus === 'ACTIVE' ? '#FECACA' : '#A7F3D0'}`,
                   cursor: 'pointer'
                 }}
               >
-                <KeyRound size={14} /> Reset & Dispatch Credentials
+                <Power size={14} /> {formData.accountStatus === 'ACTIVE' ? 'Deactivate Account' : 'Activate Account'}
               </button>
-
-              {canActivateOrDeactivate && (
-                <button
-                  type="button"
-                  id="btn-toggle-account-status"
-                  onClick={() => {
-                    setStatusToSet(formData.accountStatus === 'ACTIVE' ? 'DEACTIVATED' : 'ACTIVE');
-                    setShowStatusConfirmModal(true);
-                  }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    borderRadius: '9px',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    backgroundColor: formData.accountStatus === 'ACTIVE' ? '#FEF2F2' : '#ECFDF5',
-                    color: formData.accountStatus === 'ACTIVE' ? '#DC2626' : '#059669',
-                    border: `1px solid ${formData.accountStatus === 'ACTIVE' ? '#FECACA' : '#A7F3D0'}`,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Power size={14} /> {formData.accountStatus === 'ACTIVE' ? 'Deactivate Account' : 'Activate Account'}
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -3675,20 +3653,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         <span>{copiedField === 'portalPassword' ? 'Copied!' : 'Copy'}</span>
                       </button>
                     </div>
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{
-                      fontSize: '0.68rem',
-                      backgroundColor: '#ECFEFF',
-                      color: '#0E7490',
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      fontWeight: 700,
-                      border: '1px solid #CFFAFE'
-                    }}>
-                      {isSuperAdminOrCEO ? 'Super Admin / CEO Access' : isHR ? 'HR Manager Access' : 'Your Password'}
-                    </span>
-                    <span>Visible to Super Admin, CEO, HR, and the employee.</span>
                   </div>
                 </div>
               )
