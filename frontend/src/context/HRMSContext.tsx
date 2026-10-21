@@ -1201,7 +1201,7 @@ const localDateTimeToIso = (date: string, time?: string | null): string | null =
 export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // VPS database architecture: purge any remaining business data from browser localStorage
   if (typeof window !== 'undefined') {
-    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v6';
+    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v7';
     if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
       const keysToRemove = [
         'vrm_hrms_employees', 'vrm_hrms_enhanced_tasks', 'vrm_hrms_attendance_records',
@@ -1217,7 +1217,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         'vrm_hrms_designations', 'vrm_hrms_department_ot_policies', 'vrm_hrms_overtime_records',
         'vrm_enterprise_integrations_v6', 'vrm_enterprise_integrations_v5', 'vrm_enterprise_integrations_v4',
         'vrm_enterprise_integrations_v3', 'vrm_enterprise_integrations_v2',
-        'vrm_hrms_candidates', 'hrms_candidates', 'vrm_hrms_candidates_data', 'vrm_hrms_loan_records_data'
+        'vrm_hrms_candidates', 'hrms_candidates', 'vrm_hrms_candidates_data', 'vrm_hrms_loan_records_data',
+        'vrm_hrms_shared_notifications', 'shared_notifications_data', 'vrm_shared_notifications'
       ];
       for (const k of keysToRemove) {
         try { localStorage.removeItem(k); } catch {}
@@ -3644,16 +3645,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [loanRecords, setLoanRecords] = useState<LoanRecord[]>([]);
 
-  // Sync loan records to VPS database whenever updated
-  useEffect(() => {
-    try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-        supabaseDirect.saveCompanySetting('loan_records_data', loanRecords);
-      }
-    } catch (e) {
-      console.warn('Failed to save loanRecords to VPS database', e);
-    }
-  }, [loanRecords]);
+  // Discrete loan actions (submit, review, disburse, manual repayment) persist directly to VPS database
+
 
   // Dynamic Eligibility Calculator (NO HARDCODING)
   const calculateEmployeeLoanEligibility = (employeeId: string, policyId?: string) => {
@@ -9986,7 +9979,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setJobOpenings([]);
       }
 
-      const savedCandidates = Array.isArray(settings.candidates_data) ? settings.candidates_data : [];
+      const isTestCandidate = (c: any) => {
+        if (!c) return true;
+        const email = String(c.email || '').toLowerCase().trim();
+        const name = String(c.name || '').toLowerCase().trim();
+        if (email === 'mdbilaly029@gmail.com') return true;
+        if (name.includes('noorisha')) return true;
+        return false;
+      };
+
+      const savedCandidates = (Array.isArray(settings.candidates_data) ? settings.candidates_data : [])
+        .filter((c: Candidate) => !isTestCandidate(c));
       const candidateKey = (c: Candidate) => [
         c.email || '',
         c.phone || '',
@@ -9994,8 +9997,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         c.appliedDate || ''
       ].join('|').toLowerCase();
 
-      if (Array.isArray(rawCandidates) && rawCandidates.length > 0) {
-        const mappedCandidates: Candidate[] = rawCandidates.map((c: any) => {
+      const validRawCandidates = (Array.isArray(rawCandidates) ? rawCandidates : [])
+        .filter((c: any) => !isTestCandidate(c));
+
+      if (validRawCandidates.length > 0) {
+        const mappedCandidates: Candidate[] = validRawCandidates.map((c: any) => {
           const mapped: Candidate = {
             id: c.id,
             jobId: c.job_id,
@@ -10027,8 +10033,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         supabaseDirect.saveCompanySetting('candidates_data', result).catch(() => {});
       } else if (savedCandidates.length > 0) {
         setCandidates(savedCandidates);
+        if (savedCandidates.length !== (settings.candidates_data?.length || 0)) {
+          supabaseDirect.saveCompanySetting('candidates_data', savedCandidates).catch(() => {});
+        }
       } else {
         setCandidates([]);
+        if (Array.isArray(settings.candidates_data) && settings.candidates_data.length > 0) {
+          supabaseDirect.saveCompanySetting('candidates_data', []).catch(() => {});
+        }
       }
 
       // Synchronize Payroll Records
@@ -10317,9 +10329,25 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setLoanPolicies(normalizedPolicies);
         }
 
-        // Loan Records
+        // Loan Records: strictly filter to only active employees
         if (Array.isArray(settings.loan_records_data)) {
-          setLoanRecords(settings.loan_records_data);
+          const activeEmpIds = new Set<string>();
+          if (Array.isArray(rawEmployees)) {
+            rawEmployees.forEach((e: any) => {
+              if (e.id) activeEmpIds.add(String(e.id).toLowerCase());
+              if (e.employee_id) activeEmpIds.add(String(e.employee_id).toLowerCase());
+            });
+          }
+          const validLoans = settings.loan_records_data.filter((r: LoanRecord) => {
+            if (!r || !r.employeeId) return false;
+            return activeEmpIds.has(String(r.employeeId).toLowerCase());
+          });
+          setLoanRecords(validLoans);
+          if (validLoans.length !== settings.loan_records_data.length) {
+            supabaseDirect.saveCompanySetting('loan_records_data', validLoans).catch(() => {});
+          }
+        } else {
+          setLoanRecords([]);
         }
 
         // Geofence Config
