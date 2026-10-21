@@ -67,7 +67,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
   );
   const [checkInTime, setCheckInTime] = useState<string>(record.checkIn || '09:00 AM');
   const [checkOutTime, setCheckOutTime] = useState<string>(record.checkOut || '06:00 PM');
-  const [breakDuration, setBreakDuration] = useState<number>(record.breakDurationMinutes || 45);
+  const [breakDuration, setBreakDuration] = useState<number | string>(record.breakDurationMinutes || 45);
 
   const inMins = parseTimeToMinutes(checkInTime);
   const shiftMins = parseTimeToMinutes(shiftStartTimeStr) ?? 9 * 60;
@@ -130,7 +130,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
     const outMins = parseTimeStr(checkOutTime);
     if (outMins < inMins) return 0;
 
-    const netMins = Math.max(0, outMins - inMins - breakDuration);
+    const netMins = Math.max(0, outMins - inMins - (Number(breakDuration) || 0));
     return Math.round((netMins / 60) * 10) / 10;
   };
 
@@ -194,7 +194,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
       status: statusToSend,
       checkIn: selectedStatus === 'Absent' ? null : checkInTime,
       checkOut: selectedStatus === 'Absent' ? null : checkOutTime,
-      breakDurationMinutes: breakDuration,
+      breakDurationMinutes: Number(breakDuration) || 0,
       halfDayType: selectedStatus === 'Half Day' ? halfDayType : undefined,
       absentReason: selectedStatus === 'Absent' ? absentReason : undefined,
       leaveType: selectedStatus === 'On Leave' || (selectedStatus as string) === 'Leave' ? leaveType : undefined,
@@ -528,7 +528,10 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
                         min="0"
                         max="180"
                         value={breakDuration}
-                        onChange={(e) => setBreakDuration(Number(e.target.value))}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setBreakDuration(val === '' ? '' : Math.max(0, parseInt(val, 10) || 0));
+                        }}
                         style={{
                           width: '100%',
                           padding: '8px 12px',

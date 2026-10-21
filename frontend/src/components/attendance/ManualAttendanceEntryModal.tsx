@@ -54,7 +54,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   const [isMissedCheckIn, setIsMissedCheckIn] = useState<boolean>(false);
   const [isMissedCheckOut, setIsMissedCheckOut] = useState<boolean>(false);
   
-  const [breakDuration, setBreakDuration] = useState<number>(45);
+  const [breakDuration, setBreakDuration] = useState<number | string>(45);
   const [otHours, setOtHours] = useState<number>(0);
   const [reason, setReason] = useState<string>('Missed punch-out: Employee forgot before leaving');
   
@@ -183,7 +183,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     if (inMins === null || outMins === null) return 8.0;
     if (outMins < inMins) return 8.0;
 
-    const netMins = Math.max(0, outMins - inMins - (breakDuration || 0));
+    const netMins = Math.max(0, outMins - inMins - (Number(breakDuration) || 0));
     return Math.round((netMins / 60) * 10) / 10;
   };
 
@@ -235,7 +235,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       status: statusToSend,
       checkIn: finalCheckIn,
       checkOut: finalCheckOut,
-      breakDurationMinutes: breakDuration,
+      breakDurationMinutes: Number(breakDuration) || 0,
       workingHours: calculatedHours,
       halfDayType: status === 'Half Day' ? halfDayType : undefined,
       otHours: otHours > 0 ? otHours : undefined,
@@ -736,7 +736,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       min="0"
                       max="120"
                       value={breakDuration}
-                      onChange={e => setBreakDuration(parseInt(e.target.value) || 0)}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setBreakDuration(val === '' ? '' : Math.max(0, parseInt(val, 10) || 0));
+                      }}
                       style={{
                         width: '100%',
                         height: '38px',

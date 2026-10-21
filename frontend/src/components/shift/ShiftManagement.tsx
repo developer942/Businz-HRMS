@@ -157,7 +157,17 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   };
 
   // Add Shift Form State
-  const [shiftForm, setShiftForm] = useState({
+  interface ShiftFormState {
+    shiftName: string;
+    startTime: string;
+    endTime: string;
+    breakDurationMins: number | string;
+    workingHours: number | string;
+    color: string;
+  }
+
+  // Add Shift Form State
+  const [shiftForm, setShiftForm] = useState<ShiftFormState>({
     shiftName: '',
     startTime: '09:00',
     endTime: '18:00',
@@ -167,7 +177,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   });
 
   // Edit Shift Form State
-  const [editShiftForm, setEditShiftForm] = useState({
+  const [editShiftForm, setEditShiftForm] = useState<ShiftFormState>({
     shiftName: '',
     startTime: '09:00',
     endTime: '18:00',
@@ -175,6 +185,17 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     workingHours: 8.25,
     color: '#0E7490'
   });
+
+  // Helper to dynamically calculate working hours net of break
+  const calcWorkingHours = (start: string, end: string, breakMins: number | string) => {
+    if (!start || !end) return 8;
+    const [startH, startM] = start.split(':').map(Number);
+    const [endH, endM] = end.split(':').map(Number);
+    let totalMins = (endH * 60 + endM) - (startH * 60 + startM);
+    if (totalMins < 0) totalMins += 24 * 60;
+    const bMins = breakMins === '' ? 0 : (Number(breakMins) || 0);
+    return Math.max(0, Math.round(((totalMins - bMins) / 60) * 100) / 100);
+  };
 
   // Shift Swap Request Form State
   const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
@@ -203,18 +224,16 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     e.preventDefault();
     if (!shiftForm.shiftName.trim()) return;
 
-    const [startH, startM] = shiftForm.startTime.split(':').map(Number);
-    const [endH, endM] = shiftForm.endTime.split(':').map(Number);
-    let totalMins = (endH * 60 + endM) - (startH * 60 + startM);
-    if (totalMins < 0) totalMins += 24 * 60;
-    const computedHours = Math.max(0, Math.round(((totalMins - shiftForm.breakDurationMins) / 60) * 100) / 100);
+    const computedHours = calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins);
+    const finalBreak = shiftForm.breakDurationMins === '' ? 0 : Math.max(0, parseInt(String(shiftForm.breakDurationMins), 10) || 0);
+    const finalHours = shiftForm.workingHours === '' ? computedHours : Math.max(0, parseFloat(String(shiftForm.workingHours)) || 0);
 
     addShift({
       shiftName: shiftForm.shiftName.trim(),
       startTime: shiftForm.startTime,
       endTime: shiftForm.endTime,
-      breakDurationMins: Number(shiftForm.breakDurationMins),
-      workingHours: Number(shiftForm.workingHours) || computedHours,
+      breakDurationMins: finalBreak,
+      workingHours: finalHours || computedHours,
       gracePeriodMins: 0,
       assignments: [],
       color: shiftForm.color
@@ -240,8 +259,8 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       shiftName: s.shiftName,
       startTime: s.startTime,
       endTime: s.endTime,
-      breakDurationMins: s.breakDurationMins,
-      workingHours: s.workingHours,
+      breakDurationMins: s.breakDurationMins ?? 0,
+      workingHours: s.workingHours ?? 8,
       color: s.color || '#0E7490'
     });
   };
@@ -251,18 +270,16 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     e.preventDefault();
     if (!editingShift || !editShiftForm.shiftName.trim()) return;
 
-    const [startH, startM] = editShiftForm.startTime.split(':').map(Number);
-    const [endH, endM] = editShiftForm.endTime.split(':').map(Number);
-    let totalMins = (endH * 60 + endM) - (startH * 60 + startM);
-    if (totalMins < 0) totalMins += 24 * 60;
-    const computedHours = Math.max(0, Math.round(((totalMins - editShiftForm.breakDurationMins) / 60) * 100) / 100);
+    const computedHours = calcWorkingHours(editShiftForm.startTime, editShiftForm.endTime, editShiftForm.breakDurationMins);
+    const finalBreak = editShiftForm.breakDurationMins === '' ? 0 : Math.max(0, parseInt(String(editShiftForm.breakDurationMins), 10) || 0);
+    const finalHours = editShiftForm.workingHours === '' ? computedHours : Math.max(0, parseFloat(String(editShiftForm.workingHours)) || 0);
 
     updateShift(editingShift.id, {
       shiftName: editShiftForm.shiftName.trim(),
       startTime: editShiftForm.startTime,
       endTime: editShiftForm.endTime,
-      breakDurationMins: Number(editShiftForm.breakDurationMins),
-      workingHours: Number(editShiftForm.workingHours) || computedHours,
+      breakDurationMins: finalBreak,
+      workingHours: finalHours || computedHours,
       color: editShiftForm.color
     });
 
@@ -789,21 +806,71 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Start Time</label>
-                    <input className="form-control" type="time" value={shiftForm.startTime} onChange={e => setShiftForm({ ...shiftForm, startTime: e.target.value })} />
+                    <input
+                      className="form-control"
+                      type="time"
+                      value={shiftForm.startTime}
+                      onChange={e => {
+                        const newStart = e.target.value;
+                        const computed = calcWorkingHours(newStart, shiftForm.endTime, shiftForm.breakDurationMins);
+                        setShiftForm(prev => ({ ...prev, startTime: newStart, workingHours: computed }));
+                      }}
+                    />
                   </div>
                   <div className="form-group">
                     <label className="form-label">End Time</label>
-                    <input className="form-control" type="time" value={shiftForm.endTime} onChange={e => setShiftForm({ ...shiftForm, endTime: e.target.value })} />
+                    <input
+                      className="form-control"
+                      type="time"
+                      value={shiftForm.endTime}
+                      onChange={e => {
+                        const newEnd = e.target.value;
+                        const computed = calcWorkingHours(shiftForm.startTime, newEnd, shiftForm.breakDurationMins);
+                        setShiftForm(prev => ({ ...prev, endTime: newEnd, workingHours: computed }));
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Break Duration (Minutes)</label>
-                  <input className="form-control" type="number" min="0" max="120" value={shiftForm.breakDurationMins} onChange={e => setShiftForm({ ...shiftForm, breakDurationMins: Number(e.target.value) })} />
+                  <input
+                    className="form-control"
+                    type="number"
+                    min="0"
+                    max="180"
+                    placeholder="e.g. 45 or 0"
+                    value={shiftForm.breakDurationMins}
+                    onChange={e => {
+                      const val = e.target.value;
+                      const parsed = val === '' ? '' : (parseInt(val, 10) || 0);
+                      const computed = calcWorkingHours(shiftForm.startTime, shiftForm.endTime, parsed);
+                      setShiftForm(prev => ({
+                        ...prev,
+                        breakDurationMins: parsed,
+                        workingHours: computed
+                      }));
+                    }}
+                  />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Working Hours (Net)</label>
-                    <input className="form-control" type="number" step="0.25" value={shiftForm.workingHours} onChange={e => setShiftForm({ ...shiftForm, workingHours: Number(e.target.value) })} />
+                    <input
+                      className="form-control"
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      max="24"
+                      placeholder="e.g. 8.25"
+                      value={shiftForm.workingHours}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setShiftForm(prev => ({
+                          ...prev,
+                          workingHours: val === '' ? '' : val
+                        }));
+                      }}
+                    />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Shift Accent Color</label>
@@ -848,21 +915,73 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Start Time</label>
-                    <input className="form-control" type="time" value={editShiftForm.startTime} onChange={e => setEditShiftForm({ ...editShiftForm, startTime: e.target.value })} required />
+                    <input
+                      className="form-control"
+                      type="time"
+                      value={editShiftForm.startTime}
+                      onChange={e => {
+                        const newStart = e.target.value;
+                        const computed = calcWorkingHours(newStart, editShiftForm.endTime, editShiftForm.breakDurationMins);
+                        setEditShiftForm(prev => ({ ...prev, startTime: newStart, workingHours: computed }));
+                      }}
+                      required
+                    />
                   </div>
                   <div className="form-group">
                     <label className="form-label">End Time</label>
-                    <input className="form-control" type="time" value={editShiftForm.endTime} onChange={e => setEditShiftForm({ ...editShiftForm, endTime: e.target.value })} required />
+                    <input
+                      className="form-control"
+                      type="time"
+                      value={editShiftForm.endTime}
+                      onChange={e => {
+                        const newEnd = e.target.value;
+                        const computed = calcWorkingHours(editShiftForm.startTime, newEnd, editShiftForm.breakDurationMins);
+                        setEditShiftForm(prev => ({ ...prev, endTime: newEnd, workingHours: computed }));
+                      }}
+                      required
+                    />
                   </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Break Duration (Minutes)</label>
-                  <input className="form-control" type="number" min="0" max="120" value={editShiftForm.breakDurationMins} onChange={e => setEditShiftForm({ ...editShiftForm, breakDurationMins: Number(e.target.value) })} required />
+                  <input
+                    className="form-control"
+                    type="number"
+                    min="0"
+                    max="180"
+                    placeholder="e.g. 45 or 0"
+                    value={editShiftForm.breakDurationMins}
+                    onChange={e => {
+                      const val = e.target.value;
+                      const parsed = val === '' ? '' : (parseInt(val, 10) || 0);
+                      const computed = calcWorkingHours(editShiftForm.startTime, editShiftForm.endTime, parsed);
+                      setEditShiftForm(prev => ({
+                        ...prev,
+                        breakDurationMins: parsed,
+                        workingHours: computed
+                      }));
+                    }}
+                  />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Working Hours (Net)</label>
-                    <input className="form-control" type="number" step="0.25" value={editShiftForm.workingHours} onChange={e => setEditShiftForm({ ...editShiftForm, workingHours: Number(e.target.value) })} required />
+                    <input
+                      className="form-control"
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      max="24"
+                      placeholder="e.g. 8.25"
+                      value={editShiftForm.workingHours}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setEditShiftForm(prev => ({
+                          ...prev,
+                          workingHours: val === '' ? '' : val
+                        }));
+                      }}
+                    />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Shift Color</label>
