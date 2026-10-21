@@ -10450,16 +10450,26 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Loan Records: strictly filter to only active employees
         if (Array.isArray(settings.loan_records_data)) {
-          const activeEmpIds = new Set<string>();
+          const activeEmpMap = new Map<string, any>();
           if (Array.isArray(rawEmployees)) {
             rawEmployees.forEach((e: any) => {
-              if (e.id) activeEmpIds.add(String(e.id).toLowerCase());
-              if (e.employee_id) activeEmpIds.add(String(e.employee_id).toLowerCase());
+              if (e.id) activeEmpMap.set(String(e.id).toLowerCase(), e);
+              if (e.employee_id) activeEmpMap.set(String(e.employee_id).toLowerCase(), e);
             });
           }
           const validLoans = settings.loan_records_data.filter((r: LoanRecord) => {
             if (!r || !r.employeeId) return false;
-            return activeEmpIds.has(String(r.employeeId).toLowerCase());
+            const emp = activeEmpMap.get(String(r.employeeId).toLowerCase());
+            if (!emp) return false;
+            if (r.employeeName && emp.first_name) {
+              const rName = r.employeeName.trim().toLowerCase();
+              const empFullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim().toLowerCase();
+              const empFirstName = (emp.first_name || '').trim().toLowerCase();
+              if (!empFullName.includes(rName) && !rName.includes(empFirstName)) {
+                return false;
+              }
+            }
+            return true;
           });
           setLoanRecords(validLoans);
           if (validLoans.length !== settings.loan_records_data.length) {
