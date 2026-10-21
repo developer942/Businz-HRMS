@@ -159,9 +159,20 @@ export const createEmployee = async (req, res, next) => {
                 : (validated.designation || '').toLowerCase().includes('account') || (validated.designation || '').toLowerCase().includes('finance') || (validated.department || '').toLowerCase() === 'accounts' || (validated.department || '').toLowerCase() === 'finance'
                     ? 'Finance Manager'
                     : 'Employee');
-        // STEP 5: Create linked authentication account
+        // Create linked employee record
+        const newEmp = await employeeRepository.createEmployee({
+            ...validated,
+            id: employeeDbId,
+            employeeId: employeeCode,
+            email: cleanEmail,
+            mustChangePassword: true,
+            accountStatus: 'ACTIVE',
+            status: 'Active',
+            password: temporaryPassword,
+        });
+        // STEP 5: Create linked authentication account & persist credentials
         const { user: authUser } = await authRepository.createLoginAccount({
-            employeeDbId,
+            employeeDbId: newEmp.id,
             employeeCode,
             email: cleanEmail,
             firstName: validated.firstName,
@@ -171,18 +182,7 @@ export const createEmployee = async (req, res, next) => {
             role: userRole,
             temporaryPassword,
         });
-        // Create linked employee record
-        const newEmp = await employeeRepository.createEmployee({
-            ...validated,
-            id: employeeDbId,
-            employeeId: employeeCode,
-            email: cleanEmail,
-            authUserId: authUser.id,
-            mustChangePassword: true,
-            accountStatus: 'ACTIVE',
-            status: 'Active',
-            password: temporaryPassword,
-        });
+        newEmp.authUserId = authUser.id;
         // Audit log: employee login created
         await auditRepository.recordLog('EMPLOYEE_LOGIN_CREATED', employeeCode, performer, {
             email: cleanEmail,
