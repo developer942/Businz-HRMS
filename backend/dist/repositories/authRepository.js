@@ -359,9 +359,45 @@ export class AuthRepository {
             email: user.email,
         });
         const updateResult = await query(`UPDATE employees SET account_status = $1, status = $2, updated_at = NOW()
-       WHERE LOWER(employee_id) = LOWER($3)`, [status, status === 'ACTIVE' ? 'Active' : 'Inactive', user.employeeId]);
+       WHERE LOWER(employee_id) = LOWER($3) OR LOWER(email) = LOWER($4) OR id::text = $5`, [status, status === 'ACTIVE' ? 'Active' : 'Inactive', user.employeeId || '', user.email || '', user.id || '']);
         if (!updateResult.rowCount)
             return { success: false, message: 'Database update failed: employee not found' };
+        // Sync company_settings employee_profiles_data
+        try {
+            const csResult = await query(`SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`);
+            if (csResult.rows.length > 0) {
+                let profiles = csResult.rows[0].setting_val || {};
+                if (typeof profiles === 'string') {
+                    try {
+                        profiles = JSON.parse(profiles);
+                    }
+                    catch { }
+                }
+                if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
+                    const statusPayload = {
+                        accountStatus: status,
+                        status: status === 'ACTIVE' ? 'Active' : 'Inactive',
+                        updatedAt: new Date().toISOString()
+                    };
+                    if (user.employeeId) {
+                        profiles[user.employeeId] = {
+                            ...(profiles[user.employeeId] || {}),
+                            ...statusPayload
+                        };
+                    }
+                    if (user.id && user.id !== user.employeeId) {
+                        profiles[user.id] = {
+                            ...(profiles[user.id] || {}),
+                            ...statusPayload
+                        };
+                    }
+                    await query(`UPDATE company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`, [JSON.stringify(profiles)]);
+                }
+            }
+        }
+        catch (csErr) {
+            console.warn('[authRepository] company_settings updateAccountStatus sync warning:', csErr);
+        }
         return { success: true };
     }
     /**

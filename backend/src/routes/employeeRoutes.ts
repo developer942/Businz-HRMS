@@ -28,7 +28,7 @@ employeeRouter.post('/', requirePermission('employees', 'create'), createEmploye
 employeeRouter.put('/:id', requirePermission('employees', 'edit'), updateEmployee);
 employeeRouter.delete('/:id', requirePermission('employees', 'delete'), deleteEmployee);
 
-// Login Account Management (HR Admin / CEO / Super Admin)
-employeeRouter.post('/:id/reset-login', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin']), resetEmployeeLogin);
-employeeRouter.put('/:id/login-status', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin']), updateEmployeeLoginStatus);
-employeeRouter.get('/:id/login-account', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin']), getEmployeeLoginAccount);
+// Login Account Management (HR Admin / CEO / Super Admin / Admin)
+employeeRouter.post('/:id/reset-login', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'ERP Administrator']), resetEmployeeLogin);
+employeeRouter.put('/:id/login-status', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'ERP Administrator']), updateEmployeeLoginStatus);
+employeeRouter.get('/:id/login-account', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'ERP Administrator']), getEmployeeLoginAccount);
