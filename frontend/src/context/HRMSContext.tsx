@@ -1201,7 +1201,7 @@ const localDateTimeToIso = (date: string, time?: string | null): string | null =
 export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // VPS database architecture: purge any remaining business data from browser localStorage
   if (typeof window !== 'undefined') {
-    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v5';
+    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v6';
     if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
       const keysToRemove = [
         'vrm_hrms_employees', 'vrm_hrms_enhanced_tasks', 'vrm_hrms_attendance_records',
@@ -1216,7 +1216,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         'vrm_hrms_company_branches', 'vrm_hrms_org_structure', 'vrm_hrms_departments',
         'vrm_hrms_designations', 'vrm_hrms_department_ot_policies', 'vrm_hrms_overtime_records',
         'vrm_enterprise_integrations_v6', 'vrm_enterprise_integrations_v5', 'vrm_enterprise_integrations_v4',
-        'vrm_enterprise_integrations_v3', 'vrm_enterprise_integrations_v2'
+        'vrm_enterprise_integrations_v3', 'vrm_enterprise_integrations_v2',
+        'vrm_hrms_candidates', 'hrms_candidates', 'vrm_hrms_candidates_data', 'vrm_hrms_loan_records_data'
       ];
       for (const k of keysToRemove) {
         try { localStorage.removeItem(k); } catch {}
@@ -10318,36 +10319,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Loan Records
         if (Array.isArray(settings.loan_records_data)) {
-          const loanStatusRank = (status?: LoanRecord['status']) => {
-            if (status === 'Closed') return 6;
-            if (status === 'Active' || status === 'Disbursed') return 5;
-            if (status === 'Approved' || status === 'Rejected') return 4;
-            if (status === 'Under Review') return 3;
-            if (status === 'Pending') return 2;
-            return 1;
-          };
-          setLoanRecords(prev => {
-            const byId = new Map<string, LoanRecord>();
-            settings.loan_records_data.forEach((record: LoanRecord) => {
-              if (record?.id) byId.set(String(record.id), record);
-            });
-            prev.forEach(local => {
-              if (!local?.id) return;
-              const cloud = byId.get(String(local.id));
-              if (!cloud || loanStatusRank(local.status) >= loanStatusRank(cloud.status)) {
-                byId.set(String(local.id), { ...cloud, ...local });
-              }
-            });
-            const merged = Array.from(byId.values());
-            const cloudNeedsRepair = merged.some(record => {
-              const cloud = settings.loan_records_data.find((r: LoanRecord) => String(r.id) === String(record.id));
-              return cloud && loanStatusRank(record.status) > loanStatusRank(cloud.status);
-            });
-            if (cloudNeedsRepair) {
-              supabaseDirect.saveCompanySetting('loan_records_data', merged).catch(() => {});
-            }
-            return merged;
-          });
+          setLoanRecords(settings.loan_records_data);
         }
 
         // Geofence Config
