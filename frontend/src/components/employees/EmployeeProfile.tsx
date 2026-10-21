@@ -445,7 +445,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       officialUsername: (emp as any).officialUsername || emp.employeeId || emp.id,
       role: (isEmpCEO ? 'CEO' : (emp.systemAccess?.role || emp.role || 'Employee')) as Role,
       accountStatus: ((emp.accountStatus as any) || (emp.status === 'Terminated' || emp.status === 'Inactive' ? 'DEACTIVATED' : 'ACTIVE')) as 'ACTIVE' | 'DEACTIVATED' | 'DISABLED',
-      password: (emp as any).password || emp.password || 'Password@123',
+      password: ((emp as any).password && !(emp as any).password.startsWith('$2'))
+        ? (emp as any).password
+        : (emp.password && !emp.password.startsWith('$2') ? emp.password : ((emp as any).password || emp.password || 'Password@123')),
       mustChangePassword: Boolean(emp.mustChangePassword ?? false),
       credentialEmailStatus: emp.credentialEmailStatus || 'NOT_SENT',
       credentialEmailSentAt: emp.credentialEmailSentAt || null
@@ -3611,7 +3613,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         fontFamily: showPassword ? "'JetBrains Mono', 'Fira Code', monospace" : 'inherit',
                         letterSpacing: showPassword ? '0.04em' : '0.15em'
                       }}>
-                        {showPassword ? (formData.password || currentEmp.password || 'Password@123') : '••••••••••••'}
+                        {showPassword ? (
+                          (formData.password && !formData.password.startsWith('$2'))
+                            ? formData.password
+                            : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123'))
+                        ) : '••••••••••••'}
                       </span>
                     </div>
 
@@ -3643,7 +3649,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       {/* Copy Password */}
                       <button
                         type="button"
-                        onClick={() => handleCopy(formData.password || currentEmp.password || 'Password@123', 'portalPassword')}
+                        onClick={() => handleCopy(
+                          (formData.password && !formData.password.startsWith('$2'))
+                            ? formData.password
+                            : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123')),
+                          'portalPassword'
+                        )}
                         style={{
                           display: 'flex',
                           alignItems: 'center',

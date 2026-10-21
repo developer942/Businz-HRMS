@@ -229,6 +229,7 @@ export class AuthRepository {
     }
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.plainPassword = newPassword;
     user.mustChangePassword = false;
 
     // Record audit log with NO passwords in metadata
@@ -241,9 +242,46 @@ export class AuthRepository {
 
     await query(
       `UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
-       WHERE LOWER(email) = LOWER($2)`,
-      [user.passwordHash, user.email]
+       WHERE LOWER(email) = LOWER($2) OR LOWER(employee_id) = LOWER($3)`,
+      [newPassword, user.email, user.employeeId]
     );
+
+    // Sync company_settings employee_profiles_data so HR and CEO can view the updated password
+    try {
+      const csResult = await query(
+        `SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`
+      );
+      if (csResult.rows.length > 0) {
+        let profiles = csResult.rows[0].setting_val || {};
+        if (typeof profiles === 'string') {
+          try { profiles = JSON.parse(profiles); } catch {}
+        }
+        if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
+          if (user.employeeId) {
+            profiles[user.employeeId] = {
+              ...(profiles[user.employeeId] || {}),
+              password: newPassword,
+              mustChangePassword: false,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          if (user.id && user.id !== user.employeeId) {
+            profiles[user.id] = {
+              ...(profiles[user.id] || {}),
+              password: newPassword,
+              mustChangePassword: false,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          await query(
+            `UPDATE company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`,
+            [JSON.stringify(profiles)]
+          );
+        }
+      }
+    } catch (csErr) {
+      console.warn('[authRepository] company_settings employee_profiles_data sync warning:', csErr);
+    }
 
     return { success: true };
   }
@@ -262,6 +300,7 @@ export class AuthRepository {
 
     const newTempPassword = generateTemporaryPassword();
     user.passwordHash = await bcrypt.hash(newTempPassword, 10);
+    user.plainPassword = newTempPassword;
     user.mustChangePassword = true;
 
     // Record reset audit
@@ -294,9 +333,49 @@ export class AuthRepository {
       `UPDATE employees
        SET password = $1, must_change_password = TRUE, credential_email_status = $2,
            credential_email_sent_at = $3, updated_at = NOW()
-       WHERE LOWER(employee_id) = LOWER($4)`,
-      [user.passwordHash, emailResult.status, emailResult.sentAt, user.employeeId]
+       WHERE LOWER(employee_id) = LOWER($4) OR LOWER(email) = LOWER($4)`,
+      [newTempPassword, emailResult.status, emailResult.sentAt, user.employeeId]
     );
+
+    try {
+      const csResult = await query(
+        `SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`
+      );
+      if (csResult.rows.length > 0) {
+        let profiles = csResult.rows[0].setting_val || {};
+        if (typeof profiles === 'string') {
+          try { profiles = JSON.parse(profiles); } catch {}
+        }
+        if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
+          if (user.employeeId) {
+            profiles[user.employeeId] = {
+              ...(profiles[user.employeeId] || {}),
+              password: newTempPassword,
+              mustChangePassword: true,
+              credentialEmailStatus: emailResult.status,
+              credentialEmailSentAt: emailResult.sentAt,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          if (user.id && user.id !== user.employeeId) {
+            profiles[user.id] = {
+              ...(profiles[user.id] || {}),
+              password: newTempPassword,
+              mustChangePassword: true,
+              credentialEmailStatus: emailResult.status,
+              credentialEmailSentAt: emailResult.sentAt,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          await query(
+            `UPDATE company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`,
+            [JSON.stringify(profiles)]
+          );
+        }
+      }
+    } catch (csErr) {
+      console.warn('[authRepository] company_settings resetLoginCredentials sync warning:', csErr);
+    }
 
     return {
       success: true,
@@ -311,21 +390,66 @@ export class AuthRepository {
    */
   async updatePasswordDirectly(
     employeeId: string,
-    newPasswordHash: string,
+    newPasswordOrHash: string,
     performedBy: string
   ): Promise<boolean> {
     const user = await this.findByIdentifier(employeeId);
     if (!user) return false;
 
+    const isHashed = newPasswordOrHash.startsWith('$2');
+    const newPasswordHash = isHashed 
+      ? newPasswordOrHash 
+      : await bcrypt.hash(newPasswordOrHash, 10);
+    const plainPassword = isHashed ? undefined : newPasswordOrHash;
+
     user.passwordHash = newPasswordHash;
+    if (plainPassword) user.plainPassword = plainPassword;
     user.mustChangePassword = false;
 
     const updateResult = await query(
       `UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
-       WHERE LOWER(employee_id) = LOWER($2)`,
-      [newPasswordHash, user.employeeId]
+       WHERE LOWER(employee_id) = LOWER($2) OR LOWER(email) = LOWER($2)`,
+      [plainPassword || newPasswordHash, user.employeeId]
     );
     if (!updateResult.rowCount) return false;
+
+    if (plainPassword) {
+      try {
+        const csResult = await query(
+          `SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`
+        );
+        if (csResult.rows.length > 0) {
+          let profiles = csResult.rows[0].setting_val || {};
+          if (typeof profiles === 'string') {
+            try { profiles = JSON.parse(profiles); } catch {}
+          }
+          if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
+            if (user.employeeId) {
+              profiles[user.employeeId] = {
+                ...(profiles[user.employeeId] || {}),
+                password: plainPassword,
+                mustChangePassword: false,
+                updatedAt: new Date().toISOString()
+              };
+            }
+            if (user.id && user.id !== user.employeeId) {
+              profiles[user.id] = {
+                ...(profiles[user.id] || {}),
+                password: plainPassword,
+                mustChangePassword: false,
+                updatedAt: new Date().toISOString()
+              };
+            }
+            await query(
+              `UPDATE company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`,
+              [JSON.stringify(profiles)]
+            );
+          }
+        }
+      } catch (csErr) {
+        console.warn('[authRepository] company_settings updatePasswordDirectly sync warning:', csErr);
+      }
+    }
 
     await auditRepository.recordLog(
       'PASSWORD_RESET_SUCCESS',

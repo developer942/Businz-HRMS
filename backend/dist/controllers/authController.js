@@ -363,10 +363,8 @@ export const resetPassword = async (req, res, next) => {
             });
             return;
         }
-        // Hash the new password using bcrypt
-        const newPasswordHash = await bcrypt.hash(new_password, 10);
         // Update password securely and revoke any prior mustChangePassword flag
-        await authRepository.updatePasswordDirectly(user.employeeId, newPasswordHash, user.email);
+        await authRepository.updatePasswordDirectly(user.employeeId, new_password, user.email);
         res.status(200).json({
             success: true,
             message: 'Password reset successfully. Please login with your new password.',

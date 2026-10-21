@@ -19,13 +19,14 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { ForgotPasswordModal } from './ForgotPasswordModal';
+import { supabaseDirect } from '../../services/supabaseDirectService';
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const { switchRole, updateCurrentUser, employees, setActiveModule, resetToDashboard } = useHRMS();
+  const { switchRole, updateCurrentUser, employees, setActiveModule, resetToDashboard, changeEmployeePassword } = useHRMS();
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -180,6 +181,42 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
     try {
       await authService.changePassword(currentTempPassword, newPassword, confirmPassword);
+
+      // 1. Update in HRMSContext local state
+      const empIdentifier = pendingEmployee.employeeId || pendingEmployee.id || pendingEmployee.email;
+      changeEmployeePassword(empIdentifier, newPassword);
+
+      // 2. Direct VPS Postgres update
+      supabaseDirect.updateEmployee(pendingEmployee.id || pendingEmployee.employeeId, {
+        password: newPassword,
+        must_change_password: false,
+      }).catch(err => console.warn('[LoginPage] updateEmployee direct sync warning:', err));
+
+      // 3. Persist to company_settings employee_profiles_data
+      try {
+        const empKey = pendingEmployee.employeeId || pendingEmployee.id;
+        const currentProfiles = await supabaseDirect.getCompanySetting('employee_profiles_data');
+        const profiles = currentProfiles && typeof currentProfiles === 'object' && !Array.isArray(currentProfiles) ? currentProfiles : {};
+        if (empKey) {
+          profiles[empKey] = {
+            ...(profiles[empKey] || {}),
+            password: newPassword,
+            mustChangePassword: false,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        if (pendingEmployee.id && pendingEmployee.id !== empKey) {
+          profiles[pendingEmployee.id] = {
+            ...(profiles[pendingEmployee.id] || {}),
+            password: newPassword,
+            mustChangePassword: false,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        await supabaseDirect.saveCompanySetting('employee_profiles_data', profiles);
+      } catch (err) {
+        console.warn('[LoginPage] company_settings sync notice:', err);
+      }
 
       setIsChangingPassword(false);
       setShowForceChangeModal(false);

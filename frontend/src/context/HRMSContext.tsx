@@ -1665,6 +1665,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (emp.workShift !== undefined) updates.work_shift = emp.workShift || null;
     if (emp.attendanceMethod !== undefined) updates.attendance_method = emp.attendanceMethod;
     if (emp.gpsAllowed !== undefined) updates.gps_allowed = Boolean(emp.gpsAllowed);
+    if (emp.password !== undefined) updates.password = emp.password;
     if (emp.mustChangePassword !== undefined) updates.must_change_password = emp.mustChangePassword;
     if (emp.accountStatus !== undefined) updates.account_status = emp.accountStatus;
     if (emp.avatar !== undefined) updates.avatar_url = emp.avatar || null;
@@ -5931,6 +5932,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const suffix = chars[Math.floor(Math.random() * chars.length)];
     const tempPassword = `Vrm@${digits}${suffix}`;
 
+    const matched = employees.find(e => e.id === employeeId || e.employeeId === employeeId);
+
     setEmployees(prev => prev.map(e => {
       if (e.id === employeeId || e.employeeId === employeeId) {
         return {
@@ -5943,6 +5946,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return e;
     }));
+
+    if (matched) {
+      const updatedEmp: Employee = {
+        ...matched,
+        password: tempPassword,
+        mustChangePassword: true,
+        credentialEmailStatus: 'SENT',
+        credentialEmailSentAt: new Date().toISOString(),
+      };
+      supabaseDirect.updateEmployee(matched.id || matched.employeeId, {
+        password: tempPassword,
+        must_change_password: true,
+        credential_email_status: 'SENT',
+        credential_email_sent_at: new Date().toISOString(),
+      }).catch(err => console.warn('[HRMSContext] resetEmployeeLogin db update notice:', err));
+
+      persistEmployeeProfileExtension(updatedEmp).catch(err => console.warn('[HRMSContext] resetEmployeeLogin extension notice:', err));
+    }
 
     addNotification({
       title: 'Credentials Reset',
@@ -6021,8 +6042,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const changeEmployeePassword = (identifier: string, newPassword: string): { success: boolean; message: string } => {
     const clean = identifier.toLowerCase().trim();
+    const matched = employees.find(e =>
+      e.email?.toLowerCase().trim() === clean ||
+      e.employeeId?.toLowerCase().trim() === clean ||
+      e.id?.toLowerCase().trim() === clean
+    );
+
     setEmployees(prev => prev.map(e => {
-      if (e.email.toLowerCase().trim() === clean || e.employeeId.toLowerCase().trim() === clean || e.id.toLowerCase().trim() === clean) {
+      if (e.email?.toLowerCase().trim() === clean || e.employeeId?.toLowerCase().trim() === clean || e.id?.toLowerCase().trim() === clean) {
         return {
           ...e,
           password: newPassword,
@@ -6031,6 +6058,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return e;
     }));
+
+    if (matched) {
+      const updatedEmp: Employee = {
+        ...matched,
+        password: newPassword,
+        mustChangePassword: false,
+      };
+      supabaseDirect.updateEmployee(matched.id || matched.employeeId, {
+        password: newPassword,
+        must_change_password: false,
+      }).catch(err => console.warn('[HRMSContext] changeEmployeePassword db update notice:', err));
+
+      persistEmployeeProfileExtension(updatedEmp).catch(err => console.warn('[HRMSContext] changeEmployeePassword extension notice:', err));
+    }
 
     addNotification({
       title: 'Password Changed',
@@ -9713,12 +9754,28 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const mapped = rawEmployees.map(e => {
           const base = mapEmployeeFromDb(e, currentDepts);
           const extension = profileExtensions[base.employeeId] || profileExtensions[base.id] || {};
+
+          // Authoritative password & change flag resolution
+          const isDbPasswordChanged = base.mustChangePassword === false;
+          const resolvedMustChange = isDbPasswordChanged ? false : Boolean(extension.mustChangePassword ?? base.mustChangePassword);
+
+          let resolvedPassword = 'Password@123';
+          if (base.password && !base.password.startsWith('$2')) {
+            resolvedPassword = base.password;
+          } else if (extension.password && !extension.password.startsWith('$2')) {
+            resolvedPassword = extension.password;
+          } else if (base.password) {
+            resolvedPassword = base.password;
+          }
+
           return {
             ...base,
             ...extension,
             id: base.id,
             employeeId: base.employeeId,
-            department: extension.department || base.department || 'General'
+            department: extension.department || base.department || 'General',
+            mustChangePassword: resolvedMustChange,
+            password: resolvedPassword
           };
         });
         setEmployees(mapped);
