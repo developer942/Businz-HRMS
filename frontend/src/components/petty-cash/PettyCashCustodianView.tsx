@@ -11,7 +11,6 @@ import {
   AlertTriangle,
   FileText,
   Search,
-  RefreshCw,
   BellRing,
   ArrowRight,
 } from 'lucide-react';

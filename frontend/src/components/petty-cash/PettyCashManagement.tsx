@@ -6,7 +6,6 @@ import {
   CreditCard,
   FileSpreadsheet,
   ShieldAlert,
-  RefreshCw,
   Plus,
   Send,
   Lock,
@@ -213,10 +212,6 @@ export const PettyCashManagement: React.FC = () => {
               <UserCheck size={16} /> Assign Custodian
             </button>
           )}
-
-          <button className="btn-secondary btn-sm" onClick={loadModuleData} title="Refresh All Records">
-            <RefreshCw size={14} /> Refresh
-          </button>
         </div>
       </div>
 

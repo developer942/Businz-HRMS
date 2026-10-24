@@ -5,7 +5,6 @@ import {
   Filter,
   ArrowDownLeft,
   ArrowUpRight,
-  RefreshCw,
   Search,
   Calendar,
   Layers,
@@ -219,9 +218,6 @@ export const PettyCashLedgerReportsView: React.FC<PettyCashLedgerReportsViewProp
               label="Export Ledger"
               variant="primary"
             />
-            <button className="btn-secondary btn-sm" onClick={loadData} title="Refresh Ledger">
-              <RefreshCw size={14} /> Refresh
-            </button>
           </div>
         </div>
 

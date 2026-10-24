@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   FileText,
   Search,
-  RefreshCw,
   Send,
   Flag,
   ArrowRight,
@@ -155,10 +154,6 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
               </span>
             )}
           </h3>
-
-          <button className="btn-secondary btn-sm" onClick={onRefresh} title="Refresh">
-            <RefreshCw size={14} /> Refresh
-          </button>
         </div>
 
         <div className="petty-cash-table-wrapper">

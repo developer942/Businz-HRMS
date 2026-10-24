@@ -12,7 +12,6 @@ import {
   TrendingDown,
   Layers,
   Search,
-  RefreshCw,
   Plus,
   ArrowLeftRight,
 } from 'lucide-react';
@@ -271,9 +270,6 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
               <option value="COMPLETED">Completed</option>
               <option value="REJECTED_BY_CEO">Rejected</option>
             </select>
-            <button className="btn-secondary btn-sm" onClick={onRefresh} title="Refresh">
-              <RefreshCw size={14} />
-            </button>
           </div>
         </div>
 
