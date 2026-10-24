@@ -131,6 +131,7 @@ export const Header: React.FC<HeaderProps> = ({
       case 'finance': return 'Finance & Expenses';
       case 'payroll': return 'Payroll';
       case 'advance_salary': return currentUser.role === 'Employee' ? 'My Advance Salary' : 'Advance Salary Management';
+      case 'petty_cash': return currentUser.role === 'Employee' ? 'My Petty Cash Desk' : 'Petty Cash Management';
       case 'reports': return 'Attendance Reports';
       case 'assets': return currentUser.role === 'Employee' ? 'My Assets' : 'Asset Management';
       case 'settings': return 'Settings';

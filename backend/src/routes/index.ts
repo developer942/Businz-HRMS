@@ -15,6 +15,8 @@ import { aiRouter } from './aiRoutes.js';
 import { customerRouter } from './customerRoutes.js';
 import { whatsappRouter } from './whatsappRoutes.js';
 import { expenseRouter } from './expenseRoutes.js';
+import { crmRouter } from './crmRoutes.js';
+import { pettyCashRouter } from './pettyCashRoutes.js';
 
 export const apiRouter = Router();
 
@@ -38,3 +40,5 @@ apiRouter.use('/', overtimeRouter);
 apiRouter.use('/customers', customerRouter);
 apiRouter.use('/whatsapp', whatsappRouter);
 apiRouter.use('/expenses', expenseRouter);
+apiRouter.use('/crm', crmRouter);
+apiRouter.use('/petty-cash', pettyCashRouter);

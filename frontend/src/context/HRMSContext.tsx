@@ -267,6 +267,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'CEO': {
     dashboard: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -288,6 +289,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'HR Manager': {
     dashboard: ['view', 'export'],
@@ -5607,6 +5609,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (module === 'leaves' && action === 'view') return true;
     if (module === 'settings' && action === 'view') return true;
     if (module === 'tracking') return true;
+    if (module === 'whatsapp_crm') return true;
     if (module === 'overtime' && (action === 'view' || action === 'create')) return true;
     if (module === 'overtime' && action === 'approve') {
       return (
@@ -5643,7 +5646,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isHrOrCeo) return true;
     }
 
-    if (module === 'payroll' || module === 'finance' || module === 'advance_salary') {
+    if (module === 'payroll' || module === 'finance' || module === 'advance_salary' || module === 'petty_cash') {
       if (action === 'approve') {
         return isHrOrCeo;
       }

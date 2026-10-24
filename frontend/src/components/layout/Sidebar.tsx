@@ -18,14 +18,17 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Banknote,
+  Wallet,
   Timer,
   Search,
   MapPin,
   Pin,
   PinOff,
   X,
-  Contact2
+  Contact2,
+  MessageSquare
 } from 'lucide-react';
+import { pettyCashService } from '../../services/pettyCashService';
 
 interface SidebarProps {
   isCollapsed?: boolean;
@@ -100,6 +103,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [searchFilter, setSearchFilter] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Active Petty Cash Custodian detection for sidebar RBAC isolation
+  const [activeCustodianId, setActiveCustodianId] = useState<string | null>(null);
+  useEffect(() => {
+    pettyCashService.getActiveCustodianAccount().then((acc) => {
+      if (acc) {
+        setActiveCustodianId(acc.custodian_id || acc.custodian_employee_id);
+      }
+    }).catch(() => {});
+  }, []);
 
   // Keyboard shortcut (⌘K / Ctrl+K) to quickly focus sidebar search, Escape to close
   useEffect(() => {
@@ -178,6 +191,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'WORKFLOW & OPS' },
     { id: 'tracking', label: 'Tracking', icon: MapPin, section: 'WORKFLOW & OPS' },
     { id: 'customer_data', label: 'Customer Data Collection', icon: Contact2, section: 'WORKFLOW & OPS' },
+    { id: 'whatsapp_crm', label: 'WhatsApp CRM', icon: MessageSquare, section: 'WORKFLOW & OPS' },
     { 
       id: 'performance', 
       label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'My Performance' : 'Performance', 
@@ -199,6 +213,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: (currentUser.role === 'Employee' && !isHRorAdmin && !isAccountsStaff) ? 'My Advance Salary' : 'Advance Salary Management', 
       icon: Banknote, 
       section: 'FINANCE & PAYROLL' 
+    },
+    {
+      id: 'petty_cash',
+      label: (currentUser.role === 'Employee' && !isHRorAdmin && !isAccountsStaff) ? 'My Petty Cash' : 'Petty Cash',
+      icon: Wallet,
+      section: 'FINANCE & PAYROLL'
     },
 
     // Workspace & Reports
@@ -266,6 +286,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Hide Employee directory and Attendance Management modules for standard Employee role
     if (currentUser.role === 'Employee' && (item.id === 'employees' || item.id === 'attendance')) {
       return false;
+    }
+
+    // Restrict Petty Cash exclusively to CEO, Accounts, and the assigned Custodian
+    if (item.id === 'petty_cash') {
+      const isCustodian =
+        Boolean(activeCustodianId) &&
+        (currentUser.id === activeCustodianId || currentUser.employeeId === activeCustodianId);
+      if (!(isCEO || isAccountsStaff || isCustodian)) {
+        return false;
+      }
     }
 
     // Check RBAC permission for this module

@@ -48,13 +48,15 @@ export type ModuleName =
   | 'notifications'
   | 'payroll'
   | 'advance_salary'
+  | 'petty_cash'
   | 'reports'
   | 'organization'
   | 'assets'
   | 'settings'
   | 'tracking'
   | 'profile'
-  | 'customer_data';
+  | 'customer_data'
+  | 'whatsapp_crm';
 
 export interface User {
   id: string;

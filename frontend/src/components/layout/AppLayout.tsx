@@ -28,6 +28,8 @@ import { Settings } from '../settings/Settings';
 import { UserProfile } from '../profile/UserProfile';
 import { TrackingModule } from '../tracking/TrackingModule';
 import { CustomerModule } from '../customer/CustomerModule';
+import { WhatsAppCRMModule } from '../whatsapp-crm/WhatsAppCRMModule';
+import { PettyCashManagement } from '../petty-cash/PettyCashManagement';
 import { AIAssistantWidget } from '../ai/AIAssistantWidget';
 import { isCeoOrHrUser } from '../../services/authService';
 
@@ -146,6 +148,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         return <PayrollManagement />;
       case 'advance_salary':
         return <AdvanceSalaryManagement openAddModal={quickAddModal === 'advance_salary'} onCloseQuickAdd={() => setQuickAddModal(null)} />;
+      case 'petty_cash':
+        return <PettyCashManagement />;
       case 'reports':
         return <AttendanceReportsView />;
       case 'organization':
@@ -160,6 +164,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         return <TrackingModule />;
       case 'customer_data':
         return <CustomerModule />;
+      case 'whatsapp_crm':
+        return <WhatsAppCRMModule />;
       default:
         return <Dashboard />;
     }
