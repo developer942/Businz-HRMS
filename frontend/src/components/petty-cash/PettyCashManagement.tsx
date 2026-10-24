@@ -127,6 +127,17 @@ export const PettyCashManagement: React.FC = () => {
   // Unauthorized guard: If not CEO, not Accounts, and not Custodian
   const isAuthorized = isCEO || isAccounts || isCustodian;
 
+  // Strict role confinement: automatically keep activeTab within the authorized role scope
+  useEffect(() => {
+    if (isCEO && activeTab !== 'CEO_DASHBOARD' && activeTab !== 'LEDGER_REPORTS') {
+      setActiveTab('CEO_DASHBOARD');
+    } else if (isAccounts && !isCEO && activeTab !== 'ACCOUNTS_DISBURSEMENTS' && activeTab !== 'LEDGER_REPORTS') {
+      setActiveTab('ACCOUNTS_DISBURSEMENTS');
+    } else if (isCustodian && !isCEO && !isAccounts && activeTab !== 'CUSTODIAN_DESK' && activeTab !== 'LEDGER_REPORTS') {
+      setActiveTab('CUSTODIAN_DESK');
+    }
+  }, [isCEO, isAccounts, isCustodian, activeTab]);
+
   const showToast = (type: 'success' | 'error', text: string) => {
     setFeedbackMessage({ type, text });
     setTimeout(() => setFeedbackMessage(null), 5000);
@@ -191,8 +202,8 @@ export const PettyCashManagement: React.FC = () => {
         </div>
 
         <div className="petty-cash-actions-group">
-          {/* Quick Context Action Buttons */}
-          {isCustodian && (
+          {/* Quick Context Action Buttons for Custodian Employee only */}
+          {isCustodian && !isCEO && !isAccounts && (
             <>
               <button className="btn-secondary" onClick={() => setIsRequestModalOpen(true)}>
                 <Send size={15} /> Request Petty Cash
@@ -215,8 +226,9 @@ export const PettyCashManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary Navigation Tabs */}
+      {/* Primary Navigation Tabs - Strictly Isolated by Role */}
       <div className="petty-cash-tabs">
+        {/* 1. CEO View: Only visible to CEO / Super Admin */}
         {isCEO && (
           <button
             className={`petty-cash-tab-btn ${activeTab === 'CEO_DASHBOARD' ? 'active' : ''}`}
@@ -231,7 +243,8 @@ export const PettyCashManagement: React.FC = () => {
           </button>
         )}
 
-        {(isAccounts || isCEO) && (
+        {/* 2. Accounts View: Only visible to Accounts / Finance staff */}
+        {isAccounts && !isCEO && (
           <button
             className={`petty-cash-tab-btn ${activeTab === 'ACCOUNTS_DISBURSEMENTS' ? 'active' : ''}`}
             onClick={() => setActiveTab('ACCOUNTS_DISBURSEMENTS')}
@@ -245,15 +258,17 @@ export const PettyCashManagement: React.FC = () => {
           </button>
         )}
 
-        {(isCustodian || isCEO) && (
+        {/* 3. Custodian View: Only visible to the assigned Custodian employee */}
+        {isCustodian && !isCEO && !isAccounts && (
           <button
             className={`petty-cash-tab-btn ${activeTab === 'CUSTODIAN_DESK' ? 'active' : ''}`}
             onClick={() => setActiveTab('CUSTODIAN_DESK')}
           >
-            <Wallet size={16} /> Custodian Desk {isCEO && '(Employee View)'}
+            <Wallet size={16} /> Custodian Desk
           </button>
         )}
 
+        {/* 4. General Ledger & Reports: Available for authorized roles */}
         <button
           className={`petty-cash-tab-btn ${activeTab === 'LEDGER_REPORTS' ? 'active' : ''}`}
           onClick={() => setActiveTab('LEDGER_REPORTS')}
