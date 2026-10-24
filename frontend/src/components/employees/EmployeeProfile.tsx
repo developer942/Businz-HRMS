@@ -3228,40 +3228,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         </div>
 
         <div>
-          <label style={labelStyle}>Assigned Holiday Calendar</label>
-          {isEditing ? (
-            <select 
-              value={formData.holidayCalendar} 
-              onChange={(e) => handleChange('holidayCalendar', e.target.value)} 
-              style={selectStyle}
-            >
-              {holidayPolicies.map(h => (
-                <option key={h.id} value={h.name}>{h.name}</option>
-              ))}
-            </select>
-          ) : (
-            <div style={viewValueStyle}>{formData.holidayCalendar}</div>
-          )}
-        </div>
-
-        <div>
-          <label style={labelStyle}>Assigned Leave Policy</label>
-          {isEditing ? (
-            <select 
-              value={formData.leavePolicy} 
-              onChange={(e) => handleChange('leavePolicy', e.target.value)} 
-              style={selectStyle}
-            >
-              {leavePolicies.map(lp => (
-                <option key={lp.id} value={lp.name}>{lp.name}</option>
-              ))}
-            </select>
-          ) : (
-            <div style={viewValueStyle}>{formData.leavePolicy}</div>
-          )}
-        </div>
-
-        <div>
           <label style={labelStyle}>GPS Remote Punch Permission</label>
           {isEditing ? (
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
