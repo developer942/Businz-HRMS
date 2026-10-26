@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { CustomerContact } from '../../types/customer';
 import { AddCustomerView } from './AddCustomerView';
 import { CustomerRecordsView } from './CustomerRecordsView';
-import { WhatsAppTemplatesView } from './WhatsAppTemplatesView';
 import { WhatsAppMessageHistoryView } from './WhatsAppMessageHistoryView';
 import { SendWhatsAppModal } from './SendWhatsAppModal';
 import { customerService } from '../../services/customerService';
@@ -20,7 +19,7 @@ import {
   Settings
 } from 'lucide-react';
 
-export type CustomerModuleTab = 'add_customer' | 'records' | 'templates' | 'history';
+export type CustomerModuleTab = 'add_customer' | 'records' | 'history';
 
 interface CustomerModuleProps {
   initialTab?: CustomerModuleTab;
@@ -58,7 +57,6 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
   const tabs: { id: CustomerModuleTab; label: string; icon: React.ElementType }[] = [
     { id: 'records', label: 'Customer Records', icon: Table },
     { id: 'add_customer', label: 'Add Customer', icon: UserPlus },
-    { id: 'templates', label: 'WhatsApp Templates', icon: MessageSquare },
     { id: 'history', label: 'Message History', icon: History }
   ];
 
@@ -91,8 +89,8 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
         </div>
 
         {/* WhatsApp Cloud API Connection Status Indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '100%', flexWrap: 'wrap' }}>
-          {isWhatsAppConfigured ? (
+        {isWhatsAppConfigured && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '100%', flexWrap: 'wrap' }}>
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -110,41 +108,8 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
               <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
               <span>Meta WhatsApp Connected {configuredSender ? `(${configuredSender})` : ''}</span>
             </div>
-          ) : (
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              backgroundColor: '#FEF3C7',
-              border: '1px solid #FDE68A',
-              color: '#B45309',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              maxWidth: '100%',
-              flexWrap: 'wrap'
-            }}>
-              <AlertCircle size={15} style={{ flexShrink: 0 }} />
-              <span>WhatsApp Cloud API Pending</span>
-              <button
-                onClick={() => setActiveModule('settings')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#0E7490',
-                  textDecoration: 'underline',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '0.8rem',
-                  padding: 0
-                }}
-              >
-                Configure in Settings
-              </button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Modern Segmented Navigation Tabs */}
@@ -188,10 +153,6 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
             onOpenMessageHistory={() => setActiveTab('history')}
             onNavigateToAddCustomer={() => setActiveTab('add_customer')}
           />
-        )}
-
-        {activeTab === 'templates' && (
-          <WhatsAppTemplatesView />
         )}
 
         {activeTab === 'history' && (

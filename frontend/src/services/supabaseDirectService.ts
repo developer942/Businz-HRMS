@@ -625,7 +625,7 @@ export const supabaseDirect = {
   /**
    * Inserts a new department into Supabase table (checks for existing first to prevent duplicates)
    */
-  async insertDepartment(name: string, code?: string): Promise<{ success: boolean; data?: any }> {
+  async insertDepartment(name: string, code?: string, extra?: { budget?: number; headId?: string | null }): Promise<{ success: boolean; data?: any }> {
     try {
       const cleanName = name.trim();
       if (!cleanName) return { success: false };
@@ -642,30 +642,34 @@ export const supabaseDirect = {
       }
 
       const cleanCode = (code || cleanName.substring(0, 4)).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const payload: Record<string, any> = {
+        name: cleanName,
+        code: cleanCode || 'DEPT',
+        budget: extra?.budget !== undefined ? Number(extra.budget) : 0,
+        head_id: extra?.headId || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
         method: 'POST',
         headers: {
           ...getHeaders(),
           'Prefer': 'return=representation',
         },
-        body: JSON.stringify({
-          name: cleanName,
-          code: cleanCode || 'DEPT',
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         // If conflict on code, generate a timestamped code
         const fallbackCode = `${cleanCode.substring(0, 2)}${Math.floor(10 + Math.random() * 90)}`;
+        payload.code = fallbackCode;
         const retryRes = await fetch(`${DATABASE_REST_URL}/rest/v1/departments`, {
           method: 'POST',
           headers: {
             ...getHeaders(),
             'Prefer': 'return=representation',
           },
-          body: JSON.stringify({
-            name: cleanName,
-            code: fallbackCode,
-          }),
+          body: JSON.stringify(payload),
         });
         if (!retryRes.ok) return { success: false };
         const retryData = await retryRes.json();
@@ -680,20 +684,39 @@ export const supabaseDirect = {
   },
 
   /**
-   * Renames a department in Supabase table
+   * Updates a department in Supabase table (by UUID or name)
    */
-  async updateDepartment(oldName: string, newName: string): Promise<boolean> {
+  async updateDepartment(
+    idOrName: string,
+    updates: string | { name?: string; code?: string; budget?: number; headId?: string | null },
+    oldName?: string
+  ): Promise<boolean> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?name=ilike.${encodeURIComponent(oldName.trim())}`, {
+      const clean = (idOrName || '').trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+      const filter = isUuid
+        ? `id=eq.${clean}`
+        : `name=ilike.${encodeURIComponent((oldName || clean).trim())}`;
+
+      const patchBody: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (typeof updates === 'string') {
+        patchBody.name = updates.trim();
+      } else {
+        if (updates.name !== undefined) patchBody.name = updates.name.trim();
+        if (updates.code !== undefined) patchBody.code = updates.code.trim().toUpperCase();
+        if (updates.budget !== undefined) patchBody.budget = Number(updates.budget) || 0;
+        if (updates.headId !== undefined) patchBody.head_id = updates.headId || null;
+      }
+
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/departments?${filter}`, {
         method: 'PATCH',
         headers: {
           ...getHeaders(),
           'Prefer': 'return=representation',
         },
-        body: JSON.stringify({
-          name: newName.trim(),
-          updated_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify(patchBody),
       });
       return res.ok;
     } catch (err) {
@@ -1671,6 +1694,37 @@ export const supabaseDirect = {
     } catch (err) {
       console.warn('[DatabaseRest] insertDesignation error:', err);
       return { success: false };
+    }
+  },
+
+  async updateDesignation(
+    idOrTitle: string,
+    updates: { title?: string; level?: string; departmentId?: string },
+    oldTitle?: string
+  ): Promise<boolean> {
+    try {
+      const clean = (idOrTitle || '').trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+      const filter = isUuid
+        ? `id=eq.${clean}`
+        : `title=ilike.${encodeURIComponent((oldTitle || clean).trim())}`;
+
+      const patchBody: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (updates.title) patchBody.title = updates.title.trim();
+      if (updates.level) patchBody.level = updates.level;
+      if (updates.departmentId) patchBody.department_id = updates.departmentId;
+
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/designations?${filter}`, {
+        method: 'PATCH',
+        headers: { ...getHeaders(), 'Prefer': 'return=representation' },
+        body: JSON.stringify(patchBody),
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[DatabaseRest] updateDesignation error:', err);
+      return false;
     }
   },
 

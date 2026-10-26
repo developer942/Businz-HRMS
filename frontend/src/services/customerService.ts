@@ -761,7 +761,7 @@ SAFETY & ACCURACY RULES:
   },
 
   // 12. WhatsApp Cloud API Connection Status
-  async getWhatsAppConfig(companyId?: string): Promise<{ isConfigured: boolean; phoneNumberId?: string; wabaId?: string; configuredSender?: string }> {
+  async getWhatsAppConfig(companyId?: string): Promise<{ isConfigured: boolean; phoneNumberId?: string; wabaId?: string; webhookSecret?: string; configuredSender?: string }> {
     try {
       const q = new URLSearchParams();
       if (companyId) q.append('companyId', companyId);
@@ -778,5 +778,54 @@ SAFETY & ACCURACY RULES:
         isConfigured: false
       };
     }
+  },
+
+  // 13. Test WhatsApp Meta Cloud API Handshake
+  async testWhatsAppConnection(config: {
+    phoneNumberId: string;
+    wabaId: string;
+    accessToken: string;
+    webhookSecret: string;
+  }): Promise<{ success: boolean; message: string; verifiedNumber?: string; accountName?: string }> {
+    const res = await fetch(`${getApiBase()}/whatsapp/test-connection`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(config)
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) {
+      throw new Error(body.error?.message || body.message || `Meta API verification failed (HTTP ${res.status})`);
+    }
+    return {
+      success: true,
+      message: body.message,
+      verifiedNumber: body.verifiedNumber,
+      accountName: body.accountName
+    };
+  },
+
+  // 14. Save WhatsApp Cloud API Configuration
+  async saveWhatsAppConfig(config: {
+    phoneNumberId: string;
+    wabaId: string;
+    accessToken: string;
+    webhookSecret: string;
+    companyId?: string;
+  }): Promise<{ success: boolean; message: string; verifiedNumber?: string; accountName?: string }> {
+    const res = await fetch(`${getApiBase()}/whatsapp/config`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(config)
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) {
+      throw new Error(body.error?.message || body.message || `Failed to save configuration (HTTP ${res.status})`);
+    }
+    return {
+      success: true,
+      message: body.message,
+      verifiedNumber: body.verifiedNumber,
+      accountName: body.accountName
+    };
   }
 };

@@ -1,9 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
-
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const { Client } = pg;
 
@@ -14,7 +18,8 @@ async function run() {
     process.exit(1);
   }
 
-  const sqlPath = path.resolve('../schema.sql');
+  // Authoritative schema is located in backend/schema.sql
+  const sqlPath = path.join(__dirname, '..', 'schema.sql');
   const sql = fs.readFileSync(sqlPath, 'utf-8');
   
   const client = new Client({

@@ -21,7 +21,8 @@ import {
   buildCompanyDocumentProfile,
   mapPayrollLines
 } from '../documents/CompanyDocumentParts';
-import { resolveEmployeeWithPf } from '../../services/policyEngine';
+import { resolveEmployeeWithPf, isComponentEligible } from '../../services/policyEngine';
+import { EmployeeSalaryEligibilityContext } from '../../types/settings';
 
 export const PayrollManagement: React.FC = () => {
   const { 
@@ -235,8 +236,28 @@ export const PayrollManagement: React.FC = () => {
 
   // Evaluates a salary component's dynamic value for an employee payroll record
   const getComponentValue = (comp: SalaryComponentConfig, p: PayrollRecord, emp?: Employee): number => {
-    const code = (comp.code || '').toUpperCase().trim();
+    // Component must be active and employee must be eligible
+    if (!comp.active) return 0;
+
     const basic = toNum(p.basicSalary);
+    const basicComp = activeEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
+    const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
+    const ctc = emp?.salaryDetails?.monthlyCtc || (basicPercent > 0 ? Math.round(basic / (basicPercent / 100)) : basic);
+
+    const eligibilityCtx: EmployeeSalaryEligibilityContext = {
+      id: emp?.id || p.employeeId,
+      employeeId: emp?.employeeId || p.employeeId,
+      monthlyCtc: ctc,
+      basicSalary: basic,
+      grossSalary: toNum(p.grossSalary) || ctc,
+      withPf: p.withPf !== undefined ? p.withPf : (emp ? resolveEmployeeWithPf(emp) : true),
+    };
+
+    if (!isComponentEligible(comp, eligibilityCtx)) {
+      return 0;
+    }
+
+    const code = (comp.code || '').toUpperCase().trim();
     
     // Direct matches if available on PayrollRecord or Employee
     if (code === 'BASIC') {

@@ -1,3 +1,4 @@
+import { validateComponentEligibility } from './componentEligibilityEngine.js';
 import { computeFullPayroll } from './calculationEngine.js';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { settingsRepository } from '../repositories/settingsRepository.js';
@@ -9,6 +10,26 @@ export class PayrollService {
     }
     async updateSettings(updates) {
         return settingsRepository.updateSettings(updates);
+    }
+    async getPayrollSettingsConfig() {
+        return settingsRepository.getPayrollSettingsConfig();
+    }
+    async updatePayrollSettingsConfig(updates) {
+        return settingsRepository.updatePayrollSettingsConfig(updates);
+    }
+    async getSalaryComponents() {
+        const config = await this.getPayrollSettingsConfig();
+        return config.components || [];
+    }
+    async updateSalaryComponents(components) {
+        for (const comp of components) {
+            const validation = validateComponentEligibility(comp);
+            if (!validation.isValid) {
+                throw new Error(`Validation error for component "${comp.name}": ${validation.error}`);
+            }
+        }
+        const updated = await this.updatePayrollSettingsConfig({ components });
+        return updated.components || [];
     }
     /**
      * Preview calculation for an employee without persisting records.
@@ -24,6 +45,7 @@ export class PayrollService {
             throw new Error(`No active salary structure found for employee ${input.employee_id}`);
         }
         const settings = await settingsRepository.getSettings();
+        const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
         // Check approved overtime records if not explicitly passed
         let otHours = input.overtime_hours ?? 0;
         let otRate = input.overtime_rate ?? 0;
@@ -74,6 +96,16 @@ export class PayrollService {
                 loanRecovery: input.loan_recovery ?? 0,
                 otherDeductions: input.other_deductions ?? 0,
             },
+            configuredComponents: payrollConfig?.components || [],
+            employeeContext: {
+                id: employee.id,
+                employeeId: employee.employeeId,
+                monthlyCtc: structure.monthlySalary,
+                basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
+                withPf: structure.withPf !== undefined ? structure.withPf : (employee.withPf !== undefined ? employee.withPf : true),
+                payrollMonth: input.payroll_month,
+                payrollYear: input.payroll_year,
+            },
         });
     }
     async createPayrollRun(month, year) {
@@ -95,6 +127,7 @@ export class PayrollService {
         }
         const employees = await employeeRepository.getAllEmployees();
         const settings = await settingsRepository.getSettings();
+        const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
         const processedRecords = [];
         for (const emp of employees) {
             const structure = await employeeRepository.getSalaryStructure(emp.employeeId);
@@ -130,6 +163,16 @@ export class PayrollService {
                 earnings: {
                     overtimeHours: otHours,
                     overtimeAmount: otAmount,
+                },
+                configuredComponents: payrollConfig?.components || [],
+                employeeContext: {
+                    id: emp.id,
+                    employeeId: emp.employeeId,
+                    monthlyCtc: structure.monthlySalary,
+                    basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
+                    withPf: structure.withPf !== undefined ? structure.withPf : (emp.withPf !== undefined ? emp.withPf : true),
+                    payrollMonth: run.payrollMonth,
+                    payrollYear: run.payrollYear,
                 },
             });
             processedRecords.push(calculated);

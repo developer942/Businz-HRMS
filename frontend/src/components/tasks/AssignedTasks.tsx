@@ -226,51 +226,43 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
         gap: '12px', 
         marginBottom: '20px' 
       }}>
-        {/* Quick Filter Section Tabs */}
-        <div className="task-filter-chips-bar" style={{ display: 'flex', gap: '8px' }}>
-          {[
-            { id: 'all', label: 'All Tasks', count: sectionCounts.all },
-            { id: 'pending', label: 'To Do', count: sectionCounts.pending },
-            { id: 'in_progress', label: 'In Progress', count: sectionCounts.in_progress },
-            { id: 'today', label: "Today's Tasks", count: sectionCounts.today },
-            { id: 'completed', label: 'Completed', count: sectionCounts.completed },
-            { id: 'overdue', label: 'Overdue', count: sectionCounts.overdue }
-          ].map(sec => {
-            const isActive = activeSection === sec.id;
-            return (
-              <button
-                key={sec.id}
-                onClick={() => handleSectionChange(sec.id)}
-                className={`btn ${isActive ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ 
-                  fontSize: '0.82rem', 
-                  padding: '7px 14px', 
-                  borderRadius: '10px', 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: isActive ? '#0E7490' : '#ffffff',
-                  borderColor: isActive ? '#0E7490' : '#E2E8F0',
-                  color: isActive ? '#ffffff' : '#334155',
-                  boxShadow: isActive ? '0 2px 5px rgba(14, 116, 144, 0.25)' : 'none',
-                  fontWeight: isActive ? 700 : 500,
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <span>{sec.label}</span>
-                <span style={{ 
-                  background: isActive ? 'rgba(255,255,255,0.25)' : '#F1F5F9', 
-                  color: isActive ? '#ffffff' : '#475569', 
-                  padding: '1px 7px', 
-                  borderRadius: '9999px', 
-                  fontSize: '0.72rem', 
-                  fontWeight: 700 
-                }}>
-                  {sec.count}
-                </span>
-              </button>
-            );
-          })}
+        {/* Status Dropdown Filter */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label 
+            htmlFor="assigned-tasks-status-filter"
+            style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Filter size={15} style={{ color: '#0E7490' }} />
+            <span>Status:</span>
+          </label>
+          <select
+            id="assigned-tasks-status-filter"
+            value={activeSection}
+            onChange={e => handleSectionChange(e.target.value as any)}
+            className="form-select"
+            aria-label="Filter assigned tasks by status"
+            style={{ 
+              fontSize: '0.84rem', 
+              fontWeight: 600,
+              color: '#0F172A',
+              height: '36px', 
+              borderRadius: '8px', 
+              borderColor: '#CBD5E1', 
+              paddingLeft: '12px', 
+              paddingRight: '32px', 
+              minWidth: '200px',
+              backgroundColor: '#FFFFFF', 
+              cursor: 'pointer', 
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)' 
+            }}
+          >
+            <option value="all">All Tasks ({sectionCounts.all})</option>
+            <option value="pending">To Do ({sectionCounts.pending})</option>
+            <option value="in_progress">In Progress ({sectionCounts.in_progress})</option>
+            <option value="today">Today's Tasks ({sectionCounts.today})</option>
+            <option value="completed">Completed ({sectionCounts.completed})</option>
+            <option value="overdue">Overdue ({sectionCounts.overdue})</option>
+          </select>
         </div>
 
         {/* Search & Department Filters */}

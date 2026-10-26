@@ -22,9 +22,12 @@ import {
   Activity, 
   Save, 
   X, 
-  Check
+  Check,
+  Key
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
+import { customerService } from '../../services/customerService';
+import { validateIntegrationField, getIntegrationErrors } from '../../utils/integrationValidators';
 import {
   getStoredGeminiApiKey,
   setStoredGeminiApiKey,
@@ -63,6 +66,10 @@ export interface IntegrationDefinition {
     options?: { label: string; value: string }[];
     helperText?: string;
     defaultValue: any;
+    inputMode?: 'none' | 'text' | 'decimal' | 'numeric' | 'tel' | 'search' | 'email' | 'url';
+    pattern?: string;
+    required?: boolean;
+    numericOnly?: boolean;
   }[];
 }
 
@@ -82,6 +89,7 @@ export const IntegrationsSettings: React.FC = () => {
   // Modal Configuration State
   const [activeModalIntegration, setActiveModalIntegration] = useState<IntegrationDefinition | null>(null);
   const [showPasswordFields, setShowPasswordFields] = useState<Record<string, boolean>>({});
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -124,6 +132,122 @@ export const IntegrationsSettings: React.FC = () => {
         }
       }
     } catch (e) {}
+
+    const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+    const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+    // 1. Synchronize WhatsApp Meta Cloud API real status from backend
+    customerService.getWhatsAppConfig()
+      .then(cfg => {
+        if (cfg) {
+          const isLive = Boolean(cfg.isConfigured);
+          setConnectionStatuses(prev => ({ ...prev, whatsapp: isLive ? ('connected' as const) : ('disconnected' as const) }));
+          if (cfg.phoneNumberId || cfg.wabaId) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              whatsapp: {
+                ...prev.whatsapp,
+                phoneNumberId: prev.whatsapp?.phoneNumberId || cfg.phoneNumberId || '',
+                wabaId: prev.whatsapp?.wabaId || cfg.wabaId || '',
+                webhookSecret: prev.whatsapp?.webhookSecret || ''
+              }
+            }));
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 2. Synchronize Google Workspace SMTP config from backend
+    fetch(`${API_BASE_URL}/settings/smtp/config`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(res => {
+        if (res?.success && res.data) {
+          const isLive = Boolean(res.data.configured);
+          setConnectionStatuses(prev => ({ ...prev, google_workspace: isLive ? ('connected' as const) : ('disconnected' as const) }));
+          setIntegrationFormValues(prev => ({
+            ...prev,
+            google_workspace: {
+              ...prev.google_workspace,
+              smtpHost: res.data.smtpHost || 'smtp.gmail.com',
+              smtpPort: String(res.data.smtpPort || 587),
+              senderEmail: res.data.senderEmail || '',
+              appPassword: prev.google_workspace?.appPassword || '',
+            }
+          }));
+        }
+      })
+      .catch(() => {});
+
+    // 3. Synchronize Meta Ads config from backend
+    fetch(`${API_BASE_URL}/settings/meta-ads/config`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(res => {
+        if (res?.success && res.data) {
+          const isLive = Boolean(res.data.isConfigured);
+          setConnectionStatuses(prev => ({ ...prev, meta_ads: isLive ? ('connected' as const) : ('disconnected' as const) }));
+          if (res.data.businessId || res.data.adAccountId) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              meta_ads: {
+                ...prev.meta_ads,
+                businessId: res.data.businessId || '',
+                adAccountId: res.data.adAccountId || '',
+                pixelId: res.data.pixelId || '',
+                autoIngestCandidates: res.data.autoIngestCandidates ?? false,
+                targetJobPost: res.data.targetJobPost || ''
+              }
+            }));
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 4. Synchronize Biometrics config from backend
+    fetch(`${API_BASE_URL}/settings/biometrics/config`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(res => {
+        if (res?.success && res.data) {
+          const isLive = Boolean(res.data.isConfigured);
+          setConnectionStatuses(prev => ({ ...prev, biometrics: isLive ? ('connected' as const) : ('disconnected' as const) }));
+          if (res.data.deviceIp) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              biometrics: {
+                ...prev.biometrics,
+                deviceIp: res.data.deviceIp || '',
+                devicePort: String(res.data.devicePort || 4370),
+                syncIntervalMins: Number(res.data.syncIntervalMins || 15),
+                deviceBrand: res.data.deviceBrand || '',
+                autoSyncMusterRoll: res.data.autoSyncMusterRoll ?? false
+              }
+            }));
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 5. Synchronize Accounting config from backend
+    fetch(`${API_BASE_URL}/settings/accounting/config`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(res => {
+        if (res?.success && res.data) {
+          const isLive = Boolean(res.data.isConfigured);
+          setConnectionStatuses(prev => ({ ...prev, tally_zoho: isLive ? ('connected' as const) : ('disconnected' as const) }));
+          if (res.data.serverEndpoint || res.data.companyNameInTally) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              tally_zoho: {
+                ...prev.tally_zoho,
+                accountingProvider: res.data.accountingProvider || 'Tally Prime XML Server',
+                serverEndpoint: res.data.serverEndpoint || '',
+                companyNameInTally: res.data.companyNameInTally || '',
+                autoSyncFrequency: res.data.autoSyncFrequency || 'Monthly on Payroll Close'
+              }
+            }));
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Real Integration Activity Logs (empty by default, no mock log events)
@@ -258,25 +382,22 @@ export const IntegrationsSettings: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Helper to dynamically verify whether an integration has active credentials configured
-  const computeIntegrationConnected = (integrationId: string, vals?: Record<string, any>): boolean => {
-    const v = vals || integrationFormValues[integrationId] || {};
-    switch (integrationId) {
-      case 'gemini_ai':
-        return Boolean(cleanApiKey(v.apiKey || geminiKey));
-      case 'google_workspace':
-        return Boolean((v.senderEmail && String(v.senderEmail).trim()) || (v.appPassword && String(v.appPassword).trim()));
-      case 'biometrics':
-        return Boolean(v.deviceIp && String(v.deviceIp).trim());
-      case 'whatsapp':
-        return Boolean((v.phoneNumberId && String(v.phoneNumberId).trim()) || (v.accessToken && String(v.accessToken).trim()));
-      case 'meta_ads':
-        return Boolean((v.adAccountId && String(v.adAccountId).trim()) || (v.pageAccessToken && String(v.pageAccessToken).trim()));
-      case 'tally_zoho':
-        return Boolean((v.syncEndpoint && String(v.syncEndpoint).trim()) || (v.companyGuid && String(v.companyGuid).trim()) || (v.authToken && String(v.authToken).trim()));
-      default:
-        return Object.values(v).some(val => Boolean(val && String(val).trim()));
-    }
+  // Unified field validation using shared integration validator
+  const validateField = (integrationId: string, key: string, val: any): string => {
+    const currentVals = integrationFormValues[integrationId] || {};
+    return validateIntegrationField(integrationId, key, val, currentVals);
+  };
+
+  const getFormErrors = (integrationId: string, vals?: Record<string, any>): Record<string, string> => {
+    const def = getIntegrationById(integrationId);
+    if (!def) return {};
+    const values = vals || integrationFormValues[integrationId] || {};
+    return getIntegrationErrors(integrationId, def.configFields, values);
+  };
+
+  // Helper to dynamically verify whether an integration is verified and connected
+  const computeIntegrationConnected = (integrationId: string, _vals?: Record<string, any>): boolean => {
+    return connectionStatuses[integrationId] === 'connected';
   };
 
   const handleToggleConnection = (integrationId: string) => {
@@ -343,21 +464,31 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'phoneNumberId',
           label: 'WhatsApp Phone Number ID',
           type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          required: true,
+          numericOnly: true,
           placeholder: 'e.g. 109823485729104',
-          helperText: 'Found in Meta Business Suite > WhatsApp App Settings',
+          helperText: 'Found in Meta Business Suite > WhatsApp App Settings (Digits 0–9 only)',
           defaultValue: ''
         },
         {
           key: 'wabaId',
           label: 'WhatsApp Business Account ID (WABA ID)',
           type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          required: true,
+          numericOnly: true,
           placeholder: 'e.g. 782910485729102',
+          helperText: 'Found in Meta Business Suite > WhatsApp Accounts (Digits 0–9 only)',
           defaultValue: ''
         },
         {
           key: 'accessToken',
           label: 'Permanent System User Access Token',
           type: 'password',
+          required: true,
           placeholder: 'EAAG9ZCK1k3k8BO...',
           helperText: 'Permanent token with whatsapp_business_messaging permissions',
           defaultValue: ''
@@ -366,7 +497,9 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'webhookSecret',
           label: 'Webhook Verification Token',
           type: 'text',
-          placeholder: 'e.g. vrm_wa_webhook_sec_2026',
+          required: true,
+          placeholder: 'e.g. businz_wa_sec_2026',
+          helperText: 'Secret token used to authenticate incoming Meta webhook notifications',
           defaultValue: ''
         }
       ]
@@ -395,29 +528,42 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'businessId',
           label: 'Meta Business Manager ID',
           type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          required: true,
+          numericOnly: true,
           placeholder: 'e.g. 482910492817291',
+          helperText: 'Found in Meta Business Suite > Business Settings (Digits 0–9 only)',
           defaultValue: ''
         },
         {
           key: 'adAccountId',
           label: 'Meta Ad Account ID',
           type: 'text',
-          placeholder: 'e.g. act_982710491029',
+          inputMode: 'numeric',
+          required: true,
+          placeholder: 'e.g. 982710491029 or act_982710491029',
+          helperText: 'Numeric identifier, e.g. 982710491029 or act_982710491029 (Digits only)',
           defaultValue: ''
         },
         {
           key: 'pageAccessToken',
           label: 'Facebook Page Access Token',
           type: 'password',
+          required: true,
           placeholder: 'EAAB9ZBK81L29kP...',
-          helperText: 'Required to read leadgen webhook payloads in real time',
+          helperText: 'Required to read candidate leadgen webhook payloads in real time',
           defaultValue: ''
         },
         {
           key: 'pixelId',
           label: 'Meta Conversion Pixel ID',
           type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          numericOnly: true,
           placeholder: 'e.g. 829104859102948',
+          helperText: 'Optional: Numeric Pixel ID for conversion tracking (Digits only)',
           defaultValue: ''
         }
       ]
@@ -446,8 +592,9 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'apiKey',
           label: 'Google Gemini AI Studio API Key',
           type: 'password',
+          required: true,
           placeholder: 'AIzaSy... or AQ....',
-          helperText: 'Get your free API key at aistudio.google.com/app/apikey',
+          helperText: 'Get your free API key at aistudio.google.com/app/apikey (starts with AQ... or AIzaSy...)',
           defaultValue: geminiKey || ''
         },
         {
@@ -501,27 +648,38 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'smtpHost',
           label: 'SMTP Relay Server Host',
           type: 'text',
+          required: true,
           placeholder: 'e.g. smtp.gmail.com',
+          helperText: 'Hostname only (e.g. smtp.gmail.com). URL schemes like https:// are rejected.',
           defaultValue: 'smtp.gmail.com'
         },
         {
           key: 'smtpPort',
           label: 'SMTP Port',
           type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          numericOnly: true,
+          required: true,
           placeholder: 'e.g. 587',
+          helperText: 'Port 587 (STARTTLS) or 465 (SSL/TLS). Integers 1–65535 only.',
           defaultValue: '587'
         },
         {
           key: 'senderEmail',
           label: 'Corporate Sender Email Address',
           type: 'text',
+          inputMode: 'email',
+          required: true,
           placeholder: 'e.g. hr@yourcompany.com',
+          helperText: 'Official company email for offer letters and payslip notices.',
           defaultValue: ''
         },
         {
           key: 'appPassword',
           label: 'Google Account App Password (16-digits)',
           type: 'password',
+          required: true,
           placeholder: 'Enter 16-digit Google App Password',
           helperText: 'Generate from myaccount.google.com > Security > 2-Step Verification > App Passwords. Formatting spaces are removed automatically.',
           defaultValue: ''
@@ -530,8 +688,9 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'testRecipientEmail',
           label: 'Send Test Email To (Optional)',
           type: 'text',
+          inputMode: 'email',
           placeholder: 'e.g. developer@businz.com',
-          helperText: 'Optional: Enter an email address to receive a live test email upon successful verification, or leave empty to test connection handshake only.',
+          helperText: 'Optional: Enter an email address to receive a live test email upon successful verification.',
           defaultValue: ''
         }
       ]
@@ -572,13 +731,16 @@ export const IntegrationsSettings: React.FC = () => {
           label: 'Tally Server IP Address / Port (or Cloud Endpoint)',
           type: 'text',
           placeholder: 'e.g. http://192.168.1.100:9000',
+          helperText: 'Structured endpoint with protocol and port (e.g. http://192.168.1.100:9000)',
           defaultValue: ''
         },
         {
           key: 'companyNameInTally',
           label: 'Company Name in Tally / Organization ID',
           type: 'text',
+          required: true,
           placeholder: 'e.g. YOUR COMPANY PVT LTD',
+          helperText: 'Exact Company Name registered in Tally or Zoho Organization ID.',
           defaultValue: ''
         },
         {
@@ -618,14 +780,21 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'deviceIp',
           label: 'Biometric Server / Device IP Address',
           type: 'text',
+          required: true,
           placeholder: 'e.g. 192.168.1.201',
+          helperText: 'IPv4, IPv6, or DNS hostname of your biometric attendance device/server (no URL schemes)',
           defaultValue: ''
         },
         {
           key: 'devicePort',
           label: 'Device TCP Port',
           type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          numericOnly: true,
+          required: true,
           placeholder: 'e.g. 4370',
+          helperText: 'Device TCP Port (1–65535). Standard port for ZKTeco/eSSL is 4370 (integers only)',
           defaultValue: ''
         },
         {
@@ -635,7 +804,8 @@ export const IntegrationsSettings: React.FC = () => {
           options: [
             { label: 'Every 5 Minutes (Real-Time)', value: '5' },
             { label: 'Every 15 Minutes (Standard)', value: '15' },
-            { label: 'Every 30 Minutes', value: '30' }
+            { label: 'Every 30 Minutes', value: '30' },
+            { label: 'Every 60 Minutes', value: '60' }
           ],
           defaultValue: String(integrationsConfig.biometricDevice?.syncIntervalMins || 15)
         },
@@ -643,7 +813,9 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'deviceBrand',
           label: 'Device Hardware Brand / Firmware',
           type: 'text',
+          required: true,
           placeholder: 'e.g. eSSL SilkBio-101TC & ZKTeco iFace',
+          helperText: 'Hardware brand and model identifier (letters, numbers, hyphens)',
           defaultValue: ''
         }
       ]
@@ -706,8 +878,10 @@ export const IntegrationsSettings: React.FC = () => {
       });
 
       const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
       fetch(`${API_BASE_URL}/settings/smtp/config`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
+        headers: authHeaders
       })
         .then(r => r.json())
         .then(res => {
@@ -726,67 +900,410 @@ export const IntegrationsSettings: React.FC = () => {
         })
         .catch(() => {});
     }
+
+    if (item.id === 'meta_ads') {
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      fetch(`${API_BASE_URL}/settings/meta-ads/config`, { headers: authHeaders })
+        .then(r => r.json())
+        .then(res => {
+          if (res?.success && res.data) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              meta_ads: {
+                ...prev.meta_ads,
+                businessId: res.data.businessId || prev.meta_ads?.businessId || '',
+                adAccountId: res.data.adAccountId || prev.meta_ads?.adAccountId || '',
+                pixelId: res.data.pixelId || prev.meta_ads?.pixelId || '',
+                autoIngestCandidates: res.data.autoIngestCandidates ?? prev.meta_ads?.autoIngestCandidates ?? false,
+                targetJobPost: res.data.targetJobPost || prev.meta_ads?.targetJobPost || ''
+              }
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (item.id === 'biometrics') {
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      fetch(`${API_BASE_URL}/settings/biometrics/config`, { headers: authHeaders })
+        .then(r => r.json())
+        .then(res => {
+          if (res?.success && res.data) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              biometrics: {
+                ...prev.biometrics,
+                deviceIp: res.data.deviceIp || prev.biometrics?.deviceIp || '',
+                devicePort: res.data.devicePort ? String(res.data.devicePort) : (prev.biometrics?.devicePort || '4370'),
+                syncIntervalMins: res.data.syncIntervalMins || prev.biometrics?.syncIntervalMins || 15,
+                deviceBrand: res.data.deviceBrand || prev.biometrics?.deviceBrand || '',
+                autoSyncMusterRoll: res.data.autoSyncMusterRoll ?? prev.biometrics?.autoSyncMusterRoll ?? false
+              }
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (item.id === 'tally_zoho') {
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      fetch(`${API_BASE_URL}/settings/accounting/config`, { headers: authHeaders })
+        .then(r => r.json())
+        .then(res => {
+          if (res?.success && res.data) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              tally_zoho: {
+                ...prev.tally_zoho,
+                accountingProvider: res.data.accountingProvider || prev.tally_zoho?.accountingProvider || 'Tally Prime XML Server',
+                serverEndpoint: res.data.serverEndpoint || prev.tally_zoho?.serverEndpoint || '',
+                companyNameInTally: res.data.companyNameInTally || prev.tally_zoho?.companyNameInTally || '',
+                autoSyncFrequency: res.data.autoSyncFrequency || prev.tally_zoho?.autoSyncFrequency || 'Monthly on Payroll Close'
+              }
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (item.id === 'whatsapp') {
+      customerService.getWhatsAppConfig()
+        .then(cfg => {
+          if (cfg) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              whatsapp: {
+                ...prev.whatsapp,
+                phoneNumberId: prev.whatsapp?.phoneNumberId || cfg.phoneNumberId || '',
+                wabaId: prev.whatsapp?.wabaId || cfg.wabaId || '',
+                webhookSecret: prev.whatsapp?.webhookSecret || ''
+              }
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+
+    setTouchedFields({});
     setActiveModalIntegration(item);
     setTestResult(null);
     setIsTestingConnection(false);
   };
 
   // Handle Saving Configuration
-  const handleSaveModalConfig = (e: React.FormEvent) => {
+  const handleSaveModalConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeModalIntegration) return;
 
     const id = activeModalIntegration.id;
-    const updatedAllValues = {
-      ...integrationFormValues
-    };
-    localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updatedAllValues));
 
-    // If Google Workspace, sync to backend and encrypt in DB
-    if (id === 'google_workspace') {
-      const gVals = integrationFormValues['google_workspace'] || {};
-      const host = (gVals.smtpHost || '').trim() || 'smtp.gmail.com';
-      const port = Number(gVals.smtpPort) || 587;
-      updatedAllValues['google_workspace'] = {
-        ...gVals,
-        smtpHost: host,
-        smtpPort: String(port)
-      };
-      setIntegrationFormValues(prev => ({
-        ...prev,
-        google_workspace: {
-          ...prev.google_workspace,
-          smtpHost: host,
-          smtpPort: String(port)
-        }
-      }));
-      localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updatedAllValues));
-
-      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
-      const cleanPass = (gVals.appPassword || '').replace(/\s+/g, '').trim();
-      fetch(`${API_BASE_URL}/settings/smtp/config`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          smtpHost: host,
-          smtpPort: port,
-          senderEmail: (gVals.senderEmail || '').trim(),
-          appPassword: cleanPass,
-        })
-      }).catch(err => {
-        console.error('Failed to sync SMTP config to backend:', err);
+    // 1. Strict validation check using shared integration validator
+    const formErrors = getFormErrors(id);
+    if (Object.keys(formErrors).length > 0) {
+      const markTouched: Record<string, boolean> = {};
+      activeModalIntegration.configFields.forEach(f => {
+        markTouched[`${id}_${f.key}`] = true;
       });
+      setTouchedFields(prev => ({ ...prev, ...markTouched }));
+      const firstErr = Object.values(formErrors)[0];
+      triggerToast(firstErr, 'error');
+      setTestResult({
+        success: false,
+        message: firstErr
+      });
+      return; // Reject invalid values before saving!
     }
 
-    // If Gemini, sync to Gemini API service and backend
+    const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+    const authHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+
+    // 2. WhatsApp Business Cloud API
+    if (id === 'whatsapp') {
+      const wVals = integrationFormValues['whatsapp'] || {};
+      const phoneId = String(wVals.phoneNumberId || '').trim();
+      const wabaId = String(wVals.wabaId || '').trim();
+      const accessToken = String(wVals.accessToken || '').trim();
+      const webhookSecret = String(wVals.webhookSecret || '').trim();
+
+      try {
+        await customerService.saveWhatsAppConfig({
+          phoneNumberId: phoneId,
+          wabaId,
+          accessToken,
+          webhookSecret
+        });
+
+        const nextFormValues = {
+          ...integrationFormValues,
+          whatsapp: {
+            ...wVals,
+            phoneNumberId: phoneId,
+            wabaId,
+            webhookSecret
+          }
+        };
+        setIntegrationFormValues(nextFormValues);
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+        recordAuditLog(
+          'WhatsApp Business Cloud API',
+          '#25D366',
+          'Configuration Saved & Verified',
+          `Phone ID ${phoneId} and WABA ID ${wabaId} verified and saved to PostgreSQL.`
+        );
+
+        triggerToast('WhatsApp Business Cloud API configuration saved and verified', 'success');
+        setActiveModalIntegration(null);
+      } catch (err: any) {
+        setTestResult({
+          success: false,
+          message: err.message || 'Failed to verify WhatsApp credentials with Meta Graph API.'
+        });
+        triggerToast(err.message || 'Meta verification failed. Configuration not saved.', 'error');
+      }
+      return;
+    }
+
+    // 3. Meta Ads (Facebook & Instagram Lead Sync)
+    if (id === 'meta_ads') {
+      const mVals = integrationFormValues['meta_ads'] || {};
+      const businessId = String(mVals.businessId || '').trim();
+      const adAccountId = String(mVals.adAccountId || '').trim();
+      const pageAccessToken = String(mVals.pageAccessToken || '').trim();
+      const pixelId = String(mVals.pixelId || '').trim();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/meta-ads/config`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            businessId,
+            adAccountId,
+            pageAccessToken,
+            pixelId: pixelId || undefined,
+            autoIngestCandidates: mVals.autoIngestCandidates ?? true,
+            targetJobPost: mVals.targetJobPost || undefined
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error?.message || data.message || 'Failed to persist Meta Ads configuration in PostgreSQL');
+        }
+
+        const nextFormValues = {
+          ...integrationFormValues,
+          meta_ads: {
+            ...mVals,
+            businessId,
+            adAccountId,
+            pixelId,
+            autoIngestCandidates: mVals.autoIngestCandidates ?? true,
+            targetJobPost: mVals.targetJobPost || ''
+          }
+        };
+        setIntegrationFormValues(nextFormValues);
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+        recordAuditLog(
+          'Meta Ads (Facebook & Instagram)',
+          '#0081FB',
+          'Configuration Saved',
+          `Business Manager ID ${businessId} and Ad Account ID ${adAccountId} safely saved to PostgreSQL.`
+        );
+
+        triggerToast('Meta Ads configuration saved & safely persisted in PostgreSQL', 'success');
+        setActiveModalIntegration(null);
+      } catch (err: any) {
+        setTestResult({ success: false, message: err.message || 'Failed to save Meta Ads configuration' });
+        triggerToast(err.message || 'Failed to save Meta Ads configuration', 'error');
+      }
+      return;
+    }
+
+    // 4. Biometric Attendance Hardware Gateway
+    if (id === 'biometrics') {
+      const bVals = integrationFormValues['biometrics'] || {};
+      const deviceIp = String(bVals.deviceIp || '').trim();
+      const devicePort = Number(bVals.devicePort) || 4370;
+      const syncIntervalMins = Number(bVals.syncIntervalMins) || 15;
+      const deviceBrand = String(bVals.deviceBrand || '').trim();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/biometrics/config`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            deviceIp,
+            devicePort,
+            syncIntervalMins,
+            deviceBrand,
+            autoSyncMusterRoll: bVals.autoSyncMusterRoll ?? true
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error?.message || data.message || 'Failed to persist Biometrics configuration in PostgreSQL');
+        }
+
+        const nextFormValues = {
+          ...integrationFormValues,
+          biometrics: {
+            ...bVals,
+            deviceIp,
+            devicePort: String(devicePort),
+            syncIntervalMins,
+            deviceBrand,
+            autoSyncMusterRoll: bVals.autoSyncMusterRoll ?? true
+          }
+        };
+        setIntegrationFormValues(nextFormValues);
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+        updateIntegrationsConfig({
+          ...integrationsConfig,
+          biometricDevice: {
+            ...integrationsConfig.biometricDevice,
+            ipAddress: deviceIp,
+            port: devicePort,
+            syncIntervalMins,
+            status: connectionStatuses['biometrics'] === 'connected' ? 'Connected' : 'Disconnected'
+          }
+        });
+
+        recordAuditLog(
+          'Biometric Hardware Gateway',
+          '#0E7490',
+          'Configuration Saved',
+          `Biometric terminal ${deviceIp}:${devicePort} (${deviceBrand}) safely saved to PostgreSQL.`
+        );
+
+        triggerToast('Biometric terminal configuration saved & safely persisted in PostgreSQL', 'success');
+        setActiveModalIntegration(null);
+      } catch (err: any) {
+        setTestResult({ success: false, message: err.message || 'Failed to save Biometrics configuration' });
+        triggerToast(err.message || 'Failed to save Biometrics configuration', 'error');
+      }
+      return;
+    }
+
+    // 5. Google Workspace / Gmail SMTP
+    if (id === 'google_workspace') {
+      const gVals = integrationFormValues['google_workspace'] || {};
+      const host = String(gVals.smtpHost || '').trim() || 'smtp.gmail.com';
+      const port = Number(gVals.smtpPort) || 587;
+      const senderEmail = String(gVals.senderEmail || '').trim();
+      const cleanPass = String(gVals.appPassword || '').replace(/\s+/g, '').trim();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/smtp/config`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            smtpHost: host,
+            smtpPort: port,
+            senderEmail,
+            appPassword: cleanPass
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error?.message || data.message || 'Failed to persist SMTP configuration in PostgreSQL');
+        }
+
+        const nextFormValues = {
+          ...integrationFormValues,
+          google_workspace: {
+            ...gVals,
+            smtpHost: host,
+            smtpPort: String(port),
+            senderEmail
+          }
+        };
+        setIntegrationFormValues(nextFormValues);
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+        recordAuditLog(
+          'Google Workspace / Gmail SMTP',
+          '#EA4335',
+          'Configuration Saved',
+          `SMTP relay ${host}:${port} for ${senderEmail} safely saved to PostgreSQL.`
+        );
+
+        triggerToast('Google Workspace SMTP configuration saved & safely persisted in PostgreSQL', 'success');
+        setActiveModalIntegration(null);
+      } catch (err: any) {
+        setTestResult({ success: false, message: err.message || 'Failed to save SMTP configuration' });
+        triggerToast(err.message || 'Failed to save SMTP configuration', 'error');
+      }
+      return;
+    }
+
+    // 6. Tally Prime & Zoho Books Accounting Sync
+    if (id === 'tally_zoho') {
+      const tVals = integrationFormValues['tally_zoho'] || {};
+      const accountingProvider = tVals.accountingProvider || 'Tally Prime XML Server';
+      const serverEndpoint = String(tVals.serverEndpoint || '').trim();
+      const companyNameInTally = String(tVals.companyNameInTally || '').trim();
+      const autoSyncFrequency = tVals.autoSyncFrequency || 'Monthly on Payroll Close';
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/accounting/config`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            accountingProvider,
+            serverEndpoint: serverEndpoint || undefined,
+            companyNameInTally,
+            autoSyncFrequency
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error?.message || data.message || 'Failed to persist Accounting configuration in PostgreSQL');
+        }
+
+        const nextFormValues = {
+          ...integrationFormValues,
+          tally_zoho: {
+            ...tVals,
+            accountingProvider,
+            serverEndpoint,
+            companyNameInTally,
+            autoSyncFrequency
+          }
+        };
+        setIntegrationFormValues(nextFormValues);
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+        recordAuditLog(
+          'Tally Prime & Zoho Books Sync',
+          '#F59E0B',
+          'Configuration Saved',
+          `${accountingProvider} for ${companyNameInTally} safely saved to PostgreSQL.`
+        );
+
+        triggerToast('Accounting integration configuration saved & safely persisted in PostgreSQL', 'success');
+        setActiveModalIntegration(null);
+      } catch (err: any) {
+        setTestResult({ success: false, message: err.message || 'Failed to save Accounting configuration' });
+        triggerToast(err.message || 'Failed to save Accounting configuration', 'error');
+      }
+      return;
+    }
+
+    // 7. Google Gemini AI & Pavi Chat Bot
     if (id === 'gemini_ai') {
       const gKey = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey || '');
       const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.0-flash';
       const gModel = rawModel.includes('3.6-flash') ? 'gemini-2.0-flash' : rawModel;
       const gOcrModel = integrationFormValues['gemini_ai']?.ocrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
+
       setStoredGeminiApiKey(gKey);
       setStoredGeminiModel(gModel);
       setStoredGeminiOcrModel(gOcrModel);
@@ -794,41 +1311,32 @@ export const IntegrationsSettings: React.FC = () => {
       setGeminiModel(gModel);
       setGeminiOcrModel(gOcrModel);
       syncApiKeyToBackend(gKey, gModel, gOcrModel);
-    }
 
-    // If Biometrics, sync to HRMSContext
-    if (id === 'biometrics') {
-      const bVals = integrationFormValues['biometrics'] || {};
-      updateIntegrationsConfig({
-        ...integrationsConfig,
-        biometricDevice: {
-          ...integrationsConfig.biometricDevice,
-          ipAddress: bVals.deviceIp || '',
-          port: Number(bVals.devicePort) || 0,
-          syncIntervalMins: Number(bVals.syncIntervalMins) || 15,
-          status: 'Connected'
+      const nextFormValues = {
+        ...integrationFormValues,
+        gemini_ai: {
+          ...integrationFormValues['gemini_ai'],
+          apiKey: gKey,
+          model: gModel,
+          ocrModel: gOcrModel
         }
-      });
+      };
+      setIntegrationFormValues(nextFormValues);
+      localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+      recordAuditLog(
+        activeModalIntegration.name,
+        activeModalIntegration.brandColor,
+        'Configuration Saved',
+        'Google Gemini AI credentials saved and model preferences updated.'
+      );
+      triggerToast('Google Gemini AI configuration saved', 'success');
+      setActiveModalIntegration(null);
+      return;
     }
 
-    // Mark as connected on save if credentials present, or disconnected if empty
-    const isConnected = computeIntegrationConnected(id, updatedAllValues[id] || {});
-    const updatedStatuses = {
-      ...connectionStatuses,
-      [id]: isConnected ? ('connected' as const) : ('disconnected' as const)
-    };
-    setConnectionStatuses(updatedStatuses);
-    localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(updatedStatuses));
-
-    // Record real activity audit log
-    recordAuditLog(
-      activeModalIntegration.name,
-      activeModalIntegration.brandColor,
-      'Configuration Saved',
-      `${activeModalIntegration.name} credentials saved and service status updated.`
-    );
-
-    triggerToast(`${activeModalIntegration.name} configuration saved & activated`, 'success');
+    // Default Fallback
+    triggerToast(`${activeModalIntegration.name} configuration saved`, 'success');
     setActiveModalIntegration(null);
   };
 
@@ -851,13 +1359,37 @@ export const IntegrationsSettings: React.FC = () => {
     });
   };
 
-  // Handle Simulated / Live Test Connection with Auto-Connect
+  // Handle Simulated / Live Test Connection with Verified Handshake
   const handleTestConnection = async () => {
     if (!activeModalIntegration) return;
+
+    // Validate configuration first before running connection test
+    const formErrors = getFormErrors(activeModalIntegration.id);
+    if (Object.keys(formErrors).length > 0) {
+      const markTouched: Record<string, boolean> = {};
+      activeModalIntegration.configFields.forEach(f => {
+        markTouched[`${activeModalIntegration.id}_${f.key}`] = true;
+      });
+      setTouchedFields(prev => ({ ...prev, ...markTouched }));
+      const firstErr = Object.values(formErrors)[0];
+      setTestResult({
+        success: false,
+        message: `Validation Error: ${firstErr}`
+      });
+      triggerToast(firstErr, 'error');
+      return;
+    }
+
     setIsTestingConnection(true);
     setTestResult(null);
 
-    // 1. Live test for Google Gemini AI
+    const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+    const authHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+
+    // 1. Google Gemini AI Verification
     if (activeModalIntegration.id === 'gemini_ai') {
       const key = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey || '');
       if (!key) {
@@ -879,8 +1411,6 @@ export const IntegrationsSettings: React.FC = () => {
         try {
           models = await listGeminiModels(key);
         } catch (apiErr: any) {
-          // If Google returns ACCESS_TOKEN_TYPE_UNSUPPORTED or cloud permissions error:
-          // The key is a valid AQ. / AIza key format! Provide standard models and advise user.
           models = [
             { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (Next Gen Preview)', description: 'Fast, advanced reasoning', supportedGenerationMethods: ['generateContent'] },
             { name: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash (Recommended)', description: 'Fast, multimodal, high accuracy', supportedGenerationMethods: ['generateContent'] },
@@ -897,12 +1427,10 @@ export const IntegrationsSettings: React.FC = () => {
         const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash';
         const currentOcrModel = integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
         
-        // Preserve user's model selection if it's already a valid recognized model
         const validModel = (models.some(m => m.name === currentModel) || ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-3.7-flash'].includes(currentModel))
           ? currentModel
           : (models.find(m => m.name.includes('2.5-flash'))?.name || models.find(m => m.name.includes('2.0-flash'))?.name || models[0]?.name || 'gemini-2.5-flash');
 
-        // Auto-save and auto-connect upon successful test!
         setStoredGeminiApiKey(key);
         setStoredGeminiModel(validModel);
         setStoredGeminiOcrModel(currentOcrModel);
@@ -938,26 +1466,15 @@ export const IntegrationsSettings: React.FC = () => {
       }
     }
 
-    // 2. Google Workspace SMTP Verification
+    // 2. Google Workspace SMTP Live Verification
     if (activeModalIntegration.id === 'google_workspace') {
       const gVals = integrationFormValues['google_workspace'] || {};
-      const host = (gVals.smtpHost || '').trim() || 'smtp.gmail.com';
-      const email = (gVals.senderEmail || '').trim();
-      // Remove all whitespace formatting from 16-digit Google App Password (e.g. "abcd efgh ijkl mnop")
-      const pass = (gVals.appPassword || '').replace(/\s+/g, '').trim();
+      const host = String(gVals.smtpHost || '').trim() || 'smtp.gmail.com';
+      const email = String(gVals.senderEmail || '').trim();
+      const pass = String(gVals.appPassword || '').replace(/\s+/g, '').trim();
       const port = Number(gVals.smtpPort) || 587;
-      const testRecipient = (gVals.testRecipientEmail || '').trim();
+      const testRecipient = String(gVals.testRecipientEmail || '').trim();
 
-      if (!email) {
-        setIsTestingConnection(false);
-        setTestResult({
-          success: false,
-          message: 'Please provide Corporate Sender Email Address before testing connection.'
-        });
-        return;
-      }
-
-      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
       if (!token) {
         setIsTestingConnection(false);
         setTestResult({
@@ -970,10 +1487,7 @@ export const IntegrationsSettings: React.FC = () => {
       try {
         const res = await fetch(`${API_BASE_URL}/settings/smtp/test-connection`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
+          headers: authHeaders,
           body: JSON.stringify({
             smtpHost: host,
             smtpPort: port,
@@ -985,42 +1499,13 @@ export const IntegrationsSettings: React.FC = () => {
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
-          if (res.status === 401) {
-            throw new Error(`HRMS Session Error (${data.error?.code || '401'}): ${data.error?.message || 'Your HRMS session has expired or is invalid. Please sign in again.'}`);
-          }
-          if (res.status === 403) {
-            throw new Error(`HRMS Permission Denied (${data.error?.code || '403'}): ${data.error?.message || 'Administrator privileges required to test or configure SMTP.'}`);
-          }
-          if (data.error?.code === 'SMTP_AUTH_FAILED') {
-            throw new Error(`Google SMTP Authentication Failed: ${data.error?.message || 'Invalid email or App Password.'}`);
-          }
-          if (data.error?.code === 'SMTP_CONNECTION_FAILED') {
-            throw new Error(`Google SMTP Connection Failed: ${data.error?.message || 'Unable to connect to smtp.gmail.com:587.'}`);
-          }
-          throw new Error(data.error?.message || 'SMTP Authentication failed');
+          throw new Error(data.error?.message || data.message || 'SMTP Authentication failed');
         }
 
         setIsTestingConnection(false);
         const nextStatuses = { ...connectionStatuses, google_workspace: 'connected' as const };
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
-
-        // Auto-save sanitized config to backend upon successful handshake
-        if (token && pass) {
-          fetch(`${API_BASE_URL}/settings/smtp/config`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              smtpHost: host,
-              smtpPort: port,
-              senderEmail: email,
-              appPassword: pass,
-            })
-          }).catch(() => {});
-        }
 
         recordAuditLog(
           'Google Workspace / Gmail SMTP',
@@ -1044,176 +1529,238 @@ export const IntegrationsSettings: React.FC = () => {
       }
     }
 
-    // 3. Biometric Terminal Gateway Verification
+    // 3. Biometric Terminal Hardware Gateway Verification
     if (activeModalIntegration.id === 'biometrics') {
       const bVals = integrationFormValues['biometrics'] || {};
-      const ip = (bVals.deviceIp || '').trim();
-      const port = (bVals.devicePort || '').toString().trim();
-      if (!ip || !port) {
-        setIsTestingConnection(false);
-        setTestResult({
-          success: false,
-          message: 'Please provide Biometric Server IP Address and Device TCP Port before testing connection.'
+      const ip = String(bVals.deviceIp || '').trim();
+      const port = Number(bVals.devicePort) || 4370;
+      const brand = String(bVals.deviceBrand || '').trim();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/biometrics/test-connection`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            deviceIp: ip,
+            devicePort: port,
+            deviceBrand: brand
+          })
         });
-        return;
-      }
-      updateIntegrationsConfig({
-        ...integrationsConfig,
-        biometricDevice: {
-          ...integrationsConfig.biometricDevice,
-          ipAddress: ip,
-          port: Number(port) || 4370,
-          syncIntervalMins: Number(bVals.syncIntervalMins) || 15,
-          status: 'Connected'
-        }
-      });
-      setTimeout(() => {
+
+        const data = await res.json().catch(() => ({}));
         setIsTestingConnection(false);
+
+        if (!res.ok || data.success === false) {
+          const isLan = data.error?.code === 'LAN_DEVICE_UNREACHABLE' || data.lanDevice;
+          setTestResult({
+            success: false,
+            message: data.error?.message || data.message || 'Biometric hardware connection failed'
+          });
+          if (isLan) {
+            triggerToast('LAN Device: Direct cloud access requires local VPN / Agent', 'info');
+          }
+          return;
+        }
+
         const nextStatuses = { ...connectionStatuses, biometrics: 'connected' as const };
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
+
         recordAuditLog(
           'Biometric Hardware Gateway',
           '#0E7490',
           'Hardware Gateway Verified',
-          `TCP/IP socket connected to ${ip}:${port}. Real-time punch listener active.`,
+          data.message || `TCP/IP socket connected to ${ip}:${port}. Real-time punch listener active.`,
           'Active (200 OK)'
         );
         setTestResult({
           success: true,
-          message: `Connection successful! Biometric terminal at ${ip}:${port} connected.`
+          message: data.message || `Connection successful! Biometric terminal at ${ip}:${port} connected.`
         });
-      }, 1000);
-      return;
+        return;
+      } catch (err: any) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: err.message || 'Biometric hardware connection failed. Please check IP and port.'
+        });
+        return;
+      }
     }
 
     // 4. WhatsApp Business Cloud API Verification
     if (activeModalIntegration.id === 'whatsapp') {
       const wVals = integrationFormValues['whatsapp'] || {};
-      const phoneId = (wVals.phoneNumberId || '').trim();
-      const token = (wVals.accessToken || '').trim();
-      if (!phoneId || !token) {
-        setIsTestingConnection(false);
-        setTestResult({
-          success: false,
-          message: 'Please provide WhatsApp Phone Number ID and Permanent Access Token before testing.'
+      const phoneId = String(wVals.phoneNumberId || '').trim();
+      const wabaId = String(wVals.wabaId || '').trim();
+      const accessToken = String(wVals.accessToken || '').trim();
+      const webhookSecret = String(wVals.webhookSecret || '').trim();
+
+      try {
+        const result = await customerService.testWhatsAppConnection({
+          phoneNumberId: phoneId,
+          wabaId,
+          accessToken,
+          webhookSecret
         });
-        return;
-      }
-      setTimeout(() => {
+
         setIsTestingConnection(false);
         const nextStatuses = { ...connectionStatuses, whatsapp: 'connected' as const };
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
+
         recordAuditLog(
           'WhatsApp Business Cloud API',
           '#25D366',
           'Meta Cloud API Handshake Verified',
-          `Phone ID ${phoneId} authenticated. Template message dispatch active.`,
+          `Verified with Meta Cloud API (${result.verifiedNumber || phoneId}). Live messaging active.`,
           'Active (200 OK)'
         );
         setTestResult({
           success: true,
-          message: 'Connection successful! WhatsApp Business Cloud API verified and connected.'
+          message: result.message || `Connection successful! WhatsApp Business Cloud API verified and connected (${result.verifiedNumber || phoneId}).`
         });
-      }, 1000);
+      } catch (err: any) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: err.message || 'Meta Cloud API connection test failed. Please verify credentials.'
+        });
+      }
       return;
     }
 
     // 5. Meta Lead Ads Verification
     if (activeModalIntegration.id === 'meta_ads') {
       const mVals = integrationFormValues['meta_ads'] || {};
-      const adAcc = (mVals.adAccountId || '').trim();
-      const pageTok = (mVals.pageAccessToken || '').trim();
-      if (!adAcc || !pageTok) {
-        setIsTestingConnection(false);
-        setTestResult({
-          success: false,
-          message: 'Please provide Meta Ad Account ID and Facebook Page Access Token before testing.'
+      const businessId = String(mVals.businessId || '').trim();
+      const adAccountId = String(mVals.adAccountId || '').trim();
+      const pageAccessToken = String(mVals.pageAccessToken || '').trim();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/meta-ads/test-connection`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            businessId,
+            adAccountId,
+            pageAccessToken
+          })
         });
-        return;
-      }
-      setTimeout(() => {
+
+        const data = await res.json().catch(() => ({}));
         setIsTestingConnection(false);
+
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error?.message || data.message || 'Meta Ads API verification failed');
+        }
+
         const nextStatuses = { ...connectionStatuses, meta_ads: 'connected' as const };
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
+
         recordAuditLog(
           'Meta Ads (Facebook & Instagram)',
           '#0081FB',
           'Graph API Lead Sync Verified',
-          `Ad Account ${adAcc} synced. Real-time applicant lead ingestion active.`,
+          data.message || `Ad Account ${adAccountId} verified via Meta Graph API. Real-time applicant lead ingestion active.`,
           'Active (200 OK)'
         );
         setTestResult({
           success: true,
-          message: 'Connection successful! Meta Lead Ads webhook connected.'
+          message: data.message || 'Connection successful! Meta Lead Ads webhook and Graph API connected.'
         });
-      }, 1000);
-      return;
+        return;
+      } catch (err: any) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: err.message || 'Meta Ads API verification failed. Please verify credentials.'
+        });
+        return;
+      }
     }
 
     // 6. Tally Prime & Zoho Books Verification
     if (activeModalIntegration.id === 'tally_zoho') {
       const tVals = integrationFormValues['tally_zoho'] || {};
-      const endpoint = (tVals.serverEndpoint || '').trim();
-      const comp = (tVals.companyNameInTally || '').trim();
-      if (!endpoint && !comp) {
-        setIsTestingConnection(false);
-        setTestResult({
-          success: false,
-          message: 'Please provide Tally / Zoho Server Endpoint or Company Identifier before testing.'
+      const accountingProvider = tVals.accountingProvider || 'Tally Prime XML Server';
+      const serverEndpoint = String(tVals.serverEndpoint || '').trim();
+      const companyNameInTally = String(tVals.companyNameInTally || '').trim();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/accounting/test-connection`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            accountingProvider,
+            serverEndpoint: serverEndpoint || undefined,
+            companyNameInTally
+          })
         });
-        return;
-      }
-      setTimeout(() => {
+
+        const data = await res.json().catch(() => ({}));
         setIsTestingConnection(false);
+
+        if (!res.ok || data.success === false) {
+          const isLan = data.error?.code === 'LAN_ENDPOINT_UNREACHABLE' || data.lanEndpoint;
+          setTestResult({
+            success: false,
+            message: data.error?.message || data.message || 'Accounting connection failed'
+          });
+          if (isLan) {
+            triggerToast('LAN Endpoint: Direct cloud access requires local VPN / Bridge Agent', 'info');
+          }
+          return;
+        }
+
         const nextStatuses = { ...connectionStatuses, tally_zoho: 'connected' as const };
         setConnectionStatuses(nextStatuses);
         localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
+
         recordAuditLog(
           'Tally Prime & Zoho Books Sync',
           '#F59E0B',
           'Accounting Gateway Verified',
-          `XML / REST endpoint ${endpoint || comp} authenticated. Payroll journal push active.`,
+          data.message || `Accounting endpoint verified for ${companyNameInTally}. Payroll journal push active.`,
           'Active (200 OK)'
         );
         setTestResult({
           success: true,
-          message: 'Connection successful! Accounting ledger sync connected.'
+          message: data.message || 'Connection successful! Accounting ledger sync connected.'
         });
-      }, 1000);
-      return;
+        return;
+      } catch (err: any) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: err.message || 'Accounting connection test failed.'
+        });
+        return;
+      }
     }
 
     // Fallback for any other integration
-    setTimeout(() => {
-      setIsTestingConnection(false);
-      const nextStatuses = { ...connectionStatuses, [activeModalIntegration.id]: 'connected' as const };
-      setConnectionStatuses(nextStatuses);
-      localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(nextStatuses));
-      recordAuditLog(
-        activeModalIntegration.name,
-        activeModalIntegration.brandColor,
-        'Endpoint Verified',
-        `${activeModalIntegration.name} endpoint validated and connected.`,
-        'Active (200 OK)'
-      );
-      setTestResult({
-        success: true,
-        message: `Endpoint handshake verified! Successfully communicated with ${activeModalIntegration.name} and connected.`
-      });
-    }, 1000);
+    setIsTestingConnection(false);
+    triggerToast(`Connection test completed for ${activeModalIntegration.name}`, 'info');
   };
 
   // Update a field inside the current active integration form with real-time dynamic auto-persistence
   const handleFieldChange = (integrationId: string, fieldKey: string, value: any) => {
+    // For WhatsApp Phone Number ID & WABA ID: trim accidental surrounding whitespace while strictly preserving as string
+    let finalValue = value;
+    if (integrationId === 'whatsapp') {
+      if (typeof value === 'string') {
+        finalValue = value.trim();
+      }
+    }
+
     setIntegrationFormValues(prev => {
       const updated = {
         ...prev,
         [integrationId]: {
           ...(prev[integrationId] || {}),
-          [fieldKey]: value
+          [fieldKey]: finalValue
         }
       };
       // Auto-save form values into localStorage on every edit/paste
@@ -1264,8 +1811,12 @@ export const IntegrationsSettings: React.FC = () => {
       }
     }
 
-    // 3. Dynamic real-time auto-evaluation of connection status for ALL integrations!
+    // 3. Dynamic real-time auto-evaluation of connection status
     setTimeout(() => {
+      // WhatsApp connection is strictly verified by Meta Graph API handshake on backend
+      if (integrationId === 'whatsapp') {
+        return;
+      }
       const currentVals = {
         ...(integrationFormValues[integrationId] || {}),
         [fieldKey]: value
@@ -1823,12 +2374,50 @@ export const IntegrationsSettings: React.FC = () => {
                   const isPasswordType = field.type === 'password';
                   const showPass = showPasswordFields[`${activeModalIntegration.id}_${field.key}`] || false;
 
+                  let inlineError = '';
+                  const err = validateField(activeModalIntegration.id, field.key, fieldVal);
+                  if (err) {
+                    const hasVal = typeof fieldVal === 'string' ? fieldVal.trim().length > 0 : Boolean(fieldVal);
+                    if (hasVal || touchedFields[`${activeModalIntegration.id}_${field.key}`]) {
+                      inlineError = err;
+                    }
+                  }
+
                   return (
                     <div key={field.key}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
                         <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
                           {field.label}
                         </label>
+                        {activeModalIntegration.id === 'whatsapp' && field.key === 'webhookSecret' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const array = new Uint8Array(16);
+                              window.crypto.getRandomValues(array);
+                              const randomHex = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+                              const generatedToken = `businz_wa_${randomHex}`;
+                              handleFieldChange('whatsapp', 'webhookSecret', generatedToken);
+                              triggerToast('Generated secure random webhook verification token', 'info');
+                            }}
+                            style={{
+                              fontSize: '0.72rem',
+                              color: '#0E7490',
+                              background: '#ECFEFF',
+                              border: '1px solid #CFFAFE',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontWeight: 650,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title="Generate a cryptographically secure random verification token"
+                          >
+                            <Key size={11} /> Generate Token
+                          </button>
+                        )}
                         {activeModalIntegration.id === 'google_workspace' && field.key === 'smtpHost' && (
                           <button
                             type="button"
@@ -1909,14 +2498,18 @@ export const IntegrationsSettings: React.FC = () => {
                             autoComplete="new-password"
                             data-lpignore="true"
                             data-1p-ignore="true"
+                            inputMode={field.inputMode}
+                            pattern={field.pattern}
                             placeholder={field.placeholder}
                             value={fieldVal ?? ''}
+                            onBlur={() => setTouchedFields(prev => ({ ...prev, [`${activeModalIntegration.id}_${field.key}`]: true }))}
                             onChange={e => handleFieldChange(activeModalIntegration.id, field.key, e.target.value)}
                             style={{
                               width: '100%',
                               padding: '9px 36px 9px 12px',
                               borderRadius: '10px',
-                              border: '1px solid #CBD5E1',
+                              border: inlineError ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                              backgroundColor: inlineError ? '#FEF2F2' : '#FFFFFF',
                               fontSize: '0.84rem',
                               color: '#1E293B',
                               outline: 'none'
@@ -1952,14 +2545,18 @@ export const IntegrationsSettings: React.FC = () => {
                           autoComplete="off"
                           data-lpignore="true"
                           data-1p-ignore="true"
+                          inputMode={field.inputMode}
+                          pattern={field.pattern}
                           placeholder={field.placeholder}
                           value={fieldVal ?? ''}
+                          onBlur={() => setTouchedFields(prev => ({ ...prev, [`${activeModalIntegration.id}_${field.key}`]: true }))}
                           onChange={e => handleFieldChange(activeModalIntegration.id, field.key, e.target.value)}
                           style={{
                             width: '100%',
                             padding: '9px 12px',
                             borderRadius: '10px',
-                            border: '1px solid #CBD5E1',
+                            border: inlineError ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                            backgroundColor: inlineError ? '#FEF2F2' : '#FFFFFF',
                             fontSize: '0.84rem',
                             color: '#1E293B',
                             outline: 'none'
@@ -1967,8 +2564,27 @@ export const IntegrationsSettings: React.FC = () => {
                         />
                       )}
 
+                      {inlineError && (
+                        <div 
+                          id={`err_${activeModalIntegration.id}_${field.key}`}
+                          role="alert"
+                          style={{
+                            fontSize: '0.74rem',
+                            color: '#DC2626',
+                            marginTop: '5px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontWeight: 650
+                          }}
+                        >
+                          <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                          <span>{inlineError}</span>
+                        </div>
+                      )}
+
                       {field.helperText && (
-                        <div style={{ fontSize: '0.72rem', color: '#94A3B8', marginTop: '4px' }}>
+                        <div style={{ fontSize: '0.72rem', color: inlineError ? '#64748B' : '#94A3B8', marginTop: '4px' }}>
                           {field.helperText}
                         </div>
                       )}
@@ -2008,87 +2624,65 @@ export const IntegrationsSettings: React.FC = () => {
                 gap: '10px'
               }}>
                 {/* Test Connection Button */}
-                <button
-                  type="button"
-                  onClick={handleTestConnection}
-                  disabled={isTestingConnection}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 16px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#334155',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    cursor: isTestingConnection ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  <RefreshCw size={13} className={isTestingConnection ? 'animate-spin' : ''} />
-                  <span>{isTestingConnection ? 'Testing Connection...' : 'Test Connection'}</span>
-                </button>
+                {(() => {
+                  const formErrors = getFormErrors(activeModalIntegration.id);
+                  const isFormInvalid = Object.keys(formErrors).length > 0;
+                  const isDisabled = isTestingConnection || isFormInvalid;
+                  return (
+                    <button
+                      type="button"
+                      onClick={handleTestConnection}
+                      disabled={isDisabled}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '8px 16px',
+                        borderRadius: '10px',
+                        border: '1px solid #CBD5E1',
+                        backgroundColor: isFormInvalid ? '#F1F5F9' : '#FFFFFF',
+                        color: isFormInvalid ? '#94A3B8' : '#334155',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                        opacity: isFormInvalid ? 0.6 : 1
+                      }}
+                      title={isFormInvalid ? `Please resolve invalid field values before testing: ${Object.values(formErrors)[0]}` : undefined}
+                    >
+                      <RefreshCw size={13} className={isTestingConnection ? 'animate-spin' : ''} />
+                      <span>{isTestingConnection ? 'Testing Connection...' : 'Test Connection'}</span>
+                    </button>
+                  );
+                })()}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
                     type="button"
                     onClick={() => {
-                      if (activeModalIntegration) {
-                        if (activeModalIntegration.id === 'google_workspace') {
-                          setIntegrationFormValues(prev => ({
-                            ...prev,
-                            google_workspace: {
-                              smtpHost: 'smtp.gmail.com',
-                              smtpPort: '587',
-                              senderEmail: '',
-                              appPassword: '',
-                              syncGoogleCalendar: false
-                            }
-                          }));
-                          try {
-                            const saved = localStorage.getItem('vrm_enterprise_integrations_v6');
-                            if (saved) {
-                              const parsed = JSON.parse(saved);
-                              parsed.google_workspace = {
-                                smtpHost: 'smtp.gmail.com',
-                                smtpPort: '587',
-                                senderEmail: '',
-                                appPassword: '',
-                                syncGoogleCalendar: false
-                              };
-                              localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(parsed));
-                            }
-                          } catch (e) {}
-                        } else {
-                          setIntegrationFormValues(prev => ({
-                            ...prev,
-                            [activeModalIntegration.id]: {}
-                          }));
-                        }
-                        if (activeModalIntegration.id === 'gemini_ai') {
-                          setStoredGeminiApiKey('');
-                          setGeminiKey('');
-                          try {
-                            const saved = localStorage.getItem('vrm_enterprise_integrations_v6');
-                            if (saved) {
-                              const parsed = JSON.parse(saved);
-                              if (parsed.gemini_ai) {
-                                parsed.gemini_ai.apiKey = '';
-                                localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(parsed));
-                              }
-                            }
-                            const statuses = localStorage.getItem('vrm_integration_statuses_v3');
-                            if (statuses) {
-                              const parsed = JSON.parse(statuses);
-                              parsed.gemini_ai = 'disconnected';
-                              localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(parsed));
-                              setConnectionStatuses(prev => ({ ...prev, gemini_ai: 'disconnected' }));
-                            }
-                          } catch (e) {}
-                        }
-                        triggerToast(`Cleared all fields for ${activeModalIntegration.name}`, 'info');
+                      if (!activeModalIntegration) return;
+                      const confirmed = window.confirm(
+                        `Are you sure you want to clear the form fields for ${activeModalIntegration.name}? Stored server credentials will not be deleted until you deliberately save the empty configuration.`
+                      );
+                      if (!confirmed) return;
+
+                      if (activeModalIntegration.id === 'google_workspace') {
+                        setIntegrationFormValues(prev => ({
+                          ...prev,
+                          google_workspace: {
+                            smtpHost: 'smtp.gmail.com',
+                            smtpPort: '587',
+                            senderEmail: '',
+                            appPassword: '',
+                            syncGoogleCalendar: false
+                          }
+                        }));
+                      } else {
+                        setIntegrationFormValues(prev => ({
+                          ...prev,
+                          [activeModalIntegration.id]: {}
+                        }));
                       }
+                      triggerToast(`Cleared form fields for ${activeModalIntegration.name}`, 'info');
                     }}
                     style={{
                       padding: '8px 14px',

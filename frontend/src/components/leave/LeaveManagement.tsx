@@ -20,7 +20,9 @@ import {
   Bell,
   Search,
   X,
-  User
+  User,
+  Filter,
+  ChevronDown
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
@@ -860,7 +862,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       <div className="card" style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)' }}>
         {/* Modern Clean Header with Title, Search & Export */}
         <div style={{ padding: '20px 24px 16px 24px', borderBottom: '1px solid #F1F5F9' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: isEmployeeRole ? '0px' : '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
             <div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>
@@ -875,10 +877,11 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               </div>
             </div>
 
-            {/* Search Bar & Export Dropdown (Hidden for Employee Role) */}
+            {/* Header Controls: Search Bar, Status Filter Dropdown & Export Dropdown */}
             {!isEmployeeRole && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <div style={{ position: 'relative', minWidth: '240px' }}>
+                {/* Search Bar */}
+                <div style={{ position: 'relative', minWidth: '220px' }}>
                   <Search size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
                   <input
                     type="text"
@@ -933,6 +936,53 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   )}
                 </div>
 
+                {/* Status Filter Dropdown */}
+                <div style={{ position: 'relative', minWidth: '175px' }}>
+                  <Filter size={13} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#0E7490', pointerEvents: 'none' }} />
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value as any);
+                      setCurrentPage(1);
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '36px',
+                      paddingLeft: '30px',
+                      paddingRight: '28px',
+                      borderRadius: '10px',
+                      border: '1px solid #E2E8F0',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      backgroundColor: '#F8FAFC',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.backgroundColor = '#FFFFFF';
+                      e.currentTarget.style.borderColor = '#0E7490';
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14,116,144,0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.backgroundColor = '#F8FAFC';
+                      e.currentTarget.style.borderColor = '#E2E8F0';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                    aria-label="Filter applications by status"
+                  >
+                    <option value="ALL">All Applications ({tabCounts.all})</option>
+                    <option value="Pending">Pending ({tabCounts.pending})</option>
+                    <option value="Approved">Approved ({tabCounts.approved})</option>
+                    <option value="Rejected">Rejected ({tabCounts.rejected})</option>
+                    <option value="WFH">Work From Home ({tabCounts.wfh})</option>
+                  </select>
+                  <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none' }} />
+                </div>
+
                 <ExportDropdown
                   onExportExcel={handleExportExcel}
                   onExportPDF={handleExportPDF}
@@ -941,55 +991,6 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               </div>
             )}
           </div>
-
-          {/* Interactive Status Segmented Filter Tabs (Hidden for Employee Role) */}
-          {!isEmployeeRole && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', overflowX: 'auto', paddingBottom: '2px' }}>
-              {[
-                { key: 'ALL', label: 'All Applications', count: tabCounts.all },
-                { key: 'Pending', label: 'Pending', count: tabCounts.pending },
-                { key: 'Approved', label: 'Approved', count: tabCounts.approved },
-                { key: 'Rejected', label: 'Rejected', count: tabCounts.rejected }
-              ].map(tab => {
-                const isActive = statusFilter === tab.key;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setStatusFilter(tab.key as any)}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: '8px',
-                      fontSize: '0.80rem',
-                      fontWeight: 700,
-                      border: isActive ? '1px solid #0E7490' : '1px solid #E2E8F0',
-                      backgroundColor: isActive ? '#0E7490' : '#FFFFFF',
-                      color: isActive ? '#FFFFFF' : '#475569',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      transition: 'all 0.15s ease',
-                      whiteSpace: 'nowrap',
-                      boxShadow: isActive ? '0 1px 3px rgba(14,116,144,0.2)' : 'none'
-                    }}
-                  >
-                    <span>{tab.label}</span>
-                    <span style={{
-                      fontSize: '0.70rem',
-                      fontWeight: 800,
-                      padding: '1px 6px',
-                      borderRadius: '999px',
-                      backgroundColor: isActive ? 'rgba(255,255,255,0.22)' : '#F1F5F9',
-                      color: isActive ? '#FFFFFF' : '#475569'
-                    }}>
-                      {tab.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
         
         {/* Streamlined Clean Table */}

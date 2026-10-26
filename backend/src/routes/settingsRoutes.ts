@@ -7,6 +7,15 @@ import {
   getCompanySmtpConfig,
   saveCompanySmtpConfig,
   testCompanySmtpConnection,
+  getMetaAdsConfig,
+  saveMetaAdsConfig,
+  testMetaAdsConnection,
+  getBiometricsConfig,
+  saveBiometricsConfig,
+  testBiometricsConnection,
+  getAccountingConfig,
+  saveAccountingConfig,
+  testAccountingConnection,
 } from '../controllers/settingsController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
@@ -128,3 +137,19 @@ settingsRouter.put('/geofence', requireRoles(['Super Admin', 'CEO', 'HR Manager'
 settingsRouter.get('/smtp/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getCompanySmtpConfig);
 settingsRouter.post('/smtp/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), saveCompanySmtpConfig);
 settingsRouter.post('/smtp/test-connection', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), testCompanySmtpConnection);
+
+// Meta Ads (Facebook & Instagram Lead Sync)
+settingsRouter.get('/meta-ads/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getMetaAdsConfig);
+settingsRouter.post('/meta-ads/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), saveMetaAdsConfig);
+settingsRouter.post('/meta-ads/test-connection', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), testMetaAdsConnection);
+
+// Biometric Attendance Hardware Gateway
+settingsRouter.get('/biometrics/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getBiometricsConfig);
+settingsRouter.post('/biometrics/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), saveBiometricsConfig);
+settingsRouter.post('/biometrics/test-connection', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), testBiometricsConnection);
+
+// Accounting (Tally Prime & Zoho Books)
+settingsRouter.get('/accounting/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getAccountingConfig);
+settingsRouter.post('/accounting/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), saveAccountingConfig);
+settingsRouter.post('/accounting/test-connection', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), testAccountingConnection);
+

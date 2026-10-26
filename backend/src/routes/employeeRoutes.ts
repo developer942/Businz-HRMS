@@ -13,13 +13,19 @@ import {
 } from '../controllers/employeeController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles, requirePermission, scopeDataAccess } from '../middleware/rbacMiddleware.js';
+import { credentialDispatchRateLimiter } from '../middleware/rateLimiter.js';
 
 export const employeeRouter = Router();
 
-// Automated Credential Email Dispatch
-employeeRouter.post('/send-credentials', sendEmployeeCredentials);
-
 employeeRouter.use(authenticateToken);
+
+// Automated Credential Email Dispatch (Strictly authorized HR/Admin roles with rate limiting)
+employeeRouter.post(
+  '/send-credentials',
+  credentialDispatchRateLimiter,
+  requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'ERP Administrator']),
+  sendEmployeeCredentials
+);
 
 employeeRouter.get('/', scopeDataAccess, requirePermission('employees', 'view'), getEmployees);
 employeeRouter.post('/send-offer-letter', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin']), sendEmployeeOfferLetter);

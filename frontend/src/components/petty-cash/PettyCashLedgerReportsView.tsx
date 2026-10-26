@@ -160,45 +160,69 @@ export const PettyCashLedgerReportsView: React.FC<PettyCashLedgerReportsViewProp
 
   return (
     <div>
-      {/* KPI Cards for Ledger Summary */}
-      <div className="petty-cash-kpi-grid">
-        <div className="petty-cash-kpi-card hero-card">
-          <div className="kpi-header">
-            <span className="kpi-label">LEDGER AUDIT BALANCE</span>
-            <div className="kpi-icon-pill">
-              <Layers size={20} />
+      {/* KPI Cards for Ledger Summary - Standardized to Leave Management System Style */}
+      <div className="kpi-grid" style={{ marginBottom: '20px' }}>
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Server-verified from immutable transaction chain"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>LEDGER AUDIT BALANCE</span>
+            <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}><Layers size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#0E7490' }}>
+              ₹{aggregates.latestBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
-          <div className="kpi-value">
-            ₹{aggregates.latestBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">Server-verified from immutable transaction chain</div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">TOTAL CONFIRMED CREDITS</span>
-            <div className="kpi-icon-pill" style={{ color: '#16A34A', background: '#DCFCE7' }}>
-              <ArrowDownLeft size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="All cash receipt confirmations to date"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL CONFIRMED CREDITS</span>
+            <div className="kpi-icon-wrapper emerald" style={{ color: '#10B981' }}><ArrowDownLeft size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#059669' }}>
+              ₹{aggregates.totalCredits.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: '#15803D' }}>
-            ₹{aggregates.totalCredits.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">All cash receipt confirmations to date</div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">TOTAL EXPENSES DEBITED</span>
-            <div className="kpi-icon-pill" style={{ color: '#DC2626', background: '#FEE2E2' }}>
-              <ArrowUpRight size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Vouchered daily operational disbursements"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL EXPENSES DEBITED</span>
+            <div className="kpi-icon-wrapper rose" style={{ color: '#EF4444' }}><ArrowUpRight size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#DC2626' }}>
+              ₹{aggregates.totalDebits.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: '#B91C1C' }}>
-            ₹{aggregates.totalDebits.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">Vouchered daily operational disbursements</div>
         </div>
       </div>
 

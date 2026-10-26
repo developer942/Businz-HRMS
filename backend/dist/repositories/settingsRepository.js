@@ -1,4 +1,5 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { query } from '../config/database.js';
 import { memoryCache } from '../services/cacheService.js';
 import { encryptCredential } from '../utils/crypto.js';
 const inMemorySmtpConfigs = {};
@@ -145,6 +146,96 @@ export class SettingsRepository {
             }
         }
         return this.getSettings();
+    }
+    async getPayrollSettingsConfig() {
+        const cacheKey = 'payroll_settings_config_cache';
+        const cached = memoryCache.get(cacheKey);
+        if (cached)
+            return cached;
+        if (isRealSupabaseConfigured()) {
+            try {
+                const supabase = getSupabaseAdmin();
+                const { data, error } = await supabase
+                    .from('company_settings')
+                    .select('setting_val')
+                    .eq('setting_key', 'payroll_settings_config')
+                    .maybeSingle();
+                if (data?.setting_val && typeof data.setting_val === 'object') {
+                    const config = data.setting_val;
+                    memoryCache.set(cacheKey, config, 30000);
+                    return config;
+                }
+            }
+            catch (err) {
+                console.warn('Database error in getPayrollSettingsConfig:', err);
+            }
+        }
+        try {
+            const res = await query(`SELECT setting_val FROM public.company_settings WHERE setting_key = $1 LIMIT 1`, ['payroll_settings_config']);
+            if (res.rows && res.rows[0]?.setting_val) {
+                const config = res.rows[0].setting_val;
+                memoryCache.set(cacheKey, config, 30000);
+                return config;
+            }
+        }
+        catch (err) {
+            console.warn('PostgreSQL query error in getPayrollSettingsConfig:', err.message);
+        }
+        // Default fallback
+        const fallback = {
+            components: [
+                { id: 'c-basic', name: 'BASIC SALARY', code: 'BASIC', type: 'EARNING', calculationMethod: 'PERCENTAGE', defaultValue: 40, percentageBase: 'CTC', isStatutory: false, active: true, isConfidential: false, description: 'Basic Salary component', eligibilityType: 'ALL' },
+                { id: 'c-hra', name: 'House Rent Allowance', code: 'HRA', type: 'EARNING', calculationMethod: 'PERCENTAGE', defaultValue: 35, percentageBase: 'CTC', isStatutory: false, active: true, isConfidential: false, description: 'HRA allowance', eligibilityType: 'ALL' },
+                { id: 'c-da', name: 'Dearness Allowance', code: 'DA', type: 'EARNING', calculationMethod: 'PERCENTAGE', defaultValue: 20, percentageBase: 'CTC', isStatutory: false, active: true, isConfidential: false, description: 'DA allowance', eligibilityType: 'ALL' },
+                { id: 'c-conv', name: 'Conveyance', code: 'CONV', type: 'EARNING', calculationMethod: 'PERCENTAGE', defaultValue: 5, percentageBase: 'CTC', isStatutory: false, active: true, isConfidential: false, description: 'Conveyance allowance', eligibilityType: 'ALL' },
+                { id: 'c-pf', name: 'Employees\' Provident Fund', code: 'ERF', type: 'DEDUCTION', calculationMethod: 'FORMULA', defaultValue: 0, formula: '(BASIC+HRA+CONV)*12/100', percentageBase: 'GROSS', isStatutory: true, active: true, isConfidential: false, description: 'Provident Fund', eligibilityType: 'ALL' },
+                { id: 'c-esic', name: 'Employees\' State Insurance Corporation', code: 'ESIC', type: 'DEDUCTION', calculationMethod: 'FORMULA', defaultValue: 0, formula: '(BASIC+HRA+DA+CONV+OT)*0.75/100', percentageBase: 'GROSS', isStatutory: true, active: true, isConfidential: false, description: 'Statutory ESIC', eligibilityType: 'ALL', eligibilityLimit: 21000 },
+            ]
+        };
+        return fallback;
+    }
+    async updatePayrollSettingsConfig(updates) {
+        memoryCache.invalidate('payroll_settings_config_cache');
+        const current = await this.getPayrollSettingsConfig();
+        const merged = {
+            ...current,
+            ...updates,
+            updatedAt: new Date().toISOString()
+        };
+        if (isRealSupabaseConfigured()) {
+            try {
+                const supabase = getSupabaseAdmin();
+                const { data: existing } = await supabase
+                    .from('company_settings')
+                    .select('id')
+                    .eq('setting_key', 'payroll_settings_config')
+                    .maybeSingle();
+                if (existing?.id) {
+                    await supabase
+                        .from('company_settings')
+                        .update({ setting_val: merged, updated_at: new Date().toISOString() })
+                        .eq('id', existing.id);
+                }
+                else {
+                    await supabase
+                        .from('company_settings')
+                        .insert({ setting_key: 'payroll_settings_config', setting_val: merged });
+                }
+            }
+            catch (err) {
+                console.warn('Could not save payroll settings config to Supabase:', err);
+            }
+        }
+        try {
+            await query(`INSERT INTO public.company_settings (setting_key, setting_val, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (setting_key) DO UPDATE
+         SET setting_val = $2, updated_at = NOW()`, ['payroll_settings_config', JSON.stringify(merged)]);
+        }
+        catch (err) {
+            console.warn('PostgreSQL query error in updatePayrollSettingsConfig:', err.message);
+        }
+        return merged;
     }
     async getCompanySettings(companyId) {
         const isCompanyB = companyId === 'company-b' || companyId?.toLowerCase()?.includes('nexus');
@@ -348,6 +439,28 @@ export class SettingsRepository {
         const isCompanyB = companyId === 'company-b' || companyId?.toLowerCase()?.includes('nexus');
         const cId = isCompanyB ? 'company-b' : 'company-a';
         const settingKey = isCompanyB ? 'smtp_config_company-b' : 'smtp_config_company-a';
+        // 1. Direct Hostinger VPS PostgreSQL query
+        try {
+            const res = await query(`SELECT setting_val FROM public.company_settings WHERE setting_key = $1 LIMIT 1`, [settingKey]);
+            if (res.rows && res.rows.length > 0 && res.rows[0].setting_val) {
+                const val = res.rows[0].setting_val;
+                const config = {
+                    companyId: cId,
+                    smtpHost: val.smtpHost || (val.senderEmail?.includes('@gmail.com') || val.senderEmail?.includes('businz.com') ? 'smtp.gmail.com' : 'smtp.gmail.com'),
+                    smtpPort: Number(val.smtpPort) || 587,
+                    secure: val.secure ?? (Number(val.smtpPort) === 465),
+                    senderEmail: val.senderEmail || '',
+                    senderName: val.senderName || '',
+                    appPasswordEncrypted: val.appPasswordEncrypted || '',
+                    updatedAt: val.updatedAt || new Date().toISOString(),
+                };
+                inMemorySmtpConfigs[cId] = config;
+                return config;
+            }
+        }
+        catch (err) {
+            console.warn('PostgreSQL query error in getCompanySmtpConfig:', err.message);
+        }
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
@@ -404,6 +517,19 @@ export class SettingsRepository {
             updatedAt: new Date().toISOString(),
         };
         inMemorySmtpConfigs[cId] = newConfig;
+        // 1. Direct Hostinger VPS PostgreSQL upsert
+        try {
+            const existingRow = await query(`SELECT id FROM public.company_settings WHERE setting_key = $1 LIMIT 1`, [settingKey]);
+            if (existingRow.rows && existingRow.rows.length > 0) {
+                await query(`UPDATE public.company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = $2`, [JSON.stringify(newConfig), settingKey]);
+            }
+            else {
+                await query(`INSERT INTO public.company_settings (setting_key, setting_val, created_at, updated_at) VALUES ($1, $2::jsonb, NOW(), NOW())`, [settingKey, JSON.stringify(newConfig)]);
+            }
+        }
+        catch (err) {
+            console.warn('PostgreSQL save error in saveCompanySmtpConfig:', err.message);
+        }
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();

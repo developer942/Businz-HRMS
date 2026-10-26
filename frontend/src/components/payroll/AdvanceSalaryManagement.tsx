@@ -156,8 +156,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
   const myTotalMonthlyEMI = myActiveLoans.reduce((sum, r) => sum + toNum(r.monthlyDeduction), 0);
 
   // Admin Tab & Filter State
-  type AdminTab = 'pending' | 'approved' | 'active' | 'rejected' | 'closed' | 'all';
-  const [adminTab, setAdminTab] = useState<AdminTab>(isAccountsUser && !isApprovalAuthority ? 'approved' : 'pending');
+  type AdminTab = 'all' | 'pending' | 'approved' | 'active' | 'rejected' | 'closed';
+  const [adminTab, setAdminTab] = useState<AdminTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -428,9 +428,10 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
   const openRequestModal = () => {
     const empId = targetEmployee?.employeeId || currentUser?.employeeId || 'EMP-001';
     const elig = calculateEmployeeLoanEligibility(empId);
-    const maxAmt = elig.maxEligibleAmount || 50000;
+    const effectiveSalary = toNum(targetEmployee.basicSalary) || toNum(targetEmployee.monthlyCtc) || elig.monthlySalary || 0;
+    const maxAmt = effectiveSalary > 0 ? Math.min(elig.maxEligibleAmount, effectiveSalary) : elig.maxEligibleAmount;
     const requestDate = getFutureRequestDateString();
-    const initialAmt = Math.min(20000, maxAmt);
+    const initialAmt = Math.min(10000, maxAmt);
     setRequestFormData({
       requestType: 'Advance Salary',
       requestedAmount: initialAmt,
@@ -454,18 +455,24 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     }
 
     const requestedAmount = toNum(requestFormData.requestedAmount);
+    const isAdvanceSalary = requestFormData.requestType === 'Advance Salary';
+    const effectiveSalary = toNum(targetEmployee.basicSalary) || toNum(targetEmployee.monthlyCtc) || elig.monthlySalary || 0;
+    const maxAllowedLimit = isAdvanceSalary
+      ? (effectiveSalary > 0 ? Math.min(elig.maxEligibleAmount, effectiveSalary) : elig.maxEligibleAmount)
+      : elig.maxEligibleAmount;
 
     if (requestedAmount <= 0) {
       showFeedback('error', 'Please enter a valid requested amount greater than zero.');
       return;
     }
 
-    if (requestedAmount > elig.maxEligibleAmount) {
-      showFeedback('error', `Requested amount exceeds maximum eligible limit of ${formatCurrency(elig.maxEligibleAmount)}.`);
+    if (requestedAmount > maxAllowedLimit) {
+      showFeedback('error', isAdvanceSalary
+        ? `Advance salary cannot exceed your monthly salary of ${formatCurrency(maxAllowedLimit)}.`
+        : `Requested amount exceeds maximum eligible limit of ${formatCurrency(maxAllowedLimit)}.`);
       return;
     }
 
-    const isAdvanceSalary = requestFormData.requestType === 'Advance Salary';
     const minMonths = elig.policy?.minRepaymentMonths ?? 1;
     const maxMonths = elig.policy?.maxRepaymentMonths ?? 12;
 
@@ -1073,71 +1080,9 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
             </div>
           </div>
 
-          {/* Status Segmented Tabs + Clean Filter Bar */}
+          {/* Clean Filter Bar with Unified Dropdowns */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* 1. Status Navigation Tabs (Pills) */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              overflowX: 'auto',
-              paddingBottom: '2px',
-              scrollbarWidth: 'none'
-            }}>
-              {[
-                { id: 'pending' as AdminTab, label: 'Pending Reviews', count: adminKPIs.totalPending, icon: Clock },
-                { id: 'approved' as AdminTab, label: 'Approved (Ready to Disburse)', count: loanRecords.filter(r => r.status === 'Approved').length, icon: CheckCircle2 },
-                { id: 'active' as AdminTab, label: 'Active Loans', count: adminKPIs.totalActiveCount, icon: Banknote },
-                { id: 'closed' as AdminTab, label: 'Closed / Repaid', count: adminKPIs.closedCount, icon: Receipt },
-                { id: 'rejected' as AdminTab, label: 'Rejected', count: loanRecords.filter(r => r.status === 'Rejected').length, icon: XCircle },
-                { id: 'all' as AdminTab, label: 'All Records', count: loanRecords.length, icon: SlidersHorizontal }
-              ].map(tab => {
-                const isActive = adminTab === tab.id;
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setAdminTab(tab.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px 16px',
-                      borderRadius: '12px',
-                      border: isActive ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
-                      backgroundColor: isActive ? '#0E7490' : '#FFFFFF',
-                      color: isActive ? '#FFFFFF' : '#475569',
-                      fontWeight: isActive ? 750 : 600,
-                      fontSize: '0.84rem',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      transition: 'all 0.15s ease',
-                      boxShadow: isActive ? '0 3px 10px rgba(14, 116, 144, 0.2)' : '0 1px 2px rgba(0,0,0,0.02)'
-                    }}
-                  >
-                    <Icon size={15} color={isActive ? '#FFFFFF' : (tab.id === 'pending' && tab.count > 0 ? '#D97706' : '#64748B')} />
-                    <span>{tab.label}</span>
-                    <span style={{
-                      padding: '1px 7px',
-                      borderRadius: '9999px',
-                      fontSize: '0.72rem',
-                      fontWeight: 800,
-                      backgroundColor: isActive 
-                        ? 'rgba(255, 255, 255, 0.25)' 
-                        : (tab.id === 'pending' && tab.count > 0 ? '#FEF3C7' : '#F1F5F9'),
-                      color: isActive 
-                        ? '#FFFFFF' 
-                        : (tab.id === 'pending' && tab.count > 0 ? '#B45309' : '#475569')
-                    }}>
-                      {tab.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 2. Unified Single-Row Filter Toolbar */}
+            {/* Unified Single-Row Filter Toolbar */}
             <div className="card" style={{
               padding: '12px 18px',
               borderRadius: '14px',
@@ -1147,7 +1092,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
               gap: '12px',
               flexWrap: 'wrap'
             }}>
-              {/* Left group: Search + Department + Loan Type + Clear */}
+              {/* Left group: Search + Status + Department + Loan Type + Clear */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', flexWrap: 'wrap' }}>
                 {/* Search Bar */}
                 <div style={{
@@ -1186,6 +1131,36 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                       <X size={14} />
                     </button>
                   )}
+                </div>
+
+                {/* Status Dropdown Filter */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <select
+                    id="advance-salary-status-filter"
+                    value={adminTab}
+                    onChange={e => setAdminTab(e.target.value as AdminTab)}
+                    aria-label="Filter records by status"
+                    style={{
+                      height: '38px',
+                      padding: '0 12px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: adminTab !== 'all' ? '#0E7490' : '#475569',
+                      backgroundColor: adminTab !== 'all' ? '#ECFEFF' : '#FFFFFF',
+                      border: adminTab !== 'all' ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      minWidth: '220px'
+                    }}
+                  >
+                    <option value="all">All Records ({loanRecords.length})</option>
+                    <option value="pending">Pending Reviews ({adminKPIs.totalPending})</option>
+                    <option value="approved">Approved (Ready to Disburse) ({loanRecords.filter(r => r.status === 'Approved').length})</option>
+                    <option value="active">Active Loans ({adminKPIs.totalActiveCount})</option>
+                    <option value="closed">Closed / Repaid ({adminKPIs.closedCount})</option>
+                    <option value="rejected">Rejected ({loanRecords.filter(r => r.status === 'Rejected').length})</option>
+                  </select>
                 </div>
 
                 {/* Department Dropdown */}
@@ -1240,13 +1215,14 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 </div>
 
                 {/* Clear Filter button */}
-                {(departmentFilter !== 'ALL' || typeFilter !== 'ALL' || searchQuery.trim() !== '') && (
+                {(departmentFilter !== 'ALL' || typeFilter !== 'ALL' || searchQuery.trim() !== '' || adminTab !== 'all') && (
                   <button
                     type="button"
                     onClick={() => {
                       setDepartmentFilter('ALL');
                       setTypeFilter('ALL');
                       setSearchQuery('');
+                      setAdminTab('all');
                     }}
                     style={{
                       height: '38px',
@@ -1553,6 +1529,10 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
         const modalEmp = targetEmployee;
         const modalElig = calculateEmployeeLoanEligibility(modalEmp.employeeId);
         const isAdvanceRequest = requestFormData.requestType === 'Advance Salary';
+        const effectiveSalary = toNum(modalEmp.basicSalary) || toNum(modalEmp.monthlyCtc) || modalElig.monthlySalary || 0;
+        const advanceMaxEligible = isAdvanceRequest
+          ? (effectiveSalary > 0 ? Math.min(modalElig.maxEligibleAmount, effectiveSalary) : modalElig.maxEligibleAmount)
+          : modalElig.maxEligibleAmount;
         const nextSalaryMonthLabel = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
           .toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
@@ -1566,7 +1546,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                     {isAdvanceRequest ? 'Request Advance Salary' : 'Request Employee Loan'}
                   </h3>
                   <p style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', margin: '3px 0 0' }}>
-                    Calculated against your monthly salary: {formatCurrency(modalEmp.basicSalary)}
+                    Calculated against your monthly salary: {formatCurrency(effectiveSalary)}
                   </p>
                 </div>
                 <button 
@@ -1620,13 +1600,17 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                           const nextType = e.target.value as 'Advance Salary' | 'Employee Loan';
                           const policyMin = modalElig?.policy?.minRepaymentMonths ?? 1;
                           const policyMax = modalElig?.policy?.maxRepaymentMonths ?? 3;
-                          setRequestFormData({
-                            ...requestFormData,
+                          const nextMax = nextType === 'Advance Salary'
+                            ? (effectiveSalary > 0 ? Math.min(modalElig.maxEligibleAmount, effectiveSalary) : modalElig.maxEligibleAmount)
+                            : modalElig.maxEligibleAmount;
+                          setRequestFormData(prev => ({
+                            ...prev,
                             requestType: nextType,
                             installmentMonths: nextType === 'Advance Salary'
                               ? 1
-                              : Math.min(Math.max(3, policyMin), policyMax)
-                          });
+                              : Math.min(Math.max(3, policyMin), policyMax),
+                            requestedAmount: Math.min(prev.requestedAmount || 0, nextMax)
+                          }));
                         }}
                         style={{ height: '42px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.85rem' }}
                       >
@@ -1641,22 +1625,31 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                           Requested Amount (₹) <span style={{ color: '#EF4444' }}>*</span>
                         </label>
                         <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 600 }}>
-                          Max: {formatCurrency(modalElig.maxEligibleAmount || 50000)}
+                          Max: {formatCurrency(advanceMaxEligible)}
                         </span>
                       </div>
                       <input 
-                        type="number"
-                        min={modalElig.policy?.minLoanAmount || 1000}
-                        max={Math.max(modalElig.maxEligibleAmount || 50000, 10000)}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder={`Up to ${formatCurrency(advanceMaxEligible)}`}
                         required
                         className="form-control"
                         value={requestFormData.requestedAmount > 0 ? requestFormData.requestedAmount : ''}
                         onChange={e => {
-                          const rawValue = e.target.value;
-                          setRequestFormData({
-                            ...requestFormData,
-                            requestedAmount: rawValue === '' ? 0 : Number(rawValue)
-                          });
+                          const digitsOnly = e.target.value.replace(/\D/g, '');
+                          if (!digitsOnly) {
+                            setRequestFormData(prev => ({ ...prev, requestedAmount: 0 }));
+                            return;
+                          }
+                          let numVal = Number(digitsOnly);
+                          // STRICT LIMIT: Cannot exceed maximum allowable limit or monthly salary
+                          if (numVal > advanceMaxEligible) {
+                            numVal = advanceMaxEligible;
+                          }
+                          setRequestFormData(prev => ({
+                            ...prev,
+                            requestedAmount: numVal
+                          }));
                         }}
                         style={{ height: '42px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.85rem' }}
                       />

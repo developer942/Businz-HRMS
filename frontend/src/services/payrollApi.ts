@@ -193,6 +193,24 @@ export const payrollApi = {
     });
   },
 
+  async getPayrollComponents() {
+    return request<unknown>('/payroll/components');
+  },
+
+  async updatePayrollComponents(payload: { components: unknown[] }) {
+    return request<unknown>('/payroll/components', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updatePayrollSettingsConfig(payload: Record<string, unknown>) {
+    return request<unknown>('/payroll/components', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
   // Salary Structures
   async getSalaryStructure(employeeId: string): Promise<ApiSalaryStructure> {
     return request<ApiSalaryStructure>(`/employees/${employeeId}/salary-structure`);

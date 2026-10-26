@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { authRepository } from '../repositories/authRepository.js';
@@ -235,7 +236,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
 
     const isEmailOk = emailResult.status === 'SENT';
 
-    const { password: _password, ...employeePayload } = newEmp;
+    const employeePayload = newEmp;
 
     res.status(201).json({
       success: true,
@@ -545,32 +546,94 @@ export const sendEmployeeCredentials = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { to, employeeCode, employeeName, temporaryPassword, loginUrl } = req.body;
-    if (!to || !employeeCode) {
+    const { employeeCode, loginUrl } = req.body;
+    if (!employeeCode) {
       res.status(400).json({
         success: false,
         error: {
           code: 'BAD_REQUEST',
-          message: 'Recipient email and employee code are required',
+          message: 'employeeCode is required to dispatch account setup credentials',
           details: [],
         },
       });
       return;
     }
 
+    const cleanEmpCode = String(employeeCode).trim();
+    const emp = await employeeRepository.findByEmployeeId(cleanEmpCode);
+    if (!emp) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: `Employee with code "${cleanEmpCode}" does not exist in the workforce directory.`,
+          details: [],
+        },
+      });
+      return;
+    }
+
+    if (!emp.email || !emp.email.includes('@')) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'NO_VALID_EMAIL',
+          message: `Employee ${cleanEmpCode} does not have a valid registered email address.`,
+          details: [],
+        },
+      });
+      return;
+    }
+
+    // Anti-Abuse: Prevent arbitrary recipient injection. Must match registered email.
+    const requestedTo = req.body.to ? String(req.body.to).trim().toLowerCase() : null;
+    if (requestedTo && requestedTo !== emp.email.toLowerCase()) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'RECIPIENT_MISMATCH',
+          message: `Recipient email mismatch. Account setup credentials can only be dispatched to the employee's verified registered email (${emp.email}). Arbitrary recipients are strictly blocked.`,
+          details: [],
+        },
+      });
+      return;
+    }
+
+    const performer = req.user?.email || 'HR Department';
+
+    // Generate secure one-time account setup link (NO plaintext passwords)
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const baseLoginUrl = (loginUrl as string) || 'https://hrms.businz.com/login';
+    const baseUrl = baseLoginUrl.replace(/\/login\/?$/, '');
+    const setupUrl = `${baseUrl}/reset-password?setupToken=${setupToken}&employeeCode=${encodeURIComponent(emp.employeeId)}`;
+
     const emailResult = await sendCredentialEmail({
-      to: String(to).trim().toLowerCase(),
-      employeeName: employeeName || 'Employee',
-      employeeCode,
-      temporaryPassword: temporaryPassword || 'Password@123',
-      loginUrl: loginUrl || 'http://localhost:5173/login',
+      to: emp.email.toLowerCase(),
+      employeeName: `${emp.firstName} ${emp.lastName || ''}`.trim() || 'Employee',
+      employeeCode: emp.employeeId,
+      setupUrl,
+      loginUrl: baseLoginUrl,
     });
+
+    // Record comprehensive audit log
+    await auditRepository.recordLog(
+      'CREDENTIAL_SETUP_LINK_SENT',
+      emp.employeeId,
+      performer,
+      {
+        email: emp.email,
+        deliveryStatus: emailResult.status,
+        dispatchedBy: performer,
+        setupLinkGenerated: true,
+      }
+    );
 
     res.status(200).json({
       success: true,
       status: emailResult.status,
       sentAt: emailResult.sentAt,
       error: emailResult.error,
+      message: 'Secure one-time account setup link dispatched to employee registered email.',
     });
   } catch (err) {
     next(err);

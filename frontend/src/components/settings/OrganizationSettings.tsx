@@ -88,22 +88,30 @@ export const OrganizationSettings: React.FC = () => {
     if (type === 'branch') setBranchForm({ name: '', code: '', location: '', departments: [] });
   };
 
-  const handleSaveDept = (e: React.FormEvent) => {
+  const handleSaveDept = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deptForm.name.trim()) return;
     if (editingId) {
-      updateDepartment(editingId, deptForm);
+      const res: any = await updateDepartment(editingId, deptForm);
+      if (res && res.success === false) {
+        triggerError(res.message || `Failed to update department "${deptForm.name}"`);
+        return;
+      }
       triggerToast(`Department "${deptForm.name}" updated successfully`);
     } else {
-      addDepartment(deptForm);
+      const res: any = await addDepartment(deptForm);
+      if (res && res.success === false) {
+        triggerError(res.message || `Failed to create department "${deptForm.name}"`);
+        return;
+      }
       triggerToast(`Department "${deptForm.name}" created successfully`);
     }
     setModalType(null);
   };
 
-  const handleDeleteDept = (id: string, name: string) => {
-    const res = deleteDepartment(id);
-    if (!res.success) {
+  const handleDeleteDept = async (id: string, name: string) => {
+    const res: any = await deleteDepartment(id);
+    if (res && !res.success) {
       triggerError(res.message || `Cannot delete department: In use by employees`);
     } else {
       triggerToast(`Department "${name}" deleted`);

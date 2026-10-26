@@ -126,60 +126,92 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
         </div>
       )}
 
-      {/* CEO Executive KPI Cards */}
-      <div className="petty-cash-kpi-grid">
-        <div className="petty-cash-kpi-card hero-card">
-          <div className="kpi-header">
-            <span className="kpi-label">AVAILABLE PETTY CASH</span>
-            <div className="kpi-icon-pill">
-              <Layers size={20} />
+      {/* CEO Executive KPI Cards - Standardized to Leave Management System Style */}
+      <div className="kpi-grid" style={{ marginBottom: '20px' }}>
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title={`Custodian: ${activeAccount ? activeAccount.custodian_name : 'No custodian assigned'}`}
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>AVAILABLE PETTY CASH</span>
+            <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}><Layers size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#0E7490' }}>
+              ₹{currentBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-          </div>
-          <div className="kpi-value">
-            ₹{currentBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">
-            Custodian: {activeAccount ? activeAccount.custodian_name : 'No custodian assigned'}
           </div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">PENDING CEO APPROVALS</span>
-            <div className="kpi-icon-pill" style={{ color: '#D97706', background: '#FEF3C7' }}>
-              <Clock size={20} />
+        <div 
+          className="kpi-card"
+          onClick={() => setRequestFilter(prev => prev === 'PENDING_CEO_APPROVAL' ? 'ALL' : 'PENDING_CEO_APPROVAL')}
+          style={{ 
+            cursor: 'pointer',
+            border: requestFilter === 'PENDING_CEO_APPROVAL' ? '2px solid #F59E0B' : '1px solid #E7ECF3',
+            boxShadow: requestFilter === 'PENDING_CEO_APPROVAL' ? '0 4px 14px rgba(245,158,11,0.15)' : '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: requestFilter === 'PENDING_CEO_APPROVAL' ? '#FFFBEB' : '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Click to filter by Pending CEO Approvals"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: requestFilter === 'PENDING_CEO_APPROVAL' ? '#B45309' : '#64748B' }}>PENDING CEO APPROVALS</span>
+            <div className="kpi-icon-wrapper amber" style={{ color: '#D97706' }}><Clock size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#D97706' }}>
+              {pendingRequests.length}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: pendingRequests.length > 0 ? '#B45309' : '#1E293B' }}>
-            {pendingRequests.length}
-          </div>
-          <div className="kpi-meta">Awaiting your approval before Accounts disbursement</div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">TOTAL ALLOCATED TO DATE</span>
-            <div className="kpi-icon-pill" style={{ color: '#16A34A', background: '#DCFCE7' }}>
-              <ShieldCheck size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Cumulative confirmed credits"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL ALLOCATED TO DATE</span>
+            <div className="kpi-icon-wrapper emerald" style={{ color: '#10B981' }}><ShieldCheck size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#059669' }}>
+              ₹{totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: '#15803D' }}>
-            ₹{totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">Cumulative confirmed credits</div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">TOTAL SPENT & VOUCHERED</span>
-            <div className="kpi-icon-pill" style={{ color: '#DC2626', background: '#FEE2E2' }}>
-              <TrendingDown size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Verified daily operational expenses"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL SPENT & VOUCHERED</span>
+            <div className="kpi-icon-wrapper rose" style={{ color: '#EF4444' }}><TrendingDown size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#DC2626' }}>
+              ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: '#B91C1C' }}>
-            ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">Verified daily operational expenses</div>
         </div>
       </div>
 
@@ -192,13 +224,9 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
           </h3>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            {activeAccount ? (
+            {activeAccount && (
               <button className="btn-secondary" onClick={onOpenReconcile}>
                 <ArrowLeftRight size={16} /> Reassign with Reconciliation
-              </button>
-            ) : (
-              <button className="btn-primary" onClick={onOpenAssignCustodian}>
-                <Plus size={16} /> Assign Petty Cash Custodian
               </button>
             )}
           </div>

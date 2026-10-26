@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:e2e": "playwright test",
+    "test:flow": "node scripts/test_hrms_flow.js",
+    "test:audit": "node scripts/test_round2_audit.js",
     "preview": "vite preview"
   },
   "dependencies": {

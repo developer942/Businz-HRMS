@@ -8,11 +8,14 @@ export const payrollRouter = Router();
 // Apply auth to all payroll routes
 payrollRouter.use(authenticateToken);
 
-// Settings
+// Settings & Components
 payrollRouter.get('/settings', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getSettings(req, res, next));
 payrollRouter.put('/settings', requirePermission('payroll', 'edit'), (req, res, next) =>
   payrollController.updateSettings(req, res, next)
 );
+payrollRouter.get('/components', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getComponents(req, res, next));
+payrollRouter.put('/components', requirePermission('payroll', 'edit'), (req, res, next) => payrollController.updateComponents(req, res, next));
+payrollRouter.post('/evaluate-eligibility', requirePermission('payroll', 'view'), (req, res, next) => payrollController.evaluateEligibility(req, res, next));
 
 // Preview (Authoritative calculation preview)
 payrollRouter.post('/preview', requirePermission('payroll', 'view'), (req, res, next) => payrollController.previewPayroll(req, res, next));
@@ -36,8 +39,8 @@ payrollRouter.post('/runs/:id/pay', requireRoles(['Super Admin', 'CEO', 'Finance
 );
 
 // Processed Records & Payslips
-payrollRouter.get('/records', (req, res, next) => payrollController.getRecords(req, res, next));
-payrollRouter.get('/records/:id', (req, res, next) => payrollController.getRecords(req, res, next));
+payrollRouter.get('/records', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getRecords(req, res, next));
+payrollRouter.get('/records/:id', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getRecords(req, res, next));
 
-payrollRouter.get('/payslips/:id', (req, res, next) => payrollController.getPayslip(req, res, next));
-payrollRouter.get('/employees/:employeeId/payslips', (req, res, next) => payrollController.getPayslip(req, res, next));
+payrollRouter.get('/payslips/:id', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getPayslip(req, res, next));
+payrollRouter.get('/employees/:employeeId/payslips', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getPayslip(req, res, next));

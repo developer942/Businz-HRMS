@@ -34,7 +34,6 @@ export interface EmployeeRecord {
   attendanceMethod?: string;
   workShift?: string;
   shiftId?: string;
-  password?: string;
   panNumber?: string;
   uanNumber?: string;
   addressLine1?: string;
@@ -90,7 +89,6 @@ function mapDbRowToEmployee(data: any): EmployeeRecord {
     bankName: data.bank_name || undefined,
     accountNumber: data.account_number || undefined,
     ifscCode: data.ifsc_code || undefined,
-    password: data.password || undefined,
     mustChangePassword: data.must_change_password ?? false,
     accountStatus: data.account_status,
     credentialEmailStatus: data.credential_email_status,
@@ -367,7 +365,7 @@ export class EmployeeRepository {
     return list;
   }
 
-  async createEmployee(data: Partial<EmployeeRecord>): Promise<EmployeeRecord> {
+  async createEmployee(data: Partial<EmployeeRecord> & { password?: string }): Promise<EmployeeRecord> {
     if (!isRealSupabaseConfigured()) {
       throw new Error('Database connection required to create employees.');
     }
@@ -529,7 +527,7 @@ export class EmployeeRepository {
     return mapDbRowToEmployee(insertRes.data);
   }
 
-  async updateEmployee(id: string, updates: Partial<EmployeeRecord>): Promise<EmployeeRecord | null> {
+  async updateEmployee(id: string, updates: Partial<EmployeeRecord> & { password?: string }): Promise<EmployeeRecord | null> {
     const emp = await this.getEmployeeById(id);
     if (!emp) return null;
 

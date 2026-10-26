@@ -1,4 +1,6 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { query } from '../config/database.js';
+import { encryptCredential, decryptCredential } from '../utils/crypto.js';
 import { WhatsAppTemplateModel, WhatsAppMessageStatus } from '../types/customer.js';
 import { customerRepository } from '../repositories/customerRepository.js';
 
@@ -19,6 +21,31 @@ export class WhatsAppService {
   async getCompanyWhatsAppConfig(companyId: string): Promise<WhatsAppConfig | null> {
     const settingKey = `whatsapp_integration_${companyId || 'company-a'}`;
 
+    // Direct Hostinger VPS PostgreSQL query
+    try {
+      const res = await query(
+        `SELECT setting_val FROM public.company_settings WHERE setting_key = $1 LIMIT 1`,
+        [settingKey]
+      );
+      if (res.rows.length > 0 && res.rows[0].setting_val) {
+        let val = res.rows[0].setting_val;
+        if (typeof val === 'string') {
+          try { val = JSON.parse(val); } catch {}
+        }
+        if (val?.phoneNumberId && val?.accessToken) {
+          return {
+            phoneNumberId: String(val.phoneNumberId).trim(),
+            wabaId: String(val.wabaId || '').trim(),
+            accessToken: decryptCredential(String(val.accessToken).trim()),
+            webhookSecret: decryptCredential(String(val.webhookSecret || '').trim())
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('[WhatsAppService] PostgreSQL direct query error:', err);
+    }
+
+    // Supabase fallback if configured
     if (isRealSupabaseConfigured()) {
       try {
         const supabase = getSupabaseAdmin();
@@ -34,8 +61,8 @@ export class WhatsAppService {
             return {
               phoneNumberId: String(val.phoneNumberId).trim(),
               wabaId: String(val.wabaId || '').trim(),
-              accessToken: String(val.accessToken).trim(),
-              webhookSecret: String(val.webhookSecret || '').trim()
+              accessToken: decryptCredential(String(val.accessToken).trim()),
+              webhookSecret: decryptCredential(String(val.webhookSecret || '').trim())
             };
           }
         }
@@ -60,18 +87,39 @@ export class WhatsAppService {
   // 2. Save/Update WhatsApp credentials securely on the backend
   async saveCompanyWhatsAppConfig(companyId: string, config: WhatsAppConfig): Promise<boolean> {
     const settingKey = `whatsapp_integration_${companyId || 'company-a'}`;
+    const payload = {
+      phoneNumberId: config.phoneNumberId.trim(),
+      wabaId: config.wabaId.trim(),
+      accessToken: encryptCredential(config.accessToken.trim()),
+      webhookSecret: config.webhookSecret ? encryptCredential(config.webhookSecret.trim()) : '',
+      updatedAt: new Date().toISOString()
+    };
 
+    // 1. Direct Hostinger VPS PostgreSQL persistence
+    try {
+      const existing = await query(
+        `SELECT id FROM public.company_settings WHERE setting_key = $1 LIMIT 1`,
+        [settingKey]
+      );
+      if (existing.rows.length > 0) {
+        await query(
+          `UPDATE public.company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = $2`,
+          [JSON.stringify(payload), settingKey]
+        );
+      } else {
+        await query(
+          `INSERT INTO public.company_settings (setting_key, setting_val, created_at, updated_at) VALUES ($1, $2::jsonb, NOW(), NOW())`,
+          [settingKey, JSON.stringify(payload)]
+        );
+      }
+    } catch (err) {
+      console.warn('[WhatsAppService] PostgreSQL direct save error:', err);
+    }
+
+    // 2. Supabase persistence if configured
     if (isRealSupabaseConfigured()) {
       try {
         const supabase = getSupabaseAdmin();
-        const payload = {
-          phoneNumberId: config.phoneNumberId.trim(),
-          wabaId: config.wabaId.trim(),
-          accessToken: config.accessToken.trim(),
-          webhookSecret: config.webhookSecret.trim(),
-          updatedAt: new Date().toISOString()
-        };
-
         const { data: existing } = await supabase
           .from('company_settings')
           .select('id')
@@ -88,23 +136,31 @@ export class WhatsAppService {
             .from('company_settings')
             .insert({ setting_key: settingKey, setting_val: payload });
         }
-        return true;
       } catch (err) {
-        console.warn('Database error saving WhatsApp config:', err);
+        console.warn('Database error saving WhatsApp config via Supabase:', err);
       }
     }
     return true;
   }
 
   // 3. Test Handshake with Meta Graph API
-  async testConnection(config: WhatsAppConfig): Promise<{ success: boolean; message: string; verifiedNumber?: string }> {
+  async testConnection(config: WhatsAppConfig): Promise<{ success: boolean; message: string; verifiedNumber?: string; accountName?: string }> {
     if (!config.phoneNumberId || !config.accessToken) {
-      return { success: false, message: 'Missing Phone Number ID or Access Token' };
+      return { success: false, message: 'WhatsApp Phone Number ID and Permanent Access Token are required.' };
+    }
+
+    if (!/^\d+$/.test(config.phoneNumberId)) {
+      return { success: false, message: 'WhatsApp Phone Number ID must contain only digits (0–9). Letters, spaces, and special characters are rejected.' };
+    }
+
+    if (config.wabaId && !/^\d+$/.test(config.wabaId)) {
+      return { success: false, message: 'WhatsApp Business Account ID (WABA ID) must contain only digits (0–9). Alphabetic and special characters are rejected.' };
     }
 
     try {
-      const url = `${this.graphApiBase}/${config.phoneNumberId}?fields=verified_name,display_phone_number,quality_rating`;
-      const response = await fetch(url, {
+      // 1. Verify Phone Number ID with Meta Graph API
+      const phoneUrl = `${this.graphApiBase}/${config.phoneNumberId}?fields=verified_name,display_phone_number,quality_rating`;
+      const phoneResponse = await fetch(phoneUrl, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${config.accessToken}`,
@@ -112,25 +168,62 @@ export class WhatsAppService {
         }
       });
 
-      const data = await response.json() as any;
+      const phoneData = await phoneResponse.json() as any;
 
-      if (!response.ok) {
-        const errorMsg = data?.error?.message || `Meta API returned HTTP ${response.status}`;
+      if (!phoneResponse.ok) {
+        let errorMsg = phoneData?.error?.message || `Meta API returned HTTP ${phoneResponse.status}`;
+        if (config.accessToken) {
+          errorMsg = errorMsg.split(config.accessToken).join('[REDACTED]');
+        }
         return {
           success: false,
-          message: `Meta API verification failed: ${errorMsg}`
+          message: `Phone Number ID verification failed: ${errorMsg}`
         };
       }
 
+      // 2. Verify WABA ID with Meta Graph API if provided
+      let accountName = phoneData.verified_name || phoneData.display_phone_number || '';
+      if (config.wabaId) {
+        const wabaUrl = `${this.graphApiBase}/${config.wabaId}?fields=id,name`;
+        const wabaResponse = await fetch(wabaUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${config.accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const wabaData = await wabaResponse.json() as any;
+        if (!wabaResponse.ok) {
+          let errorMsg = wabaData?.error?.message || `Meta API returned HTTP ${wabaResponse.status}`;
+          if (config.accessToken) {
+            errorMsg = errorMsg.split(config.accessToken).join('[REDACTED]');
+          }
+          return {
+            success: false,
+            message: `WABA ID verification failed: ${errorMsg}`
+          };
+        }
+        if (wabaData.name) {
+          accountName = wabaData.name;
+        }
+      }
+
+      const displayNum = phoneData.display_phone_number || config.phoneNumberId;
       return {
         success: true,
-        message: `Connected successfully to Meta WhatsApp Cloud API! Verified as "${data.verified_name || data.display_phone_number || 'Business Account'}".`,
-        verifiedNumber: data.display_phone_number
+        message: `Connection successful! Meta Cloud API verified for "${accountName || 'WhatsApp Business'}" (${displayNum}).`,
+        verifiedNumber: displayNum,
+        accountName
       };
     } catch (err: any) {
+      let errorMsg = err.message || 'Unknown network error';
+      if (config.accessToken) {
+        errorMsg = errorMsg.split(config.accessToken).join('[REDACTED]');
+      }
       return {
         success: false,
-        message: `Network error connecting to Meta WhatsApp Cloud API: ${err.message}`
+        message: `Network error connecting to Meta WhatsApp Cloud API: ${errorMsg}`
       };
     }
   }

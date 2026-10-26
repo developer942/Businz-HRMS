@@ -69,6 +69,7 @@ export const createApp = () => {
 
   // 6. General API routes with high-throughput rate limiter
   app.use('/api/v1', apiRateLimiter, apiRouter);
+  app.use('/api', apiRateLimiter, apiRouter);
 
   // 7. 404 Not Found handler
   app.use((_req, res) => {

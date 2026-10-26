@@ -4,6 +4,13 @@ import {
   updateCompanySettingsSchema,
   updateGeofenceSettingsSchema,
 } from '../validators/settingsValidators.js';
+import {
+  smtpConfigSchema,
+  metaAdsConfigSchema,
+  biometricConfigSchema,
+  accountingConfigSchema,
+} from '../validators/integrationValidators.js';
+import { integrationService } from '../services/integrationService.js';
 
 export const getCompanySettings = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -108,15 +115,22 @@ export const getCompanySmtpConfig = async (req: Request, res: Response, next: Ne
 export const saveCompanySmtpConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const companyId = req.user?.company_id || req.body.companyId || (req.headers['x-company-id'] as string) || 'company-a';
-    const { smtpHost, smtpPort, secure, senderEmail, senderName, appPassword } = req.body;
-
-    if (!senderEmail || !senderEmail.trim()) {
+    
+    // Strict Schema Validation
+    const validation = smtpConfigSchema.safeParse(req.body);
+    if (!validation.success) {
       res.status(400).json({
         success: false,
-        error: { message: 'Corporate Sender Email is required.' },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid SMTP configuration',
+          details: validation.error.errors,
+        },
       });
       return;
     }
+
+    const { smtpHost, smtpPort, secure, senderEmail, senderName, appPassword } = validation.data;
 
     const saved = await settingsRepository.saveCompanySmtpConfig(companyId, {
       smtpHost,
@@ -154,18 +168,22 @@ export const testCompanySmtpConnection = async (req: Request, res: Response, nex
   try {
     const { verifySmtpConnection } = await import('../services/emailService.js');
     const companyId = req.user?.company_id || req.body.companyId || (req.headers['x-company-id'] as string) || 'company-a';
-    const { smtpHost, smtpPort, secure, senderEmail, appPassword, testRecipientEmail } = req.body;
 
-    if (!senderEmail || !senderEmail.trim()) {
+    // Strict Schema Validation
+    const validation = smtpConfigSchema.safeParse(req.body);
+    if (!validation.success) {
       res.status(400).json({
         success: false,
         error: {
-          code: 'SMTP_CONFIG_INVALID',
-          message: 'Corporate Sender Email is required.',
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid SMTP parameters',
+          details: validation.error.errors,
         },
       });
       return;
     }
+
+    const { smtpHost, smtpPort, secure, senderEmail, appPassword, testRecipientEmail } = validation.data;
 
     const result = await verifySmtpConnection({
       companyId,
@@ -189,5 +207,270 @@ export const testCompanySmtpConnection = async (req: Request, res: Response, nex
         message: err.message || 'SMTP Authentication failed. Please check host, port, email, and 16-digit App Password.',
       },
     });
+  }
+};
+
+// ============================================================================
+// META ADS HANDLERS
+// ============================================================================
+
+export const getMetaAdsConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const companyId = req.user?.company_id || (req.query.company_id as string) || 'company-a';
+    const config = await integrationService.getMetaAdsConfig(companyId);
+    res.status(200).json({
+      success: true,
+      data: config || {
+        businessId: '',
+        adAccountId: '',
+        pixelId: '',
+        autoIngestCandidates: false,
+        targetJobPost: '',
+        isConfigured: false
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const saveMetaAdsConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const companyId = req.user?.company_id || req.body.companyId || 'company-a';
+    const validation = metaAdsConfigSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid Meta Ads configuration',
+          details: validation.error.errors
+        }
+      });
+      return;
+    }
+
+    await integrationService.saveMetaAdsConfig(companyId, validation.data);
+
+    res.status(200).json({
+      success: true,
+      message: 'Meta Ads configuration saved successfully.'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const testMetaAdsConnection = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const validation = metaAdsConfigSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid Meta Ads credentials',
+          details: validation.error.errors
+        }
+      });
+      return;
+    }
+
+    const result = await integrationService.testMetaAdsConnection(validation.data);
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'HANDSHAKE_FAILED',
+          message: result.message
+        }
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      accountName: result.accountName,
+      accountStatus: result.accountStatus
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================================================
+// BIOMETRIC ATTENDANCE GATEWAY HANDLERS
+// ============================================================================
+
+export const getBiometricsConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const companyId = req.user?.company_id || (req.query.company_id as string) || 'company-a';
+    const config = await integrationService.getBiometricsConfig(companyId);
+    res.status(200).json({
+      success: true,
+      data: config || {
+        deviceIp: '',
+        devicePort: 4370,
+        syncIntervalMins: 15,
+        deviceBrand: '',
+        autoSyncMusterRoll: false,
+        isConfigured: false
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const saveBiometricsConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const companyId = req.user?.company_id || req.body.companyId || 'company-a';
+    const validation = biometricConfigSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid Biometric hardware configuration',
+          details: validation.error.errors
+        }
+      });
+      return;
+    }
+
+    await integrationService.saveBiometricsConfig(companyId, validation.data);
+
+    res.status(200).json({
+      success: true,
+      message: 'Biometric hardware configuration saved successfully.'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const testBiometricsConnection = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const validation = biometricConfigSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid Biometric device settings',
+          details: validation.error.errors
+        }
+      });
+      return;
+    }
+
+    const result = await integrationService.testBiometricsConnection(validation.data);
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        isLanDevice: result.isLanDevice ?? false,
+        error: {
+          code: result.isLanDevice ? 'LAN_DEVICE_UNREACHABLE' : 'DEVICE_UNREACHABLE',
+          message: result.message
+        }
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================================================
+// ACCOUNTING (TALLY & ZOHO) HANDLERS
+// ============================================================================
+
+export const getAccountingConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const companyId = req.user?.company_id || (req.query.company_id as string) || 'company-a';
+    const config = await integrationService.getAccountingConfig(companyId);
+    res.status(200).json({
+      success: true,
+      data: config || {
+        accountingProvider: 'Tally Prime XML Server',
+        serverEndpoint: '',
+        companyNameInTally: '',
+        organizationId: '',
+        autoSyncFrequency: 'Monthly on Payroll Close',
+        isConfigured: false
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const saveAccountingConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const companyId = req.user?.company_id || req.body.companyId || 'company-a';
+    const validation = accountingConfigSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid Accounting configuration',
+          details: validation.error.errors
+        }
+      });
+      return;
+    }
+
+    await integrationService.saveAccountingConfig(companyId, validation.data);
+
+    res.status(200).json({
+      success: true,
+      message: 'Accounting integration configuration saved successfully.'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const testAccountingConnection = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const validation = accountingConfigSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validation.error.errors[0]?.message || 'Invalid Accounting parameters',
+          details: validation.error.errors
+        }
+      });
+      return;
+    }
+
+    const result = await integrationService.testAccountingConnection(validation.data);
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        isLanEndpoint: result.isLanEndpoint ?? false,
+        error: {
+          code: result.isLanEndpoint ? 'LAN_ENDPOINT_UNREACHABLE' : 'ACCOUNTING_CONNECT_FAILED',
+          message: result.message
+        }
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (err) {
+    next(err);
   }
 };

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { leaveRepository } from '../repositories/leaveRepository.js';
+import { auditRepository } from '../repositories/auditRepository.js';
 import { createLeaveSchema, reviewLeaveSchema } from '../validators/leaveValidators.js';
 import { 
   rangesOverlap, 
@@ -9,9 +10,34 @@ import {
 
 export const getLeaves = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { employeeId, status } = req.query;
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const isHrOrAdmin = ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR', 'Department Manager', 'Department Head'].includes(user.role);
+    const { status } = req.query;
+    let employeeId = req.query.employeeId as string | undefined;
+
+    // IDOR / BOLA Prevention: Non-admin employees can only view their own leave requests
+    if (!isHrOrAdmin) {
+      if (employeeId && user.employeeId && employeeId.toLowerCase() !== user.employeeId.toLowerCase()) {
+        res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Access denied: You are not authorized to view leave applications for other employees.',
+            details: [`Requested employee ID: ${employeeId}`],
+          },
+        });
+        return;
+      }
+      employeeId = user.employeeId;
+    }
+
     const leaves = await leaveRepository.getLeaves({
-      employeeId: employeeId as string,
+      employeeId,
       status: status as string,
     });
 
@@ -26,15 +52,52 @@ export const getLeaves = async (req: Request, res: Response, next: NextFunction)
 
 export const createLeave = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
     const validated = createLeaveSchema.parse(req.body);
-    const targetEmpId = validated.employeeId || req.user?.employeeId;
+    const isHrOrAdmin = ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(user.role);
+    const requestedEmpId = validated.employeeId?.trim();
+
+    let targetEmpId = user.employeeId;
+
+    // Leave Impersonation Prevention: Employees cannot apply for leave on behalf of other staff
+    if (requestedEmpId && user.employeeId && requestedEmpId.toLowerCase() !== user.employeeId.toLowerCase()) {
+      if (!isHrOrAdmin) {
+        res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Access denied: You are not authorized to submit leave applications on behalf of another employee.',
+            details: [`Target employee: ${requestedEmpId}`],
+          },
+        });
+        return;
+      }
+
+      // Authorized HR/Admin manual override
+      targetEmpId = requestedEmpId;
+      await auditRepository.recordLog('LEAVE_MANUAL_OVERRIDE', targetEmpId, user.email, {
+        overrideBy: user.email,
+        overrideRole: user.role,
+        targetEmployeeId: targetEmpId,
+        leaveType: validated.leaveType,
+        startDate: validated.startDate,
+        endDate: validated.endDate,
+      });
+    } else if (!targetEmpId && requestedEmpId && isHrOrAdmin) {
+      targetEmpId = requestedEmpId;
+    }
 
     if (!targetEmpId) {
       res.status(422).json({
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'employeeId, startDate, and endDate are required',
+          message: 'Employee identity could not be resolved from authenticated session.',
           details: [],
         },
       });
@@ -107,8 +170,29 @@ export const reviewLeave = async (req: Request, res: Response, next: NextFunctio
 
 export const getLeaveBalances = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const employeeId = String(req.params.employeeId || req.user?.employeeId || 'EMP-001');
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
 
+    const isHrOrAdmin = ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR', 'Department Manager', 'Department Head'].includes(user.role);
+    const requestedEmpId = String(req.params.employeeId || user.employeeId);
+
+    // IDOR / BOLA Prevention: Non-admin employees can only view their own leave balances
+    if (!isHrOrAdmin && user.employeeId && requestedEmpId.toLowerCase() !== user.employeeId.toLowerCase() && user.id.toLowerCase() !== requestedEmpId.toLowerCase()) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Access denied: You are not authorized to view leave balances for other employees.',
+          details: [`Requested employee ID: ${requestedEmpId}`],
+        },
+      });
+      return;
+    }
+
+    const employeeId = isHrOrAdmin ? requestedEmpId : (user.employeeId || requestedEmpId);
     const balances = await leaveRepository.getLeaveBalances(employeeId);
 
     res.status(200).json({

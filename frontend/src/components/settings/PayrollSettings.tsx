@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { 
-  SalaryComponentConfig 
+  SalaryComponentConfig,
+  ComponentEligibilityType,
+  ComponentEligibilityBase,
+  ComponentEligibilityOperator,
 } from '../../types/settings';
 import { payrollApi } from '../../services/payrollApi';
 import { INITIAL_PAYROLL_CONFIG } from '../../data/settingsInitialData';
 import { formatCurrency } from '../../utils/numbers';
+import { 
+  getEligibilityBadgeLabel, 
+  validateComponentEligibility 
+} from '../../services/policyEngine';
 import { 
   CreditCard, 
   Plus, 
@@ -20,7 +27,10 @@ import {
   Trash2,
   Info,
   RotateCcw,
-  X
+  X,
+  Users,
+  Search,
+  Filter
 } from 'lucide-react';
 
 export const PayrollSettings: React.FC = () => {
@@ -28,7 +38,8 @@ export const PayrollSettings: React.FC = () => {
     payrollSettingsConfig, 
     updatePayrollSettingsConfig, 
     toggleSalaryComponent,
-    currentUser 
+    currentUser,
+    employees
   } = useHRMS();
 
   const isPrivileged = currentUser.role !== 'Employee';
@@ -37,6 +48,11 @@ export const PayrollSettings: React.FC = () => {
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
   const [editingComp, setEditingComp] = useState<SalaryComponentConfig | null>(null);
   const [defaultValueDraft, setDefaultValueDraft] = useState<string | null>(null);
+  const [limitDraft, setLimitDraft] = useState<string | null>(null);
+  const [limitMaxDraft, setLimitMaxDraft] = useState<string | null>(null);
+  const [empSearchQuery, setEmpSearchQuery] = useState('');
+  const [compValidationError, setCompValidationError] = useState<string | null>(null);
+
   const [compForm, setCompForm] = useState<{
     name: string;
     code: string;
@@ -48,6 +64,12 @@ export const PayrollSettings: React.FC = () => {
     isStatutory: boolean;
     isConfidential: boolean;
     description: string;
+    eligibilityType: ComponentEligibilityType;
+    eligibilityBase: ComponentEligibilityBase;
+    eligibilityOperator: ComponentEligibilityOperator;
+    eligibilityLimit: number;
+    eligibilityLimitMax: number;
+    eligibleEmployeeIds: string[];
   }>({
     name: '',
     code: '',
@@ -58,8 +80,26 @@ export const PayrollSettings: React.FC = () => {
     formula: '',
     isStatutory: false,
     isConfidential: false,
-    description: ''
+    description: '',
+    eligibilityType: 'ALL',
+    eligibilityBase: 'CTC',
+    eligibilityOperator: '>=',
+    eligibilityLimit: 0,
+    eligibilityLimitMax: 0,
+    eligibleEmployeeIds: []
   });
+
+  const filteredPickerEmployees = useMemo(() => {
+    const q = empSearchQuery.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(e => 
+      e.employeeId?.toLowerCase().includes(q) ||
+      e.firstName?.toLowerCase().includes(q) ||
+      e.lastName?.toLowerCase().includes(q) ||
+      e.department?.toLowerCase().includes(q) ||
+      e.designation?.toLowerCase().includes(q)
+    );
+  }, [employees, empSearchQuery]);
 
   const openAddCompModal = () => {
     openAddCompModalWithType('EARNING');
@@ -67,6 +107,8 @@ export const PayrollSettings: React.FC = () => {
 
   const openAddCompModalWithType = (type: 'EARNING' | 'DEDUCTION') => {
     setEditingComp(null);
+    setCompValidationError(null);
+    setEmpSearchQuery('');
     setCompForm({
       name: '',
       code: '',
@@ -77,14 +119,24 @@ export const PayrollSettings: React.FC = () => {
       formula: '',
       isStatutory: false,
       isConfidential: false,
-      description: ''
+      description: '',
+      eligibilityType: 'ALL',
+      eligibilityBase: 'CTC',
+      eligibilityOperator: '>=',
+      eligibilityLimit: 0,
+      eligibilityLimitMax: 0,
+      eligibleEmployeeIds: []
     });
-    setDefaultValueDraft(null);
+    setDefaultValueDraft(type === 'EARNING' ? '10' : '');
+    setLimitDraft('');
+    setLimitMaxDraft('');
     setIsCompModalOpen(true);
   };
 
   const openEditCompModal = (c: SalaryComponentConfig) => {
     setEditingComp(c);
+    setCompValidationError(null);
+    setEmpSearchQuery('');
     setCompForm({
       name: c.name,
       code: c.code,
@@ -95,57 +147,91 @@ export const PayrollSettings: React.FC = () => {
       formula: c.formula || '',
       isStatutory: c.isStatutory,
       isConfidential: c.isConfidential,
-      description: c.description
+      description: c.description,
+      eligibilityType: c.eligibilityType || 'ALL',
+      eligibilityBase: c.eligibilityBase || 'CTC',
+      eligibilityOperator: c.eligibilityOperator || '>=',
+      eligibilityLimit: c.eligibilityLimit ?? 0,
+      eligibilityLimitMax: c.eligibilityLimitMax ?? 0,
+      eligibleEmployeeIds: c.eligibleEmployeeIds || []
     });
-    setDefaultValueDraft(null);
+    setDefaultValueDraft(c.defaultValue !== undefined && c.defaultValue !== null ? String(c.defaultValue) : '');
+    setLimitDraft(c.eligibilityLimit !== undefined && c.eligibilityLimit !== null ? String(c.eligibilityLimit) : '');
+    setLimitMaxDraft(c.eligibilityLimitMax !== undefined && c.eligibilityLimitMax !== null ? String(c.eligibilityLimitMax) : '');
     setIsCompModalOpen(true);
   };
 
   const handleDefaultValueChange = (rawValue: string) => {
-    setDefaultValueDraft(rawValue === '' ? '' : null);
-    setCompForm({ ...compForm, defaultValue: rawValue === '' ? 0 : Number(rawValue) });
+    setDefaultValueDraft(rawValue);
+    setCompForm(prev => ({ ...prev, defaultValue: rawValue === '' ? 0 : Number(rawValue) }));
+  };
+
+  const handleLimitChange = (rawValue: string) => {
+    setLimitDraft(rawValue);
+    setCompForm(prev => ({ ...prev, eligibilityLimit: rawValue === '' ? 0 : Number(rawValue) }));
+  };
+
+  const handleLimitMaxChange = (rawValue: string) => {
+    setLimitMaxDraft(rawValue);
+    setCompForm(prev => ({ ...prev, eligibilityLimitMax: rawValue === '' ? 0 : Number(rawValue) }));
   };
 
   const handleSaveComp = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!compForm.name.trim() || !compForm.code.trim()) return;
+    if (!compForm.name.trim() || !compForm.code.trim()) {
+      setCompValidationError('Component Name and Code are required.');
+      return;
+    }
+
+    const validation = validateComponentEligibility(compForm);
+    if (!validation.isValid) {
+      setCompValidationError(validation.error || 'Please correct component eligibility configuration.');
+      return;
+    }
+    setCompValidationError(null);
+
+    const compData: Partial<SalaryComponentConfig> = {
+      name: compForm.name,
+      code: compForm.code.toUpperCase().replace(/\s+/g, '_'),
+      type: compForm.type,
+      calculationMethod: compForm.calculationMethod,
+      defaultValue: Number(compForm.defaultValue) || 0,
+      percentageBase: compForm.percentageBase,
+      formula: compForm.formula,
+      isStatutory: compForm.isStatutory,
+      isConfidential: compForm.isConfidential,
+      description: compForm.description,
+      eligibilityType: compForm.eligibilityType,
+      eligibilityBase: compForm.eligibilityBase,
+      eligibilityOperator: compForm.eligibilityOperator,
+      eligibilityLimit: compForm.eligibilityLimit ? Number(compForm.eligibilityLimit) : 0,
+      eligibilityLimitMax: compForm.eligibilityLimitMax ? Number(compForm.eligibilityLimitMax) : undefined,
+      eligibleEmployeeIds: compForm.eligibleEmployeeIds || [],
+      version: editingComp?.version ? editingComp.version + 1 : 1,
+      effectiveFrom: new Date().toISOString()
+    };
 
     if (editingComp) {
       const updated = payrollSettingsConfig.components.map(c => {
         if (c.id === editingComp.id) {
           return {
             ...c,
-            name: compForm.name,
-            code: compForm.code.toUpperCase().replace(/\s+/g, '_'),
-            type: compForm.type,
-            calculationMethod: compForm.calculationMethod,
-            defaultValue: Number(compForm.defaultValue) || 0,
-            percentageBase: compForm.percentageBase,
-            formula: compForm.formula,
-            isStatutory: compForm.isStatutory,
-            isConfidential: compForm.isConfidential,
-            description: compForm.description
-          };
+            ...compData
+          } as SalaryComponentConfig;
         }
         return c;
       });
       updatePayrollSettingsConfig({ components: updated });
+      payrollApi.updatePayrollSettingsConfig({ components: updated }).catch(() => {});
     } else {
       const newComp: SalaryComponentConfig = {
         id: `c-${Date.now()}`,
-        name: compForm.name,
-        code: compForm.code.toUpperCase().replace(/\s+/g, '_'),
-        type: compForm.type,
-        calculationMethod: compForm.calculationMethod,
-        defaultValue: Number(compForm.defaultValue) || 0,
-        percentageBase: compForm.percentageBase,
-        formula: compForm.formula,
-        isStatutory: compForm.isStatutory,
         active: true,
-        isConfidential: compForm.isConfidential,
-        description: compForm.description
-      };
-      updatePayrollSettingsConfig({ components: [...payrollSettingsConfig.components, newComp] });
+        ...compData
+      } as SalaryComponentConfig;
+      const updated = [...payrollSettingsConfig.components, newComp];
+      updatePayrollSettingsConfig({ components: updated });
+      payrollApi.updatePayrollSettingsConfig({ components: updated }).catch(() => {});
     }
     setIsCompModalOpen(false);
   };
@@ -256,6 +342,7 @@ export const PayrollSettings: React.FC = () => {
                   <th>Code</th>
                   <th>Method</th>
                   <th>Calculation Details</th>
+                  <th>Eligibility</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -263,7 +350,7 @@ export const PayrollSettings: React.FC = () => {
               <tbody>
                 {earnings.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '32px 16px', color: '#64748B', fontSize: '13px' }}>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '32px 16px', color: '#64748B', fontSize: '13px' }}>
                       No earnings & allowances configured. Click <strong>+ Add Salary Component</strong> to create one.
                     </td>
                   </tr>
@@ -278,6 +365,11 @@ export const PayrollSettings: React.FC = () => {
                       <td><span className="status-pill eta">{comp.calculationMethod.replace(/_/g, ' ')}</span></td>
                       <td>
                         {getCalculationDetails(comp)}
+                      </td>
+                      <td>
+                        <span className="status-pill eta" style={{ fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
+                          {getEligibilityBadgeLabel(comp)}
+                        </span>
                       </td>
                       <td>
                         <span className={`status-pill ${comp.active ? 'approved' : 'overdue'}`}>
@@ -335,6 +427,7 @@ export const PayrollSettings: React.FC = () => {
                   <th>Code</th>
                   <th>Method</th>
                   <th>Calculation Details</th>
+                  <th>Eligibility</th>
                   <th>Employee Visibility</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -343,7 +436,7 @@ export const PayrollSettings: React.FC = () => {
               <tbody>
                 {deductions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '32px 16px', color: '#64748B', fontSize: '13px' }}>
+                    <td colSpan={8} style={{ textAlign: 'center', padding: '32px 16px', color: '#64748B', fontSize: '13px' }}>
                       No deductions configured. Click <strong>+ Add Salary Component</strong> to create one.
                     </td>
                   </tr>
@@ -368,6 +461,11 @@ export const PayrollSettings: React.FC = () => {
                             {comp.calculationMethod === 'FORMULA' && `Formula: ${comp.formula}`}
                           </>
                         )}
+                      </td>
+                      <td>
+                        <span className="status-pill eta" style={{ fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
+                          {getEligibilityBadgeLabel(comp)}
+                        </span>
                       </td>
                       <td>
                         {comp.isConfidential ? (
@@ -424,7 +522,7 @@ export const PayrollSettings: React.FC = () => {
       {/* COMPONENT CREATE / EDIT MODAL */}
       {isCompModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '600px' }}>
+          <div className="modal-content" style={{ maxWidth: '680px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             <div className="modal-header">
               <h3>{editingComp ? `Edit Component: ${editingComp.name}` : 'Create Salary Component'}</h3>
               <button className="close-btn" title="Close" onClick={() => setIsCompModalOpen(false)}>
@@ -432,8 +530,26 @@ export const PayrollSettings: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveComp}>
-              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <form onSubmit={handleSaveComp} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', overflowY: 'auto', padding: '16px' }}>
+                {compValidationError && (
+                  <div style={{
+                    gridColumn: '1 / -1',
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    color: '#991B1B',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    fontSize: '0.84rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <AlertCircle size={16} />
+                    <span>{compValidationError}</span>
+                  </div>
+                )}
+
                 <div>
                   <label className="form-label">Component Name</label>
                   <input
@@ -498,8 +614,9 @@ export const PayrollSettings: React.FC = () => {
                       <label className="form-label">Percentage Value (%)</label>
                       <input
                         type="number"
+                        placeholder="0"
                         className="form-control"
-                        value={defaultValueDraft ?? compForm.defaultValue}
+                        value={defaultValueDraft !== null ? defaultValueDraft : (compForm.defaultValue ? String(compForm.defaultValue) : '')}
                         onChange={e => handleDefaultValueChange(e.target.value)}
                       />
                     </div>
@@ -521,8 +638,9 @@ export const PayrollSettings: React.FC = () => {
                     <label className="form-label">Fixed Amount (₹)</label>
                     <input
                       type="number"
+                      placeholder="0.00"
                       className="form-control"
-                      value={defaultValueDraft ?? compForm.defaultValue}
+                      value={defaultValueDraft !== null ? defaultValueDraft : (compForm.defaultValue ? String(compForm.defaultValue) : '')}
                       onChange={e => handleDefaultValueChange(e.target.value)}
                     />
                   </div>
@@ -561,9 +679,274 @@ export const PayrollSettings: React.FC = () => {
                     </label>
                   </div>
                 )}
+
+                {/* Eligibility & Applicability Section */}
+                <div style={{
+                  gridColumn: '1 / -1',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '12px',
+                  padding: '14px',
+                  backgroundColor: '#F8FAFC'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sliders size={15} color="#0E7490" />
+                      Component Eligibility Rules
+                    </div>
+                    <span style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                      Shared calculation engine
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#64748B', marginBottom: '10px' }}>
+                    Control which employees qualify for this component across salary structures, onboarding, previews, payroll runs, and payslips.
+                  </div>
+
+                  {/* 3 Eligibility Modes */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setCompForm({ ...compForm, eligibilityType: 'ALL' })}
+                      style={{
+                        padding: '10px 8px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${compForm.eligibilityType === 'ALL' ? '#0E7490' : '#E2E8F0'}`,
+                        backgroundColor: compForm.eligibilityType === 'ALL' ? '#ECFEFF' : '#FFFFFF',
+                        color: compForm.eligibilityType === 'ALL' ? '#0E7490' : '#334155',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>All Employees</div>
+                      <div style={{ fontSize: '0.70rem', color: '#64748B', marginTop: '2px' }}>Every payroll employee</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCompForm({ ...compForm, eligibilityType: 'SALARY_CONDITION' })}
+                      style={{
+                        padding: '10px 8px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${compForm.eligibilityType === 'SALARY_CONDITION' ? '#0E7490' : '#E2E8F0'}`,
+                        backgroundColor: compForm.eligibilityType === 'SALARY_CONDITION' ? '#ECFEFF' : '#FFFFFF',
+                        color: compForm.eligibilityType === 'SALARY_CONDITION' ? '#0E7490' : '#334155',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>Salary Condition</div>
+                      <div style={{ fontSize: '0.70rem', color: '#64748B', marginTop: '2px' }}>CTC / Basic / Gross thresholds</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCompForm({ ...compForm, eligibilityType: 'SELECTED_EMPLOYEES' })}
+                      style={{
+                        padding: '10px 8px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${compForm.eligibilityType === 'SELECTED_EMPLOYEES' ? '#0E7490' : '#E2E8F0'}`,
+                        backgroundColor: compForm.eligibilityType === 'SELECTED_EMPLOYEES' ? '#ECFEFF' : '#FFFFFF',
+                        color: compForm.eligibilityType === 'SELECTED_EMPLOYEES' ? '#0E7490' : '#334155',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>Selected Employees</div>
+                      <div style={{ fontSize: '0.70rem', color: '#64748B', marginTop: '2px' }}>
+                        {compForm.eligibleEmployeeIds?.length || 0} selected
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Mode-specific panels */}
+                  {compForm.eligibilityType === 'SALARY_CONDITION' && (
+                    <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: compForm.eligibilityOperator === 'BETWEEN' ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1.2fr', gap: '8px', alignItems: 'end' }}>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.78rem' }}>Eligibility Based On</label>
+                          <select
+                            className="form-control"
+                            style={{ fontSize: '0.82rem' }}
+                            value={compForm.eligibilityBase}
+                            onChange={e => setCompForm({ ...compForm, eligibilityBase: e.target.value as any })}
+                          >
+                            <option value="CTC">Monthly CTC</option>
+                            <option value="BASIC">Basic Salary</option>
+                            <option value="GROSS">Gross Salary</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.78rem' }}>Operator</label>
+                          <select
+                            className="form-control"
+                            style={{ fontSize: '0.82rem' }}
+                            value={compForm.eligibilityOperator}
+                            onChange={e => setCompForm({ ...compForm, eligibilityOperator: e.target.value as any })}
+                          >
+                            <option value=">">&gt; Greater Than</option>
+                            <option value=">=">&gt;= Greater Than or Equal To</option>
+                            <option value="<">&lt; Less Than</option>
+                            <option value="<=">&lt;= Less Than or Equal To</option>
+                            <option value="=">= Equal To</option>
+                            <option value="BETWEEN">BETWEEN (Range)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.78rem' }}>
+                            {compForm.eligibilityOperator === 'BETWEEN' ? 'Min Salary (₹)' : 'Salary Limit (₹)'}
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="e.g. 30000"
+                            className="form-control"
+                            style={{ fontSize: '0.82rem' }}
+                            value={limitDraft !== null ? limitDraft : (compForm.eligibilityLimit ? String(compForm.eligibilityLimit) : '')}
+                            onChange={e => handleLimitChange(e.target.value)}
+                            required
+                          />
+                        </div>
+
+                        {compForm.eligibilityOperator === 'BETWEEN' && (
+                          <div>
+                            <label className="form-label" style={{ fontSize: '0.78rem' }}>Max Salary (₹)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="e.g. 50000"
+                              className="form-control"
+                              style={{ fontSize: '0.82rem' }}
+                              value={limitMaxDraft !== null ? limitMaxDraft : (compForm.eligibilityLimitMax ? String(compForm.eligibilityLimitMax) : '')}
+                              onChange={e => handleLimitMaxChange(e.target.value)}
+                              required
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: '8px', fontSize: '0.74rem', color: '#0E7490', backgroundColor: '#ECFEFF', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Info size={14} />
+                        <span>
+                          Rule: Applies when <strong>{compForm.eligibilityBase}</strong> {compForm.eligibilityOperator}{' '}
+                          <strong>{formatCurrency(Number(limitDraft !== null ? (limitDraft || 0) : compForm.eligibilityLimit) || 0)}</strong>
+                          {compForm.eligibilityOperator === 'BETWEEN' && (
+                            <> and <strong>{formatCurrency(Number(limitMaxDraft !== null ? (limitMaxDraft || 0) : compForm.eligibilityLimitMax) || 0)}</strong></>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {compForm.eligibilityType === 'SELECTED_EMPLOYEES' && (
+                    <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                          <input
+                            type="text"
+                            placeholder="Search by name, ID, or department..."
+                            value={empSearchQuery}
+                            onChange={e => setEmpSearchQuery(e.target.value)}
+                            className="form-control"
+                            style={{ paddingLeft: '30px', fontSize: '0.8rem', height: '34px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.74rem', padding: '4px 8px' }}
+                            onClick={() => {
+                              const allIds = employees.map(e => e.employeeId || e.id);
+                              setCompForm({ ...compForm, eligibleEmployeeIds: allIds });
+                            }}
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.74rem', padding: '4px 8px' }}
+                            onClick={() => setCompForm({ ...compForm, eligibleEmployeeIds: [] })}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid #F1F5F9', borderRadius: '6px' }}>
+                        {filteredPickerEmployees.length === 0 ? (
+                          <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '0.78rem' }}>
+                            No employees match your search query.
+                          </div>
+                        ) : (
+                          filteredPickerEmployees.map(emp => {
+                            const empId = emp.employeeId || emp.id;
+                            const isChecked = compForm.eligibleEmployeeIds?.includes(empId);
+                            return (
+                              <label
+                                key={emp.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  padding: '6px 10px',
+                                  borderBottom: '1px solid #F8FAFC',
+                                  cursor: 'pointer',
+                                  backgroundColor: isChecked ? '#F0FDFA' : 'transparent',
+                                  fontSize: '0.8rem'
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  style={{ accentColor: '#0E7490' }}
+                                  checked={isChecked}
+                                  onChange={e => {
+                                    if (e.target.checked) {
+                                      setCompForm({
+                                        ...compForm,
+                                        eligibleEmployeeIds: [...(compForm.eligibleEmployeeIds || []), empId]
+                                      });
+                                    } else {
+                                      setCompForm({
+                                        ...compForm,
+                                        eligibleEmployeeIds: (compForm.eligibleEmployeeIds || []).filter(id => id !== empId)
+                                      });
+                                    }
+                                  }}
+                                />
+                                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div>
+                                    <span style={{ fontWeight: 600, color: '#1E293B' }}>{emp.firstName} {emp.lastName}</span>
+                                    <span style={{ marginLeft: '6px', fontSize: '0.72rem', color: '#64748B' }}>({emp.employeeId})</span>
+                                  </div>
+                                  <span style={{ fontSize: '0.72rem', color: '#64748B', backgroundColor: '#F1F5F9', padding: '2px 6px', borderRadius: '4px' }}>
+                                    {emp.department || 'General'}
+                                  </span>
+                                </div>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                      <div style={{ marginTop: '6px', fontSize: '0.74rem', color: '#64748B', textAlign: 'right' }}>
+                        <strong>{compForm.eligibleEmployeeIds?.length || 0}</strong> of {employees.length} employees selected
+                      </div>
+                    </div>
+                  )}
+
+                  {compForm.eligibilityType === 'ALL' && (
+                    <div style={{ fontSize: '0.76rem', color: '#475569', fontStyle: 'italic', padding: '6px 2px' }}>
+                      ✓ This component will be applied to all employees covered by the payroll policy.
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '12px 16px', borderTop: '1px solid #E2E8F0' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsCompModalOpen(false)}>
                   Cancel
                 </button>

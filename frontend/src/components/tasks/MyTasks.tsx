@@ -3,10 +3,14 @@ import { useHRMS } from '../../context/HRMSContext';
 import { 
   CheckCircle2, 
   Sliders, 
-  User 
+  User,
+  Search,
+  Filter,
+  X
 } from 'lucide-react';
 import { TaskItemEnhanced, TaskAssigneeStatus, computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
+import { StandardTablePagination } from '../common/StandardTablePagination';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 interface MyTasksProps {
@@ -19,6 +23,9 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
 
   // Default directly to 'pending' (To Do) so newly created tasks appear immediately
   const [activeSection, setActiveSection] = useState<'all' | 'pending' | 'in_progress' | 'today' | 'completed' | 'overdue'>('pending');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
 
   // Multi-row selection state
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
@@ -55,14 +62,53 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
 
   const today = new Date().toISOString().split('T')[0];
 
+  // Live count summary for each status section
+  const sectionCounts = useMemo(() => {
+    return {
+      pending: myAssignedTasks.filter(t => {
+        const a = getAssigneeForTask(t);
+        return (a?.individualStatus === 'Pending' || (a?.progressPercentage || 0) === 0 || t.overallStatus === 'OPEN') && a?.individualStatus !== 'Completed';
+      }).length,
+      in_progress: myAssignedTasks.filter(t => {
+        const a = getAssigneeForTask(t);
+        return (a?.individualStatus === 'In Progress' || a?.individualStatus === 'In Process' || (a?.progressPercentage || 0) > 0) && a?.progressPercentage !== 100 && a?.individualStatus !== 'Completed';
+      }).length,
+      today: myAssignedTasks.filter(t => {
+        const a = getAssigneeForTask(t);
+        return t.dueDate === today && a?.progressPercentage !== 100 && a?.individualStatus !== 'Completed';
+      }).length,
+      completed: myAssignedTasks.filter(t => {
+        const a = getAssigneeForTask(t);
+        return a?.individualStatus === 'Completed' || a?.progressPercentage === 100 || t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED';
+      }).length,
+      overdue: myAssignedTasks.filter(t => {
+        const a = getAssigneeForTask(t);
+        return computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue' && a?.progressPercentage !== 100 && a?.individualStatus !== 'Completed';
+      }).length,
+      all: myAssignedTasks.length
+    };
+  }, [myAssignedTasks, today, currentEmpId]);
+
   // Count tasks assigned by the current user to others
   const assignedByMeCount = useMemo(() => {
     return enhancedTasks.filter(t => isTaskAssignedByMe(t, currentUser)).length;
   }, [enhancedTasks, currentUser]);
 
-  // Section categorization
+  // Section categorization and search filtering
   const sectionTasks = useMemo(() => {
     return myAssignedTasks.filter(task => {
+      // Search filter
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchesNo = task.taskNumber.toLowerCase().includes(q);
+        const matchesTitle = task.title.toLowerCase().includes(q);
+        const matchesDept = task.department?.toLowerCase().includes(q);
+        const matchesLead = task.responsiblePersonName?.toLowerCase().includes(q);
+        if (!matchesNo && !matchesTitle && !matchesDept && !matchesLead) {
+          return false;
+        }
+      }
+
       const myAssignee = getAssigneeForTask(task);
       const isCompleted = myAssignee?.individualStatus === 'Completed' || (myAssignee?.progressPercentage || 0) === 100 || task.overallStatus === 'COMPLETED' || task.overallStatus === 'CLOSED';
       const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
@@ -91,13 +137,19 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
       }
       return true;
     });
-  }, [myAssignedTasks, activeSection, currentEmpId, today]);
+  }, [myAssignedTasks, activeSection, currentEmpId, today, searchTerm]);
+
+  // Paginated tasks
+  const paginatedTasks = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sectionTasks.slice(start, start + pageSize);
+  }, [sectionTasks, currentPage, pageSize]);
 
   const handleToggleSelectAll = () => {
-    if (sectionTasks.length > 0 && sectionTasks.every(t => selectedTaskIds.includes(t.id))) {
-      setSelectedTaskIds(prev => prev.filter(id => !sectionTasks.some(t => t.id === id)));
+    if (paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))) {
+      setSelectedTaskIds(prev => prev.filter(id => !paginatedTasks.some(t => t.id === id)));
     } else {
-      const pageIds = sectionTasks.map(t => t.id);
+      const pageIds = paginatedTasks.map(t => t.id);
       setSelectedTaskIds(prev => Array.from(new Set([...prev, ...pageIds])));
     }
   };
@@ -105,47 +157,112 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
   return (
     <div className="my-tasks-container">
 
-      {/* Section Quick Tabs */}
-      <div className="task-filter-chips-bar" style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-        {[
-          { id: 'pending', label: 'To Do', count: myAssignedTasks.filter(t => {
-            const a = getAssigneeForTask(t);
-            return (a?.individualStatus === 'Pending' || (a?.progressPercentage || 0) === 0 || t.overallStatus === 'OPEN') && a?.individualStatus !== 'Completed';
-          }).length },
-          { id: 'in_progress', label: 'In Progress', count: myAssignedTasks.filter(t => {
-            const a = getAssigneeForTask(t);
-            return (a?.individualStatus === 'In Progress' || a?.individualStatus === 'In Process' || (a?.progressPercentage || 0) > 0) && a?.progressPercentage !== 100 && a?.individualStatus !== 'Completed';
-          }).length },
-          { id: 'today', label: "Today's Tasks", count: myAssignedTasks.filter(t => {
-            const a = getAssigneeForTask(t);
-            return t.dueDate === today && a?.progressPercentage !== 100 && a?.individualStatus !== 'Completed';
-          }).length },
-          { id: 'completed', label: 'Completed', count: myAssignedTasks.filter(t => {
-            const a = getAssigneeForTask(t);
-            return a?.individualStatus === 'Completed' || a?.progressPercentage === 100 || t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED';
-          }).length },
-          { id: 'overdue', label: 'Overdue', count: myAssignedTasks.filter(t => {
-            const a = getAssigneeForTask(t);
-            return computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue' && a?.progressPercentage !== 100 && a?.individualStatus !== 'Completed';
-          }).length },
-          { id: 'all', label: 'All Tasks', count: myAssignedTasks.length }
-        ].map(sec => (
-          <button
-            key={sec.id}
-            onClick={() => setActiveSection(sec.id as any)}
-            className={`btn ${activeSection === sec.id ? 'btn-primary' : 'btn-secondary'}`}
+      {/* Top Controls: Status Dropdown & Search Bar */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        flexWrap: 'wrap', 
+        gap: '12px', 
+        marginBottom: '20px' 
+      }}>
+        {/* Status Dropdown Filter */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label 
+            htmlFor="my-tasks-status-filter"
+            style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Filter size={15} style={{ color: '#0E7490' }} />
+            <span>Status:</span>
+          </label>
+          <select
+            id="my-tasks-status-filter"
+            value={activeSection}
+            onChange={e => {
+              setActiveSection(e.target.value as any);
+              setCurrentPage(1);
+            }}
+            className="form-select"
+            aria-label="Filter my tasks by status"
             style={{ 
-              fontSize: '0.82rem', 
-              padding: '7px 14px', 
+              fontSize: '0.84rem', 
+              fontWeight: 600,
+              color: '#0F172A',
+              height: '38px', 
               borderRadius: '8px', 
-              background: activeSection === sec.id ? '#0E7490' : undefined,
-              borderColor: activeSection === sec.id ? '#0E7490' : undefined
+              borderColor: '#CBD5E1', 
+              paddingLeft: '12px', 
+              paddingRight: '32px', 
+              minWidth: '200px',
+              backgroundColor: '#FFFFFF', 
+              cursor: 'pointer', 
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)' 
             }}
           >
-            {sec.label} <span style={{ opacity: 0.85, marginLeft: '6px', background: activeSection === sec.id ? 'rgba(255,255,255,0.25)' : '#E2E8F0', color: activeSection === sec.id ? '#fff' : '#475569', padding: '1px 7px', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 700 }}>{sec.count}</span>
-          </button>
-        ))}
+            <option value="pending">To Do ({sectionCounts.pending})</option>
+            <option value="in_progress">In Progress ({sectionCounts.in_progress})</option>
+            <option value="today">Today's Tasks ({sectionCounts.today})</option>
+            <option value="completed">Completed ({sectionCounts.completed})</option>
+            <option value="overdue">Overdue ({sectionCounts.overdue})</option>
+            <option value="all">All Tasks ({sectionCounts.all})</option>
+          </select>
+        </div>
 
+        {/* Search Box */}
+        <div style={{ position: 'relative', width: '240px' }}>
+          <Search 
+            size={15} 
+            style={{ 
+              position: 'absolute', 
+              left: '10px', 
+              top: '50%', 
+              transform: 'translateY(-50%)', 
+              color: '#94A3B8' 
+            }} 
+          />
+          <input
+            type="text"
+            placeholder="Search my tasks..."
+            value={searchTerm}
+            onChange={e => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="form-control"
+            style={{ 
+              paddingLeft: '32px', 
+              paddingRight: searchTerm ? '28px' : '10px',
+              fontSize: '0.82rem', 
+              height: '38px',
+              borderRadius: '8px',
+              borderColor: '#CBD5E1'
+            }}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('');
+                setCurrentPage(1);
+              }}
+              aria-label="Clear search"
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: '#94A3B8',
+                cursor: 'pointer',
+                display: 'flex',
+                padding: 0
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* TASKS LIST VIEW */}
@@ -154,10 +271,12 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
           <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-muted)' }}>
             <CheckCircle2 size={40} style={{ opacity: 0.35, margin: '0 auto 12px', color: '#0E7490', display: 'block' }} />
             <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
-              No {activeSection === 'all' ? '' : activeSection.replace('_', ' ')} tasks found
+              {searchTerm 
+                ? `No tasks matching "${searchTerm}"`
+                : `No ${activeSection === 'all' ? '' : activeSection.replace('_', ' ')} tasks found`}
             </div>
             <div style={{ fontSize: '0.84rem', color: '#64748B' }}>
-              You are all caught up!
+              {searchTerm ? 'Try adjusting your search query' : 'You are all caught up!'}
             </div>
             {onSwitchToAssigned && assignedByMeCount > 0 && (
               <div style={{ marginTop: '16px' }}>
@@ -189,7 +308,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
                   <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
                     <input
                       type="checkbox"
-                      checked={sectionTasks.length > 0 && sectionTasks.every(t => selectedTaskIds.includes(t.id))}
+                      checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))}
                       onChange={handleToggleSelectAll}
                       style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
                       aria-label="Select all tasks"
@@ -203,7 +322,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
                 </tr>
               </thead>
               <tbody>
-                {sectionTasks.map(task => {
+                {paginatedTasks.map(task => {
                   const myAssignee = getAssigneeForTask(task);
                   const myStatus = myAssignee?.individualStatus || 'Pending';
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
@@ -304,6 +423,19 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
         </div>
       )}
       </div>
+
+      {/* Standard Table Pagination */}
+      {sectionTasks.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <StandardTablePagination
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalEntries={sectionTasks.length}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
+        </div>
+      )}
 
       {/* Floating Action Bar per AGENTS.md */}
       <StandardFloatingActionBar

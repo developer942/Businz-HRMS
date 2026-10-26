@@ -36,7 +36,14 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { OfferLetterModal } from './OfferLetterModal';
-import { buildPayrollFormulaContext, calculateConfiguredDeductionLines, calculateSalaryBreakdown } from '../../services/policyEngine';
+import { 
+  buildPayrollFormulaContext, 
+  calculateConfiguredDeductionLines, 
+  calculateSalaryBreakdown,
+  isComponentEligible,
+  getEligibilityBadgeLabel,
+  EmployeeSalaryEligibilityContext
+} from '../../services/policyEngine';
 import { formatCurrency } from '../../utils/numbers';
 import { rbacService } from '../../services/rbacService';
 import { getInitialRBACState } from '../../services/rbacService';
@@ -338,6 +345,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     d.setFullYear(d.getFullYear() - 18);
     return d.toISOString().split('T')[0];
   }, []);
+
+  const profileDesignationOptions = useMemo(() => {
+    const list = [
+      ...(orgStructure?.designations || []),
+      ...(designations || []).map(d => d.title)
+    ]
+      .map(t => t.replace(/[0-9]/g, '').trim())
+      .filter(t => Boolean(t) && t.toLowerCase() !== 'managing director' && t.toLowerCase() !== 'ceo');
+
+    return Array.from(new Set(list));
+  }, [orgStructure, designations]);
 
   // Form State initialized from employee data
   const getInitialFormData = (emp: Employee) => {
@@ -693,9 +711,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     });
   };
 
+  const employeeEligibilityContext: EmployeeSalaryEligibilityContext = useMemo(() => ({
+    id: employee.id,
+    employeeId: formData.employeeId || employee.employeeId,
+    monthlyCtc: Number(formData.monthlyCtc) || 0,
+    basicSalary: Number(formData.basicSalary) || 0,
+    withPf: formData.salaryScheme === 'WITH_PF',
+  }), [employee.id, formData.employeeId, formData.monthlyCtc, formData.basicSalary, formData.salaryScheme, employee.employeeId]);
+
   const configuredSalaryBreakdown = useMemo(() => {
-    return calculateSalaryBreakdown(formData.monthlyCtc || 0, activeEarnings);
-  }, [formData.monthlyCtc, activeEarnings]);
+    return calculateSalaryBreakdown(formData.monthlyCtc || 0, activeEarnings, employeeEligibilityContext);
+  }, [formData.monthlyCtc, activeEarnings, employeeEligibilityContext]);
 
   const salaryComponentValues = useMemo(() => {
     if (activeEarnings.length === 0) {
@@ -742,7 +768,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     });
     const deductionLines = calculateConfiguredDeductionLines(activeDeductions, formulaContext, {
       withPf: formData.salaryScheme === 'WITH_PF',
-      esicSalaryLimit: payrollSettingsConfig?.esicPolicy?.grossSalaryLimit || 21000
+      esicSalaryLimit: payrollSettingsConfig?.esicPolicy?.grossSalaryLimit || 21000,
+      employeeContext: employeeEligibilityContext
     });
 
     const epfDeduction = deductionLines.find(d => d.statutoryKind === 'PF')?.amount || 0;
@@ -1714,15 +1741,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               onChange={(e) => handleChange('designation', e.target.value)} 
               style={selectStyle}
             >
-              {!designations.some(des => des.title?.toLowerCase() === formData.designation?.toLowerCase()) && formData.designation && (
+              {!profileDesignationOptions.some(des => des.toLowerCase() === formData.designation?.toLowerCase()) && formData.designation && (
                 <option value={formData.designation}>{formData.designation}</option>
               )}
-              {designations.map(des => {
-                const clean = des.title.replace(/[0-9]/g, '').trim();
-                return (
-                  <option key={des.id} value={clean}>{clean}</option>
-                );
-              })}
+              {profileDesignationOptions.map(title => (
+                <option key={title} value={title}>{title}</option>
+              ))}
             </select>
           ) : (
             <div style={viewValueStyle}>{currentEmp.designation || formData.designation || '—'}</div>

@@ -12,9 +12,25 @@ import {
   LoanRepaymentInstallment,
   Shift
 } from '../types/hrms';
-import { SalaryComponentConfig } from '../types/settings';
+import { SalaryComponentConfig, EmployeeSalaryEligibilityContext } from '../types/settings';
+import { 
+  isComponentEligible, 
+  filterEligibleComponents, 
+  isEsicStatutoryEligible, 
+  validateComponentEligibility,
+  getEligibilityBadgeLabel
+} from './componentEligibilityEngine';
 import { toNum, formatCurrency } from '../utils/numbers';
 import { parseTimeToMinutes } from './attendanceCalculationEngine';
+
+export {
+  isComponentEligible,
+  filterEligibleComponents,
+  isEsicStatutoryEligible,
+  validateComponentEligibility,
+  getEligibilityBadgeLabel
+};
+export type { EmployeeSalaryEligibilityContext };
 
 // ========================================================
 // 1. SAFE MATHEMATICAL FORMULA EVALUATOR (No eval)
@@ -869,14 +885,27 @@ export interface ConfiguredDeductionLine {
 export const calculateConfiguredDeductionLines = (
   components: SalaryComponentConfig[] | undefined,
   context: FormulaContext,
-  options: { withPf?: boolean; esicSalaryLimit?: number } = {}
+  options: { withPf?: boolean; esicSalaryLimit?: number; employeeContext?: EmployeeSalaryEligibilityContext } = {}
 ): ConfiguredDeductionLine[] => {
   const withPf = options.withPf !== false;
   const gross = toNum(context.GROSS);
   const esicLimit = toNum(options.esicSalaryLimit);
 
   return (components || [])
-    .filter(component => component.active && component.type === 'DEDUCTION')
+    .filter(component => {
+      if (!component.active || component.type !== 'DEDUCTION') return false;
+      if (options.employeeContext) {
+        const evalCtx: EmployeeSalaryEligibilityContext = {
+          ...options.employeeContext,
+          monthlyCtc: options.employeeContext.monthlyCtc ?? toNum(context.CTC),
+          basicSalary: options.employeeContext.basicSalary ?? toNum(context.BASIC),
+          grossSalary: gross,
+          withPf,
+        };
+        if (!isComponentEligible(component, evalCtx)) return false;
+      }
+      return true;
+    })
     .map(component => {
       const statutoryKind = getStatutoryDeductionKind(component);
       let amount = calculateConfiguredComponentAmount(component, context);
@@ -1088,10 +1117,14 @@ export interface SalaryBreakdownResult {
  */
 export const calculateSalaryBreakdown = (
   ctcVal: number,
-  components: SalaryComponentConfig[]
+  components: SalaryComponentConfig[],
+  employeeContext?: EmployeeSalaryEligibilityContext
 ): SalaryBreakdownResult => {
   const ctc = Math.max(0, ctcVal);
-  const activeEarnings = (components || []).filter(c => c.active && c.type === 'EARNING');
+  const eligibleComponents = employeeContext
+    ? filterEligibleComponents(components, { ...employeeContext, monthlyCtc: ctc })
+    : filterEligibleComponents(components, { monthlyCtc: ctc });
+  const activeEarnings = (eligibleComponents || []).filter(c => c.active && c.type === 'EARNING');
 
   if (activeEarnings.length === 0) {
     return {
@@ -1276,22 +1309,35 @@ export const calculateEmployeePayroll = (
   allShifts: Shift[] = []
 ): FullPayrollCalculationResult => {
   const configuredComponents = payrollConfig?.components || [];
-  const configuredEarnings = configuredComponents.filter(c => c.active && c.type === 'EARNING');
-  const configuredDeductions = configuredComponents.filter(c => c.active && c.type === 'DEDUCTION');
+  const rawEarnings = configuredComponents.filter(c => c.active && c.type === 'EARNING');
   const savedComponentValues: Record<string, number> = {
     ...((employee.allowances as any) || {}),
     ...((employee.salaryDetails as any) || {})
   };
 
   let basic = toNum(employee.salaryDetails?.basicSalary ?? employee.basicSalary);
+  const employeeWithPf = resolveEmployeeWithPf(employee);
 
   // Dynamic CTC resolution based on configured Basic percentage.
-  const basicComp = configuredEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
+  const basicComp = rawEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
   const basicPercentage = (basicComp && basicComp.calculationMethod === 'PERCENTAGE' && basicComp.percentageBase === 'CTC' && basicComp.defaultValue > 0)
     ? basicComp.defaultValue
     : 40;
   const totalCtc = employee.salaryDetails?.monthlyCtc || (basic > 0 ? Math.round(basic / (basicPercentage / 100)) : 15000);
-  const configuredBreakdown = calculateSalaryBreakdown(totalCtc, configuredEarnings);
+
+  const employeeEligibilityContext: EmployeeSalaryEligibilityContext = {
+    id: employee.id,
+    employeeId: employee.employeeId,
+    monthlyCtc: totalCtc,
+    basicSalary: basic,
+    withPf: employeeWithPf,
+    payrollYear: year,
+  };
+
+  const configuredEarnings = filterEligibleComponents(rawEarnings, employeeEligibilityContext);
+  const rawDeductions = configuredComponents.filter(c => c.active && c.type === 'DEDUCTION');
+  const configuredDeductions = filterEligibleComponents(rawDeductions, employeeEligibilityContext);
+  const configuredBreakdown = calculateSalaryBreakdown(totalCtc, configuredEarnings, employeeEligibilityContext);
   const getSavedComponentAmount = (code: string): number | undefined => {
     const lower = code.toLowerCase();
     const raw = savedComponentValues[code] ?? savedComponentValues[lower];
@@ -1446,7 +1492,8 @@ export const calculateEmployeePayroll = (
   });
   const configuredDeductionLines = calculateConfiguredDeductionLines(configuredDeductions, deductionContext, {
     withPf,
-    esicSalaryLimit: payrollConfig?.esicPolicy?.grossSalaryLimit || 21000
+    esicSalaryLimit: payrollConfig?.esicPolicy?.grossSalaryLimit || 21000,
+    employeeContext: employeeEligibilityContext
   });
   const epfDeduction = configuredDeductionLines.find(d => d.statutoryKind === 'PF')?.amount || 0;
   const esiDeduction = configuredDeductionLines.find(d => d.statutoryKind === 'ESIC')?.amount || 0;

@@ -584,9 +584,9 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
                         </button>
                         <button 
                           type="button" 
-                          onClick={() => {
+                          onClick={async () => {
                             if (window.confirm(`Delete policy "${policy.policyName}"?`)) {
-                              deleteLoanPolicy(policy.id);
+                              await deleteLoanPolicy(policy.id);
                             }
                           }}
                           className="btn btn-secondary btn-sm"

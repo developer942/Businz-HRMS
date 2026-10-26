@@ -9,7 +9,8 @@ export interface CredentialEmailPayload {
   to: string;
   employeeName: string;
   employeeCode: string;
-  temporaryPassword: string;
+  temporaryPassword?: string;
+  setupUrl?: string;
   loginUrl?: string;
 }
 
@@ -274,7 +275,30 @@ export async function verifySmtpConnection(params: {
  * Builds the official Businz HRMS Credential Email text body
  */
 export function formatCredentialEmailBody(payload: CredentialEmailPayload): string {
-  const loginUrl = payload.loginUrl || 'http://localhost:5173/login';
+  const loginUrl = payload.setupUrl || payload.loginUrl || 'http://localhost:5173/login';
+
+  if (payload.setupUrl) {
+    return `Dear ${payload.employeeName},
+
+Your Businz HRMS employee account has been created successfully.
+
+Employee ID / User ID:
+${payload.employeeCode}
+
+Registered Email:
+${payload.to}
+
+One-Time Account Setup Link:
+${payload.setupUrl}
+
+This secure activation link will expire in 24 hours. Click the link to choose your password and activate your HRMS account.
+
+For security, never share this link with anyone.
+
+Regards,
+HR Department
+Businz Technologies Private Limited`;
+  }
 
   return `Dear ${payload.employeeName},
 
@@ -286,15 +310,10 @@ ${payload.employeeCode}
 Registered Email:
 ${payload.to}
 
-Temporary Password:
-${payload.temporaryPassword}
-
-HRMS Login:
+HRMS Portal:
 ${loginUrl}
 
-For security, you will be required to change your temporary password when you log in for the first time.
-
-Please do not share your login credentials with anyone.
+Please access the employee portal to set up your password.
 
 Regards,
 HR Department
@@ -382,23 +401,23 @@ export async function sendCredentialEmail(payload: CredentialEmailPayload): Prom
                 <td style="padding: 6px 0; color: #1E293B; font-weight: 600; font-size: 14px;">${payload.to}</td>
               </tr>
               <tr>
-                <td style="padding: 6px 0; color: #64748B; font-size: 13px;">Temporary Password:</td>
-                <td style="padding: 6px 0; color: #DC2626; font-weight: 700; font-size: 15px; font-family: monospace;">${payload.temporaryPassword}</td>
+                <td style="padding: 6px 0; color: #64748B; font-size: 13px;">Account Setup:</td>
+                <td style="padding: 6px 0; color: #0E7490; font-weight: 600; font-size: 14px;">One-Time Secure Link</td>
               </tr>
             </table>
           </div>
 
           <div style="text-align: center; margin: 26px 0;">
-            <a href="${payload.loginUrl || 'http://localhost:5173/login'}" style="background-color: #0E7490; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 14px; display: inline-block;">
-              Log In to Employee Portal &rarr;
+            <a href="${payload.setupUrl || payload.loginUrl || 'http://localhost:5173/login'}" style="background-color: #0E7490; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 14px; display: inline-block;">
+              ${payload.setupUrl ? 'Set Up Your Account & Password &rarr;' : 'Log In to Employee Portal &rarr;'}
             </a>
           </div>
 
           <div style="border-top: 1px solid #E2E8F0; padding-top: 16px; margin-top: 24px; font-size: 12px; color: #64748B; line-height: 1.6;">
             <p style="margin: 0 0 6px 0;"><strong>Security Notice:</strong></p>
             <ul style="margin: 0; padding-left: 18px;">
-              <li>For your security, you will be required to change your password upon your first login.</li>
-              <li>Please do not share these credentials with anyone.</li>
+              <li>The one-time account setup link is valid for 24 hours.</li>
+              <li>Please do not share or forward this email with anyone.</li>
             </ul>
           </div>
           

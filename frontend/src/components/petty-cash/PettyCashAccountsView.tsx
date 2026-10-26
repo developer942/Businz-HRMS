@@ -85,60 +85,90 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
 
   return (
     <div>
-      {/* Accounts KPI Metrics */}
-      <div className="petty-cash-kpi-grid">
-        <div className="petty-cash-kpi-card hero-card">
-          <div className="kpi-header">
-            <span className="kpi-label">ACTIVE PETTY CASH BALANCE</span>
-            <div className="kpi-icon-pill">
-              <Layers size={20} />
+      {/* Accounts KPI Metrics - Standardized to Leave Management System Style */}
+      <div className="kpi-grid" style={{ marginBottom: '20px' }}>
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title={`Custodian: ${activeAccount ? activeAccount.custodian_name : 'None'}`}
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>ACTIVE PETTY CASH BALANCE</span>
+            <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}><Layers size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#0E7490' }}>
+              ₹{currentBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-          </div>
-          <div className="kpi-value">
-            ₹{currentBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">
-            Custodian: {activeAccount ? activeAccount.custodian_name : 'None'}
           </div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">APPROVED FOR DISBURSEMENT</span>
-            <div className="kpi-icon-pill" style={{ color: '#0E7490', background: '#CFFAFE' }}>
-              <Clock size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="CEO approved requests ready to disburse"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>APPROVED FOR DISBURSEMENT</span>
+            <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}><Clock size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: approvedRequestsToDisburse.length > 0 ? '#0E7490' : '#1E293B' }}>
+              {approvedRequestsToDisburse.length}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: approvedRequestsToDisburse.length > 0 ? '#0E7490' : '#1E293B' }}>
-            {approvedRequestsToDisburse.length}
-          </div>
-          <div className="kpi-meta">CEO approved requests ready to disburse</div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">PENDING EMPLOYEE RECEIPT</span>
-            <div className="kpi-icon-pill" style={{ color: '#D97706', background: '#FEF3C7' }}>
-              <Send size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Cash given; awaiting employee confirmation"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>PENDING EMPLOYEE RECEIPT</span>
+            <div className="kpi-icon-wrapper amber" style={{ color: '#D97706' }}><Send size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: pendingReceiptDisbursements.length > 0 ? '#D97706' : '#1E293B' }}>
+              {pendingReceiptDisbursements.length}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: pendingReceiptDisbursements.length > 0 ? '#B45309' : '#1E293B' }}>
-            {pendingReceiptDisbursements.length}
-          </div>
-          <div className="kpi-meta">Cash given; awaiting employee confirmation</div>
         </div>
 
-        <div className="petty-cash-kpi-card">
-          <div className="kpi-header">
-            <span className="kpi-label">TOTAL OPERATIONAL EXPENSES</span>
-            <div className="kpi-icon-pill" style={{ color: '#DC2626', background: '#FEE2E2' }}>
-              <TrendingDown size={20} />
+        <div 
+          className="kpi-card"
+          style={{ 
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            backgroundColor: '#FFFFFF',
+            transition: 'all 0.2s ease',
+          }}
+          title="Vouchered and audited in ledger"
+        >
+          <div className="kpi-card-header">
+            <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL OPERATIONAL EXPENSES</span>
+            <div className="kpi-icon-wrapper rose" style={{ color: '#EF4444' }}><TrendingDown size={16} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value" style={{ color: '#DC2626' }}>
+              ₹{totalExpenses.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
-          <div className="kpi-value" style={{ color: '#B91C1C' }}>
-            ₹{totalExpenses.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="kpi-meta">Vouchered and audited in ledger</div>
         </div>
       </div>
 

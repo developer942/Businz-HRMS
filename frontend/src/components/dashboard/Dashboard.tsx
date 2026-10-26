@@ -189,20 +189,17 @@ export const Dashboard: React.FC = () => {
     };
   }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies, employees]);
 
-  // Dynamically calculate upcoming holidays from holiday policies (from today onwards)
+  // Dynamically calculate upcoming holidays from holiday policies (strictly from today onwards, NO past holidays)
   const upcomingHolidaysList = useMemo(() => {
     if (!holidayPolicies || holidayPolicies.length === 0) return [];
     const todayStr = getLocalDateStr();
 
-    // Priority 1: Holidays from today onwards
+    // Strictly holidays from today onwards (h.date >= todayStr), sorted chronologically (nearest upcoming first)
     const futureHolidays = [...holidayPolicies]
-      .filter(h => h.date >= todayStr)
+      .filter(h => h && h.date && h.date >= todayStr)
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    if (futureHolidays.length > 0) return futureHolidays.slice(0, 5);
-
-    // Fallback: Latest upcoming/future holidays
-    return [...holidayPolicies].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+    return futureHolidays.slice(0, 5);
   }, [holidayPolicies]);
 
   const formatHolidayInfo = (holiday: HolidayItem) => {

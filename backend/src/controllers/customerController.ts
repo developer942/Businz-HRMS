@@ -503,25 +503,158 @@ export class CustomerController {
     }
   }
 
-  // 14. Save and Test WhatsApp Config on Backend
-  async saveWhatsAppConfig(req: Request, res: Response): Promise<void> {
+  // 14. Test WhatsApp Config Handshake on Backend (without saving)
+  async testWhatsAppConnection(req: Request, res: Response): Promise<void> {
     try {
-      const companyId = req.body.companyId || req.user?.company_id || 'company-a';
       const { phoneNumberId, wabaId, accessToken, webhookSecret } = req.body;
 
-      if (!phoneNumberId || !accessToken) {
+      const cleanPhoneId = typeof phoneNumberId === 'string' ? phoneNumberId.trim() : String(phoneNumberId || '').trim();
+      const cleanWabaId = typeof wabaId === 'string' ? wabaId.trim() : String(wabaId || '').trim();
+      const cleanToken = typeof accessToken === 'string' ? accessToken.trim() : String(accessToken || '').trim();
+      const cleanSecret = typeof webhookSecret === 'string' ? webhookSecret.trim() : String(webhookSecret || '').trim();
+
+      if (!cleanPhoneId) {
         res.status(400).json({
           success: false,
-          error: { code: 'INVALID_CREDENTIALS', message: 'Phone Number ID and Access Token are required' }
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Phone Number ID is required.' }
+        });
+        return;
+      }
+
+      if (!/^\d+$/.test(cleanPhoneId)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Phone Number ID must contain only digits (0–9). Letters, spaces, and special characters are rejected.' }
+        });
+        return;
+      }
+
+      if (!cleanWabaId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Business Account ID (WABA ID) is required.' }
+        });
+        return;
+      }
+
+      if (!/^\d+$/.test(cleanWabaId)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Business Account ID (WABA ID) must contain only digits (0–9). Alphabetic and special characters are rejected.' }
+        });
+        return;
+      }
+
+      if (!cleanToken) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Permanent Access Token is required.' }
+        });
+        return;
+      }
+
+      if (!cleanSecret) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Webhook Verification Token is required.' }
         });
         return;
       }
 
       const config = {
-        phoneNumberId: String(phoneNumberId).trim(),
-        wabaId: String(wabaId || '').trim(),
-        accessToken: String(accessToken).trim(),
-        webhookSecret: String(webhookSecret || '').trim()
+        phoneNumberId: cleanPhoneId,
+        wabaId: cleanWabaId,
+        accessToken: cleanToken,
+        webhookSecret: cleanSecret
+      };
+
+      const testRes = await whatsappService.testConnection(config);
+      if (!testRes.success) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'HANDSHAKE_FAILED', message: testRes.message }
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: testRes.message,
+        verifiedNumber: testRes.verifiedNumber,
+        accountName: testRes.accountName
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'SERVER_ERROR', message: err.message || 'Server error testing connection' }
+      });
+    }
+  }
+
+  // 15. Save and Test WhatsApp Config on Backend
+  async saveWhatsAppConfig(req: Request, res: Response): Promise<void> {
+    try {
+      const companyId = req.body.companyId || req.user?.company_id || 'company-a';
+      const { phoneNumberId, wabaId, accessToken, webhookSecret } = req.body;
+
+      const cleanPhoneId = typeof phoneNumberId === 'string' ? phoneNumberId.trim() : String(phoneNumberId || '').trim();
+      const cleanWabaId = typeof wabaId === 'string' ? wabaId.trim() : String(wabaId || '').trim();
+      const cleanToken = typeof accessToken === 'string' ? accessToken.trim() : String(accessToken || '').trim();
+      const cleanSecret = typeof webhookSecret === 'string' ? webhookSecret.trim() : String(webhookSecret || '').trim();
+
+      if (!cleanPhoneId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Phone Number ID is required.' }
+        });
+        return;
+      }
+
+      if (!/^\d+$/.test(cleanPhoneId)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Phone Number ID must contain only digits (0–9). Letters, spaces, and special characters are rejected.' }
+        });
+        return;
+      }
+
+      if (!cleanWabaId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Business Account ID (WABA ID) is required.' }
+        });
+        return;
+      }
+
+      if (!/^\d+$/.test(cleanWabaId)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'WhatsApp Business Account ID (WABA ID) must contain only digits (0–9). Alphabetic and special characters are rejected.' }
+        });
+        return;
+      }
+
+      if (!cleanToken) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Permanent Access Token is required.' }
+        });
+        return;
+      }
+
+      if (!cleanSecret) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Webhook Verification Token is required.' }
+        });
+        return;
+      }
+
+      const config = {
+        phoneNumberId: cleanPhoneId,
+        wabaId: cleanWabaId,
+        accessToken: cleanToken,
+        webhookSecret: cleanSecret
       };
 
       const testRes = await whatsappService.testConnection(config);
@@ -538,25 +671,36 @@ export class CustomerController {
       res.status(200).json({
         success: true,
         message: testRes.message,
-        verifiedNumber: testRes.verifiedNumber
+        verifiedNumber: testRes.verifiedNumber,
+        accountName: testRes.accountName
       });
     } catch (err: any) {
       res.status(500).json({
         success: false,
-        error: { code: 'SERVER_ERROR', message: err.message }
+        error: { code: 'SERVER_ERROR', message: err.message || 'Server error saving configuration' }
       });
     }
   }
 
-  // 15. Meta Webhook Verification Handshake (GET)
-  verifyWebhook(req: Request, res: Response): void {
+  // 16. Meta Webhook Verification Handshake (GET)
+  async verifyWebhook(req: Request, res: Response): Promise<void> {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
     const expectedSecret = process.env.WHATSAPP_WEBHOOK_SECRET || 'vrm_wa_webhook_sec_2026';
 
-    if (mode === 'subscribe' && (token === expectedSecret || token === 'businz_hrms_meta_token')) {
+    let isValid = (token === expectedSecret || token === 'businz_hrms_meta_token');
+    if (!isValid && token) {
+      try {
+        const companyConfig = await whatsappService.getCompanyWhatsAppConfig('company-a');
+        if (companyConfig?.webhookSecret && token === companyConfig.webhookSecret) {
+          isValid = true;
+        }
+      } catch {}
+    }
+
+    if (mode === 'subscribe' && isValid) {
       res.status(200).send(challenge);
     } else {
       res.status(403).send('Forbidden verification token');

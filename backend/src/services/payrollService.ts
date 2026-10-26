@@ -2,8 +2,11 @@ import {
   FullPayrollCalculationResult,
   PayrollRunModel,
   PayrollSettingsModel,
+  PayrollSettingsConfig,
+  SalaryComponentConfig,
   PayslipResponseData,
 } from '../types/payroll.js';
+import { validateComponentEligibility } from './componentEligibilityEngine.js';
 import { computeFullPayroll, computeSalaryStructure } from './calculationEngine.js';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { settingsRepository } from '../repositories/settingsRepository.js';
@@ -36,6 +39,30 @@ export class PayrollService {
     return settingsRepository.updateSettings(updates);
   }
 
+  async getPayrollSettingsConfig(): Promise<PayrollSettingsConfig> {
+    return settingsRepository.getPayrollSettingsConfig();
+  }
+
+  async updatePayrollSettingsConfig(updates: Partial<PayrollSettingsConfig>): Promise<PayrollSettingsConfig> {
+    return settingsRepository.updatePayrollSettingsConfig(updates);
+  }
+
+  async getSalaryComponents(): Promise<SalaryComponentConfig[]> {
+    const config = await this.getPayrollSettingsConfig();
+    return config.components || [];
+  }
+
+  async updateSalaryComponents(components: SalaryComponentConfig[]): Promise<SalaryComponentConfig[]> {
+    for (const comp of components) {
+      const validation = validateComponentEligibility(comp);
+      if (!validation.isValid) {
+        throw new Error(`Validation error for component "${comp.name}": ${validation.error}`);
+      }
+    }
+    const updated = await this.updatePayrollSettingsConfig({ components });
+    return updated.components || [];
+  }
+
   /**
    * Preview calculation for an employee without persisting records.
    * Authoritative backend calculation using decimal.js and dynamic DB settings.
@@ -52,6 +79,7 @@ export class PayrollService {
     }
 
     const settings = await settingsRepository.getSettings();
+    const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
 
     // Check approved overtime records if not explicitly passed
     let otHours = input.overtime_hours ?? 0;
@@ -110,6 +138,16 @@ export class PayrollService {
         loanRecovery: input.loan_recovery ?? 0,
         otherDeductions: input.other_deductions ?? 0,
       },
+      configuredComponents: payrollConfig?.components || [],
+      employeeContext: {
+        id: employee.id,
+        employeeId: employee.employeeId,
+        monthlyCtc: structure.monthlySalary,
+        basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
+        withPf: structure.withPf !== undefined ? structure.withPf : (employee.withPf !== undefined ? employee.withPf : true),
+        payrollMonth: input.payroll_month,
+        payrollYear: input.payroll_year,
+      },
     });
   }
 
@@ -136,6 +174,7 @@ export class PayrollService {
 
     const employees = await employeeRepository.getAllEmployees();
     const settings = await settingsRepository.getSettings();
+    const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
     const processedRecords: FullPayrollCalculationResult[] = [];
 
     for (const emp of employees) {
@@ -178,6 +217,16 @@ export class PayrollService {
         earnings: {
           overtimeHours: otHours,
           overtimeAmount: otAmount,
+        },
+        configuredComponents: payrollConfig?.components || [],
+        employeeContext: {
+          id: emp.id,
+          employeeId: emp.employeeId,
+          monthlyCtc: structure.monthlySalary,
+          basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
+          withPf: structure.withPf !== undefined ? structure.withPf : (emp.withPf !== undefined ? emp.withPf : true),
+          payrollMonth: run.payrollMonth,
+          payrollYear: run.payrollYear,
         },
       });
 

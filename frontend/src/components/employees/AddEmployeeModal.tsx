@@ -39,7 +39,7 @@ import {
   Check
 } from 'lucide-react';
 import { dispatchCredentialEmail } from '../../services/emailDispatchService';
-import { buildPayrollFormulaContext, calculateConfiguredDeductionLines, calculateSalaryBreakdown } from '../../services/policyEngine';
+import { buildPayrollFormulaContext, calculateConfiguredDeductionLines, calculateSalaryBreakdown, EmployeeSalaryEligibilityContext } from '../../services/policyEngine';
 import { generateNextEmployeeId } from '../../utils/employeeIdUtils';
 import { formatCurrency } from '../../utils/numbers';
 import { CountryCodeDropdown } from '../common/CountryCodeDropdown';
@@ -199,7 +199,9 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     orgStructure,
     currentUser,
     companyBranches,
-    companyInfo
+    companyInfo,
+    updateOrgStructure,
+    addDesignation
   } = useHRMS();
 
   // Dynamic salary components configured in Settings → Payroll Settings
@@ -449,7 +451,31 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [salaryInputDrafts, setSalaryInputDrafts] = useState<Record<string, string>>({});
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [isCustomDesignation, setIsCustomDesignation] = useState<boolean>(false);
+  const [customDesigNotice, setCustomDesigNotice] = useState<string | null>(null);
   const [isCustomDegree, setIsCustomDegree] = useState<boolean>(false);
+
+  const handleSaveCustomDesignation = () => {
+    const clean = formData.designation.replace(/[0-9]/g, '').trim();
+    if (!clean) return;
+    if (clean.toUpperCase() === 'CEO') return;
+
+    const currentOrgDesigs = orgStructure?.designations || [];
+    const exists = currentOrgDesigs.some(d => d.trim().toLowerCase() === clean.toLowerCase());
+    if (!exists) {
+      const updated = [...currentOrgDesigs, clean];
+      updateOrgStructure({ designations: updated });
+      addDesignation({
+        title: clean,
+        department: formData.department || '',
+        level: 'L2'
+      });
+    }
+
+    handleChange('designation', clean);
+    setIsCustomDesignation(false);
+    setCustomDesigNotice(`✓ "${clean}" added to Company Details & selected!`);
+    setTimeout(() => setCustomDesigNotice(null), 4000);
+  };
 
   // Maximum allowed DOB date for 18+ requirement
   const maxDobDate = useMemo(() => {
@@ -526,7 +552,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       return {
         department: deptName,
         role: 'HR Manager' as Role,
-        designation: 'HR Manager',
+        designation: '',
         permissions: ['Dashboard', 'Employees', 'Attendance', 'Leaves', 'Payroll', 'Finance', 'Tasks']
       };
     }
@@ -535,7 +561,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       return {
         department: deptName,
         role: 'Employee' as Role,
-        designation: 'Accounts Executive',
+        designation: '',
         permissions: ['Dashboard', 'Attendance', 'Leaves', 'Payroll', 'Finance', 'Advance Salary', 'Tasks']
       };
     }
@@ -642,7 +668,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         ...prev,
         department: accessProfile.department,
         role: accessProfile.role,
-        designation: accessProfile.designation,
+        designation: prev.designation === 'CEO' ? (dynamicDesignations[0] || '') : prev.designation,
         reportingManagerName: manager.name,
         reportingManagerId: manager.id,
         attendanceMethod: 'Face Scan',
@@ -655,7 +681,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         ...prev,
         department: accessProfile.department,
         role: accessProfile.role,
-        designation: prev.designation === 'CEO' || prev.designation === 'HR Manager' || prev.designation === 'Managing Director' || !prev.designation ? accessProfile.designation : prev.designation,
+        designation: prev.designation === 'CEO' ? (dynamicDesignations[0] || '') : prev.designation,
         reportingManagerName: manager.name,
         reportingManagerId: manager.id,
         attendanceMethod: 'Face Scan',
@@ -668,9 +694,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         ...prev,
         department: accessProfile.department,
         role: accessProfile.role,
-        designation: prev.designation === 'CEO' || prev.designation === 'HR Manager' || prev.designation === 'Finance Manager' || prev.designation === 'Managing Director'
-          ? (dynamicDesignations[0] || '')
-          : prev.designation,
+        designation: prev.designation === 'CEO' ? (dynamicDesignations[0] || '') : prev.designation,
         reportingManagerName: manager.name,
         reportingManagerId: manager.id,
         attendanceMethod: prev.attendanceMethod === 'Exempt' ? 'Face Scan' : prev.attendanceMethod,
@@ -734,7 +758,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         emergencyAltMobile: '',
         department: initialDept,
         role: (initialProfile.role === 'CEO' ? 'Employee' : initialProfile.role) as Role,
-        designation: initialProfile.designation || dynamicDesignations[0] || 'Staff Employee',
+        designation: dynamicDesignations[0] || '',
         reportingManagerId: manager.id,
         reportingManagerName: manager.name,
         workLocation: defaultWorkLocation,
@@ -1143,7 +1167,13 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     setSalaryDraft('monthlyCtc', rawValue);
     const value = rawValue === '' ? 0 : Number(rawValue);
     const ctc = Math.max(0, value);
-    const breakdown = calculateSalaryBreakdown(ctc, activeEarnings);
+    const onboardingEligibilityContext: EmployeeSalaryEligibilityContext = {
+      employeeId: formData.employeeId,
+      monthlyCtc: ctc,
+      basicSalary: formData.basicSalary,
+      withPf: formData.salaryScheme === 'WITH_PF',
+    };
+    const breakdown = calculateSalaryBreakdown(ctc, activeEarnings, onboardingEligibilityContext);
     setFormData(prev => ({
       ...prev,
       monthlyCtc: breakdown.monthlyCtc,
@@ -1226,7 +1256,14 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     });
     const deductionLines = calculateConfiguredDeductionLines(activeDeductions, formulaContext, {
       withPf: formData.salaryScheme === 'WITH_PF',
-      esicSalaryLimit: payrollSettingsConfig?.esicPolicy?.grossSalaryLimit || 21000
+      esicSalaryLimit: payrollSettingsConfig?.esicPolicy?.grossSalaryLimit || 21000,
+      employeeContext: {
+        employeeId: formData.employeeId,
+        monthlyCtc: ctc,
+        basicSalary: basic,
+        grossSalary: gross,
+        withPf: formData.salaryScheme === 'WITH_PF',
+      }
     });
 
     const epfDeduction = deductionLines.find(d => d.statutoryKind === 'PF')?.amount || 0;
@@ -1372,6 +1409,25 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     const isCEOEmp = accessProfile.role === 'CEO' || formData.designation?.toUpperCase() === 'CEO';
     const isFresher = formData.experienceType === 'Fresher';
 
+    const cleanDesignation = isCEOEmp
+      ? 'CEO'
+      : (formData.designation.replace(/[0-9]/g, '').trim() || dynamicDesignations[0] || '');
+
+    // Auto-save custom designation to Company Details -> Organization Structure -> Designations
+    if (cleanDesignation && cleanDesignation.toUpperCase() !== 'CEO') {
+      const currentOrgDesigs = orgStructure?.designations || [];
+      const alreadyExists = currentOrgDesigs.some(d => d.trim().toLowerCase() === cleanDesignation.toLowerCase());
+      if (!alreadyExists) {
+        const updated = [...currentOrgDesigs, cleanDesignation];
+        updateOrgStructure({ designations: updated });
+        addDesignation({
+          title: cleanDesignation,
+          department: formData.department || '',
+          level: 'L2'
+        });
+      }
+    }
+
     const newEmp: Employee = {
       id: cleanEmpCode,
       employeeId: cleanEmpCode,
@@ -1387,7 +1443,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       gender: formData.gender,
       address: `${formData.currentLine1}, ${formData.currentCity}, ${formData.currentState} - ${formData.currentPincode}`,
       department: isCEOEmp ? 'CEO' : (formData.department || accessProfile.department),
-      designation: isCEOEmp ? 'CEO' : (formData.designation || accessProfile.designation || dynamicDesignations[0] || ''),
+      designation: cleanDesignation,
       role: isCEOEmp ? 'CEO' : resolvedRole,
       reportingManagerId: isCEOEmp ? 'OWNER-001' : formData.reportingManagerId,
       reportingManagerName: isCEOEmp ? 'Self / Board of Directors' : formData.reportingManagerName,
@@ -2383,6 +2439,9 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     <option value="CEO">CEO (Chief Executive Officer)</option>
                   ) : (
                     <>
+                      {!dynamicDesignations.some(title => title.toLowerCase() === (formData.designation || '').toLowerCase()) && formData.designation && !isCustomDesignation && (
+                        <option value={formData.designation}>{formData.designation}</option>
+                      )}
                       {dynamicDesignations.length === 0 ? (
                         <option value="">No designations in Settings yet</option>
                       ) : (
@@ -2396,19 +2455,45 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                 </select>
                 {isCustomDesignation && !isCEO && (
                   <div style={{ marginTop: '8px' }}>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Type Designation Title"
-                      value={formData.designation.replace(/[0-9]/g, '')}
-                      onChange={e => handleChange('designation', e.target.value.replace(/[0-9]/g, ''))}
-                      onKeyDown={e => {
-                        if (/^[0-9]$/.test(e.key)) {
-                          e.preventDefault();
-                        }
-                      }}
-                      required
-                    />
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Type Designation Title (e.g. Senior, Junior, etc.)"
+                        value={formData.designation.replace(/[0-9]/g, '')}
+                        onChange={e => handleChange('designation', e.target.value.replace(/[0-9]/g, ''))}
+                        onKeyDown={e => {
+                          if (/^[0-9]$/.test(e.key)) {
+                            e.preventDefault();
+                            return;
+                          }
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveCustomDesignation();
+                          }
+                        }}
+                        autoFocus
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleSaveCustomDesignation}
+                        disabled={!formData.designation.trim()}
+                        style={{ whiteSpace: 'nowrap', padding: '0 14px', height: '42px', fontSize: '0.85rem' }}
+                        title="Add to Company Details & use for this employee"
+                      >
+                        + Add to Company Details
+                      </button>
+                    </div>
+                    {customDesigNotice && (
+                      <div style={{ fontSize: '0.78rem', color: '#0E7490', marginTop: '4px', fontWeight: 600 }}>
+                        {customDesigNotice}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+                      Designation will automatically be saved to Company Details &gt; Organization Structure.
+                    </div>
                   </div>
                 )}
               </div>

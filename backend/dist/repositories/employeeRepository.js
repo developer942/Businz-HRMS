@@ -16,7 +16,6 @@ function mapDbRowToEmployee(data) {
         bankName: data.bank_name || undefined,
         accountNumber: data.account_number || undefined,
         ifscCode: data.ifsc_code || undefined,
-        password: data.password || undefined,
         mustChangePassword: data.must_change_password ?? false,
         accountStatus: data.account_status,
         credentialEmailStatus: data.credential_email_status,

@@ -62,6 +62,78 @@ export interface PayrollSettingsModel {
   payrollCycleDay: number; // default 1
 }
 
+export type SalaryComponentType = 'EARNING' | 'DEDUCTION';
+export type CalculationMethod = 'FIXED_AMOUNT' | 'PERCENTAGE' | 'FORMULA';
+export type ComponentEligibilityType = 'ALL' | 'SALARY_CONDITION' | 'SELECTED_EMPLOYEES';
+export type ComponentEligibilityBase = 'CTC' | 'GROSS' | 'BASIC';
+export type ComponentEligibilityOperator = '>' | '>=' | '<' | '<=' | '=' | 'BETWEEN';
+
+export interface SalaryComponentConfig {
+  id: string;
+  name: string;
+  code: string;
+  type: SalaryComponentType;
+  calculationMethod: CalculationMethod;
+  defaultValue: number;
+  percentageBase?: 'BASIC' | 'GROSS' | 'CTC';
+  formula?: string;
+  isStatutory: boolean;
+  active: boolean;
+  isConfidential: boolean;
+  description: string;
+
+  // Dynamic Eligibility Rules
+  eligibilityType?: ComponentEligibilityType; // 'ALL' | 'SALARY_CONDITION' | 'SELECTED_EMPLOYEES'
+  eligibilityBase?: ComponentEligibilityBase; // 'CTC' | 'GROSS' | 'BASIC'
+  eligibilityOperator?: ComponentEligibilityOperator; // '>', '>=', '<', '<=', '=', 'BETWEEN'
+  eligibilityLimit?: number; // Salary threshold or minimum range limit
+  eligibilityLimitMax?: number; // Maximum limit for BETWEEN operator
+  eligibleEmployeeIds?: string[]; // Selected employee IDs/codes when eligibilityType === 'SELECTED_EMPLOYEES'
+  version?: number;
+  effectiveFrom?: string;
+}
+
+export interface EmployeeSalaryEligibilityContext {
+  id?: string;
+  employeeId?: string;
+  monthlyCtc?: number;
+  basicSalary?: number;
+  grossSalary?: number;
+  withPf?: boolean;
+  joiningDate?: string;
+  payrollMonth?: number;
+  payrollYear?: number;
+  isContributionPeriodContinuation?: boolean;
+}
+
+export interface PayrollSettingsConfig {
+  components: SalaryComponentConfig[];
+  pfPolicy?: {
+    active: boolean;
+    calculationType: 'PERCENTAGE' | 'FIXED_AMOUNT' | 'FORMULA';
+    percentage: number;
+    fixedAmount?: number;
+    calculationBase: 'BASIC' | 'GROSS' | 'CUSTOM';
+    formula: string;
+    effectiveDate?: string;
+    version?: number;
+  };
+  esicPolicy?: {
+    active: boolean;
+    percentage: number;
+    grossSalaryLimit: number;
+    formula: string;
+    effectiveDate?: string;
+    version?: number;
+  };
+  standardWorkingDaysPerMonth?: number;
+  payrollCycleDay?: number;
+  enableProfessionalTax?: boolean;
+  standardPtAmount?: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface AttendanceInputData {
   workingDays: number;
   presentDays: number;
@@ -104,6 +176,8 @@ export interface PayrollCalculationInput {
   earnings?: AdditionalEarningsInput;
   deductions?: AdditionalDeductionsInput;
   withPf?: boolean;
+  configuredComponents?: SalaryComponentConfig[];
+  employeeContext?: EmployeeSalaryEligibilityContext;
 }
 
 export interface CalculationBreakdownItem {

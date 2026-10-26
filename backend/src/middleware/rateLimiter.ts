@@ -18,7 +18,27 @@ export const authRateLimiter = rateLimit({
       details: [],
     },
   },
-  skip: (req) => env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || req.headers['x-internal-benchmark'] !== undefined,
+  skip: () => env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true',
+});
+
+/**
+ * Strict rate limiter for credential dispatch to prevent email flooding or abuse.
+ * Allows max 10 dispatch requests per 15 minutes per IP.
+ */
+export const credentialDispatchRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Too many credential dispatch requests. Please try again after 15 minutes.',
+      details: [],
+    },
+  },
+  skip: () => env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true',
 });
 
 /**
@@ -39,9 +59,10 @@ export const apiRateLimiter = rateLimit({
     },
   },
   skip: (req) => {
-    // Skip in test environment or if internal benchmark header is present
+    // Skip in automated test environments
     if (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') return true;
-    if (req.headers['x-internal-benchmark'] === 'vrm-benchmark-2026') return true;
+    // Header bypass strictly allowed ONLY in local development
+    if (env.NODE_ENV === 'development' && req.headers['x-internal-benchmark'] === 'vrm-benchmark-2026') return true;
     return false;
   },
 });

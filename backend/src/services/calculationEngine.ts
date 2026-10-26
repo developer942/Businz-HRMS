@@ -5,7 +5,9 @@ import {
   ComputedSalaryStructure,
   SalaryStructureInput,
   CalculationBreakdownItem,
+  EmployeeSalaryEligibilityContext,
 } from '../types/payroll.js';
+import { isComponentEligible } from './componentEligibilityEngine.js';
 
 // Configure Decimal precision for financial calculations
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -260,7 +262,57 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   const commission = new Decimal(input.earnings?.commission ?? 0);
   const otherEarnings = new Decimal(input.earnings?.otherEarnings ?? 0);
 
-  // Gross Earnings = Fixed Gross + Attendance Bonus + OT + Bonus + Incentive + Commission + Other
+  // Dynamic component eligibility evaluation
+  const eligibilityCtx: EmployeeSalaryEligibilityContext = {
+    id: input.employeeContext?.id || input.employeeId,
+    employeeId: input.employeeId,
+    monthlyCtc: input.monthlySalary,
+    basicSalary: basic.toNumber(),
+    grossSalary: fixedGross.toNumber(),
+    withPf: input.withPf !== undefined ? input.withPf : true,
+    payrollMonth: input.payrollMonth,
+    payrollYear: input.payrollYear,
+    isContributionPeriodContinuation: input.employeeContext?.isContributionPeriodContinuation,
+    ...(input.employeeContext || {}),
+  };
+
+  let customEarningsSum = new Decimal(0);
+  const customEarningsBreakdown: CalculationBreakdownItem[] = [];
+
+  const configured = input.configuredComponents || [];
+  const baseCodes = new Set(['BASIC', 'DA', 'HRA', 'CONV', 'CONVEYANCE']);
+
+  // Evaluate custom earnings
+  for (const comp of configured) {
+    if (comp.type !== 'EARNING' || !comp.active) continue;
+    const code = (comp.code || '').toUpperCase().trim();
+    if (baseCodes.has(code)) continue;
+
+    if (isComponentEligible(comp, eligibilityCtx)) {
+      let amount = new Decimal(0);
+      if (comp.calculationMethod === 'FIXED_AMOUNT') {
+        amount = new Decimal(comp.defaultValue || 0);
+      } else if (comp.calculationMethod === 'PERCENTAGE') {
+        const baseVal = comp.percentageBase === 'BASIC'
+          ? basic
+          : (comp.percentageBase === 'GROSS' ? fixedGross : new Decimal(input.monthlySalary));
+        amount = baseVal.times(comp.defaultValue || 0).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      }
+      if (amount.greaterThan(0)) {
+        customEarningsSum = customEarningsSum.plus(amount);
+        customEarningsBreakdown.push({
+          name: comp.name,
+          category: 'EARNING',
+          amount: amount.toNumber(),
+          description: comp.calculationMethod === 'PERCENTAGE'
+            ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'}`
+            : `Fixed ₹${comp.defaultValue}`
+        });
+      }
+    }
+  }
+
+  // Gross Earnings = Fixed Gross + Attendance Bonus + OT + Bonus + Incentive + Commission + Other + Custom Earnings
   const grossSalary = fixedGross
     .plus(attBonus)
     .plus(otAmount)
@@ -268,7 +320,10 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     .plus(incentive)
     .plus(commission)
     .plus(otherEarnings)
+    .plus(customEarningsSum)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+  eligibilityCtx.grossSalary = grossSalary.toNumber();
 
   // 3. Statutory Deductions (PF & ESIC)
   // New employees under 6 months have no PF/ESIC deductions (withPf: false).
@@ -323,7 +378,42 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   const loanRecovery = new Decimal(input.deductions?.loanRecovery ?? 0);
   const otherDeductions = new Decimal(input.deductions?.otherDeductions ?? 0);
 
-  // Total Deductions = PF + ESIC + PT + LOP + Advance + Loan + Other
+  // Evaluate custom eligible deductions
+  let customDeductionsSum = new Decimal(0);
+  const customDeductionsBreakdown: CalculationBreakdownItem[] = [];
+
+  const statutoryCodes = new Set(['PF', 'EPF', 'ERF', 'ESIC', 'ESI', 'PT', 'PROFESSIONAL_TAX']);
+
+  for (const comp of configured) {
+    if (comp.type !== 'DEDUCTION' || !comp.active) continue;
+    const code = (comp.code || '').toUpperCase().trim();
+    if (statutoryCodes.has(code) && comp.isStatutory) continue;
+
+    if (isComponentEligible(comp, eligibilityCtx)) {
+      let amount = new Decimal(0);
+      if (comp.calculationMethod === 'FIXED_AMOUNT') {
+        amount = new Decimal(comp.defaultValue || 0);
+      } else if (comp.calculationMethod === 'PERCENTAGE') {
+        const baseVal = comp.percentageBase === 'BASIC'
+          ? basic
+          : (comp.percentageBase === 'CTC' ? new Decimal(input.monthlySalary) : grossSalary);
+        amount = baseVal.times(comp.defaultValue || 0).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      }
+      if (amount.greaterThan(0)) {
+        customDeductionsSum = customDeductionsSum.plus(amount);
+        customDeductionsBreakdown.push({
+          name: comp.name,
+          category: 'DEDUCTION',
+          amount: amount.toNumber(),
+          description: comp.calculationMethod === 'PERCENTAGE'
+            ? `${comp.defaultValue}% of ${comp.percentageBase || 'GROSS'}`
+            : `Fixed ₹${comp.defaultValue}`
+        });
+      }
+    }
+  }
+
+  // Total Deductions = PF + ESIC + PT + LOP + Advance + Loan + Other + Custom Deductions
   const totalDeductions = pfResult.pfAmount
     .plus(esicResult.esicAmount)
     .plus(ptAmount)
@@ -331,6 +421,7 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     .plus(advanceRecovery)
     .plus(loanRecovery)
     .plus(otherDeductions)
+    .plus(customDeductionsSum)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
   // Final Net Salary = Gross Earnings - Total Deductions
@@ -362,6 +453,9 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   if (otherEarnings.greaterThan(0)) {
     earningsBreakdown.push({ name: 'Other Earnings', category: 'EARNING', amount: otherEarnings.toNumber() });
   }
+
+  // Append custom eligible earnings to breakdown
+  earningsBreakdown.push(...customEarningsBreakdown);
 
   const deductionsBreakdown: CalculationBreakdownItem[] = [];
 
@@ -407,6 +501,9 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   if (otherDeductions.greaterThan(0)) {
     deductionsBreakdown.push({ name: 'Other Deductions', category: 'DEDUCTION', amount: otherDeductions.toNumber() });
   }
+
+  // Append custom eligible deductions to breakdown
+  deductionsBreakdown.push(...customDeductionsBreakdown);
 
   return {
     employeeId: input.employeeId,

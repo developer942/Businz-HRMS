@@ -17,6 +17,7 @@ import { whatsappRouter } from './whatsappRoutes.js';
 import { expenseRouter } from './expenseRoutes.js';
 import { crmRouter } from './crmRoutes.js';
 import { pettyCashRouter } from './pettyCashRoutes.js';
+import { departmentRouter } from './departmentRoutes.js';
 
 export const apiRouter = Router();
 
@@ -27,6 +28,8 @@ apiRouter.use(healthRouter);
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/', salaryStructureRouter); // specific sub-routes for /employees/:id/salary-structure
 apiRouter.use('/employees', employeeRouter);
+apiRouter.use('/departments', departmentRouter);
+apiRouter.use('/settings/departments', departmentRouter);
 apiRouter.use('/attendance', attendanceRouter);
 apiRouter.use('/leaves', leaveRouter);
 apiRouter.use('/shifts', shiftRouter);

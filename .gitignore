@@ -57,6 +57,5 @@ Thumbs.db
 *playwright*.json
 *interactive_flow*.json
 test-results/
-*/test-results/
 scratch/
-
+frontend/audit_screenshots/
