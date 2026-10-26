@@ -4601,12 +4601,42 @@ input:-webkit-autofill:active {
     box-sizing: border-box !important;
   }
 
-  .card {
+  .card:not(.header-dropdown-menu) {
     padding: 16px 14px !important;
     margin-bottom: 16px !important;
     border-radius: 12px !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
+  }
+
+  /* Header Popover Dropdown Menus (Quick Add, Notifications, Profile) */
+  .header-dropdown-menu {
+    position: absolute !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 14px !important;
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 8px 10px -6px rgba(15, 23, 42, 0.08) !important;
+    box-sizing: border-box !important;
+    margin-bottom: 0 !important;
+    z-index: 100 !important;
+  }
+
+  .header-dropdown-menu.header-profile-dropdown {
+    width: 230px !important;
+    max-width: calc(100vw - 20px) !important;
+    padding: 8px !important;
+  }
+
+  .header-dropdown-menu.header-quick-add-dropdown {
+    width: 220px !important;
+    max-width: calc(100vw - 20px) !important;
+    padding: 6px !important;
+  }
+
+  .header-dropdown-menu.header-notifications-dropdown {
+    width: 360px !important;
+    max-width: calc(100vw - 20px) !important;
+    padding: 16px !important;
   }
 
   .welcome-banner-card {

@@ -185,12 +185,12 @@ export const Header: React.FC<HeaderProps> = ({
                 style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
                 onClick={() => setShowQuickAddMenu(false)} 
               />
-              <div className="card header-quick-add-dropdown" style={{
+              <div className="header-dropdown-menu header-quick-add-dropdown" style={{
                 position: 'absolute',
                 top: 'calc(100% + 8px)',
                 right: 0,
                 width: '215px',
-                maxWidth: 'calc(100vw - 32px)',
+                maxWidth: 'calc(100vw - 24px)',
                 padding: '6px',
                 zIndex: 50,
                 boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.04)',
@@ -433,12 +433,12 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {showNotifications && (
-            <div className="card header-notifications-dropdown" style={{
+            <div className="header-dropdown-menu header-notifications-dropdown" style={{
               position: 'absolute',
               top: 'calc(100% + 8px)',
               right: 0,
               width: '360px',
-              maxWidth: 'calc(100vw - 32px)',
+              maxWidth: 'calc(100vw - 24px)',
               padding: '16px',
               zIndex: 100,
               boxShadow: 'var(--shadow-xl)',
@@ -581,17 +581,18 @@ export const Header: React.FC<HeaderProps> = ({
                 style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
                 onClick={() => setShowProfileMenu(false)} 
               />
-              <div className="card" style={{
+              <div className="header-dropdown-menu header-profile-dropdown" style={{
                 position: 'absolute',
                 top: 'calc(100% + 8px)',
                 right: 0,
-                width: '220px',
-                maxWidth: 'calc(100vw - 32px)',
+                width: '230px',
+                maxWidth: 'calc(100vw - 24px)',
                 padding: '8px',
-                zIndex: 50,
+                zIndex: 100,
                 boxShadow: 'var(--shadow-xl)',
                 backgroundColor: '#ffffff',
-                borderRadius: '14px'
+                borderRadius: '14px',
+                border: '1px solid #E2E8F0'
               }}>
                 <div style={{ padding: '6px 10px 10px', borderBottom: '1px solid #E2E8F0', marginBottom: '8px' }}>
                   <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0B1A2D' }}>{currentUser.name}</div>
