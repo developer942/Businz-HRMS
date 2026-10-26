@@ -938,6 +938,7 @@ interface HRMSContextType {
 
   assets: AssetItem[];
   addAsset: (asset: Omit<AssetItem, 'id'>) => void;
+  updateAsset: (assetId: string, updates: Partial<AssetItem>) => void;
   assignAsset: (assetId: string, employeeId: string, employeeName: string, department: string) => void;
   deleteAsset: (assetId: string) => void;
 
@@ -9825,6 +9826,39 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const updateAsset = (assetId: string, updates: Partial<AssetItem>) => {
+    setAssets(prev => prev.map(a => {
+      if (a.id === assetId) {
+        return { ...a, ...updates };
+      }
+      return a;
+    }));
+
+    if (assetId.length === 36) {
+      const dbPayload: Record<string, any> = {};
+      if (updates.name !== undefined) dbPayload.name = updates.name;
+      if (updates.assetTag !== undefined) dbPayload.asset_tag = updates.assetTag;
+      if (updates.category !== undefined) dbPayload.category = updates.category;
+      if (updates.serialNumber !== undefined) dbPayload.serial_number = updates.serialNumber;
+      if (updates.purchaseDate !== undefined) dbPayload.purchase_date = updates.purchaseDate;
+      if (updates.purchaseCost !== undefined) dbPayload.purchase_cost = Number(updates.purchaseCost) || 0;
+      if (updates.warrantyExpiry !== undefined) dbPayload.warranty_expiry = updates.warrantyExpiry;
+      if (updates.status !== undefined) dbPayload.status = updates.status;
+      if (updates.condition !== undefined) dbPayload.condition = updates.condition;
+      if (updates.notes !== undefined) dbPayload.notes = updates.notes;
+      if (updates.assignedEmployeeDbId !== undefined) {
+        dbPayload.assigned_employee_id = updates.assignedEmployeeDbId || null;
+      }
+      if (updates.assignedDate !== undefined) {
+        dbPayload.assigned_date = updates.assignedDate || null;
+      }
+
+      supabaseDirect.updateAsset(assetId, dbPayload).catch(err => {
+        console.warn('Failed to update asset in DB:', err);
+      });
+    }
+  };
+
   const deleteAsset = (assetId: string) => {
     setAssets(prev => prev.filter(a => a.id !== assetId));
     if (assetId.length === 36) {
@@ -11242,6 +11276,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       removeDepartmentFromBranch,
       assets,
       addAsset,
+      updateAsset,
       assignAsset,
       deleteAsset,
       searchQuery,

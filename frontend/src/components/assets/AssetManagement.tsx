@@ -20,13 +20,15 @@ import {
   IndianRupee,
   Tag,
   PackageCheck,
-  User
+  User,
+  Eye,
+  Edit2
 } from 'lucide-react';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export const AssetManagement: React.FC = () => {
-  const { assets, addAsset, assignAsset, deleteAsset, employees, currentUser, hasPermission } = useHRMS();
+  const { assets, addAsset, updateAsset, assignAsset, deleteAsset, employees, currentUser, hasPermission } = useHRMS();
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
@@ -120,6 +122,8 @@ export const AssetManagement: React.FC = () => {
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState<AssetItem | null>(null);
+  const [showViewModal, setShowViewModal] = useState<AssetItem | null>(null);
+  const [showEditModal, setShowEditModal] = useState<AssetItem | null>(null);
 
   // Add Asset Form
   const [addForm, setAddForm] = useState({
@@ -134,6 +138,22 @@ export const AssetManagement: React.FC = () => {
     notes: ''
   });
   const [addFormError, setAddFormError] = useState<string | null>(null);
+
+  // Edit Asset Form
+  const [editForm, setEditForm] = useState({
+    assetTag: '',
+    name: '',
+    category: 'Laptops & Computers' as AssetItem['category'],
+    serialNumber: '',
+    purchaseDate: getTodayDateString(),
+    purchaseCost: 0,
+    warrantyExpiry: '',
+    condition: 'Good' as AssetItem['condition'],
+    status: 'Available' as AssetItem['status'],
+    notes: '',
+    assignedEmployeeId: ''
+  });
+  const [editFormError, setEditFormError] = useState<string | null>(null);
 
   // Assign Asset Form
   const [assignEmployeeId, setAssignEmployeeId] = useState<string>(employees[0]?.employeeId || '');
@@ -237,6 +257,84 @@ export const AssetManagement: React.FC = () => {
     );
 
     setShowAssignModal(null);
+  };
+
+  const handleOpenEdit = (target: AssetItem) => {
+    const emp = employees.find(e => 
+      (e.id && (e.id === target.assignedEmployeeId || e.id === target.assignedEmployeeDbId)) ||
+      (e.employeeId && (e.employeeId === target.assignedEmployeeId || e.employeeId === target.assignedEmployeeDbId))
+    );
+    setEditForm({
+      assetTag: target.assetTag,
+      name: target.name,
+      category: target.category,
+      serialNumber: target.serialNumber || '',
+      purchaseDate: target.purchaseDate || getTodayDateString(),
+      purchaseCost: toNum(target.purchaseCost),
+      warrantyExpiry: target.warrantyExpiry || '',
+      condition: target.condition || 'Good',
+      status: target.status || 'Available',
+      notes: target.notes || '',
+      assignedEmployeeId: emp?.employeeId || (target.assignedEmployeeId && target.assignedEmployeeId.length < 30 ? target.assignedEmployeeId : '') || ''
+    });
+    setEditFormError(null);
+    setShowEditModal(target);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showEditModal) return;
+    if (!editForm.name || !editForm.assetTag) {
+      setEditFormError('Asset tag and device name are required.');
+      return;
+    }
+    if (editForm.purchaseDate && editForm.warrantyExpiry && editForm.warrantyExpiry < editForm.purchaseDate) {
+      setEditFormError('Warranty expiry date must be after purchase date.');
+      return;
+    }
+
+    let assignedEmployeeId = '';
+    let assignedEmployeeDbId = '';
+    let assignedEmployeeName = '';
+    let assignedDepartment = '';
+    let assignedEmployeeAvatar: string | undefined = undefined;
+    let status = editForm.status;
+
+    if (editForm.assignedEmployeeId) {
+      const emp = employees.find(e => e.employeeId === editForm.assignedEmployeeId || e.id === editForm.assignedEmployeeId);
+      if (emp) {
+        assignedEmployeeId = emp.employeeId || emp.id;
+        assignedEmployeeDbId = emp.id;
+        assignedEmployeeName = `${emp.firstName} ${emp.lastName}`.trim();
+        assignedDepartment = emp.department || '';
+        assignedEmployeeAvatar = emp.avatar;
+        if (status === 'Available') status = 'Assigned';
+      }
+    } else {
+      if (status === 'Assigned') status = 'Available';
+    }
+
+    updateAsset(showEditModal.id, {
+      assetTag: editForm.assetTag,
+      name: editForm.name,
+      category: editForm.category,
+      serialNumber: editForm.serialNumber,
+      purchaseDate: editForm.purchaseDate,
+      purchaseCost: Number(editForm.purchaseCost),
+      warrantyExpiry: editForm.warrantyExpiry,
+      condition: editForm.condition,
+      status,
+      notes: editForm.notes,
+      assignedEmployeeId,
+      assignedEmployeeDbId,
+      assignedEmployeeName,
+      assignedDepartment,
+      assignedEmployeeAvatar,
+      assignedDate: editForm.assignedEmployeeId ? (showEditModal.assignedDate || getTodayDateString()) : ''
+    });
+
+    setShowEditModal(null);
+    setEditFormError(null);
   };
 
   return (
@@ -485,7 +583,10 @@ export const AssetManagement: React.FC = () => {
                 </th>
               )}
               <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Asset Tag & Device Name
+                Asset Tag
+              </th>
+              <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Device Name
               </th>
               <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                 Category
@@ -508,17 +609,15 @@ export const AssetManagement: React.FC = () => {
               <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', textAlign: 'center', whiteSpace: 'nowrap' }}>
                 Status
               </th>
-              {canManageAssets && (
-                <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  Actions
-                </th>
-              )}
+              <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
             {filteredAssets.length === 0 ? (
               <tr>
-                <td colSpan={canManageAssets ? 8 : 6} style={{ textAlign: 'center', padding: '45px', color: 'var(--text-muted)' }}>
+                <td colSpan={canManageAssets ? 9 : 8} style={{ textAlign: 'center', padding: '45px', color: 'var(--text-muted)' }}>
                   <Laptop size={36} style={{ opacity: 0.3, margin: '0 auto 8px', display: 'block' }} />
                   <div>
                     {isEmployeeRole 
@@ -580,33 +679,51 @@ export const AssetManagement: React.FC = () => {
                         />
                       </td>
                     )}
-                    {/* 1. Asset Tag & Device Name */}
+                    {/* 1. Asset Tag */}
+                    <td style={{ padding: '10px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                      <span style={{
+                        backgroundColor: '#ecfeff',
+                        color: '#0891b2',
+                        border: '1px solid #a5f3fc',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        fontSize: '0.74rem',
+                        fontWeight: 800,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        letterSpacing: '0.02em',
+                        display: 'inline-block'
+                      }}>
+                        {asset.assetTag}
+                      </span>
+                    </td>
+
+                    {/* 2. Device Name */}
                     <td style={{ padding: '10px 10px', verticalAlign: 'middle' }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap', marginBottom: '2px' }}>
-                          <span style={{
-                            backgroundColor: '#ecfeff',
-                            color: '#0891b2',
-                            border: '1px solid #a5f3fc',
-                            padding: '2px 6px',
-                            borderRadius: '5px',
-                            fontSize: '0.68rem',
-                            fontWeight: 800,
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                            letterSpacing: '0.02em'
-                          }}>
-                            {asset.assetTag}
-                          </span>
-                          <strong 
-                            style={{ fontSize: '0.84rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px' }} 
-                            title={asset.name}
-                          >
-                            {asset.name}
-                          </strong>
-                        </div>
+                        <strong 
+                          style={{ 
+                            fontSize: '0.84rem', 
+                            color: '#0f172a', 
+                            display: 'block',
+                            whiteSpace: 'nowrap', 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis', 
+                            maxWidth: '180px' 
+                          }} 
+                          title={asset.name}
+                        >
+                          {asset.name}
+                        </strong>
                         <div 
-                          style={{ fontSize: '0.7rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '210px' }} 
+                          style={{ 
+                            fontSize: '0.7rem', 
+                            color: '#64748b', 
+                            whiteSpace: 'nowrap', 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis', 
+                            maxWidth: '180px',
+                            marginTop: '1px'
+                          }} 
                           title={asset.notes || 'Hardware workstation'}
                         >
                           {asset.notes || 'Hardware workstation'}
@@ -741,10 +858,61 @@ export const AssetManagement: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* 9. Actions */}
-                    {canManageAssets && (
-                      <td style={{ padding: '10px 10px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                    {/* 8. Actions */}
+                    <td style={{ padding: '10px 10px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
+                        {/* View Button */}
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          style={{ 
+                            padding: '4px 8px', 
+                            fontSize: '0.72rem', 
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            borderRadius: '6px',
+                            backgroundColor: '#f1f5f9',
+                            color: '#334155',
+                            border: '1px solid #cbd5e1',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => setShowViewModal(asset)}
+                          title="View complete asset specifications"
+                        >
+                          <Eye size={12} />
+                          <span>View</span>
+                        </button>
+
+                        {/* Edit Button (Managers/Admin) */}
+                        {canManageAssets && (
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            style={{ 
+                              padding: '4px 8px', 
+                              fontSize: '0.72rem', 
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              borderRadius: '6px',
+                              backgroundColor: '#fffbeb',
+                              color: '#b45309',
+                              border: '1px solid #fde68a',
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => handleOpenEdit(asset)}
+                            title="Edit asset details"
+                          >
+                            <Edit2 size={12} />
+                            <span>Edit</span>
+                          </button>
+                        )}
+
+                        {/* Assign / Reassign Button (Managers/Admin) */}
+                        {canManageAssets && (
                           <button
                             type="button"
                             className="btn btn-sm"
@@ -770,9 +938,9 @@ export const AssetManagement: React.FC = () => {
                             <UserCheck size={12} />
                             <span>{hasAssignee ? 'Reassign' : 'Assign'}</span>
                           </button>
-                        </div>
-                      </td>
-                    )}
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })
@@ -794,24 +962,48 @@ export const AssetManagement: React.FC = () => {
           }}
           customActions={
             selectedAssetIds.length === 1 ? (
-              <button
-                type="button"
-                className="action-bar-btn"
-                onClick={() => {
-                  const target = filteredAssets.find(a => a.id === selectedAssetIds[0]);
-                  if (target) {
-                    const emp = employees.find(e => 
-                      (e.id && (e.id === target.assignedEmployeeId || e.id === target.assignedEmployeeDbId)) ||
-                      (e.employeeId && (e.employeeId === target.assignedEmployeeId || e.employeeId === target.assignedEmployeeDbId))
-                    );
-                    setShowAssignModal(target);
-                    setAssignEmployeeId(emp?.employeeId || (target.assignedEmployeeId && target.assignedEmployeeId.length < 30 ? target.assignedEmployeeId : '') || employees[0]?.employeeId || '');
-                  }
-                }}
-              >
-                <UserCheck size={14} />
-                <span>Assign / Reassign</span>
-              </button>
+              <div style={{ display: 'inline-flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="action-bar-btn"
+                  onClick={() => {
+                    const target = filteredAssets.find(a => a.id === selectedAssetIds[0]);
+                    if (target) setShowViewModal(target);
+                  }}
+                >
+                  <Eye size={14} />
+                  <span>View</span>
+                </button>
+                <button
+                  type="button"
+                  className="action-bar-btn"
+                  onClick={() => {
+                    const target = filteredAssets.find(a => a.id === selectedAssetIds[0]);
+                    if (target) handleOpenEdit(target);
+                  }}
+                >
+                  <Edit2 size={14} />
+                  <span>Edit Info</span>
+                </button>
+                <button
+                  type="button"
+                  className="action-bar-btn"
+                  onClick={() => {
+                    const target = filteredAssets.find(a => a.id === selectedAssetIds[0]);
+                    if (target) {
+                      const emp = employees.find(e => 
+                        (e.id && (e.id === target.assignedEmployeeId || e.id === target.assignedEmployeeDbId)) ||
+                        (e.employeeId && (e.employeeId === target.assignedEmployeeId || e.employeeId === target.assignedEmployeeDbId))
+                      );
+                      setShowAssignModal(target);
+                      setAssignEmployeeId(emp?.employeeId || (target.assignedEmployeeId && target.assignedEmployeeId.length < 30 ? target.assignedEmployeeId : '') || employees[0]?.employeeId || '');
+                    }
+                  }}
+                >
+                  <UserCheck size={14} />
+                  <span>Assign</span>
+                </button>
+              </div>
             ) : undefined
           }
         />
@@ -1013,6 +1205,444 @@ export const AssetManagement: React.FC = () => {
               <div className="modal-footer" style={{ borderTop: 'none', padding: 0, marginTop: '16px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAssignModal(null)}>Cancel</button>
                 <button type="submit" className="btn btn-primary btn-sm">Assign Hardware Asset</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW ASSET DETAILS MODAL */}
+      {showViewModal && (() => {
+        const emp = employees.find(e => 
+          (e.id && (e.id === showViewModal.assignedEmployeeId || e.id === showViewModal.assignedEmployeeDbId)) ||
+          (e.employeeId && (e.employeeId === showViewModal.assignedEmployeeId || e.employeeId === showViewModal.assignedEmployeeDbId))
+        );
+        const resolvedName = (emp ? `${emp.firstName} ${emp.lastName}`.trim() : '') || showViewModal.assignedEmployeeName || '';
+        const resolvedDept = emp?.department || showViewModal.assignedDepartment || '';
+        const rawId = showViewModal.assignedEmployeeId || showViewModal.assignedEmployeeDbId || '';
+        const resolvedDisplayId = emp?.employeeId || (rawId && rawId.length < 30 ? rawId : '');
+        const avatarUrl = emp?.avatar || showViewModal.assignedEmployeeAvatar;
+        const initialLetter = (resolvedName ? resolvedName.charAt(0) : (emp?.firstName ? emp.firstName.charAt(0) : 'E')).toUpperCase();
+        const hasAssignee = Boolean(resolvedName || showViewModal.assignedEmployeeId || showViewModal.assignedEmployeeDbId);
+
+        return (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '580px', width: '90%', borderRadius: '20px', padding: '24px' }}>
+              <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '12px',
+                    backgroundColor: '#ecfeff',
+                    color: '#0891b2',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '1.5px solid #a5f3fc'
+                  }}>
+                    <Laptop size={20} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{
+                        backgroundColor: '#ecfeff',
+                        color: '#0891b2',
+                        border: '1px solid #a5f3fc',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        fontFamily: 'monospace'
+                      }}>
+                        {showViewModal.assetTag}
+                      </span>
+                      <span className={`status-pill ${
+                        showViewModal.status === 'Assigned' ? 'present' : 
+                        showViewModal.status === 'Available' ? 'active' : 
+                        showViewModal.status === 'Under Maintenance' ? 'late' : 'rejected'
+                      }`}>
+                        {showViewModal.status}
+                      </span>
+                    </div>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '4px 0 0 0', color: '#0f172a' }}>
+                      {showViewModal.name}
+                    </h2>
+                  </div>
+                </div>
+                <button onClick={() => setShowViewModal(null)} aria-label="Close view modal">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="modal-body" style={{ padding: '8px 0' }}>
+                {/* Information Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Category
+                    </div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+                      {showViewModal.category}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Serial Number
+                    </div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginTop: '2px', fontFamily: 'monospace' }}>
+                      {showViewModal.serialNumber || '—'}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Hardware Condition
+                    </div>
+                    <div style={{ marginTop: '4px' }}>
+                      <span style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '99px',
+                        display: 'inline-block',
+                        backgroundColor: showViewModal.condition === 'New' ? '#ecfdf5' : showViewModal.condition === 'Good' ? '#eff6ff' : '#fff1f2',
+                        color: showViewModal.condition === 'New' ? '#15803d' : showViewModal.condition === 'Good' ? '#1d4ed8' : '#be123c',
+                        border: `1px solid ${showViewModal.condition === 'New' ? '#bbf7d0' : showViewModal.condition === 'Good' ? '#bfdbfe' : '#fecaca'}`
+                      }}>
+                        {showViewModal.condition}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Purchase Cost
+                    </div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0E7490', marginTop: '2px' }}>
+                      {formatCurrency(showViewModal.purchaseCost)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assigned Employee Card */}
+                <div style={{ padding: '14px', backgroundColor: '#ffffff', borderRadius: '14px', border: '1.5px solid #e2e8f0', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                    Assigned Staff Member
+                  </div>
+                  {hasAssignee ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={resolvedName}
+                          style={{ width: '40px', height: '40px', borderRadius: '99px', objectFit: 'cover', border: '2px solid #e2e8f0' }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '99px',
+                          backgroundColor: '#ecfeff',
+                          color: '#0891b2',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '0.95rem',
+                          border: '2px solid #a5f3fc'
+                        }}>
+                          {initialLetter}
+                        </div>
+                      )}
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                          {resolvedName}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                          {resolvedDept} {resolvedDisplayId ? `• ID: ${resolvedDisplayId}` : ''}
+                        </div>
+                        {showViewModal.assignedDate && (
+                          <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 600, marginTop: '3px' }}>
+                            Assigned on: {formatDateDDMMYYYY(showViewModal.assignedDate)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#64748b', fontSize: '0.85rem' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '99px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                        <User size={18} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#334155' }}>Unassigned / In Stock</div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Ready for staff allocation</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Dates & Warranty */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '14px' }}>
+                  <div style={{ padding: '10px 12px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Purchase Date</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', marginTop: '2px' }}>
+                      {showViewModal.purchaseDate ? formatDateDDMMYYYY(showViewModal.purchaseDate) : '—'}
+                    </div>
+                  </div>
+                  <div style={{ padding: '10px 12px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Warranty Expiry</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', marginTop: '2px' }}>
+                      {showViewModal.warrantyExpiry ? formatDateDDMMYYYY(showViewModal.warrantyExpiry) : '—'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {showViewModal.notes && (
+                  <div style={{ padding: '10px 12px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>
+                      Technical Notes / Specifications
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#334155', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
+                      {showViewModal.notes}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer" style={{ borderTop: 'none', padding: 0, marginTop: '16px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                {canManageAssets && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        const target = showViewModal;
+                        setShowViewModal(null);
+                        handleOpenEdit(target);
+                      }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Edit2 size={13} />
+                      <span>Edit Asset</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        const target = showViewModal;
+                        setShowViewModal(null);
+                        setShowAssignModal(target);
+                        setAssignEmployeeId(emp?.employeeId || (target.assignedEmployeeId && target.assignedEmployeeId.length < 30 ? target.assignedEmployeeId : '') || employees[0]?.employeeId || '');
+                      }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <UserCheck size={13} />
+                      <span>{hasAssignee ? 'Reassign' : 'Assign'}</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowViewModal(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* EDIT ASSET MODAL */}
+      {showEditModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '520px', width: '90%', borderRadius: '18px', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '8px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Edit Corporate Asset</h2>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Updating details for {showEditModal.assetTag}
+                </div>
+              </div>
+              <button onClick={() => {
+                setEditFormError(null);
+                setShowEditModal(null);
+              }} aria-label="Close edit modal"><X size={18} /></button>
+            </div>
+
+            <form onSubmit={handleEditSubmit}>
+              <div className="modal-body" style={{ padding: 0 }}>
+                {editFormError && (
+                  <div style={{
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    color: '#B91C1C',
+                    borderRadius: '10px',
+                    padding: '9px 12px',
+                    marginBottom: '12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600
+                  }}>
+                    {editFormError}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Asset Tag / ID <span style={{ color: '#EF4444' }}>*</span></label>
+                    <input 
+                      className="form-control" 
+                      value={editForm.assetTag} 
+                      onChange={e => setEditForm({ ...editForm, assetTag: e.target.value })} 
+                      placeholder="e.g. AST-LAP-042" 
+                      required 
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Category <span style={{ color: '#EF4444' }}>*</span></label>
+                    <select 
+                      className="form-control" 
+                      value={editForm.category} 
+                      onChange={e => setEditForm({ ...editForm, category: e.target.value as any })}
+                    >
+                      <option value="Laptops & Computers">Laptops & Computers</option>
+                      <option value="Mobile Devices">Mobile Devices</option>
+                      <option value="Monitors & Displays">Monitors & Displays</option>
+                      <option value="Office Furniture">Office Furniture</option>
+                      <option value="Peripherals & Accessories">Peripherals & Accessories</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label className="form-label">Hardware Device Name <span style={{ color: '#EF4444' }}>*</span></label>
+                  <input 
+                    className="form-control" 
+                    value={editForm.name} 
+                    onChange={e => setEditForm({ ...editForm, name: e.target.value })} 
+                    placeholder="e.g. MacBook Pro M3 Max 16-inch" 
+                    required 
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Serial Number</label>
+                    <input 
+                      className="form-control" 
+                      value={editForm.serialNumber} 
+                      onChange={e => setEditForm({ ...editForm, serialNumber: e.target.value })} 
+                      placeholder="e.g. C02G1829MD6R" 
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Purchase Cost (₹)</label>
+                    <input 
+                      className="form-control" 
+                      type="number" 
+                      value={editForm.purchaseCost} 
+                      onChange={e => setEditForm({ ...editForm, purchaseCost: Number(e.target.value) })} 
+                      required 
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Purchase Date</label>
+                    <DateInput 
+                      className="form-control" 
+                      value={editForm.purchaseDate} 
+                      onChange={e => setEditForm({ ...editForm, purchaseDate: e.target.value })} 
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Warranty Expiry</label>
+                    <DateInput 
+                      className="form-control" 
+                      value={editForm.warrantyExpiry} 
+                      onChange={e => setEditForm({ ...editForm, warrantyExpiry: e.target.value })} 
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Hardware Condition</label>
+                    <select 
+                      className="form-control" 
+                      value={editForm.condition} 
+                      onChange={e => setEditForm({ ...editForm, condition: e.target.value as any })}
+                    >
+                      <option value="New">New</option>
+                      <option value="Good">Good</option>
+                      <option value="Fair">Fair</option>
+                      <option value="Needs Repair">Needs Repair</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Allocation Status</label>
+                    <select 
+                      className="form-control" 
+                      value={editForm.status} 
+                      onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
+                    >
+                      <option value="Available">Available</option>
+                      <option value="Assigned">Assigned</option>
+                      <option value="Under Maintenance">Under Maintenance</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label className="form-label">Assigned Employee</label>
+                  <select 
+                    className="form-control" 
+                    value={editForm.assignedEmployeeId} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setEditForm({ 
+                        ...editForm, 
+                        assignedEmployeeId: val,
+                        status: val ? 'Assigned' : editForm.status === 'Assigned' ? 'Available' : editForm.status
+                      });
+                    }}
+                  >
+                    <option value="">-- Unassigned (Available in Stock) --</option>
+                    {employees.map(e => (
+                      <option key={e.id} value={e.employeeId || e.id}>
+                        {e.firstName} {e.lastName} ({e.employeeId} - {e.department})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '10px' }}>
+                  <label className="form-label">Notes & Specifications</label>
+                  <textarea 
+                    className="form-control" 
+                    rows={2} 
+                    value={editForm.notes} 
+                    onChange={e => setEditForm({ ...editForm, notes: e.target.value })} 
+                    placeholder="e.g. M3 Max 36GB RAM 1TB SSD" 
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ borderTop: 'none', padding: 0, marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                  setEditFormError(null);
+                  setShowEditModal(null);
+                }}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm">Save Changes</button>
               </div>
             </form>
           </div>
