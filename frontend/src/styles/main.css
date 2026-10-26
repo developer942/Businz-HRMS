@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 @import "tailwindcss";
+@import "./whatsapp-crm.css";
 
 :root {
   /* Font Families - Modern Industrial SaaS (Plus Jakarta Sans Everywhere) */
@@ -163,7 +164,7 @@ h4 { font-size: 0.92rem; font-weight: 750; color: var(--color-text-primary); }
 h5, h6 { font-size: 0.85rem; font-weight: 700; color: var(--color-text-primary); }
 
 .form-control,
-input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input),
+input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input):not(.crm-contacts-search-input):not(.crm-templates-search-input),
 select,
 textarea {
   font-family: var(--font-primary) !important;
@@ -5497,3 +5498,214 @@ div[style*="overflow-x: auto"] {
     text-overflow: ellipsis !important;
   }
 }
+
+/* ==========================================================================
+   ROLE-BASED MOBILE BOTTOM NAVIGATION & ENHANCED RESPONSIVE STYLING
+   BUSINZ HRMS Design System Specification: Linear & Notion Clean Teal
+   ========================================================================== */
+
+/* 1. Mobile Bottom Navigation Bar */
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  background: #FFFFFF;
+  border-top: 1px solid #E7ECF3;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
+  z-index: 999;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  user-select: none;
+}
+
+/* Strictly hide mobile bottom navigation on desktop screens (> 1024px) */
+@media (min-width: 1025px) {
+  .mobile-bottom-nav {
+    display: none !important;
+  }
+}
+
+.mobile-bottom-nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 60px;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 4px;
+}
+
+.mobile-bottom-nav-item {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: #64748B;
+  cursor: pointer;
+  padding: 4px 2px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-bottom-nav-item:active {
+  transform: scale(0.95);
+}
+
+.mobile-bottom-nav-item.active {
+  color: #0E7490;
+}
+
+.mobile-bottom-nav-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+
+.mobile-bottom-nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background-color: #EF4444;
+  color: #FFFFFF;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.mobile-bottom-nav-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.mobile-bottom-nav-item.active .mobile-bottom-nav-label {
+  font-weight: 750;
+  color: #0E7490;
+}
+
+/* 2. Responsive Content Padding on Mobile / Tablet */
+@media (max-width: 1024px) {
+  .hrms-content {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 16px)) !important;
+  }
+
+  /* Elevate floating elements above mobile bottom navigation */
+  .floating-action-bar,
+  .petty-cash-floating-action-bar {
+    bottom: calc(72px + env(safe-area-inset-bottom, 12px)) !important;
+    z-index: 1001 !important;
+  }
+
+  .vrm-ai-trigger-btn {
+    bottom: calc(74px + env(safe-area-inset-bottom, 12px)) !important;
+    right: 16px !important;
+    z-index: 998 !important;
+  }
+}
+
+/* 3. Universal Table Overflow Handling */
+.table-responsive,
+.table-container,
+.muster-roll-scroll-container,
+.data-table-container,
+.card-table-scroll,
+.table-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.card:has(> table),
+.card:has(> .table-responsive),
+.card:has(> .hrms-table) {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* Fallback for table cards */
+.card > table,
+.card > .hrms-table {
+  max-width: 100%;
+}
+
+/* 4. Filter Grid & Form Alignment on Mobile */
+@media (max-width: 768px) {
+  .employee-filters-bar {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+
+  .employee-filters-bar > div:first-child {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .employee-filters-bar {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Balanced KPI Card Grid on narrow mobile screens (320px - 480px) */
+  .kpi-grid,
+  .kpi-grid.compact {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .kpi-grid > .kpi-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Ensure inputs have comfortable touch target (min 42px) without iOS auto-zoom */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 14px !important;
+    min-height: 42px !important;
+  }
+
+  .btn {
+    min-height: 42px !important;
+    padding: 8px 14px !important;
+  }
+}
+
+/* 5. Modals and Dialogs Responsive Behavior */
+@media (max-width: 768px) {
+  .modal-dialog,
+  .modal-content,
+  .onboarding-fullscreen-modal {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 90vh !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+    border-radius: 16px !important;
+    margin: auto !important;
+  }
+}
+

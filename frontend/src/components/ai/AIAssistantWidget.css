@@ -1305,9 +1305,16 @@
 }
 
 /* Mobile Responsiveness for Seri AI Assistant */
+@media (max-width: 1024px) {
+  .vrm-ai-trigger-btn {
+    bottom: calc(76px + env(safe-area-inset-bottom, 16px)) !important;
+    right: 16px !important;
+  }
+}
+
 @media (max-width: 640px) {
   .vrm-ai-trigger-btn {
-    bottom: 16px !important;
+    bottom: calc(76px + env(safe-area-inset-bottom, 16px)) !important;
     right: 16px !important;
     width: 48px !important;
     height: 48px !important;

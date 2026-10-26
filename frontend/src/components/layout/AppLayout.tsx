@@ -31,6 +31,7 @@ import { CustomerModule } from '../customer/CustomerModule';
 import { WhatsAppCRMModule } from '../whatsapp-crm/WhatsAppCRMModule';
 import { PettyCashManagement } from '../petty-cash/PettyCashManagement';
 import { AIAssistantWidget } from '../ai/AIAssistantWidget';
+import { MobileBottomNav } from './MobileBottomNav';
 import { isCeoOrHrUser } from '../../services/authService';
 
 interface AppLayoutProps {
@@ -218,6 +219,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
 
       {/* Multilingual AI HRMS Assistant Floating Widget (CEO & HR on dashboard page only) */}
       {showChatBot && <AIAssistantWidget />}
+
+      {/* Role-based Mobile Bottom Navigation (Hidden on desktop > 1024px via CSS) */}
+      <MobileBottomNav onOpenSidebar={() => setIsMobileOpen(true)} />
     </div>
   );
 };

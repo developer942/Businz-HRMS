@@ -131,91 +131,31 @@
   color: var(--color-primary-blue);
 }
 
-/* Hero Balance & KPI Cards */
+/* Standardized KPI Cards (Matching Leave Management System Specification) */
 .petty-cash-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .petty-cash-kpi-card {
-  background: var(--color-card);
+  background: #FFFFFF;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  padding: 20px;
-  box-shadow: var(--shadow-sm);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   position: relative;
   overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .petty-cash-kpi-card:hover {
-  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
-}
-
-.petty-cash-kpi-card.hero-card {
-  background: linear-gradient(135deg, #0E7490 0%, #0891B2 100%);
-  color: #FFFFFF;
-  border: none;
-}
-
-.petty-cash-kpi-card.hero-card .kpi-label,
-.petty-cash-kpi-card.hero-card .kpi-meta {
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.petty-cash-kpi-card.hero-card .kpi-value {
-  color: #FFFFFF;
-}
-
-.kpi-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.kpi-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
-.kpi-icon-pill {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #F1F5F9;
-  color: var(--color-primary-blue);
-}
-
-.petty-cash-kpi-card.hero-card .kpi-icon-pill {
-  background: rgba(255, 255, 255, 0.2);
-  color: #FFFFFF;
-}
-
-.kpi-value {
-  font-size: 2rem;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: var(--color-text-primary);
-  margin-bottom: 6px;
-}
-
-.kpi-meta {
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
 }
 
 /* Warning Banner */
@@ -826,5 +766,7 @@
     justify-content: space-between;
     padding: 10px 16px;
     font-size: 0.8rem;
+    bottom: calc(76px + env(safe-area-inset-bottom, 16px)) !important;
   }
 }
+

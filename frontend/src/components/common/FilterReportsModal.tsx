@@ -166,6 +166,8 @@ export const FilterReportsModal: React.FC<FilterReportsModalProps> = ({
     onClose();
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="filter-modal-overlay" onClick={onClose}>
       <div className="filter-reports-modal" onClick={(e) => e.stopPropagation()}>
