@@ -213,8 +213,8 @@ export const AttendanceSettings: React.FC = () => {
     setIsFormOpen(true);
   };
 
-  // Helper to dynamically calculate working hours net of break
-  const calcWorkingHours = (start: string, end: string, breakMins: number | string): number => {
+  // Helper to dynamically calculate working hours directly from start and end time (Full shift duration)
+  const calcWorkingHours = (start: string, end: string): number => {
     if (!start || !end) return 0;
     const cleanStart = String(start).trim().slice(0, 5);
     const cleanEnd = String(end).trim().slice(0, 5);
@@ -225,9 +225,7 @@ export const AttendanceSettings: React.FC = () => {
     let totalMins = (endH * 60 + endM) - (startH * 60 + startM);
     if (totalMins < 0) totalMins += 24 * 60; // Overnight shift
 
-    const bMins = breakMins === '' ? 0 : (Number(breakMins) || 0);
-    const netMins = Math.max(0, totalMins - bMins);
-    return Math.round((netMins / 60) * 100) / 100;
+    return Math.round((totalMins / 60) * 100) / 100;
   };
 
   /* ---------------- HANDLERS FOR SHIFT POLICIES ---------------- */
@@ -235,7 +233,7 @@ export const AttendanceSettings: React.FC = () => {
     e.preventDefault();
     if (!shiftForm.shiftName) return;
 
-    const computedHours = calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins);
+    const computedHours = calcWorkingHours(shiftForm.startTime, shiftForm.endTime);
     const finalHours = shiftForm.workingHours ? Number(shiftForm.workingHours) : computedHours;
 
     if (editingId) {
@@ -263,14 +261,14 @@ export const AttendanceSettings: React.FC = () => {
     }
     setIsFormOpen(false);
     setEditingId(null);
-    setShiftForm({ shiftName: '', startTime: '09:00', endTime: '18:00', gracePeriodMins: 15, breakDurationMins: 45, workingHours: 8.25, color: '#0E7490' });
+    setShiftForm({ shiftName: '', startTime: '09:30', endTime: '18:30', gracePeriodMins: 15, breakDurationMins: 45, workingHours: 9, color: '#0E7490' });
   };
 
   const startEditShift = (shift: Shift) => {
-    const cleanStart = (shift.startTime || '09:00').slice(0, 5);
-    const cleanEnd = (shift.endTime || '18:00').slice(0, 5);
+    const cleanStart = (shift.startTime || '09:30').slice(0, 5);
+    const cleanEnd = (shift.endTime || '18:30').slice(0, 5);
     const breakMins = shift.breakDurationMins || 45;
-    const computedHours = calcWorkingHours(cleanStart, cleanEnd, breakMins);
+    const computedHours = calcWorkingHours(cleanStart, cleanEnd);
 
     setShiftForm({
       shiftName: shift.shiftName,
@@ -278,7 +276,7 @@ export const AttendanceSettings: React.FC = () => {
       endTime: cleanEnd,
       gracePeriodMins: shift.gracePeriodMins ?? 15,
       breakDurationMins: breakMins,
-      workingHours: computedHours > 0 ? computedHours : (shift.workingHours || 8.25),
+      workingHours: computedHours > 0 ? computedHours : (shift.workingHours || 9),
       color: shift.color || '#0E7490'
     });
     setEditingId(shift.id);
@@ -845,7 +843,7 @@ export const AttendanceSettings: React.FC = () => {
                           onChange={e => {
                             const newStart = e.target.value;
                             setShiftForm(prev => {
-                              const computed = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime, prev.breakDurationMins) : prev.workingHours;
+                              const computed = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime) : prev.workingHours;
                               return { ...prev, startTime: newStart, workingHours: computed > 0 ? computed : prev.workingHours };
                             });
                           }}
@@ -861,7 +859,7 @@ export const AttendanceSettings: React.FC = () => {
                           onChange={e => {
                             const newEnd = e.target.value;
                             setShiftForm(prev => {
-                              const computed = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd, prev.breakDurationMins) : prev.workingHours;
+                              const computed = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd) : prev.workingHours;
                               return { ...prev, endTime: newEnd, workingHours: computed > 0 ? computed : prev.workingHours };
                             });
                           }}
@@ -871,7 +869,7 @@ export const AttendanceSettings: React.FC = () => {
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '10px' }}>
                       <div>
-                        <label style={modalLabelStyle}>Working Hours (Net)</label>
+                        <label style={modalLabelStyle}>Working Hours</label>
                         <input
                           type="number"
                           step="0.01"
@@ -881,7 +879,7 @@ export const AttendanceSettings: React.FC = () => {
                           style={modalInputStyle}
                         />
                         <small style={{ color: '#0E7490', fontSize: '0.74rem', display: 'block', marginTop: '4px', fontWeight: 600 }}>
-                          ⚡ Auto-calculated: {calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins)} hrs
+                          ⚡ Auto-calculated: {calcWorkingHours(shiftForm.startTime, shiftForm.endTime)} hrs
                         </small>
                       </div>
                       <div>

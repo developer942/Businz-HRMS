@@ -186,8 +186,8 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     color: '#0E7490'
   });
 
-  // Helper to dynamically calculate working hours net of break
-  const calcWorkingHours = (start: string, end: string, breakMins: number | string): number => {
+  // Helper to dynamically calculate working hours directly from start and end time (Full shift duration)
+  const calcWorkingHours = (start: string, end: string): number => {
     if (!start || !end) return 0;
     const cleanStart = String(start).trim().slice(0, 5);
     const cleanEnd = String(end).trim().slice(0, 5);
@@ -198,9 +198,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     let totalMins = (endH * 60 + endM) - (startH * 60 + startM);
     if (totalMins < 0) totalMins += 24 * 60; // Overnight shift (e.g. 21:00 to 06:00)
 
-    const bMins = breakMins === '' ? 0 : (Number(breakMins) || 0);
-    const netMins = Math.max(0, totalMins - bMins);
-    return Math.round((netMins / 60) * 100) / 100;
+    return Math.round((totalMins / 60) * 100) / 100;
   };
 
   // Shift Swap Request Form State
@@ -230,7 +228,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     e.preventDefault();
     if (!shiftForm.shiftName.trim()) return;
 
-    const computedHours = calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins);
+    const computedHours = calcWorkingHours(shiftForm.startTime, shiftForm.endTime);
     const finalBreak = shiftForm.breakDurationMins === '' ? 0 : Math.max(0, parseInt(String(shiftForm.breakDurationMins), 10) || 0);
     const finalHours = shiftForm.workingHours === '' ? computedHours : Math.max(0, parseFloat(String(shiftForm.workingHours)) || computedHours);
 
@@ -249,21 +247,21 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     if (onCloseQuickAdd) onCloseQuickAdd();
     setShiftForm({
       shiftName: '',
-      startTime: '09:00',
-      endTime: '18:00',
+      startTime: '09:30',
+      endTime: '18:30',
       breakDurationMins: 45,
-      workingHours: 8.25,
+      workingHours: 9,
       color: '#0E7490'
     });
     triggerToast(`Added new shift "${shiftForm.shiftName}" successfully!`);
   };
 
-  // Open Edit Shift Modal with guaranteed auto-calculated net working hours
+  // Open Edit Shift Modal with auto-calculated standard shift working hours
   const handleOpenEditShift = (s: Shift) => {
-    const cleanStart = (s.startTime || '09:00').slice(0, 5);
-    const cleanEnd = (s.endTime || '18:00').slice(0, 5);
+    const cleanStart = (s.startTime || '09:30').slice(0, 5);
+    const cleanEnd = (s.endTime || '18:30').slice(0, 5);
     const breakMins = s.breakDurationMins ?? 0;
-    const computedHours = calcWorkingHours(cleanStart, cleanEnd, breakMins);
+    const computedHours = calcWorkingHours(cleanStart, cleanEnd);
 
     setEditingShift(s);
     setEditShiftForm({
@@ -271,7 +269,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       startTime: cleanStart,
       endTime: cleanEnd,
       breakDurationMins: breakMins,
-      workingHours: computedHours > 0 ? computedHours : (s.workingHours ?? 8),
+      workingHours: computedHours > 0 ? computedHours : (s.workingHours ?? 9),
       color: s.color || '#0E7490'
     });
   };
@@ -281,9 +279,9 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     e.preventDefault();
     if (!editingShift || !editShiftForm.shiftName.trim()) return;
 
-    const computedHours = calcWorkingHours(editShiftForm.startTime, editShiftForm.endTime, editShiftForm.breakDurationMins);
+    const computedHours = calcWorkingHours(editShiftForm.startTime, editShiftForm.endTime);
     const finalBreak = editShiftForm.breakDurationMins === '' ? 0 : Math.max(0, parseInt(String(editShiftForm.breakDurationMins), 10) || 0);
-    const finalHours = editShiftForm.workingHours === '' ? computedHours : Math.max(0, parseFloat(String(editShiftForm.workingHours)) || 0);
+    const finalHours = editShiftForm.workingHours === '' ? computedHours : Math.max(0, parseFloat(String(editShiftForm.workingHours)) || computedHours);
 
     updateShift(editingShift.id, {
       shiftName: editShiftForm.shiftName.trim(),
@@ -824,7 +822,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       onChange={e => {
                         const newStart = e.target.value;
                         setShiftForm(prev => {
-                          const computed: number = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime, prev.breakDurationMins) : (Number(prev.workingHours) || 0);
+                          const computed: number = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime) : (Number(prev.workingHours) || 0);
                           return { ...prev, startTime: newStart, workingHours: computed > 0 ? computed : prev.workingHours };
                         });
                       }}
@@ -840,7 +838,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       onChange={e => {
                         const newEnd = e.target.value;
                         setShiftForm(prev => {
-                          const computed: number = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd, prev.breakDurationMins) : (Number(prev.workingHours) || 0);
+                          const computed: number = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd) : (Number(prev.workingHours) || 0);
                           return { ...prev, endTime: newEnd, workingHours: computed > 0 ? computed : prev.workingHours };
                         });
                       }}
@@ -860,27 +858,23 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                     onChange={e => {
                       const val = e.target.value;
                       const parsed = val === '' ? '' : (parseInt(val, 10) || 0);
-                      setShiftForm(prev => {
-                        const computed: number = prev.startTime && prev.endTime ? calcWorkingHours(prev.startTime, prev.endTime, parsed) : (Number(prev.workingHours) || 0);
-                        return {
-                          ...prev,
-                          breakDurationMins: parsed,
-                          workingHours: computed > 0 ? computed : prev.workingHours
-                        };
-                      });
+                      setShiftForm(prev => ({
+                        ...prev,
+                        breakDurationMins: parsed
+                      }));
                     }}
                   />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">Working Hours (Net)</label>
+                    <label className="form-label">Working Hours</label>
                     <input
                       className="form-control"
                       type="number"
                       step="0.01"
                       min="0"
                       max="24"
-                      placeholder="e.g. 8.25"
+                      placeholder="e.g. 9"
                       value={shiftForm.workingHours}
                       onChange={e => {
                         const val = e.target.value;
@@ -891,7 +885,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       }}
                     />
                     <small style={{ color: '#0E7490', fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', fontWeight: 600 }}>
-                      ⚡ Auto-calculated Net: {calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins)} hrs
+                      ⚡ Auto-calculated: {calcWorkingHours(shiftForm.startTime, shiftForm.endTime)} hrs
                     </small>
                   </div>
                   <div className="form-group">
@@ -944,7 +938,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       onChange={e => {
                         const newStart = e.target.value;
                         setEditShiftForm(prev => {
-                          const computed: number = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime, prev.breakDurationMins) : (Number(prev.workingHours) || 0);
+                          const computed: number = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime) : (Number(prev.workingHours) || 0);
                           return { ...prev, startTime: newStart, workingHours: computed > 0 ? computed : prev.workingHours };
                         });
                       }}
@@ -960,7 +954,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       onChange={e => {
                         const newEnd = e.target.value;
                         setEditShiftForm(prev => {
-                          const computed: number = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd, prev.breakDurationMins) : (Number(prev.workingHours) || 0);
+                          const computed: number = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd) : (Number(prev.workingHours) || 0);
                           return { ...prev, endTime: newEnd, workingHours: computed > 0 ? computed : prev.workingHours };
                         });
                       }}
@@ -980,27 +974,23 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                     onChange={e => {
                       const val = e.target.value;
                       const parsed = val === '' ? '' : (parseInt(val, 10) || 0);
-                      setEditShiftForm(prev => {
-                        const computed: number = prev.startTime && prev.endTime ? calcWorkingHours(prev.startTime, prev.endTime, parsed) : (Number(prev.workingHours) || 0);
-                        return {
-                          ...prev,
-                          breakDurationMins: parsed,
-                          workingHours: computed > 0 ? computed : prev.workingHours
-                        };
-                      });
+                      setEditShiftForm(prev => ({
+                        ...prev,
+                        breakDurationMins: parsed
+                      }));
                     }}
                   />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">Working Hours (Net)</label>
+                    <label className="form-label">Working Hours</label>
                     <input
                       className="form-control"
                       type="number"
                       step="0.01"
                       min="0"
                       max="24"
-                      placeholder="e.g. 8.25"
+                      placeholder="e.g. 9"
                       value={editShiftForm.workingHours}
                       onChange={e => {
                         const val = e.target.value;
@@ -1011,7 +1001,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       }}
                     />
                     <small style={{ color: '#0E7490', fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', fontWeight: 600 }}>
-                      ⚡ Auto-calculated Net: {calcWorkingHours(editShiftForm.startTime, editShiftForm.endTime, editShiftForm.breakDurationMins)} hrs
+                      ⚡ Auto-calculated: {calcWorkingHours(editShiftForm.startTime, editShiftForm.endTime)} hrs
                     </small>
                   </div>
                   <div className="form-group">
