@@ -144,8 +144,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
           icon: User,
           targetModule: 'profile',
           action: () => {
-            setActiveModule('settings');
-            setActiveSettingsTab('my_profile');
+            setActiveModule('profile');
           }
         }
       ];
@@ -189,8 +188,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
           icon: User,
           targetModule: 'profile',
           action: () => {
-            setActiveModule('settings');
-            setActiveSettingsTab('my_profile');
+            setActiveModule('profile');
           }
         }
       ];
@@ -233,8 +231,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
         icon: User,
         targetModule: 'profile',
         action: () => {
-          setActiveModule('settings');
-          setActiveSettingsTab('my_profile');
+          setActiveModule('profile');
         }
       }
     ];
@@ -258,9 +255,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
   };
 
   const isItemActive = (item: NavItem) => {
-    if (item.key === 'profile') {
-      return activeModule === 'profile' || (activeModule === 'settings' && item.targetModule === 'profile');
-    }
     if (item.key === 'modules') {
       return false;
     }

@@ -160,7 +160,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
       case 'settings':
         return <Settings onLogout={onLogout} />;
       case 'profile':
-        return <Settings onLogout={onLogout} initialSection="my_profile" />;
+        return <UserProfile onLogout={onLogout} isEmbedded={false} />;
       case 'tracking':
         return <TrackingModule />;
       case 'customer_data':

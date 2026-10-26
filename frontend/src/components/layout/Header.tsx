@@ -604,8 +604,7 @@ export const Header: React.FC<HeaderProps> = ({
                   type="button"
                   className="dropdown-menu-item"
                   onClick={() => { 
-                    setActiveModule('settings'); 
-                    setActiveSettingsTab('my_profile');
+                    setActiveModule('profile'); 
                     setShowProfileMenu(false); 
                   }}
                 >
