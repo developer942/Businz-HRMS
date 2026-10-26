@@ -197,3 +197,18 @@ git revert <commit-hash>
 npm --prefix frontend run build
 ```
 No database rollback is needed as no migrations or schema changes were introduced.
+
+---
+
+## 8. SETTINGS VS. PROFILE ARCHITECTURE & NAVIGATION EXPLANATION
+
+### 8.1 Why Settings and Profile Were Separated
+- **Initial Behavior:** Clicking either "Settings" or "Profile" previously routed to the `Settings` container module (`setActiveModule('settings')`), presenting the master card list where card #1 was "Personal Profile & Credentials".
+- **Decoupled Architecture:**
+  - **Settings (`setActiveModule('settings')`):** Dedicated to **Company & System Configurations** (Company Details, Attendance & Time rules, Leave Master quotas, Payroll formulas, Advance policies, and Third-Party API integrations).
+  - **Profile (`setActiveModule('profile')`):** Dedicated directly to **User Profile & Credentials** (`UserProfile`), presenting the current user's personal details, password/credentials change, emergency contacts, and notification preferences without requiring navigation through the company settings cards.
+
+### 8.2 Top Header Avatar vs. Bottom Navigation Profile
+- **Top Header Avatar (`B`):** Acts as the **Account & Session Flyout** (showing User Name, Designation/Role, Email, and the **Log Out** button), adhering to standard SaaS design conventions (e.g., Linear, Google Workspace, Slack).
+- **Mobile Bottom Navigation Profile Tab:** Acts as the **Primary 1-Tap Thumb Navigation** destination for mobile viewports, enabling instant access to personal settings and employee details without reaching across tall smartphone screens.
+
