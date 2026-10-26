@@ -97,6 +97,17 @@ All changes strictly adhere to the VRM Enterprise HRM Design System Specificatio
   - Configured `.modal-dialog`, `.modal-content`, and `.onboarding-fullscreen-modal` with `width: 95vw !important; max-width: 95vw !important; max-height: 90vh !important; max-height: 90dvh !important; overflow-y: auto !important; border-radius: 16px !important; margin: auto !important;`.
   - Added `if (!isOpen) return null;` guard in `FilterReportsModal.tsx` to eliminate off-screen DOM artifacts.
 
+### G. Header Popover Dropdown Menus (Profile, Quick Add, Notifications)
+- **Defect:** On mobile viewports (<= 768px), opening the User Profile Menu, Quick Add menu, or Notifications menu rendered a squished, clipped 36px-wide vertical sliver because `.card { max-width: 100% !important; padding: 16px 14px !important; }` constrained absolute-positioned dropdowns to the 36px width of their parent icon buttons.
+- **Remediation:**
+  - Replaced `.card` with `.header-dropdown-menu` and role-specific classes (`.header-profile-dropdown`, `.header-quick-add-dropdown`, `.header-notifications-dropdown`).
+  - Scoped `.card` media queries with `:not(.header-dropdown-menu)`.
+  - Added dedicated styling in `main.css`:
+    - `.header-profile-dropdown`: fixed width `230px !important`, right aligned to avatar, clean padding `8px`, `z-index: 100`.
+    - `.header-quick-add-dropdown`: fixed width `220px !important`, clean padding `6px`.
+    - `.header-notifications-dropdown`: width `360px !important`, `max-width: calc(100vw - 20px) !important`.
+  - Verified visually with Playwright: all dropdowns render completely unclipped with proper typography, borders, and margins.
+
 ---
 
 ## 3. FILES MODIFIED
