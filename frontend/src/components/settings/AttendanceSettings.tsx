@@ -213,10 +213,30 @@ export const AttendanceSettings: React.FC = () => {
     setIsFormOpen(true);
   };
 
+  // Helper to dynamically calculate working hours net of break
+  const calcWorkingHours = (start: string, end: string, breakMins: number | string): number => {
+    if (!start || !end) return 0;
+    const cleanStart = String(start).trim().slice(0, 5);
+    const cleanEnd = String(end).trim().slice(0, 5);
+    const [startH, startM] = cleanStart.split(':').map(Number);
+    const [endH, endM] = cleanEnd.split(':').map(Number);
+    if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) return 0;
+
+    let totalMins = (endH * 60 + endM) - (startH * 60 + startM);
+    if (totalMins < 0) totalMins += 24 * 60; // Overnight shift
+
+    const bMins = breakMins === '' ? 0 : (Number(breakMins) || 0);
+    const netMins = Math.max(0, totalMins - bMins);
+    return Math.round((netMins / 60) * 100) / 100;
+  };
+
   /* ---------------- HANDLERS FOR SHIFT POLICIES ---------------- */
   const handleSaveShift = (e: React.FormEvent) => {
     e.preventDefault();
     if (!shiftForm.shiftName) return;
+
+    const computedHours = calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins);
+    const finalHours = shiftForm.workingHours ? Number(shiftForm.workingHours) : computedHours;
 
     if (editingId) {
       updateShift(editingId, {
@@ -224,7 +244,7 @@ export const AttendanceSettings: React.FC = () => {
         startTime: shiftForm.startTime,
         endTime: shiftForm.endTime,
         breakDurationMins: Number(shiftForm.breakDurationMins),
-        workingHours: Number(shiftForm.workingHours),
+        workingHours: finalHours || computedHours,
         color: shiftForm.color
       });
       triggerToast(`Shift policy "${shiftForm.shiftName}" updated! Reflected in Shift Management.`);
@@ -235,7 +255,7 @@ export const AttendanceSettings: React.FC = () => {
         endTime: shiftForm.endTime,
         gracePeriodMins: 0,
         breakDurationMins: Number(shiftForm.breakDurationMins),
-        workingHours: Number(shiftForm.workingHours),
+        workingHours: finalHours || computedHours,
         assignments: [],
         color: shiftForm.color
       });
@@ -247,13 +267,18 @@ export const AttendanceSettings: React.FC = () => {
   };
 
   const startEditShift = (shift: Shift) => {
+    const cleanStart = (shift.startTime || '09:00').slice(0, 5);
+    const cleanEnd = (shift.endTime || '18:00').slice(0, 5);
+    const breakMins = shift.breakDurationMins || 45;
+    const computedHours = calcWorkingHours(cleanStart, cleanEnd, breakMins);
+
     setShiftForm({
       shiftName: shift.shiftName,
-      startTime: shift.startTime,
-      endTime: shift.endTime,
+      startTime: cleanStart,
+      endTime: cleanEnd,
       gracePeriodMins: shift.gracePeriodMins ?? 15,
-      breakDurationMins: shift.breakDurationMins || 45,
-      workingHours: shift.workingHours || 8.25,
+      breakDurationMins: breakMins,
+      workingHours: computedHours > 0 ? computedHours : (shift.workingHours || 8.25),
       color: shift.color || '#0E7490'
     });
     setEditingId(shift.id);
@@ -817,7 +842,13 @@ export const AttendanceSettings: React.FC = () => {
                           type="time"
                           required
                           value={shiftForm.startTime}
-                          onChange={e => setShiftForm({ ...shiftForm, startTime: e.target.value })}
+                          onChange={e => {
+                            const newStart = e.target.value;
+                            setShiftForm(prev => {
+                              const computed = newStart && prev.endTime ? calcWorkingHours(newStart, prev.endTime, prev.breakDurationMins) : prev.workingHours;
+                              return { ...prev, startTime: newStart, workingHours: computed > 0 ? computed : prev.workingHours };
+                            });
+                          }}
                           style={modalInputStyle}
                         />
                       </div>
@@ -827,21 +858,31 @@ export const AttendanceSettings: React.FC = () => {
                           type="time"
                           required
                           value={shiftForm.endTime}
-                          onChange={e => setShiftForm({ ...shiftForm, endTime: e.target.value })}
+                          onChange={e => {
+                            const newEnd = e.target.value;
+                            setShiftForm(prev => {
+                              const computed = prev.startTime && newEnd ? calcWorkingHours(prev.startTime, newEnd, prev.breakDurationMins) : prev.workingHours;
+                              return { ...prev, endTime: newEnd, workingHours: computed > 0 ? computed : prev.workingHours };
+                            });
+                          }}
                           style={modalInputStyle}
                         />
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '10px' }}>
                       <div>
-                        <label style={modalLabelStyle}>Working Hours</label>
+                        <label style={modalLabelStyle}>Working Hours (Net)</label>
                         <input
                           type="number"
+                          step="0.01"
                           required
                           value={shiftForm.workingHours}
                           onChange={e => setShiftForm({ ...shiftForm, workingHours: Number(e.target.value) })}
                           style={modalInputStyle}
                         />
+                        <small style={{ color: '#0E7490', fontSize: '0.74rem', display: 'block', marginTop: '4px', fontWeight: 600 }}>
+                          ⚡ Auto-calculated: {calcWorkingHours(shiftForm.startTime, shiftForm.endTime, shiftForm.breakDurationMins)} hrs
+                        </small>
                       </div>
                       <div>
                         <label style={modalLabelStyle}>Color Accent</label>
