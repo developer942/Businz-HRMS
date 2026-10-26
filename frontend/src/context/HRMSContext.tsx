@@ -914,9 +914,9 @@ interface HRMSContextType {
   markPayrollRecordsPaid: (recordIds: string[]) => void;
 
   departments: DepartmentItem[];
-  addDepartment: (dept: Omit<DepartmentItem, 'id' | 'employeeCount'>) => void;
-  updateDepartment: (id: string, updates: Partial<DepartmentItem>) => void;
-  deleteDepartment: (id: string) => { success: boolean; message?: string };
+  addDepartment: (dept: Omit<DepartmentItem, 'id' | 'employeeCount'>) => Promise<{ success: boolean; data?: DepartmentItem; message?: string }> | void;
+  updateDepartment: (id: string, updates: Partial<DepartmentItem>) => Promise<{ success: boolean; message?: string }> | void;
+  deleteDepartment: (id: string) => Promise<{ success: boolean; message?: string }> | { success: boolean; message?: string };
 
   designations: DesignationItem[];
   addDesignation: (desig: Omit<DesignationItem, 'id'>) => void;
@@ -3453,7 +3453,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // ==========================================
   // 6. ADVANCE SALARY / LOAN POLICY & RECORDS
   // ==========================================
-  const [loanPolicies, setLoanPolicies] = useState<LoanPolicy[]>(DEFAULT_LOAN_POLICIES);
+  const [loanPolicies, setLoanPolicies] = useState<LoanPolicy[]>([]);
 
   // VPS database persistence effects
   useEffect(() => {
@@ -3586,17 +3586,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch {}
   }, [employeeRewardRecords]);
 
-  useEffect(() => {
-    try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-        supabaseDirect.saveCompanySetting('loan_policies_data', loanPolicies);
-      }
-    } catch {}
-  }, [loanPolicies]);
-
   const activeLoanPolicy = loanPolicies.find(p => p.status === 'Active') || loanPolicies[0];
 
-  const createLoanPolicy = (policyData: Omit<LoanPolicy, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>) => {
+  const createLoanPolicy = async (policyData: Omit<LoanPolicy, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>) => {
     const now = new Date();
     const formatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const userLabel = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
@@ -3608,7 +3600,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedBy: userLabel,
       ...policyData
     };
-    setLoanPolicies(prev => [newPolicy, ...prev]);
+    const next = [newPolicy, ...loanPolicies];
+    setLoanPolicies(next);
+    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => {});
     addPolicyAuditLog({
       policyCategory: 'Advance Salary / Loan Policy',
       policyId: newPolicy.id,
@@ -3620,11 +3614,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
-  const updateLoanPolicy = (id: string, updates: Partial<LoanPolicy>) => {
+  const updateLoanPolicy = async (id: string, updates: Partial<LoanPolicy>) => {
     const now = new Date();
     const formatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const userLabel = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setLoanPolicies(prev => prev.map(p => {
+    const next = loanPolicies.map(p => {
       if (p.id === id) {
         const updated = { ...p, ...updates, updatedAt: formatted, updatedBy: userLabel };
         addPolicyAuditLog({
@@ -3639,11 +3633,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return updated;
       }
       return p;
-    }));
+    });
+    setLoanPolicies(next);
+    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => {});
   };
 
-  const deleteLoanPolicy = (id: string) => {
-    setLoanPolicies(prev => prev.filter(p => p.id !== id));
+  const deleteLoanPolicy = async (id: string) => {
+    const targetPolicy = loanPolicies.find(p => p.id === id);
+    const next = loanPolicies.filter(p => p.id !== id);
+    setLoanPolicies(next);
+    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => {});
+    if (targetPolicy) {
+      addPolicyAuditLog({
+        policyCategory: 'Advance Salary / Loan Policy',
+        policyId: id,
+        policyName: targetPolicy.policyName,
+        action: 'DELETE',
+        performedBy: currentUser.name,
+        performedByRole: currentUser.role,
+        changeSummary: `Deleted loan policy "${targetPolicy.policyName}".`
+      });
+    }
+    try {
+      localStorage.removeItem('vrm_hrms_loan_policies');
+    } catch {}
   };
 
   const [loanRecords, setLoanRecords] = useState<LoanRecord[]>([]);
@@ -3660,7 +3673,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       emp = employees.find(e => e.employeeId === currentUser.employeeId || e.email === currentUser.email);
     }
 
-    const rawPolicy = (policyId ? loanPolicies.find(p => p.id === policyId) : activeLoanPolicy) || DEFAULT_LOAN_POLICIES?.[0];
+    const rawPolicy = (policyId ? loanPolicies.find(p => p.id === policyId) : activeLoanPolicy);
     
     if (!rawPolicy) {
       return {
@@ -3722,12 +3735,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     // 2. Calculate Monthly Salary with safe fallback
-    const basic = toNum(emp.basicSalary) || 32000;
+    const basic = toNum(emp.basicSalary) || toNum((emp as any).monthlyCtc) || 32000;
     const allowances = toNum(emp.allowances?.hra) + toNum(emp.allowances?.transport) + toNum(emp.allowances?.medical) + toNum(emp.allowances?.special);
-    const monthlySalary = (basic + allowances) > 0 ? (basic + allowances) : basic;
+    const monthlySalary = toNum((emp as any).monthlyCtc) || ((basic + allowances) > 0 ? (basic + allowances) : basic);
 
     // 3. Calculate Maximum Eligible Amount based on Policy Limit Type
     let maxEligibleAmount = 0;
+    const isAdvancePolicy = policy.policyType === 'Advance Salary' || (policy as any).requestType === 'Advance Salary';
     const salaryPct = policy.maxSalaryPercent ?? (policy.maxLoanLimitType === 'PERCENTAGE_SALARY' ? policy.maxLoanLimitValue : undefined);
     if (salaryPct !== undefined && salaryPct > 0) {
       maxEligibleAmount = Math.round(monthlySalary * (salaryPct / 100));
@@ -3742,7 +3756,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       maxEligibleAmount = Math.min(maxEligibleAmount, policy.maxLoanAmount);
     }
     if (maxEligibleAmount <= 0) {
-      maxEligibleAmount = 60000;
+      maxEligibleAmount = monthlySalary || 20000;
+    }
+
+    // STRICT BUSINESS RULE: For Advance Salary, maximum eligible amount can NEVER exceed 100% of monthly salary
+    if (isAdvancePolicy) {
+      maxEligibleAmount = Math.min(maxEligibleAmount, monthlySalary);
     }
 
     // 4. Check Active Loans & Outstanding Balance
@@ -3801,9 +3820,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: eligibility.ineligibleReason || 'Not eligible to submit loan request.' };
     }
 
-    const effectiveLimit = Math.max(eligibility.maxEligibleAmount || 50000, 30000);
+    const isAdvance = requestData.requestType === 'Advance Salary' || (requestData.requestType as string) === 'Salary Advance';
+    const effectiveSalary = eligibility.monthlySalary || 0;
+    const effectiveLimit = isAdvance 
+      ? (effectiveSalary > 0 ? Math.min(eligibility.maxEligibleAmount, effectiveSalary) : eligibility.maxEligibleAmount)
+      : eligibility.maxEligibleAmount;
+
     if (requestData.requestedAmount > effectiveLimit) {
-      return { success: false, message: `Requested amount exceeds your maximum eligible loan limit of ${formatCurrency(effectiveLimit)}.` };
+      return { 
+        success: false, 
+        message: isAdvance 
+          ? `Advance salary cannot exceed your monthly salary of ${formatCurrency(effectiveLimit)}.`
+          : `Requested amount exceeds your maximum eligible loan limit of ${formatCurrency(effectiveLimit)}.` 
+      };
     }
 
     if (requestData.neededByDate) {
@@ -3825,13 +3854,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const timestamp = `${dateStr} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const loanId = `ADV-${now.getFullYear()}-${String(loanRecords.length + 1).padStart(3, '0')}`;
-    const months = requestData.installmentMonths || 3;
-    const monthlyEMI = Math.round(requestData.requestedAmount / months);
+    const months = isAdvance ? 1 : (requestData.installmentMonths || 3);
+    const monthlyEMI = isAdvance ? requestData.requestedAmount : Math.round(requestData.requestedAmount / months);
 
     const schedule: LoanRepaymentInstallment[] = Array.from({ length: months }).map((_, idx) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + 1 + idx, 1);
+      const periodMonth = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
       return {
         installmentNumber: idx + 1,
-        periodMonth: `Month +${idx + 1}`,
+        periodMonth,
         scheduledAmount: idx === months - 1 ? requestData.requestedAmount - (monthlyEMI * (months - 1)) : monthlyEMI,
         actualDeducted: 0,
         remainingBalance: requestData.requestedAmount - (monthlyEMI * (idx + 1)),
@@ -4580,7 +4611,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Attendance Policies
+  // Attendance Policies Direct Synchronizer
+  const syncMasterAttendancePoliciesState = (updated: AttendancePolicy[]) => {
+    setMasterAttendancePolicies(updated);
+    try {
+      localStorage.setItem('vrm_hrms_master_attendance_policies_persistent', JSON.stringify(updated));
+    } catch {}
+    supabaseDirect.saveCompanySetting('master_attendance_policies_data', updated).catch(err => {
+      console.warn('[HRMSContext] Failed saving master_attendance_policies_data:', err);
+    });
+  };
+
   const addMasterAttendancePolicy = (policy: Omit<AttendancePolicy, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'createdBy' | 'updatedBy'>) => {
     const now = new Date().toISOString();
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
@@ -4593,7 +4634,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedAt: now,
       updatedBy: userDisplayName
     };
-    setMasterAttendancePolicies(prev => [newPolicy, ...prev]);
+    const updated = [newPolicy, ...masterAttendancePolicies.filter(p => p.id !== newPolicy.id)];
+    syncMasterAttendancePoliciesState(updated);
     addPolicyAuditLog({
       policyCategory: 'Attendance & Time',
       policyId: newPolicy.id,
@@ -4607,77 +4649,86 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateMasterAttendancePolicy = (id: string, updates: Partial<AttendancePolicy>) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setMasterAttendancePolicies(prev => prev.map(p => {
+    let targetUpdated: AttendancePolicy | null = null;
+    const updated = masterAttendancePolicies.map(p => {
       if (p.id === id) {
-        const updated = {
+        const next = {
           ...p,
           ...updates,
           version: p.version + 1,
           updatedAt: new Date().toISOString(),
           updatedBy: userDisplayName
         };
-        addPolicyAuditLog({
-          policyCategory: 'Attendance & Time',
-          policyId: id,
-          policyName: updated.policyName,
-          action: 'EDIT',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Updated attendance policy "${updated.policyName}" (version ${updated.version}).`,
-          oldValues: p,
-          newValues: updated
-        });
-        return updated;
+        targetUpdated = next;
+        return next;
       }
       return p;
-    }));
+    });
+    syncMasterAttendancePoliciesState(updated);
+    if (targetUpdated) {
+      addPolicyAuditLog({
+        policyCategory: 'Attendance & Time',
+        policyId: id,
+        policyName: (targetUpdated as any).policyName,
+        action: 'EDIT',
+        performedBy: currentUser.name,
+        performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+        changeSummary: `Updated attendance policy "${(targetUpdated as any).policyName}" (version ${(targetUpdated as any).version}).`
+      });
+    }
   };
 
   const archiveMasterAttendancePolicy = (id: string) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setMasterAttendancePolicies(prev => prev.map(p => {
+    let policyName = '';
+    const updated = masterAttendancePolicies.map(p => {
       if (p.id === id) {
-        const updated: AttendancePolicy = { ...p, status: 'Archived', updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
-        addPolicyAuditLog({
-          policyCategory: 'Attendance & Time',
-          policyId: id,
-          policyName: p.policyName,
-          action: 'ARCHIVE',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Archived attendance policy "${p.policyName}". Historical payroll records preserved.`
-        });
-        return updated;
+        policyName = p.policyName;
+        return { ...p, status: 'Archived' as const, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
       }
       return p;
-    }));
+    });
+    syncMasterAttendancePoliciesState(updated);
+    addPolicyAuditLog({
+      policyCategory: 'Attendance & Time',
+      policyId: id,
+      policyName,
+      action: 'ARCHIVE',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `Archived attendance policy "${policyName}". Historical payroll records preserved.`
+    });
   };
 
   const toggleMasterAttendancePolicyStatus = (id: string) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setMasterAttendancePolicies(prev => prev.map(p => {
+    let policyName = '';
+    let nextStatus: 'Active' | 'Inactive' = 'Active';
+    const updated = masterAttendancePolicies.map(p => {
       if (p.id === id) {
-        const nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
-        const updated: AttendancePolicy = { ...p, status: nextStatus, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
-        addPolicyAuditLog({
-          policyCategory: 'Attendance & Time',
-          policyId: id,
-          policyName: p.policyName,
-          action: nextStatus === 'Active' ? 'ACTIVATE' : 'DEACTIVATE',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} attendance policy "${p.policyName}".`
-        });
-        return updated;
+        policyName = p.policyName;
+        nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
+        return { ...p, status: nextStatus, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
       }
       return p;
-    }));
+    });
+    syncMasterAttendancePoliciesState(updated);
+    addPolicyAuditLog({
+      policyCategory: 'Attendance & Time',
+      policyId: id,
+      policyName,
+      action: nextStatus === 'Active' ? 'ACTIVATE' : 'DEACTIVATE',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} attendance policy "${policyName}".`
+    });
   };
 
   const deleteMasterAttendancePolicy = (id: string) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
     const policyToDelete = masterAttendancePolicies.find(p => p.id === id);
-    setMasterAttendancePolicies(prev => prev.filter(p => p.id !== id));
+    const updated = masterAttendancePolicies.filter(p => p.id !== id);
+    syncMasterAttendancePoliciesState(updated);
     if (policyToDelete) {
       addPolicyAuditLog({
         policyCategory: 'Attendance & Time',
@@ -5352,7 +5403,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
-  // Rewards & Recognition
+  // Rewards & Recognition Direct Synchronizer
+  const syncRewardPoliciesState = (updated: RewardPolicy[]) => {
+    setRewardPolicies(updated);
+    supabaseDirect.saveCompanySetting('reward_policies_data', updated).catch(() => {});
+  };
+
   const addRewardPolicy = (policy: Omit<RewardPolicy, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'createdBy' | 'updatedBy'>) => {
     const now = new Date().toISOString();
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
@@ -5365,7 +5421,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedAt: now,
       updatedBy: userDisplayName
     };
-    setRewardPolicies(prev => [newPolicy, ...prev]);
+    const updated = [newPolicy, ...rewardPolicies.filter(p => p.id !== newPolicy.id)];
+    syncRewardPoliciesState(updated);
     addPolicyAuditLog({
       policyCategory: 'Rewards & Recognition',
       policyId: newPolicy.id,
@@ -5379,71 +5436,79 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateRewardPolicy = (id: string, updates: Partial<RewardPolicy>) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setRewardPolicies(prev => prev.map(p => {
+    let targetUpdated: RewardPolicy | null = null;
+    const updated = rewardPolicies.map(p => {
       if (p.id === id) {
-        const updated = {
+        const next = {
           ...p,
           ...updates,
           version: p.version + 1,
           updatedAt: new Date().toISOString(),
           updatedBy: userDisplayName
         };
-        addPolicyAuditLog({
-          policyCategory: 'Rewards & Recognition',
-          policyId: id,
-          policyName: updated.rewardName,
-          action: 'EDIT',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Updated reward policy "${updated.rewardName}".`,
-          oldValues: p,
-          newValues: updated
-        });
-        return updated;
+        targetUpdated = next;
+        return next;
       }
       return p;
-    }));
+    });
+    syncRewardPoliciesState(updated);
+    if (targetUpdated) {
+      addPolicyAuditLog({
+        policyCategory: 'Rewards & Recognition',
+        policyId: id,
+        policyName: (targetUpdated as any).rewardName,
+        action: 'EDIT',
+        performedBy: currentUser.name,
+        performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+        changeSummary: `Updated reward policy "${(targetUpdated as any).rewardName}".`
+      });
+    }
   };
 
   const archiveRewardPolicy = (id: string) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setRewardPolicies(prev => prev.map(p => {
+    let policyName = '';
+    const updated = rewardPolicies.map(p => {
       if (p.id === id) {
-        const updated: RewardPolicy = { ...p, status: 'Archived', updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
-        addPolicyAuditLog({
-          policyCategory: 'Rewards & Recognition',
-          policyId: id,
-          policyName: p.rewardName,
-          action: 'ARCHIVE',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `Archived reward policy "${p.rewardName}".`
-        });
-        return updated;
+        policyName = p.rewardName;
+        return { ...p, status: 'Archived' as const, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
       }
       return p;
-    }));
+    });
+    syncRewardPoliciesState(updated);
+    addPolicyAuditLog({
+      policyCategory: 'Rewards & Recognition',
+      policyId: id,
+      policyName,
+      action: 'ARCHIVE',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `Archived reward policy "${policyName}".`
+    });
   };
 
   const toggleRewardPolicyStatus = (id: string) => {
     const userDisplayName = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
-    setRewardPolicies(prev => prev.map(p => {
+    let policyName = '';
+    let nextStatus: 'Active' | 'Inactive' = 'Active';
+    const updated = rewardPolicies.map(p => {
       if (p.id === id) {
-        const nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
-        const updated: RewardPolicy = { ...p, status: nextStatus, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
-        addPolicyAuditLog({
-          policyCategory: 'Rewards & Recognition',
-          policyId: id,
-          policyName: p.rewardName,
-          action: nextStatus === 'Active' ? 'ACTIVATE' : 'DEACTIVATE',
-          performedBy: currentUser.name,
-          performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
-          changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} reward policy "${p.rewardName}".`
-        });
-        return updated;
+        policyName = p.rewardName;
+        nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
+        return { ...p, status: nextStatus, updatedAt: new Date().toISOString(), updatedBy: userDisplayName };
       }
       return p;
-    }));
+    });
+    syncRewardPoliciesState(updated);
+    addPolicyAuditLog({
+      policyCategory: 'Rewards & Recognition',
+      policyId: id,
+      policyName,
+      action: nextStatus === 'Active' ? 'ACTIVATE' : 'DEACTIVATE',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} reward policy "${policyName}".`
+    });
   };
 
   const grantRewardToEmployee = (grant: Omit<EmployeeRewardRecord, 'id' | 'grantedDate' | 'payrollStatus'>) => {
@@ -5455,7 +5520,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       grantedDate: dateStr,
       payrollStatus: 'Pending'
     };
-    setEmployeeRewardRecords(prev => [newRecord, ...prev]);
+    setEmployeeRewardRecords(prev => {
+      const next = [newRecord, ...prev];
+      supabaseDirect.saveCompanySetting('employee_rewards_data', next).catch(() => {});
+      return next;
+    });
     triggerToast(`Award granted: "${grant.rewardName}" for ${grant.employeeName}${grant.addToPayroll ? ' (Queued for Next Payroll)' : ''}!`);
   };
 
@@ -7172,15 +7241,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...policyData,
       id: `lp-${Date.now()}`
     };
-    setLeavePolicies(prev => [...prev, newPolicy]);
+    setLeavePolicies(prev => {
+      const next = [...prev, newPolicy];
+      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateLeavePolicy = (id: string, updates: Partial<LeavePolicyItem>) => {
-    setLeavePolicies(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    setLeavePolicies(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, ...updates } : p);
+      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteLeavePolicy = (id: string) => {
-    setLeavePolicies(prev => prev.filter(p => p.id !== id));
+    setLeavePolicies(prev => {
+      const next = prev.filter(p => p.id !== id);
+      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const addHolidayPolicy = (holidayData: Omit<HolidayItem, 'id'>) => {
@@ -7188,15 +7269,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...holidayData,
       id: `hp-${Date.now()}`
     };
-    setHolidayPolicies(prev => [...prev, newHoliday]);
+    setHolidayPolicies(prev => {
+      const next = [...prev, newHoliday];
+      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateHolidayPolicy = (id: string, updates: Partial<HolidayItem>) => {
-    setHolidayPolicies(prev => prev.map(h => h.id === id ? { ...h, ...updates } : h));
+    setHolidayPolicies(prev => {
+      const next = prev.map(h => h.id === id ? { ...h, ...updates } : h);
+      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteHolidayPolicy = (id: string) => {
-    setHolidayPolicies(prev => prev.filter(h => h.id !== id));
+    setHolidayPolicies(prev => {
+      const next = prev.filter(h => h.id !== id);
+      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const addAttendancePolicy = (policyData: Omit<AttendancePolicyItem, 'id'>) => {
@@ -7204,15 +7297,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...policyData,
       id: `ap-${Date.now()}`
     };
-    setAttendancePolicies(prev => [...prev, newPolicy]);
+    setAttendancePolicies(prev => {
+      const next = [...prev, newPolicy];
+      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateAttendancePolicy = (id: string, updates: Partial<AttendancePolicyItem>) => {
-    setAttendancePolicies(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    setAttendancePolicies(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, ...updates } : p);
+      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteAttendancePolicy = (id: string) => {
-    setAttendancePolicies(prev => prev.filter(p => p.id !== id));
+    setAttendancePolicies(prev => {
+      const next = prev.filter(p => p.id !== id);
+      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const addWeeklySchedule = (scheduleData: Omit<WeeklyScheduleItem, 'id'>) => {
@@ -7220,19 +7325,35 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...scheduleData,
       id: `wp-${Date.now()}`
     };
-    setWeeklySchedules(prev => [...prev, newSchedule]);
+    setWeeklySchedules(prev => {
+      const next = [...prev, newSchedule];
+      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateWeeklySchedule = (id: string, updates: Partial<WeeklyScheduleItem>) => {
-    setWeeklySchedules(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
+    setWeeklySchedules(prev => {
+      const next = prev.map(w => w.id === id ? { ...w, ...updates } : w);
+      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteWeeklySchedule = (id: string) => {
-    setWeeklySchedules(prev => prev.filter(w => w.id !== id));
+    setWeeklySchedules(prev => {
+      const next = prev.filter(w => w.id !== id);
+      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateAttendanceConfig = (updates: Partial<GlobalAttendanceConfig>) => {
-    setAttendanceConfig(prev => ({ ...prev, ...updates }));
+    setAttendanceConfig(prev => {
+      const next = { ...prev, ...updates };
+      supabaseDirect.saveCompanySetting('attendance_config_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const addPolicyDocument = (docData: Omit<PolicyDocumentItem, 'id'>) => {
@@ -7240,19 +7361,35 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...docData,
       id: `p-${Date.now()}`
     };
-    setPolicyDocuments(prev => [...prev, newDoc]);
+    setPolicyDocuments(prev => {
+      const next = [...prev, newDoc];
+      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updatePolicyDocument = (id: string, updates: Partial<PolicyDocumentItem>) => {
-    setPolicyDocuments(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+    setPolicyDocuments(prev => {
+      const next = prev.map(d => d.id === id ? { ...d, ...updates } : d);
+      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deletePolicyDocument = (id: string) => {
-    setPolicyDocuments(prev => prev.filter(d => d.id !== id));
+    setPolicyDocuments(prev => {
+      const next = prev.filter(d => d.id !== id);
+      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateBusinessSettings = (updates: Partial<BusinessProfileSettings>) => {
-    setBusinessSettings(prev => ({ ...prev, ...updates }));
+    setBusinessSettings(prev => {
+      const next = { ...prev, ...updates };
+      supabaseDirect.saveCompanySetting('business_settings_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const SHIFT_REQUESTS_KEY = 'shift_requests_vps_data';
@@ -9113,35 +9250,190 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setPayrollRecords(prev => prev.map(rec => idSet.has(rec.id) ? { ...rec, status: 'Paid' } : rec));
   };
 
-  const addDepartment = (dept: Omit<DepartmentItem, 'id' | 'employeeCount'>) => {
+  const addDepartment = async (dept: Omit<DepartmentItem, 'id' | 'employeeCount'>): Promise<{ success: boolean; data?: DepartmentItem; message?: string }> => {
+    const cleanName = (dept.name || '').trim();
+    if (!cleanName) return { success: false, message: 'Department name is required' };
+
+    // 1. Check duplicate
+    if (departments.some(d => d.name.toLowerCase() === cleanName.toLowerCase())) {
+      return { success: false, message: `Department "${cleanName}" already exists` };
+    }
+
+    const cleanCode = (dept.code || cleanName.substring(0, 4)).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'DEPT';
+    
+    // 2. Persist to PostgreSQL departments table
+    let createdRow: any = null;
+    try {
+      const res = await supabaseDirect.insertDepartment(cleanName, cleanCode, {
+        budget: dept.budget,
+        headId: dept.headId
+      });
+      if (res.success && res.data) {
+        createdRow = res.data;
+      }
+    } catch (err) {
+      console.warn('[HRMSContext] insertDepartment notice:', err);
+    }
+
     const newDept: DepartmentItem = {
-      ...dept,
-      id: `DEP-${Date.now()}`,
-      employeeCount: 0
+      id: createdRow?.id || `dept-${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      name: cleanName,
+      code: createdRow?.code || cleanCode,
+      headName: dept.headName || 'Unassigned',
+      headId: dept.headId || createdRow?.head_id || '',
+      employeeCount: 0,
+      budget: Number(dept.budget) || 0
     };
-    setDepartments(prev => [...prev, newDept]);
+
+    // 3. Update departments state & departments_data in company_settings
+    setDepartments(prev => {
+      const next = [...prev.filter(d => d.name.toLowerCase() !== cleanName.toLowerCase()), newDept];
+      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => {});
+      return next;
+    });
+
+    // 4. Update orgStructure.departments & org_structure in company_settings
+    setOrgStructure(prev => {
+      const currentList = prev.departments || [];
+      if (currentList.some(d => d.toLowerCase() === cleanName.toLowerCase())) return prev;
+      const updated = {
+        ...prev,
+        departments: dedupeStringList([...currentList, cleanName])
+      };
+      supabaseDirect.saveCompanySetting('org_structure', updated).catch(() => {});
+      return updated;
+    });
+
+    addPolicyAuditLog({
+      policyCategory: 'Company Details',
+      policyId: newDept.id,
+      policyName: `Department: ${cleanName}`,
+      action: 'CREATE',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `Created department "${cleanName}" with code ${cleanCode}.`
+    });
+
+    return { success: true, data: newDept };
   };
 
-  const updateDepartment = (id: string, updates: Partial<DepartmentItem>) => {
-    setDepartments(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+  const updateDepartment = async (id: string, updates: Partial<DepartmentItem>): Promise<{ success: boolean; message?: string }> => {
+    const existing = departments.find(d => d.id === id || d.name.toLowerCase() === (updates.name || '').toLowerCase());
+    const oldName = existing?.name;
+    const newName = updates.name ? updates.name.trim() : oldName;
+
+    // 1. Persist update to PostgreSQL
+    try {
+      await supabaseDirect.updateDepartment(id, {
+        name: newName,
+        code: updates.code ? updates.code.toUpperCase() : undefined,
+        budget: updates.budget !== undefined ? Number(updates.budget) : undefined,
+        headId: updates.headId
+      }, oldName);
+    } catch (err) {
+      console.warn('[HRMSContext] updateDepartment notice:', err);
+    }
+
+    // 2. Update departments state & departments_data
+    setDepartments(prev => {
+      const next = prev.map(d => (d.id === id || (oldName && d.name.toLowerCase() === oldName.toLowerCase())) ? { ...d, ...updates } : d);
+      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => {});
+      return next;
+    });
+
+    // 3. If name changed, synchronize orgStructure and cascade to employees
+    if (oldName && newName && oldName.toLowerCase() !== newName.toLowerCase()) {
+      setOrgStructure(prev => {
+        const updated = {
+          ...prev,
+          departments: dedupeStringList((prev.departments || []).map(d => d.toLowerCase() === oldName.toLowerCase() ? newName : d))
+        };
+        supabaseDirect.saveCompanySetting('org_structure', updated).catch(() => {});
+        return updated;
+      });
+
+      // Cascade to employees in state
+      setEmployees(prev => prev.map(emp => (emp.department || '').trim().toLowerCase() === oldName.toLowerCase() ? { ...emp, department: newName } : emp));
+    }
+
+    addPolicyAuditLog({
+      policyCategory: 'Company Details',
+      policyId: id,
+      policyName: `Department: ${newName || id}`,
+      action: 'EDIT',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `Updated department "${oldName || id}".`
+    });
+
+    return { success: true };
   };
 
-  const deleteDepartment = (id: string): { success: boolean; message?: string } => {
+  const deleteDepartment = async (id: string): Promise<{ success: boolean; message?: string }> => {
     const check = canDeleteDepartment(id);
     if (!check.canDelete) {
       return { success: false, message: check.reason };
     }
-    setDepartments(prev => prev.filter(d => d.id !== id));
+
+    const existing = departments.find(d => d.id === id);
+    const deptName = existing?.name;
+
+    // 1. Delete from PostgreSQL departments table
+    try {
+      await supabaseDirect.deleteDepartment(id);
+      if (deptName) {
+        await supabaseDirect.deleteDepartment(deptName);
+      }
+    } catch (err) {
+      console.warn('[HRMSContext] deleteDepartment notice:', err);
+    }
+
+    // 2. Remove from departments state & departments_data
+    setDepartments(prev => {
+      const next = prev.filter(d => d.id !== id && (!deptName || d.name.toLowerCase() !== deptName.toLowerCase()));
+      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => {});
+      return next;
+    });
+
+    // 3. Remove from orgStructure & org_structure
+    if (deptName) {
+      setOrgStructure(prev => {
+        const next = {
+          ...prev,
+          departments: dedupeStringList((prev.departments || []).filter(d => d.toLowerCase() !== deptName.toLowerCase()))
+        };
+        supabaseDirect.saveCompanySetting('org_structure', next).catch(() => {});
+        return next;
+      });
+    }
+
+    addPolicyAuditLog({
+      policyCategory: 'Company Details',
+      policyId: id,
+      policyName: `Department: ${deptName || id}`,
+      action: 'DEACTIVATE',
+      performedBy: currentUser.name,
+      performedByRole: currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role,
+      changeSummary: `Deleted department "${deptName || id}".`
+    });
+
     return { success: true };
   };
 
   const addDesignation = (desig: Omit<DesignationItem, 'id'>) => {
     const cleanTitle = desig.title.replace(/[0-9]/g, '').trim();
     if (!cleanTitle) return;
+    const deptMatch = departments.find(d => d.name.toLowerCase() === (desig.department || '').toLowerCase());
+    const deptId = deptMatch?.id;
+    let createdRow: any = null;
+    supabaseDirect.insertDesignation(cleanTitle, deptId, desig.level)
+      .then(res => { if (res.success && res.data) createdRow = res.data; })
+      .catch(() => {});
+
     const newDesig: DesignationItem = {
       ...desig,
       title: cleanTitle,
-      id: `DSG-${Date.now()}`
+      id: createdRow?.id || `DSG-${Date.now()}`
     };
     setDesignations(prev => {
       const next = [...prev.filter(d => d.title.toLowerCase() !== cleanTitle.toLowerCase()), newDesig];
@@ -9162,9 +9454,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateDesignation = (id: string, updates: Partial<DesignationItem>) => {
     const cleanTitle = updates.title ? updates.title.replace(/[0-9]/g, '').trim() : undefined;
+    const oldItem = designations.find(d => d.id === id);
+    const oldTitle = oldItem?.title;
+    supabaseDirect.updateDesignation(id, { title: cleanTitle, level: updates.level }, oldTitle).catch(() => {});
+
     setDesignations(prev => {
-      const oldItem = prev.find(d => d.id === id);
-      const oldTitle = oldItem?.title;
       const next = prev.map(d => d.id === id ? { ...d, ...updates, ...(cleanTitle ? { title: cleanTitle } : {}) } : d);
       supabaseDirect.saveCompanySetting('designations_data', next);
       if (oldTitle && cleanTitle && oldTitle !== cleanTitle) {
@@ -9188,6 +9482,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: check.reason };
     }
     const target = designations.find(d => d.id === id);
+    supabaseDirect.deleteDesignation(id).catch(() => {});
+
     setDesignations(prev => {
       const next = prev.filter(d => d.id !== id);
       supabaseDirect.saveCompanySetting('designations_data', next);
@@ -9211,15 +9507,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...branchData,
       id: `BR-${Date.now()}`
     };
-    setBranches(prev => [...prev, newBranch]);
+    setBranches(prev => {
+      const next = [...prev, newBranch];
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateBranch = (id: string, branchData: Partial<BranchItem>) => {
-    setBranches(prev => prev.map(b => b.id === id ? { ...b, ...branchData } : b));
+    setBranches(prev => {
+      const next = prev.map(b => b.id === id ? { ...b, ...branchData } : b);
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteBranch = (id: string) => {
-    setBranches(prev => prev.filter(b => b.id !== id));
+    setBranches(prev => {
+      const next = prev.filter(b => b.id !== id);
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      return next;
+    });
   };
 
   // Organization Masters
@@ -9228,15 +9539,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...grade,
       id: `g-${Date.now()}`
     };
-    setGrades(prev => [...prev, newGrade]);
+    setGrades(prev => {
+      const next = [...prev, newGrade];
+      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateGrade = (id: string, updates: Partial<GradeItem>) => {
-    setGrades(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+    setGrades(prev => {
+      const next = prev.map(g => g.id === id ? { ...g, ...updates } : g);
+      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteGrade = (id: string): { success: boolean; message?: string } => {
-    setGrades(prev => prev.filter(g => g.id !== id));
+    setGrades(prev => {
+      const next = prev.filter(g => g.id !== id);
+      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => {});
+      return next;
+    });
     return { success: true };
   };
 
@@ -9295,20 +9618,36 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...cat,
       id: `ec-${Date.now()}`
     };
-    setEmployeeCategories(prev => [...prev, newCat]);
+    setEmployeeCategories(prev => {
+      const next = [...prev, newCat];
+      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateEmployeeCategory = (id: string, updates: Partial<EmployeeCategoryItem>) => {
-    setEmployeeCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    setEmployeeCategories(prev => {
+      const next = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteEmployeeCategory = (id: string) => {
-    setEmployeeCategories(prev => prev.filter(c => c.id !== id));
+    setEmployeeCategories(prev => {
+      const next = prev.filter(c => c.id !== id);
+      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => {});
+      return next;
+    });
   };
 
   // Employee Configuration
   const updateEmployeeConfig = (config: Partial<EmployeeConfigSettings>) => {
-    setEmployeeConfig(prev => ({ ...prev, ...config }));
+    setEmployeeConfig(prev => {
+      const next = { ...prev, ...config };
+      supabaseDirect.saveCompanySetting('employee_config_data', next).catch(() => {});
+      return next;
+    });
   };
 
   // Approval Workflows
@@ -9317,48 +9656,82 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...wf,
       id: `wf-${Date.now()}`
     };
-    setApprovalWorkflows(prev => [...prev, newWf]);
+    setApprovalWorkflows(prev => {
+      const next = [...prev, newWf];
+      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const updateApprovalWorkflow = (id: string, updates: Partial<ApprovalWorkflowItem>) => {
-    setApprovalWorkflows(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
+    setApprovalWorkflows(prev => {
+      const next = prev.map(w => w.id === id ? { ...w, ...updates } : w);
+      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const deleteApprovalWorkflow = (id: string) => {
-    setApprovalWorkflows(prev => prev.filter(w => w.id !== id));
+    setApprovalWorkflows(prev => {
+      const next = prev.filter(w => w.id !== id);
+      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => {});
+      return next;
+    });
   };
 
   // Notification Triggers
   const updateNotificationTrigger = (id: string, updates: Partial<NotificationTriggerConfig>) => {
-    setNotificationTriggers(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+    setNotificationTriggers(prev => {
+      const next = prev.map(n => n.id === id ? { ...n, ...updates } : n);
+      supabaseDirect.saveCompanySetting('notification_triggers_data', next).catch(() => {});
+      return next;
+    });
   };
 
   // General System Config
   const updateGeneralSystemConfig = (config: Partial<GeneralSystemConfig>) => {
-    setGeneralSystemConfig(prev => ({ ...prev, ...config }));
+    setGeneralSystemConfig(prev => {
+      const next = { ...prev, ...config };
+      supabaseDirect.saveCompanySetting('general_system_config_data', next).catch(() => {});
+      return next;
+    });
   };
 
   // Integrations Config
   const updateIntegrationsConfig = (config: Partial<IntegrationsConfig>) => {
-    setIntegrationsConfig(prev => ({ ...prev, ...config }));
+    setIntegrationsConfig(prev => {
+      const next = { ...prev, ...config };
+      supabaseDirect.saveCompanySetting('integrations_config_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const addDepartmentToBranch = (branchId: string, departmentName: string) => {
-    setBranches(prev => prev.map(b => {
-      if (b.id === branchId && !b.departments.includes(departmentName)) {
-        return { ...b, departments: [...b.departments, departmentName] };
-      }
-      return b;
-    }));
+    setBranches(prev => {
+      const next = prev.map(b => {
+        if (b.id === branchId && !b.departments.includes(departmentName)) {
+          return { ...b, departments: [...b.departments, departmentName] };
+        }
+        return b;
+      });
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const removeDepartmentFromBranch = (branchId: string, departmentName: string) => {
-    setBranches(prev => prev.map(b => {
-      if (b.id === branchId) {
-        return { ...b, departments: b.departments.filter(d => d !== departmentName) };
-      }
-      return b;
-    }));
+    setBranches(prev => {
+      const next = prev.map(b => {
+        if (b.id === branchId) {
+          return { ...b, departments: b.departments.filter(d => d !== departmentName) };
+        }
+        return b;
+      });
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      return next;
+    });
   };
 
   const addAsset = (assetData: Omit<AssetItem, 'id'>) => {
@@ -9394,13 +9767,48 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const assignAsset = (assetId: string, employeeId: string, employeeName: string, department: string) => {
+    if (!employeeId) {
+      setAssets(prev => prev.map(a => {
+        if (a.id === assetId) {
+          return {
+            ...a,
+            assignedEmployeeId: '',
+            assignedEmployeeDbId: '',
+            assignedEmployeeName: '',
+            assignedDepartment: '',
+            assignedEmployeeAvatar: undefined,
+            assignedDate: '',
+            status: 'Available'
+          };
+        }
+        return a;
+      }));
+      if (assetId.length === 36) {
+        supabaseDirect.updateAsset(assetId, {
+          assigned_employee_id: null,
+          status: 'Available',
+          assigned_date: null,
+        });
+      }
+      return;
+    }
+
+    const emp = employees.find(e => (e.id && e.id === employeeId) || (e.employeeId && e.employeeId === employeeId));
+    const empDbId = emp?.id || (employeeId.length === 36 ? employeeId : '');
+    const resolvedDisplayId = emp?.employeeId || (employeeId.length < 30 ? employeeId : '');
+    const resolvedName = employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : '');
+    const resolvedDept = department || emp?.department || '';
+    const resolvedAvatar = emp?.avatar;
+
     setAssets(prev => prev.map(a => {
       if (a.id === assetId) {
         return {
           ...a,
-          assignedEmployeeId: employeeId,
-          assignedEmployeeName: employeeName,
-          assignedDepartment: department,
+          assignedEmployeeId: resolvedDisplayId,
+          assignedEmployeeDbId: empDbId,
+          assignedEmployeeName: resolvedName,
+          assignedDepartment: resolvedDept,
+          assignedEmployeeAvatar: resolvedAvatar,
           assignedDate: new Date().toISOString().split('T')[0],
           status: 'Assigned'
         };
@@ -9409,10 +9817,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
 
     if (assetId.length === 36) {
-      const emp = employees.find(e => e.id === employeeId || e.employeeId === employeeId);
-      const empDbId = emp?.id || emp?.employeeId || employeeId;
       supabaseDirect.updateAsset(assetId, {
-        assigned_employee_id: empDbId,
+        assigned_employee_id: empDbId || null,
         status: 'Assigned',
         assigned_date: new Date().toISOString().split('T')[0],
       });
@@ -9802,6 +10208,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const settings: Record<string, any> = (cloudSettings || {}) as Record<string, any>;
 
       // 1. Synchronize Employees
+      let mappedEmployees: Employee[] = [];
       if (Array.isArray(rawEmployees) && rawEmployees.length > 0) {
         const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
         const profileExtensions = settings[EMPLOYEE_PROFILES_SETTING_KEY] || {};
@@ -9843,6 +10250,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             password: resolvedPassword
           };
         });
+        mappedEmployees = mapped;
         setEmployees(mapped);
       } else {
         setEmployees([]);
@@ -10014,20 +10422,37 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // Synchronize Assets (DB table primary, settings fallback)
       if (Array.isArray(rawAssets) && rawAssets.length > 0) {
-        setAssets(rawAssets.map((ast: any) => ({
-          id: ast.id,
-          assetTag: ast.asset_tag,
-          name: ast.name,
-          category: ast.category,
-          serialNumber: ast.serial_number || '',
-          purchaseDate: ast.purchase_date || ast.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-          purchaseCost: Number(ast.purchase_cost) || 0,
-          warrantyExpiry: ast.warranty_expiry || '',
-          status: ast.status || 'Available',
-          condition: ast.condition || 'Good',
-          assignedEmployeeId: ast.assigned_employee_id || '',
-          notes: ast.notes || '',
-        })));
+        const pool = mappedEmployees.length > 0 ? mappedEmployees : employees;
+        setAssets(rawAssets.map((ast: any) => {
+          const emp = pool.find((e: any) => 
+            (e.id && e.id === ast.assigned_employee_id) || 
+            (e.employeeId && e.employeeId === ast.assigned_employee_id)
+          );
+          const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (ast.assigned_employee_name || '');
+          const empDept = emp ? (emp.department || '') : (ast.assigned_department || '');
+          const empDisplayId = emp ? emp.employeeId : (ast.assigned_employee_id || '');
+          const empAvatar = emp ? emp.avatar : undefined;
+
+          return {
+            id: ast.id,
+            assetTag: ast.asset_tag,
+            name: ast.name,
+            category: ast.category,
+            serialNumber: ast.serial_number || '',
+            purchaseDate: ast.purchase_date || ast.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+            purchaseCost: Number(ast.purchase_cost) || 0,
+            warrantyExpiry: ast.warranty_expiry || '',
+            status: ast.status || (ast.assigned_employee_id ? 'Assigned' : 'Available'),
+            condition: ast.condition || 'Good',
+            assignedEmployeeId: empDisplayId || ast.assigned_employee_id || '',
+            assignedEmployeeDbId: ast.assigned_employee_id || emp?.id || '',
+            assignedEmployeeName: empName,
+            assignedDepartment: empDept,
+            assignedEmployeeAvatar: empAvatar,
+            assignedDate: ast.assigned_date || '',
+            notes: ast.notes || '',
+          };
+        }));
       } else {
         setAssets([]);
       }
@@ -10434,7 +10859,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         // Loan Policies
-        if (Array.isArray(settings.loan_policies_data) && settings.loan_policies_data.length > 0) {
+        if (Array.isArray(settings.loan_policies_data)) {
           const normalizedPolicies = settings.loan_policies_data
             .filter((p: any) => !DEPRECATED_DEFAULT_LOAN_POLICY_NAMES.has(String(p.policyName || p.name || '').trim().toLowerCase()))
             .map((p: any) => ({
@@ -10449,6 +10874,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               status: p.status || (p.active ? 'Active' : 'Active')
             }));
           setLoanPolicies(normalizedPolicies);
+        } else {
+          setLoanPolicies([]);
         }
 
         // Loan Records: strictly filter to only active employees

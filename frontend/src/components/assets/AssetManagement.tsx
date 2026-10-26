@@ -60,14 +60,32 @@ export const AssetManagement: React.FC = () => {
 
   // Strict User Scoping: In employee view, strictly match assigned assets
   const isAssetAssignedToUser = (asset: AssetItem): boolean => {
-    const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
+    const currentIds = [
+      (currentUser.employeeId || '').trim().toLowerCase(),
+      (currentUser.id || '').trim().toLowerCase()
+    ].filter(Boolean);
     const userName = (currentUser.name || '').trim().toLowerCase();
-    const assetEmpId = (asset.assignedEmployeeId || '').trim().toLowerCase();
-    const assetEmpName = (asset.assignedEmployeeName || '').trim().toLowerCase();
 
-    // Direct Employee ID match
-    if (userEmpId && assetEmpId && userEmpId === assetEmpId) return true;
-    
+    const targetEmp = employees.find(e => 
+      (e.id && (e.id === asset.assignedEmployeeId || e.id === asset.assignedEmployeeDbId)) ||
+      (e.employeeId && (e.employeeId === asset.assignedEmployeeId || e.employeeId === asset.assignedEmployeeDbId))
+    );
+
+    const assetEmpIds = [
+      (asset.assignedEmployeeId || '').trim().toLowerCase(),
+      (asset.assignedEmployeeDbId || '').trim().toLowerCase(),
+      (targetEmp?.employeeId || '').trim().toLowerCase(),
+      (targetEmp?.id || '').trim().toLowerCase()
+    ].filter(Boolean);
+
+    const assetEmpName = (
+      (targetEmp ? `${targetEmp.firstName} ${targetEmp.lastName}`.trim() : '') ||
+      asset.assignedEmployeeName || ''
+    ).trim().toLowerCase();
+
+    // Check ID match
+    if (currentIds.some(cId => assetEmpIds.includes(cId))) return true;
+
     // Direct Name match
     if (userName && assetEmpName) {
       if (assetEmpName === userName) return true;
@@ -134,11 +152,23 @@ export const AssetManagement: React.FC = () => {
   const filteredAssets = scopedAssets.filter(a => {
     const matchesCategory = categoryFilter === 'All' || a.category === categoryFilter;
     const matchesStatus = statusFilter === 'All' || a.status === statusFilter;
-    const matchesSearch = !searchQuery.trim() || 
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.assetTag.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.serialNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (a.assignedEmployeeName && a.assignedEmployeeName.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const assignedEmp = employees.find(e => 
+      (e.id && (e.id === a.assignedEmployeeId || e.id === a.assignedEmployeeDbId)) ||
+      (e.employeeId && (e.employeeId === a.assignedEmployeeId || e.employeeId === a.assignedEmployeeDbId))
+    );
+    const empName = (assignedEmp ? `${assignedEmp.firstName} ${assignedEmp.lastName}`.trim() : '') || a.assignedEmployeeName || '';
+    const empCode = assignedEmp?.employeeId || (a.assignedEmployeeId && a.assignedEmployeeId.length < 30 ? a.assignedEmployeeId : '');
+    const empDept = assignedEmp?.department || a.assignedDepartment || '';
+
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = !q || 
+      a.name.toLowerCase().includes(q) ||
+      a.assetTag.toLowerCase().includes(q) ||
+      a.serialNumber.toLowerCase().includes(q) ||
+      empName.toLowerCase().includes(q) ||
+      empCode.toLowerCase().includes(q) ||
+      empDept.toLowerCase().includes(q);
 
     return matchesCategory && matchesStatus && matchesSearch;
   });
@@ -188,15 +218,21 @@ export const AssetManagement: React.FC = () => {
 
   const handleAssignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!showAssignModal || !assignEmployeeId) return;
+    if (!showAssignModal) return;
 
-    const emp = employees.find(e => e.employeeId === assignEmployeeId);
+    if (!assignEmployeeId) {
+      assignAsset(showAssignModal.id, '', '', '');
+      setShowAssignModal(null);
+      return;
+    }
+
+    const emp = employees.find(e => e.employeeId === assignEmployeeId || e.id === assignEmployeeId);
     if (!emp) return;
 
     assignAsset(
       showAssignModal.id,
-      emp.employeeId,
-      `${emp.firstName} ${emp.lastName}`,
+      emp.employeeId || emp.id,
+      `${emp.firstName} ${emp.lastName}`.trim(),
       emp.department
     );
 
@@ -510,8 +546,18 @@ export const AssetManagement: React.FC = () => {
               </tr>
             ) : (
               filteredAssets.map(asset => {
-                const assignedEmp = employees.find(e => e.employeeId === asset.assignedEmployeeId);
+                const assignedEmp = employees.find(e => 
+                  (e.id && (e.id === asset.assignedEmployeeId || e.id === asset.assignedEmployeeDbId)) ||
+                  (e.employeeId && (e.employeeId === asset.assignedEmployeeId || e.employeeId === asset.assignedEmployeeDbId))
+                );
+                const resolvedName = (assignedEmp ? `${assignedEmp.firstName} ${assignedEmp.lastName}`.trim() : '') || asset.assignedEmployeeName || '';
+                const resolvedDept = assignedEmp?.department || asset.assignedDepartment || '';
+                const rawId = asset.assignedEmployeeId || asset.assignedEmployeeDbId || '';
+                const resolvedDisplayId = assignedEmp?.employeeId || (rawId && rawId.length < 30 ? rawId : '');
+                const avatarUrl = assignedEmp?.avatar || asset.assignedEmployeeAvatar;
+                const initialLetter = (resolvedName ? resolvedName.charAt(0) : (assignedEmp?.firstName ? assignedEmp.firstName.charAt(0) : 'E')).toUpperCase();
                 const isSelected = selectedAssetIds.includes(asset.id);
+                const hasAssignee = Boolean(resolvedName || asset.assignedEmployeeId || asset.assignedEmployeeDbId);
 
                 return (
                   <tr 
@@ -601,12 +647,12 @@ export const AssetManagement: React.FC = () => {
                     {/* 4. Assigned Employee (for HR/CEO) or Allocation Date (for Employee) */}
                     {!isEmployeeRole ? (
                       <td style={{ padding: '10px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        {asset.assignedEmployeeId ? (
+                        {hasAssignee ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {assignedEmp?.avatar ? (
+                            {avatarUrl ? (
                               <img
-                                src={assignedEmp.avatar}
-                                alt={asset.assignedEmployeeName}
+                                src={avatarUrl}
+                                alt={resolvedName || 'Assigned Staff'}
                                 style={{ width: '28px', height: '28px', borderRadius: '99px', objectFit: 'cover', flexShrink: 0, border: '1.5px solid #e2e8f0' }}
                               />
                             ) : (
@@ -615,24 +661,24 @@ export const AssetManagement: React.FC = () => {
                                 height: '28px',
                                 borderRadius: '99px',
                                 backgroundColor: '#eff6ff',
-                                color: '#155DFC',
+                                color: '#0E7490',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 fontWeight: 700,
                                 fontSize: '0.72rem',
                                 flexShrink: 0,
-                                border: '1.5px solid #dbeafe'
+                                border: '1.5px solid #cffafe'
                               }}>
-                                {asset.assignedEmployeeName ? asset.assignedEmployeeName.charAt(0) : 'U'}
+                                {initialLetter}
                               </div>
                             )}
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', lineHeight: 1.2 }}>
-                                {asset.assignedEmployeeName}
+                                {resolvedName || 'Assigned Staff'}
                               </div>
                               <div style={{ fontSize: '0.69rem', color: '#64748b', marginTop: '1px' }}>
-                                {asset.assignedDepartment} ({asset.assignedEmployeeId})
+                                {resolvedDept ? `${resolvedDept}${resolvedDisplayId ? ` • ${resolvedDisplayId}` : ''}` : (resolvedDisplayId || 'Active Allocation')}
                               </div>
                             </div>
                           </div>
@@ -717,12 +763,12 @@ export const AssetManagement: React.FC = () => {
                             }}
                             onClick={() => {
                               setShowAssignModal(asset);
-                              setAssignEmployeeId(asset.assignedEmployeeId || employees[0]?.employeeId || '');
+                              setAssignEmployeeId(assignedEmp?.employeeId || (asset.assignedEmployeeId && asset.assignedEmployeeId.length < 30 ? asset.assignedEmployeeId : '') || employees[0]?.employeeId || '');
                             }}
                             title="Assign or reassign asset"
                           >
                             <UserCheck size={12} />
-                            <span>{asset.assignedEmployeeId ? 'Reassign' : 'Assign'}</span>
+                            <span>{hasAssignee ? 'Reassign' : 'Assign'}</span>
                           </button>
                         </div>
                       </td>
@@ -754,8 +800,12 @@ export const AssetManagement: React.FC = () => {
                 onClick={() => {
                   const target = filteredAssets.find(a => a.id === selectedAssetIds[0]);
                   if (target) {
+                    const emp = employees.find(e => 
+                      (e.id && (e.id === target.assignedEmployeeId || e.id === target.assignedEmployeeDbId)) ||
+                      (e.employeeId && (e.employeeId === target.assignedEmployeeId || e.employeeId === target.assignedEmployeeDbId))
+                    );
                     setShowAssignModal(target);
-                    setAssignEmployeeId(target.assignedEmployeeId || employees[0]?.employeeId || '');
+                    setAssignEmployeeId(emp?.employeeId || (target.assignedEmployeeId && target.assignedEmployeeId.length < 30 ? target.assignedEmployeeId : '') || employees[0]?.employeeId || '');
                   }
                 }}
               >
@@ -950,8 +1000,9 @@ export const AssetManagement: React.FC = () => {
                     onChange={e => setAssignEmployeeId(e.target.value)}
                     required
                   >
+                    <option value="">-- Choose Employee Assignee --</option>
                     {employees.map(e => (
-                      <option key={e.id} value={e.employeeId}>
+                      <option key={e.id} value={e.employeeId || e.id}>
                         {e.firstName} {e.lastName} ({e.employeeId} - {e.department})
                       </option>
                     ))}

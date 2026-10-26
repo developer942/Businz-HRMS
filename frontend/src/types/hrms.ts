@@ -575,8 +575,10 @@ export interface AssetItem {
   category: 'Laptops & Computers' | 'Mobile Devices' | 'Monitors & Displays' | 'Office Furniture' | 'Peripherals & Accessories';
   serialNumber: string;
   assignedEmployeeId?: string;
+  assignedEmployeeDbId?: string;
   assignedEmployeeName?: string;
   assignedDepartment?: string;
+  assignedEmployeeAvatar?: string;
   assignedDate?: string;
   purchaseDate: string;
   purchaseCost: number;
