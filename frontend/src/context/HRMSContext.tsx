@@ -9748,7 +9748,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       name: assetData.name,
       category: assetData.category,
       serial_number: assetData.serialNumber,
+      purchase_date: assetData.purchaseDate,
       purchase_cost: assetData.purchaseCost,
+      warranty_expiry: assetData.warrantyExpiry,
       status: assetData.status,
       condition: assetData.condition,
       assigned_employee_id: assetData.assignedEmployeeId || undefined,
@@ -9839,18 +9841,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (updates.name !== undefined) dbPayload.name = updates.name;
       if (updates.assetTag !== undefined) dbPayload.asset_tag = updates.assetTag;
       if (updates.category !== undefined) dbPayload.category = updates.category;
-      if (updates.serialNumber !== undefined) dbPayload.serial_number = updates.serialNumber;
-      if (updates.purchaseDate !== undefined) dbPayload.purchase_date = updates.purchaseDate;
+      if (updates.serialNumber !== undefined) dbPayload.serial_number = updates.serialNumber ? updates.serialNumber.trim() : null;
+      if (updates.purchaseDate !== undefined) dbPayload.purchase_date = updates.purchaseDate && updates.purchaseDate.trim() ? updates.purchaseDate.trim() : null;
       if (updates.purchaseCost !== undefined) dbPayload.purchase_cost = Number(updates.purchaseCost) || 0;
-      if (updates.warrantyExpiry !== undefined) dbPayload.warranty_expiry = updates.warrantyExpiry;
+      if (updates.warrantyExpiry !== undefined) dbPayload.warranty_expiry = updates.warrantyExpiry && updates.warrantyExpiry.trim() ? updates.warrantyExpiry.trim() : null;
       if (updates.status !== undefined) dbPayload.status = updates.status;
       if (updates.condition !== undefined) dbPayload.condition = updates.condition;
-      if (updates.notes !== undefined) dbPayload.notes = updates.notes;
+      if (updates.notes !== undefined) dbPayload.notes = updates.notes ? updates.notes.trim() : null;
       if (updates.assignedEmployeeDbId !== undefined) {
         dbPayload.assigned_employee_id = updates.assignedEmployeeDbId || null;
       }
       if (updates.assignedDate !== undefined) {
-        dbPayload.assigned_date = updates.assignedDate || null;
+        dbPayload.assigned_date = updates.assignedDate && updates.assignedDate.trim() ? updates.assignedDate.trim() : null;
+      }
+      if (updates.status === 'Available') {
+        dbPayload.assigned_employee_id = null;
+        dbPayload.assigned_date = null;
       }
 
       supabaseDirect.updateAsset(assetId, dbPayload).catch(err => {

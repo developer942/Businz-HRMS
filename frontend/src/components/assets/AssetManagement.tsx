@@ -315,14 +315,21 @@ export const AssetManagement: React.FC = () => {
       return;
     }
 
+    let status = editForm.status;
     let assignedEmployeeId = '';
     let assignedEmployeeDbId = '';
     let assignedEmployeeName = '';
     let assignedDepartment = '';
     let assignedEmployeeAvatar: string | undefined = undefined;
-    let status = editForm.status;
 
-    if (editForm.assignedEmployeeId) {
+    if (status === 'Available') {
+      // User explicitly set status to Available -> clear employee assignment
+      assignedEmployeeId = '';
+      assignedEmployeeDbId = '';
+      assignedEmployeeName = '';
+      assignedDepartment = '';
+      assignedEmployeeAvatar = undefined;
+    } else if (editForm.assignedEmployeeId) {
       const emp = employees.find(e => e.employeeId === editForm.assignedEmployeeId || e.id === editForm.assignedEmployeeId);
       if (emp) {
         assignedEmployeeId = emp.employeeId || emp.id;
@@ -330,9 +337,9 @@ export const AssetManagement: React.FC = () => {
         assignedEmployeeName = `${emp.firstName} ${emp.lastName}`.trim();
         assignedDepartment = emp.department || '';
         assignedEmployeeAvatar = emp.avatar;
-        if (status === 'Available') status = 'Assigned';
       }
     } else {
+      // No employee chosen
       if (status === 'Assigned') status = 'Available';
     }
 
@@ -1641,7 +1648,14 @@ export const AssetManagement: React.FC = () => {
                     <select 
                       className="form-control" 
                       value={editForm.status} 
-                      onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
+                      onChange={e => {
+                        const newStatus = e.target.value as AssetItem['status'];
+                        setEditForm({
+                          ...editForm,
+                          status: newStatus,
+                          assignedEmployeeId: newStatus === 'Available' ? '' : editForm.assignedEmployeeId
+                        });
+                      }}
                     >
                       <option value="Available">Available</option>
                       <option value="Assigned">Assigned</option>
@@ -1660,7 +1674,7 @@ export const AssetManagement: React.FC = () => {
                       setEditForm({ 
                         ...editForm, 
                         assignedEmployeeId: val,
-                        status: val ? 'Assigned' : editForm.status === 'Assigned' ? 'Available' : editForm.status
+                        status: val ? (editForm.status === 'Under Maintenance' ? 'Under Maintenance' : 'Assigned') : (editForm.status === 'Assigned' ? 'Available' : editForm.status)
                       });
                     }}
                   >

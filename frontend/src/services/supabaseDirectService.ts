@@ -1292,7 +1292,9 @@ export const supabaseDirect = {
     name: string;
     category: string;
     serial_number?: string;
+    purchase_date?: string;
     purchase_cost?: number;
+    warranty_expiry?: string;
     status?: string;
     condition?: string;
     assigned_employee_id?: string;
@@ -1322,12 +1324,14 @@ export const supabaseDirect = {
         asset_tag: asset.asset_tag,
         name: asset.name,
         category: asset.category || 'IT Equipment',
-        serial_number: asset.serial_number || null,
+        serial_number: asset.serial_number ? asset.serial_number.trim() : null,
+        purchase_date: asset.purchase_date && asset.purchase_date.trim() ? asset.purchase_date.trim() : null,
         purchase_cost: Number(asset.purchase_cost) || 0,
+        warranty_expiry: asset.warranty_expiry && asset.warranty_expiry.trim() ? asset.warranty_expiry.trim() : null,
         status: normStatus,
         condition: normCondition,
         assigned_employee_id: assignedUuid,
-        notes: asset.notes || null,
+        notes: asset.notes ? asset.notes.trim() : null,
       };
 
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets`, {
@@ -1347,9 +1351,45 @@ export const supabaseDirect = {
   async updateAsset(id: string, updates: Record<string, any>): Promise<boolean> {
     try {
       const payload: Record<string, any> = { ...updates, updated_at: new Date().toISOString() };
+
+      // Convert any empty string to null for nullable database columns to prevent PostgreSQL syntax errors
+      const nullableKeys = [
+        'warranty_expiry',
+        'purchase_date',
+        'assigned_date',
+        'assigned_employee_id',
+        'assigned_department_id',
+        'serial_number',
+        'notes'
+      ];
+      for (const k of nullableKeys) {
+        if (payload[k] === '' || payload[k] === undefined) {
+          payload[k] = null;
+        }
+      }
+
       if (payload.assigned_employee_id) {
         payload.assigned_employee_id = (await resolveEmployeeUuid(payload.assigned_employee_id)) || null;
       }
+
+      // Normalize status to PostgreSQL hr_asset_status enum: ['Assigned', 'Available', 'Under Maintenance', 'Retired']
+      if (payload.status) {
+        const s = String(payload.status).toLowerCase();
+        if (s.includes('assign') || s.includes('in use') || s.includes('use')) payload.status = 'Assigned';
+        else if (s.includes('maint')) payload.status = 'Under Maintenance';
+        else if (s.includes('retir')) payload.status = 'Retired';
+        else payload.status = 'Available';
+      }
+
+      // Normalize condition to PostgreSQL hr_asset_condition enum: ['New', 'Good', 'Fair', 'Needs Repair']
+      if (payload.condition) {
+        const c = String(payload.condition).toLowerCase();
+        if (c.includes('new')) payload.condition = 'New';
+        else if (c.includes('fair')) payload.condition = 'Fair';
+        else if (c.includes('repair') || c.includes('poor') || c.includes('damag')) payload.condition = 'Needs Repair';
+        else payload.condition = 'Good';
+      }
+
       const res = await fetch(`${DATABASE_REST_URL}/rest/v1/assets?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
