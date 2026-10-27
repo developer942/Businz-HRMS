@@ -126,30 +126,52 @@ export const AssetManagement: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState<AssetItem | null>(null);
 
   // Add Asset Form
-  const [addForm, setAddForm] = useState({
+  const [addForm, setAddForm] = useState<{
+    assetTag: string;
+    name: string;
+    category: AssetItem['category'];
+    serialNumber: string;
+    purchaseDate: string;
+    purchaseCost: number | string;
+    warrantyExpiry: string;
+    condition: AssetItem['condition'];
+    notes: string;
+  }>({
     assetTag: '',
     name: '',
-    category: 'Laptops & Computers' as AssetItem['category'],
+    category: 'Laptops & Computers',
     serialNumber: '',
     purchaseDate: getTodayDateString(),
-    purchaseCost: 1200,
+    purchaseCost: '',
     warrantyExpiry: getWarrantyDefaultDate(getTodayDateString()),
-    condition: 'New' as AssetItem['condition'],
+    condition: 'New',
     notes: ''
   });
   const [addFormError, setAddFormError] = useState<string | null>(null);
 
   // Edit Asset Form
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<{
+    assetTag: string;
+    name: string;
+    category: AssetItem['category'];
+    serialNumber: string;
+    purchaseDate: string;
+    purchaseCost: number | string;
+    warrantyExpiry: string;
+    condition: AssetItem['condition'];
+    status: AssetItem['status'];
+    notes: string;
+    assignedEmployeeId: string;
+  }>({
     assetTag: '',
     name: '',
-    category: 'Laptops & Computers' as AssetItem['category'],
+    category: 'Laptops & Computers',
     serialNumber: '',
     purchaseDate: getTodayDateString(),
-    purchaseCost: 0,
+    purchaseCost: '',
     warrantyExpiry: '',
-    condition: 'Good' as AssetItem['condition'],
-    status: 'Available' as AssetItem['status'],
+    condition: 'Good',
+    status: 'Available',
     notes: '',
     assignedEmployeeId: ''
   });
@@ -214,7 +236,7 @@ export const AssetManagement: React.FC = () => {
       category: addForm.category,
       serialNumber: addForm.serialNumber || `SN-${Math.floor(Math.random() * 900000 + 100000)}`,
       purchaseDate: addForm.purchaseDate,
-      purchaseCost: Number(addForm.purchaseCost),
+      purchaseCost: addForm.purchaseCost === '' ? 0 : Number(addForm.purchaseCost) || 0,
       warrantyExpiry: addForm.warrantyExpiry,
       status: 'Available',
       condition: addForm.condition,
@@ -229,7 +251,7 @@ export const AssetManagement: React.FC = () => {
       category: 'Laptops & Computers',
       serialNumber: '',
       purchaseDate: getTodayDateString(),
-      purchaseCost: 1200,
+      purchaseCost: '',
       warrantyExpiry: getWarrantyDefaultDate(getTodayDateString()),
       condition: 'New',
       notes: ''
@@ -270,7 +292,7 @@ export const AssetManagement: React.FC = () => {
       category: target.category,
       serialNumber: target.serialNumber || '',
       purchaseDate: target.purchaseDate || getTodayDateString(),
-      purchaseCost: toNum(target.purchaseCost),
+      purchaseCost: target.purchaseCost !== undefined && target.purchaseCost !== null ? target.purchaseCost : '',
       warrantyExpiry: target.warrantyExpiry || '',
       condition: target.condition || 'Good',
       status: target.status || 'Available',
@@ -320,7 +342,7 @@ export const AssetManagement: React.FC = () => {
       category: editForm.category,
       serialNumber: editForm.serialNumber,
       purchaseDate: editForm.purchaseDate,
-      purchaseCost: Number(editForm.purchaseCost),
+      purchaseCost: editForm.purchaseCost === '' ? 0 : Number(editForm.purchaseCost) || 0,
       warrantyExpiry: editForm.warrantyExpiry,
       condition: editForm.condition,
       status,
@@ -357,12 +379,17 @@ export const AssetManagement: React.FC = () => {
               onClick={() => {
                 const randomTag = `AST-${Math.floor(Math.random() * 900 + 100)}`;
                 const purchaseDate = getTodayDateString();
-                setAddForm(prev => ({
-                  ...prev,
+                setAddForm({
                   assetTag: randomTag,
+                  name: '',
+                  category: 'Laptops & Computers',
+                  serialNumber: '',
                   purchaseDate,
-                  warrantyExpiry: getWarrantyDefaultDate(purchaseDate)
-                }));
+                  purchaseCost: '',
+                  warrantyExpiry: getWarrantyDefaultDate(purchaseDate),
+                  condition: 'New',
+                  notes: ''
+                });
                 setShowAddModal(true);
               }}
               style={{
@@ -634,7 +661,18 @@ export const AssetManagement: React.FC = () => {
                       style={{ marginTop: '14px', display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '10px', padding: '8px 18px', fontWeight: 700 }}
                       onClick={() => {
                         const randomTag = `AST-${Math.floor(Math.random() * 900 + 100)}`;
-                        setAddForm(prev => ({ ...prev, assetTag: randomTag }));
+                        const purchaseDate = getTodayDateString();
+                        setAddForm({
+                          assetTag: randomTag,
+                          name: '',
+                          category: 'Laptops & Computers',
+                          serialNumber: '',
+                          purchaseDate,
+                          purchaseCost: '',
+                          warrantyExpiry: getWarrantyDefaultDate(purchaseDate),
+                          condition: 'New',
+                          notes: ''
+                        });
                         setShowAddModal(true);
                       }}
                     >
@@ -1092,9 +1130,11 @@ export const AssetManagement: React.FC = () => {
                     <input 
                       className="form-control" 
                       type="number" 
+                      min="0"
+                      step="any"
+                      placeholder="e.g. 45000"
                       value={addForm.purchaseCost} 
-                      onChange={e => setAddForm({ ...addForm, purchaseCost: Number(e.target.value) })} 
-                      required 
+                      onChange={e => setAddForm({ ...addForm, purchaseCost: e.target.value })} 
                     />
                   </div>
                 </div>
@@ -1546,9 +1586,11 @@ export const AssetManagement: React.FC = () => {
                     <input 
                       className="form-control" 
                       type="number" 
+                      min="0"
+                      step="any"
+                      placeholder="e.g. 45000"
                       value={editForm.purchaseCost} 
-                      onChange={e => setEditForm({ ...editForm, purchaseCost: Number(e.target.value) })} 
-                      required 
+                      onChange={e => setEditForm({ ...editForm, purchaseCost: e.target.value })} 
                     />
                   </div>
                 </div>
