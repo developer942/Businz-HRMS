@@ -636,7 +636,7 @@ export const AssetManagement: React.FC = () => {
               <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', textAlign: 'center', whiteSpace: 'nowrap' }}>
                 Status
               </th>
-              <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap' }}>
+              <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap', width: '180px' }}>
                 Actions
               </th>
             </tr>
@@ -897,7 +897,7 @@ export const AssetManagement: React.FC = () => {
                     </td>
 
                     {/* 8. Actions */}
-                    <td style={{ padding: '10px 10px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 10px', verticalAlign: 'middle', textAlign: 'left', whiteSpace: 'nowrap', width: '180px' }}>
                       <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
                         {/* View Button - Symbol Only */}
                         <button
@@ -914,6 +914,7 @@ export const AssetManagement: React.FC = () => {
                             color: '#0E7490',
                             border: '1px solid #cbd5e1',
                             cursor: 'pointer',
+                            flexShrink: 0,
                             transition: 'all 0.15s ease'
                           }}
                           onClick={() => setShowViewModal(asset)}
@@ -939,6 +940,7 @@ export const AssetManagement: React.FC = () => {
                               color: '#b45309',
                               border: '1px solid #fde68a',
                               cursor: 'pointer',
+                              flexShrink: 0,
                               transition: 'all 0.15s ease'
                             }}
                             onClick={() => handleOpenEdit(asset)}
@@ -956,17 +958,20 @@ export const AssetManagement: React.FC = () => {
                             className="btn btn-sm"
                             style={{ 
                               height: '30px',
-                              padding: '0 10px', 
+                              width: '92px',
+                              padding: '0 6px', 
                               fontSize: '0.72rem', 
                               fontWeight: 600,
                               display: 'inline-flex',
                               alignItems: 'center',
+                              justifyContent: 'center',
                               gap: '5px',
                               borderRadius: '7px',
                               backgroundColor: '#ecfeff',
                               color: '#0891b2',
                               border: '1px solid #a5f3fc',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              flexShrink: 0
                             }}
                             onClick={() => {
                               setShowAssignModal(asset);
