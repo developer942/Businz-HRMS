@@ -898,54 +898,54 @@ export const AssetManagement: React.FC = () => {
 
                     {/* 8. Actions */}
                     <td style={{ padding: '10px 10px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
-                        {/* View Button */}
+                      <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                        {/* View Button - Symbol Only */}
                         <button
                           type="button"
-                          className="btn btn-sm"
                           style={{ 
-                            padding: '4px 8px', 
-                            fontSize: '0.72rem', 
-                            fontWeight: 600,
+                            width: '30px',
+                            height: '30px',
+                            padding: 0,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            borderRadius: '6px',
+                            justifyContent: 'center',
+                            borderRadius: '7px',
                             backgroundColor: '#f1f5f9',
-                            color: '#334155',
+                            color: '#0E7490',
                             border: '1px solid #cbd5e1',
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
                           }}
                           onClick={() => setShowViewModal(asset)}
                           title="View complete asset specifications"
+                          aria-label="View Asset"
                         >
-                          <Eye size={12} />
-                          <span>View</span>
+                          <Eye size={15} />
                         </button>
 
-                        {/* Edit Button (Managers/Admin) */}
+                        {/* Edit Button - Symbol Only (Managers/Admin) */}
                         {canManageAssets && (
                           <button
                             type="button"
-                            className="btn btn-sm"
                             style={{ 
-                              padding: '4px 8px', 
-                              fontSize: '0.72rem', 
-                              fontWeight: 600,
+                              width: '30px',
+                              height: '30px',
+                              padding: 0,
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
-                              borderRadius: '6px',
+                              justifyContent: 'center',
+                              borderRadius: '7px',
                               backgroundColor: '#fffbeb',
                               color: '#b45309',
                               border: '1px solid #fde68a',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
                             }}
                             onClick={() => handleOpenEdit(asset)}
                             title="Edit asset details"
+                            aria-label="Edit Asset"
                           >
-                            <Edit2 size={12} />
-                            <span>Edit</span>
+                            <Edit2 size={14} />
                           </button>
                         )}
 
@@ -955,13 +955,14 @@ export const AssetManagement: React.FC = () => {
                             type="button"
                             className="btn btn-sm"
                             style={{ 
-                              padding: '4px 8px', 
+                              height: '30px',
+                              padding: '0 10px', 
                               fontSize: '0.72rem', 
                               fontWeight: 600,
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
-                              borderRadius: '6px',
+                              gap: '5px',
+                              borderRadius: '7px',
                               backgroundColor: '#ecfeff',
                               color: '#0891b2',
                               border: '1px solid #a5f3fc',
@@ -973,7 +974,7 @@ export const AssetManagement: React.FC = () => {
                             }}
                             title="Assign or reassign asset"
                           >
-                            <UserCheck size={12} />
+                            <UserCheck size={13} />
                             <span>{hasAssignee ? 'Reassign' : 'Assign'}</span>
                           </button>
                         )}
