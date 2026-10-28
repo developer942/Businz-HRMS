@@ -44,8 +44,7 @@ export const TravelHistoryTab: React.FC = () => {
   // Combine trips with assignments
   const historyRecords = useMemo(() => {
     return fieldAssignments.map((assignment) => {
-      const trip = tripSessions.find((t) => t.assignmentId === assignment.id) ||
-                   tripSessions.find((t) => t.employeeId === assignment.employeeId);
+      const trip = tripSessions.find((t) => t.assignmentId === assignment.id);
 
       const checkInFormatted = trip?.checkInTime
         ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
@@ -106,6 +105,9 @@ export const TravelHistoryTab: React.FC = () => {
   }, [historyRecords, searchQuery, selectedEmployee, selectedDept, selectedDuty, startDateFilter, endDateFilter]);
 
   const paginatedData = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return filtered;
+    }
     const start = (currentPage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, currentPage, pageSize]);
@@ -231,7 +233,7 @@ export const TravelHistoryTab: React.FC = () => {
         </div>
 
         {/* Table View */}
-        <div style={{ overflowX: 'auto' }}>
+        <div className="tracking-desktop-table" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -412,6 +414,134 @@ export const TravelHistoryTab: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile App-Like Cards */}
+        <div className="tracking-mobile-cards">
+          {paginatedData.length === 0 ? (
+            <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94A3B8', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+              No travel history records found.
+            </div>
+          ) : (
+            paginatedData.map((rec) => (
+              <div key={rec.id} className="mobile-tracking-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {rec.employeeAvatar ? (
+                      <img
+                        src={rec.employeeAvatar}
+                        alt={rec.employeeName}
+                        style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '50%',
+                          backgroundColor: '#0E7490',
+                          color: '#FFFFFF',
+                          fontWeight: 750,
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {rec.employeeName.charAt(0)}
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0F172A' }}>{rec.employeeName}</div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{rec.department || 'Field Ops'} • {formatDateDDMMYYYY(rec.date)}</div>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '9999px',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      backgroundColor: rec.status === 'Completed' ? '#DCFCE7' : '#ECFEFF',
+                      color: rec.status === 'Completed' ? '#16A34A' : '#0E7490',
+                      flexShrink: 0
+                    }}
+                  >
+                    {rec.status}
+                  </span>
+                </div>
+
+                <div style={{ background: '#F8FAFC', borderRadius: '10px', padding: '10px 12px', border: '1px solid #F1F5F9' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Site / Client</div>
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        backgroundColor: rec.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9',
+                        color: rec.dutyType === 'Site Visit' ? '#B45309' : '#334155'
+                      }}
+                    >
+                      {rec.dutyType}
+                    </span>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0F172A', marginBottom: '8px' }}>
+                    {rec.customerSiteName}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', paddingTop: '6px', borderTop: '1px dashed #E2E8F0', fontSize: '0.76rem' }}>
+                    <div>
+                      <span style={{ color: '#64748B' }}>Check In/Out: </span>
+                      <span style={{ fontWeight: 650, color: '#334155' }}>{rec.checkIn} - {rec.checkOut}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748B' }}>Trip Hours: </span>
+                      <span style={{ fontWeight: 650, color: '#334155' }}>{rec.tripStart} - {rec.tripEnd}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748B' }}>Distance: </span>
+                      <span style={{ fontWeight: 800, color: '#0E7490' }}>{formatKm(rec.kmTravelled)}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748B' }}>GPS Telemetry: </span>
+                      {rec.gpsIssues > 0 ? (
+                        <span style={{ color: '#EF4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                          <AlertTriangle size={11} /> {rec.gpsIssues} Issues
+                        </span>
+                      ) : (
+                        <span style={{ color: '#16A34A', fontWeight: 600 }}>Normal</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedInspection({ assignment: rec.assignment, trip: rec.trip })}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    width: '100%',
+                    padding: '9px 12px',
+                    borderRadius: '10px',
+                    backgroundColor: '#ECFEFF',
+                    color: '#0E7490',
+                    border: '1px solid #A5F3FC',
+                    fontWeight: 700,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    touchAction: 'manipulation'
+                  }}
+                >
+                  <MapPin size={15} /> View Route & Telemetry
+                </button>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Standard Pagination Footer */}

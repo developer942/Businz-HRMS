@@ -3,7 +3,8 @@ import { env } from '../config/env.js';
 import { authRepository } from '../repositories/authRepository.js';
 export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
+    const token = (authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null) || queryToken;
     if (!token) {
         res.status(401).json({
             success: false,

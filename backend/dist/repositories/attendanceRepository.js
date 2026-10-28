@@ -2,6 +2,9 @@ import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.j
 import { employeeRepository } from './employeeRepository.js';
 import { shiftRepository } from './shiftRepository.js';
 import { evaluateBackendShiftAttendance } from '../services/shiftAttendanceEngine.js';
+import { withTransaction } from '../config/database.js';
+import { createHash } from 'node:crypto';
+import { assertAttendanceTransition } from '../services/attendanceStateMachine.js';
 const todayIso = new Date().toISOString().split('T')[0];
 const formatIsoToIst12Hour = (value) => {
     if (!value)
@@ -70,6 +73,8 @@ export class AttendanceRepository {
                     locationLat: d.location_lat,
                     locationLng: d.location_lng,
                     locationAddress: d.location_address,
+                    checkInPhoto: d.check_in_photo || undefined,
+                    checkOutPhoto: d.check_out_photo || undefined,
                 }));
             }
             else {
@@ -150,8 +155,22 @@ export class AttendanceRepository {
             now,
         });
     }
+    punchLocks = new Map();
     async recordPunch(punch) {
-        const punchNow = punch.timestamp ? new Date(punch.timestamp) : new Date();
+        const lockKey = `${punch.employeeId}_${punch.type}`;
+        const nowMs = Date.now();
+        const lastPunchTime = this.punchLocks.get(lockKey);
+        if (lastPunchTime && nowMs - lastPunchTime < 4000) {
+            throw new Error(`Duplicate punch rejected: An identical ${punch.type} request was received within the last 4 seconds. Please do not double-tap.`);
+        }
+        this.punchLocks.set(lockKey, nowMs);
+        // Clean up stale locks
+        for (const [k, ts] of this.punchLocks.entries()) {
+            if (nowMs - ts > 15000)
+                this.punchLocks.delete(k);
+        }
+        // Server time is authoritative. The legacy timestamp input is deliberately ignored.
+        const punchNow = new Date();
         const timeStr = punchNow.toLocaleTimeString('en-US', {
             timeZone: 'Asia/Kolkata',
             hour: '2-digit',
@@ -173,78 +192,147 @@ export class AttendanceRepository {
         const targetShiftDate = punch.shiftDate || evalResult.shiftDate;
         const emp = await employeeRepository.getEmployeeById(punch.employeeId);
         const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : punch.employeeId;
+        if (isRealSupabaseConfigured() && emp?.id && emp.id.length === 36) {
+            return this.recordPostgresPunch({
+                ...punch,
+                employeeUuid: emp.id,
+                employeeName: empName,
+                shiftId: assignedShiftId,
+                shiftDate: targetShiftDate,
+            });
+        }
         const currentLogs = await this.getAttendanceLogs({ employeeId: punch.employeeId, date: targetShiftDate });
         let existing = currentLogs[0];
+        const photoToSave = punch.photoUrl || punch.photoBase64 || undefined;
         if (punch.type === 'OUT') {
-            if (!existing) {
-                throw new Error('Check-out is not allowed before check-in.');
+            if (!existing || !existing.checkIn || existing.checkIn === '--:--') {
+                throw new Error('Check-out is not allowed before check-in. Please punch in first.');
             }
             if (existing.checkOut && existing.checkOut.trim() !== '' && existing.checkOut !== '--:--') {
                 throw new Error('Already checked out for this shift. Duplicate check-out is not allowed.');
             }
-        }
-        if (punch.type === 'IN' && existing?.checkIn && existing.checkIn.trim() !== '' && existing.checkIn !== '--:--') {
-            throw new Error('Already checked in for this shift. Duplicate check-in is not allowed.');
-        }
-        if (!existing) {
-            existing = {
-                id: `ATT-${Date.now()}`,
-                employeeId: punch.employeeId,
-                employeeName: empName,
-                date: targetShiftDate,
-                shiftId: assignedShiftId,
-                shiftDate: targetShiftDate,
-                checkIn: punch.type === 'IN' ? timeStr : undefined,
-                checkOut: punch.type === 'OUT' ? timeStr : undefined,
-                workingHours: 0,
-                status: punch.method === 'Field Duty' ? 'On Duty' : 'Present',
-                lateStatus: 'On Time',
-                method: punch.method || 'Face Scan',
-                inGeofence: punch.inGeofence ?? true,
-                locationLat: punch.locationLat,
-                locationLng: punch.locationLng,
-                locationAddress: punch.locationAddress || 'Office',
+            // Calculate working hours
+            const parseTimeToMinutesLocal = (tStr) => {
+                if (!tStr)
+                    return null;
+                const m = tStr.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+                if (!m)
+                    return null;
+                let h = parseInt(m[1], 10);
+                const mins = parseInt(m[2], 10);
+                const mer = m[3]?.toUpperCase();
+                if (mer === 'PM' && h < 12)
+                    h += 12;
+                if (mer === 'AM' && h === 12)
+                    h = 0;
+                return h * 60 + mins;
             };
+            const inMins = parseTimeToMinutesLocal(existing.checkIn);
+            const outMins = parseTimeToMinutesLocal(timeStr);
+            let worked = 0;
+            if (inMins !== null && outMins !== null) {
+                let diff = outMins - inMins;
+                if (diff < 0)
+                    diff += 24 * 60; // Overnight shift
+                worked = Math.round((diff / 60) * 100) / 100;
+            }
+            existing.checkOut = timeStr;
+            existing.checkOutPhoto = photoToSave || existing.checkOutPhoto;
+            existing.workingHours = worked;
+            // Note: existing.checkIn and existing.checkInPhoto are strictly preserved!
         }
         else {
-            if (punch.type === 'OUT') {
-                existing.checkOut = timeStr;
+            // punch.type === 'IN'
+            if (existing?.checkIn && existing.checkIn.trim() !== '' && existing.checkIn !== '--:--') {
+                throw new Error('Already checked in for this shift. Duplicate check-in is not allowed.');
+            }
+            if (!existing) {
+                existing = {
+                    id: `ATT-${Date.now()}`,
+                    employeeId: punch.employeeId,
+                    employeeName: empName,
+                    date: targetShiftDate,
+                    shiftId: assignedShiftId,
+                    shiftDate: targetShiftDate,
+                    checkIn: timeStr,
+                    checkOut: undefined,
+                    workingHours: 0,
+                    status: punch.method === 'Field Duty' ? 'On Duty' : 'Present',
+                    lateStatus: 'On Time',
+                    method: punch.method || 'Face Scan',
+                    inGeofence: punch.inGeofence ?? true,
+                    locationLat: punch.locationLat,
+                    locationLng: punch.locationLng,
+                    locationAddress: punch.locationAddress || 'Office',
+                    checkInPhoto: photoToSave,
+                    checkOutPhoto: undefined,
+                };
             }
             else {
                 existing.checkIn = timeStr;
+                existing.checkOut = undefined;
+                existing.checkInPhoto = photoToSave || existing.checkInPhoto;
+                existing.checkOutPhoto = undefined;
+                existing.workingHours = 0;
             }
             if (!existing.shiftId)
                 existing.shiftId = assignedShiftId;
             if (!existing.shiftDate)
                 existing.shiftDate = targetShiftDate;
         }
-        // Persist to Supabase
+        // Persist to Supabase / PostgreSQL
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
-                // 1. Persist directly to relational attendance_records table (source of truth)
+                // 1. Relational attendance_records table
                 if (emp?.id && emp.id.length === 36) {
                     const { data: existingRow } = await supabase
                         .from('attendance_records')
-                        .select('id')
+                        .select('id, check_in, check_out, check_in_photo')
                         .eq('employee_id', emp.id)
                         .eq('date', targetShiftDate)
                         .maybeSingle();
                     if (existingRow?.id) {
-                        await supabase
-                            .from('attendance_records')
-                            .update({
-                            check_in: punch.type === 'IN' ? punchNow.toISOString() : undefined,
-                            check_out: punch.type === 'OUT' ? punchNow.toISOString() : undefined,
-                            working_hours: existing.workingHours || 0,
-                            status: 'Present',
-                            late_status: existing.lateStatus || 'On Time',
-                            method: punch.method || 'Face Scan',
-                            updated_at: new Date().toISOString(),
-                        })
-                            .eq('id', existingRow.id);
+                        if (punch.type === 'IN') {
+                            // Punch IN: Write check_in and check_in_photo only; check_out remains strictly NULL
+                            await supabase
+                                .from('attendance_records')
+                                .update({
+                                check_in: punchNow.toISOString(),
+                                check_in_photo: photoToSave || null,
+                                check_out: null,
+                                check_out_photo: null,
+                                working_hours: 0,
+                                status: 'Present',
+                                late_status: existing.lateStatus || 'On Time',
+                                method: punch.method || 'Face Scan',
+                                in_geofence: punch.inGeofence ?? true,
+                                location_lat: punch.locationLat || 13.0827,
+                                location_lng: punch.locationLng || 80.2707,
+                                location_address: punch.locationAddress || 'Office',
+                                idempotency_key: punch.idempotencyKey || null,
+                                updated_at: new Date().toISOString(),
+                            })
+                                .eq('id', existingRow.id);
+                        }
+                        else {
+                            // Punch OUT: Write check_out and check_out_photo; preserve check_in and check_in_photo!
+                            await supabase
+                                .from('attendance_records')
+                                .update({
+                                check_out: punchNow.toISOString(),
+                                check_out_photo: photoToSave || null,
+                                working_hours: existing.workingHours || 0,
+                                status: 'Present',
+                                method: punch.method || 'Face Scan',
+                                idempotency_key: punch.idempotencyKey || null,
+                                updated_at: new Date().toISOString(),
+                            })
+                                .eq('id', existingRow.id);
+                        }
                     }
                     else {
+                        // New attendance session row
                         await supabase
                             .from('attendance_records')
                             .insert({
@@ -252,6 +340,8 @@ export class AttendanceRepository {
                             date: targetShiftDate,
                             check_in: punch.type === 'IN' ? punchNow.toISOString() : null,
                             check_out: punch.type === 'OUT' ? punchNow.toISOString() : null,
+                            check_in_photo: punch.type === 'IN' ? (photoToSave || null) : null,
+                            check_out_photo: punch.type === 'OUT' ? (photoToSave || null) : null,
                             working_hours: 0,
                             status: 'Present',
                             late_status: 'On Time',
@@ -262,10 +352,11 @@ export class AttendanceRepository {
                             location_address: punch.locationAddress || 'Office',
                             shift_id: (assignedShiftId && assignedShiftId.length === 36) ? assignedShiftId : null,
                             shift_date: targetShiftDate,
+                            idempotency_key: punch.idempotencyKey || null,
                         });
                     }
                 }
-                // 2. Also keep company_settings updated for real-time fallback
+                // 2. Also keep company_settings updated for client compatibility
                 const { data: csData } = await supabase
                     .from('company_settings')
                     .select('id, setting_val')
@@ -298,10 +389,107 @@ export class AttendanceRepository {
         }
         return existing;
     }
-    async verifyFace(employeeId, _facePhotoBase64) {
+    async recordPostgresPunch(punch) {
+        const photo = punch.photoBase64 || punch.photoUrl;
+        const requiresFaceCapture = String(punch.method || '').toLowerCase().includes('face');
+        if (!punch.idempotencyKey)
+            throw new Error('Idempotency key is required for attendance punches.');
+        if (requiresFaceCapture && (!photo || photo.trim().length < 50)) {
+            throw new Error('A fresh face photograph is required for face attendance punches.');
+        }
+        const photoFingerprint = photo
+            ? createHash('sha256').update(photo).digest('hex')
+            : `non-face:${punch.idempotencyKey}`;
+        return withTransaction(async (client) => {
+            // Serializes all IN/OUT transitions for this employee across every API instance.
+            await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [punch.employeeUuid]);
+            const replay = await client.query('SELECT attendance_record_id FROM public.attendance_punch_events WHERE idempotency_key = $1', [punch.idempotencyKey]);
+            if (replay.rows[0]) {
+                throw new Error('Duplicate punch rejected: this request was already processed.');
+            }
+            const clock = await client.query('SELECT clock_timestamp() AS now');
+            const serverNow = new Date(clock.rows[0].now);
+            const existingResult = await client.query(`SELECT * FROM public.attendance_records
+         WHERE employee_id = $1 AND COALESCE(shift_date, date) = $2::date
+         ORDER BY created_at DESC NULLS LAST LIMIT 1 FOR UPDATE`, [punch.employeeUuid, punch.shiftDate]);
+            let row = existingResult.rows[0];
+            const checkInFingerprint = requiresFaceCapture && row?.check_in_photo
+                ? createHash('sha256').update(String(row.check_in_photo)).digest('hex')
+                : undefined;
+            assertAttendanceTransition({
+                type: punch.type,
+                row,
+                serverNow,
+                newPhotoFingerprint: photoFingerprint,
+                checkInPhotoFingerprint: checkInFingerprint,
+            });
+            if (punch.type === 'IN') {
+                if (row) {
+                    const updated = await client.query(`UPDATE public.attendance_records SET
+               check_in=$2, check_in_photo=$3, check_out=NULL, check_out_photo=NULL,
+               working_hours=0, status='Present', method=$4, in_geofence=$5,
+               location_lat=$6, location_lng=$7, location_address=$8,
+               idempotency_key=$9, updated_at=$2
+             WHERE id=$1 RETURNING *`, [row.id, serverNow, photo, punch.method || 'Face Scan', punch.inGeofence ?? true,
+                        punch.locationLat, punch.locationLng, punch.locationAddress || 'Office', punch.idempotencyKey]);
+                    row = updated.rows[0];
+                }
+                else {
+                    const inserted = await client.query(`INSERT INTO public.attendance_records
+              (employee_id,date,shift_date,shift_id,check_in,check_out,check_in_photo,check_out_photo,
+               working_hours,status,late_status,method,in_geofence,location_lat,location_lng,location_address,idempotency_key)
+             VALUES ($1,$2::date,$2::date,$3,$4,NULL,$5,NULL,0,'Present','On Time',$6,$7,$8,$9,$10,$11)
+             RETURNING *`, [punch.employeeUuid, punch.shiftDate,
+                        punch.shiftId && punch.shiftId.length === 36 ? punch.shiftId : null,
+                        serverNow, photo, punch.method || 'Face Scan', punch.inGeofence ?? true,
+                        punch.locationLat, punch.locationLng, punch.locationAddress || 'Office', punch.idempotencyKey]);
+                    row = inserted.rows[0];
+                }
+            }
+            else {
+                const workedHours = Math.round(((serverNow.getTime() - new Date(row.check_in).getTime()) / 3_600_000) * 100) / 100;
+                const updated = await client.query(`UPDATE public.attendance_records SET
+             check_out=$2, check_out_photo=$3, working_hours=$4, idempotency_key=$5, updated_at=$2
+           WHERE id=$1 AND check_out IS NULL RETURNING *`, [row.id, serverNow, photo, workedHours, punch.idempotencyKey]);
+                if (!updated.rows[0])
+                    throw new Error('Punch Out could not be committed because the attendance state changed. Please refresh.');
+                row = updated.rows[0];
+            }
+            await client.query(`INSERT INTO public.attendance_punch_events
+          (attendance_record_id,employee_id,punch_type,punched_at,idempotency_key,photo_fingerprint,
+           location_lat,location_lng,location_accuracy,location_timestamp)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [row.id, punch.employeeUuid, punch.type, serverNow, punch.idempotencyKey, photoFingerprint,
+                punch.locationLat, punch.locationLng, punch.accuracyMeters, punch.locationTimestamp || null]);
+            return {
+                id: row.id,
+                employeeId: punch.employeeId,
+                employeeName: punch.employeeName,
+                date: String(row.date).slice(0, 10),
+                shiftId: row.shift_id || undefined,
+                shiftDate: String(row.shift_date || row.date).slice(0, 10),
+                checkIn: formatIsoToIst12Hour(row.check_in),
+                checkOut: formatIsoToIst12Hour(row.check_out),
+                workingHours: Number(row.working_hours) || 0,
+                status: row.status || 'Present',
+                lateStatus: row.late_status || 'On Time',
+                method: row.method || 'Face Scan',
+                inGeofence: row.in_geofence ?? true,
+                locationLat: row.location_lat,
+                locationLng: row.location_lng,
+                locationAddress: row.location_address,
+                checkInPhoto: row.check_in_photo || undefined,
+                checkOutPhoto: row.check_out_photo || undefined,
+                createdAt: serverNow.toISOString(),
+            };
+        });
+    }
+    async verifyFace(employeeId, facePhotoBase64) {
         const emp = await employeeRepository.getEmployeeById(employeeId);
         if (!emp) {
-            return { verified: false, confidence: 0 };
+            return { verified: false, confidence: 0, message: `Employee ID ${employeeId} not found.` };
+        }
+        if (!facePhotoBase64 || facePhotoBase64.trim().length < 50) {
+            return { verified: false, confidence: 0, message: 'Valid face image capture is required.' };
         }
         return {
             verified: true,

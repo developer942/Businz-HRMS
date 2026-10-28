@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Edit2, Trash2, MoreHorizontal, X } from 'lucide-react';
 
 export interface StandardFloatingActionBarProps {
@@ -18,7 +18,19 @@ export const StandardFloatingActionBar: React.FC<StandardFloatingActionBarProps>
   onClearSelection,
   customActions
 }) => {
-  if (selectedCount <= 0) return null;
+  const [isMobile, setIsMobile] = useState<boolean>(() => 
+    typeof window !== 'undefined' ? window.innerWidth <= 1024 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  if (selectedCount <= 0 || isMobile) return null;
 
   return (
     <div className="floating-action-bar" role="toolbar" aria-label="Bulk actions">

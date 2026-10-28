@@ -66,6 +66,9 @@ export const locationPointSchema = z.object({
     timestamp: z.string().optional(),
     accuracy: z.number().optional(),
     speed: z.number().min(0).optional().default(0),
+    heading: z.number().optional(),
+    altitude: z.number().optional(),
+    source: z.string().optional(),
     batteryLevel: z.number().min(0).max(100).optional().default(100),
     syncedOffline: z.boolean().optional(),
 });

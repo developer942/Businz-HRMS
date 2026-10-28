@@ -4,6 +4,7 @@ import {
   getEmployeeById,
   createEmployee,
   updateEmployee,
+  syncEmployeeProfile,
   deleteEmployee,
   resetEmployeeLogin,
   updateEmployeeLoginStatus,
@@ -32,6 +33,7 @@ employeeRouter.post('/send-offer-letter', requireRoles(['Super Admin', 'CEO', 'H
 employeeRouter.get('/:id', scopeDataAccess, requirePermission('employees', 'view'), getEmployeeById);
 employeeRouter.post('/', requirePermission('employees', 'create'), createEmployee);
 employeeRouter.put('/:id', requirePermission('employees', 'edit'), updateEmployee);
+employeeRouter.put('/:id/profile-sync', requirePermission('employees', 'edit'), syncEmployeeProfile);
 employeeRouter.delete('/:id', requirePermission('employees', 'delete'), deleteEmployee);
 
 // Login Account Management (HR Admin / CEO / Super Admin / Admin)

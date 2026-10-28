@@ -118,6 +118,11 @@ export const startTrip = async (req: Request, res: Response, next: NextFunction)
       startAddress: validated.startAddress,
     });
 
+    broadcastTrackingEvent({
+      type: 'trip_started',
+      trip,
+    });
+
     res.status(201).json({
       success: true,
       data: trip,
@@ -142,11 +147,22 @@ export const recordLocationPoints = async (req: Request, res: Response, next: Ne
       longitude: p.longitude,
       accuracy: p.accuracy ?? 10,
       speed: p.speed ?? 0,
+      heading: p.heading,
+      altitude: p.altitude,
+      source: p.source || 'browser_watch',
       batteryLevel: p.batteryLevel ?? 100,
       syncedOffline: p.syncedOffline ?? false,
     }));
 
     const result = await trackingRepository.recordLocationPoints(points);
+
+    broadcastTrackingEvent({
+      type: 'location_update',
+      tripId: points[0]?.tripId,
+      employeeId: points[0]?.employeeId,
+      points,
+      result,
+    });
 
     res.status(200).json({
       success: true,
@@ -181,6 +197,11 @@ export const endTrip = async (req: Request, res: Response, next: NextFunction): 
       });
       return;
     }
+
+    broadcastTrackingEvent({
+      type: 'trip_ended',
+      trip: completed,
+    });
 
     res.status(200).json({
       success: true,
@@ -274,3 +295,54 @@ export const getTrackingOverview = async (_req: Request, res: Response, next: Ne
     next(err);
   }
 };
+
+// ----------------------------------------------------------------------------
+// SERVER-SENT EVENTS (SSE) REAL-TIME LIVE TRACKING STREAM
+// ----------------------------------------------------------------------------
+interface TrackingSseClient {
+  id: string;
+  res: Response;
+}
+
+const sseClients: TrackingSseClient[] = [];
+
+export const streamLiveTracking = (req: Request, res: Response): void => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no', // Disable proxy buffering for Nginx
+  });
+
+  res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+  const clientId = `sse-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  sseClients.push({ id: clientId, res });
+
+  // 25s keepalive heartbeat ping
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      clearInterval(pingInterval);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(pingInterval);
+    const idx = sseClients.findIndex((c) => c.id === clientId);
+    if (idx !== -1) sseClients.splice(idx, 1);
+  });
+};
+
+export const broadcastTrackingEvent = (event: { type: string; [key: string]: any }): void => {
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  for (let i = sseClients.length - 1; i >= 0; i--) {
+    try {
+      sseClients[i].res.write(payload);
+    } catch {
+      sseClients.splice(i, 1);
+    }
+  }
+};
+

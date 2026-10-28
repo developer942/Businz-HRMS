@@ -33,10 +33,17 @@ export type TripStatus =
 export type GpsStatus = 
   | 'GPS Active' 
   | 'GPS Lost' 
-  | 'GPS Off';
+  | 'GPS Off'
+  | 'Low Accuracy'
+  | 'No Signal';
 
 export type TrackingStatus = 
   | 'Travelling' 
+  | 'Stopped'
+  | 'Arrived at destination'
+  | 'Offline'
+  | 'GPS Signal Weak'
+  | 'Visit Completed'
   | 'On Site' 
   | 'Duty Active' 
   | 'Interrupted' 
@@ -90,8 +97,47 @@ export interface LocationPoint {
   longitude: number;
   accuracy?: number;
   speed?: number;
+  heading?: number;
+  altitude?: number;
   batteryLevel?: number;
   syncedOffline?: boolean;
+  distanceFromPrevMeters?: number;
+  isRejected?: boolean;
+  rejectionReason?: string;
+  source?: string;
+  isRoadSnapped?: boolean;
+  snappedLat?: number;
+  snappedLng?: number;
+}
+
+export interface FieldVisitStop {
+  id: string;
+  tripId: string;
+  assignmentId: string;
+  employeeId: string;
+  stopType: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  arrivedAt: string;
+  departedAt?: string;
+  durationSeconds: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface FieldVisitDistanceSegment {
+  id: string;
+  tripId: string;
+  segmentType: 'recorded' | 'road_matched' | 'unverified_gap';
+  startLat: number;
+  startLng: number;
+  endLat: number;
+  endLng: number;
+  distanceMeters: number;
+  durationSeconds: number;
+  polyline?: string;
+  createdAt: string;
 }
 
 export interface FieldTripSession {
@@ -111,10 +157,22 @@ export interface FieldTripSession {
   endLng?: number;
   endAddress?: string;
   totalKm: number;
+  recordedDistanceMeters?: number;
+  roadMatchedDistanceMeters?: number;
+  suggestedDistanceMeters?: number;
+  unverifiedDistanceMeters?: number;
+  rawPointsCount?: number;
+  acceptedPointsCount?: number;
+  rejectedPointsCount?: number;
+  stopCount?: number;
+  totalStopDurationSeconds?: number;
+  routeGeometry?: string;
   status: TripStatus;
   checkInTime?: string;
   checkOutTime?: string;
   locationPoints: LocationPoint[];
+  stops?: FieldVisitStop[];
+  segments?: FieldVisitDistanceSegment[];
   gpsStatus: GpsStatus;
   trackingStatus: TrackingStatus;
   lastGpsUpdate?: string;
@@ -145,4 +203,6 @@ export interface TrackingOverviewMetrics {
   currentlyTravelling: number;
   gpsIssues: number;
   totalKmToday: number;
+  totalVerifiedKmToday?: number;
+  totalEstimatedKmToday?: number;
 }

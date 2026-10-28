@@ -100,6 +100,9 @@ export const PettyCashLedgerReportsView: React.FC<PettyCashLedgerReportsViewProp
 
   // Paginated slice
   const paginatedEntries = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return filteredEntries;
+    }
     const start = (currentPage - 1) * pageSize;
     return filteredEntries.slice(start, start + pageSize);
   }, [filteredEntries, currentPage, pageSize]);

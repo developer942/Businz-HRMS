@@ -28,6 +28,9 @@ export const GpsAlertsTab: React.FC = () => {
   }, [trackingAlerts, searchQuery, statusFilter]);
 
   const paginatedAlerts = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return filteredAlerts;
+    }
     const start = (currentPage - 1) * pageSize;
     return filteredAlerts.slice(start, start + pageSize);
   }, [filteredAlerts, currentPage, pageSize]);

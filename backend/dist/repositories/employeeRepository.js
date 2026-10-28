@@ -160,11 +160,11 @@ export class EmployeeRepository {
         }
         return [];
     }
-    async getSalaryStructure(employeeId) {
+    async getSalaryStructure(employeeId, asOfDate = new Date().toISOString().slice(0, 10)) {
         if (!employeeId)
             return null;
         const cleanId = employeeId.trim();
-        const cacheKey = `ss_${cleanId}`;
+        const cacheKey = `ss_${cleanId}_${asOfDate}`;
         const cached = memoryCache.get(cacheKey);
         if (cached)
             return cached;
@@ -179,6 +179,10 @@ export class EmployeeRepository {
                     .select('*')
                     .eq('employee_id', emp.id)
                     .eq('is_active', true)
+                    .lte('effective_from', asOfDate)
+                    .or(`effective_to.is.null,effective_to.gte.${asOfDate}`)
+                    .order('effective_from', { ascending: false })
+                    .limit(1)
                     .maybeSingle();
                 if (data && !error) {
                     const struct = {
@@ -224,11 +228,16 @@ export class EmployeeRepository {
         if (isRealSupabaseConfigured() && emp) {
             try {
                 const supabase = getSupabaseAdmin();
-                // Deactivate old structures
+                const previousDate = new Date(`${record.effectiveFrom}T12:00:00Z`);
+                previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+                // Close only the revision that overlaps the new effective date. Future
+                // revisions remain scheduled and finalized payroll remains immutable.
                 await supabase
                     .from('salary_structures')
-                    .update({ is_active: false })
-                    .eq('employee_id', emp.id);
+                    .update({ effective_to: previousDate.toISOString().slice(0, 10) })
+                    .eq('employee_id', emp.id)
+                    .lt('effective_from', record.effectiveFrom)
+                    .or(`effective_to.is.null,effective_to.gte.${record.effectiveFrom}`);
                 // Insert new active structure
                 const res = await supabase.from('salary_structures').insert({
                     employee_id: emp.id,

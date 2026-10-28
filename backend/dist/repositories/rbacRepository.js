@@ -128,6 +128,17 @@ export class RbacRepository {
             createdAt: '2026-01-01T00:00:00.000Z',
             updatedAt: '2026-01-01T00:00:00.000Z',
         },
+        {
+            id: 'role-accounts',
+            name: 'Finance Manager',
+            description: 'Accounts & Finance staff responsible for disbursement of CEO-approved financial requests, ledger tracking and payment recording.',
+            department: 'Accounts & Finance',
+            status: 'Active',
+            isDefault: true,
+            userCount: 0,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+        },
     ];
     modules = [...CORE_MODULES];
     permissionsByRole = {};
@@ -150,10 +161,14 @@ export class RbacRepository {
             updatedAt: new Date().toISOString(),
             updatedBy: 'System',
         };
-        // 2. HR (Employee + Attendance + Leave + Task + Payroll + Reports + All Employee Data)
+        // 2. HR (Employee + Attendance + Leave + Task + Reports + All Employee Data - NO CEO FINANCIAL APPROVAL)
         const hrModules = {};
         this.modules.forEach(m => {
-            if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'payroll', 'advance_salary', 'reports', 'documents', 'notifications', 'expenses', 'dashboard', 'customer_data'].includes(m.key)) {
+            if (['expenses', 'advance_salary', 'payroll'].includes(m.key)) {
+                // HR can view, create and export, but CANNOT approve financial requests
+                hrModules[m.key] = ['view', 'create', 'export'];
+            }
+            else if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'reports', 'documents', 'notifications', 'dashboard', 'customer_data'].includes(m.key)) {
                 hrModules[m.key] = [...ALL_ACTIONS];
             }
             else {
@@ -169,7 +184,6 @@ export class RbacRepository {
                 'view_salary',
                 'edit_salary',
                 'process_payroll',
-                'approve_payroll',
                 'view_employee_documents',
                 'upload_documents',
                 'edit_attendance',
@@ -179,7 +193,6 @@ export class RbacRepository {
                 'create_tasks',
                 'assign_tasks',
                 'view_all_tasks',
-                'approve_salary_advance',
                 'view_reports',
                 'export_reports',
                 'manage_employees',
@@ -297,6 +310,34 @@ export class RbacRepository {
             updatedAt: new Date().toISOString(),
             updatedBy: 'System',
         };
+        // 7. Accounts (Finance Manager / Accounts Staff)
+        // Normal Employee features + CEO-approved payment distribution & ledger
+        // STRICTLY NO access to employee directory, company attendance, or CEO approval rights
+        const accountsModules = {
+            dashboard: ['view'],
+            attendance: ['view', 'create'], // Self punches only
+            shift: ['view'],
+            leave: ['view', 'create'], // Self leaves
+            tasks: ['view', 'edit'],
+            payroll: ['view', 'export'], // Self payslip
+            advance_salary: ['view', 'create', 'export'], // Disburse approved advances
+            expenses: ['view', 'create', 'export'], // Disburse approved claims
+            petty_cash: ['view', 'create', 'export'], // Disburse funding
+            documents: ['view'],
+            notifications: ['view'],
+        };
+        this.permissionsByRole['role-accounts'] = {
+            roleId: 'role-accounts',
+            roleName: 'Finance Manager',
+            dataAccess: 'own',
+            modulePermissions: accountsModules,
+            specialPermissions: [
+                'view_reports',
+                'export_reports',
+            ],
+            updatedAt: new Date().toISOString(),
+            updatedBy: 'System',
+        };
     }
     getAllRBACData() {
         return {
@@ -322,7 +363,8 @@ export class RbacRepository {
             r.name.toLowerCase() === clean ||
             (clean.includes('hr') && r.name === 'HR') ||
             (clean.includes('admin') && r.name === 'Admin') ||
-            (clean.includes('ceo') && r.name === 'CEO'));
+            (clean.includes('ceo') && r.name === 'CEO') ||
+            ((clean.includes('finance') || clean.includes('account')) && r.name === 'Finance Manager'));
         if (role && this.permissionsByRole[role.id]) {
             return this.permissionsByRole[role.id];
         }

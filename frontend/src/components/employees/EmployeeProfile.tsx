@@ -261,8 +261,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     (currentUser?.role && currentUser.role.toLowerCase().includes('admin')) ||
     (currentUser?.role && currentUser.role.toLowerCase().includes('hr')) ||
     (currentUser?.role && currentUser.role.toLowerCase().includes('ceo')) ||
-    hasPermission('employees', 'edit') ||
-    true
+    hasPermission('employees', 'edit')
   );
 
   const isSuperAdminOrCEO = Boolean(
@@ -437,8 +436,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       // 6. Salary & Bank Details
       salaryStructure: isEmpCEO ? 'Exempt (CEO)' : (emp.salaryDetails?.salaryStructure || 'Standard Industrial CTC'),
+      salaryEffectiveFrom: (emp as any).salaryEffectiveFrom || new Date().toISOString().slice(0, 10),
+      salaryRevisionReason: '',
       salaryScheme: (emp.salaryDetails?.salaryScheme || (emp.withPf ? 'WITH_PF' : 'WITHOUT_PF')) as 'WITH_PF' | 'WITHOUT_PF',
       withPf: isEmpCEO ? false : Boolean(emp.withPf ?? emp.salaryDetails?.withPf),
+      payrollEligible: emp.payrollEligible ?? !['Inactive', 'Terminated'].includes(emp.status),
       monthlyCtc: isEmpCEO ? (emp.salaryDetails?.monthlyCtc ?? 0) : Number(emp.salaryDetails?.monthlyCtc || 0),
       basicSalary: isEmpCEO ? (emp.salaryDetails?.basicSalary ?? 0) : Number(emp.salaryDetails?.basicSalary || emp.basicSalary || 0),
       da: isEmpCEO ? (emp.salaryDetails?.da ?? 0) : Number(emp.salaryDetails?.da ?? emp.allowances?.da ?? 0),
@@ -458,6 +460,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       // 7. Shift & Attendance Policies
       attendanceMethod: (isEmpCEO ? 'Exempt' : (emp.attendanceMethod || 'Face Scan')) as Employee['attendanceMethod'],
       shift: isEmpCEO ? 'Exempt' : (emp.workShift || emp.shiftDetails?.shiftType || shifts[0]?.shiftName || ''),
+      shiftEffectiveFrom: (emp as any).shiftEffectiveFrom || new Date().toISOString().slice(0, 10),
       weeklyOff: isEmpCEO ? 'Flexible' : (emp.shiftDetails?.weeklyOff || 'Sunday'),
       holidayCalendar: emp.shiftDetails?.holidayCalendar || 'Tamil Nadu Industrial Calendar (14 Days)',
       leavePolicy: isEmpCEO ? 'Exempt' : (emp.shiftDetails?.leavePolicy || 'Standard 18 Casual + 12 Medical + 10 Earned'),
@@ -1123,6 +1126,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       basicSalary: Number(salaryComponentValues.basicSalary),
       withPf: formData.withPf,
+      payrollEligible: formData.payrollEligible,
       allowances: {
         hra: Number(salaryComponentValues.hra),
         da: Number(salaryComponentValues.da),
@@ -1178,7 +1182,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
     setIsSaving(true);
     try {
-      const res = await updateEmployee(currentEmp.id || currentEmp.employeeId, updatedData);
+      const res = await updateEmployee(currentEmp.id || currentEmp.employeeId, updatedData, {
+        expectedVersion: currentEmp.rowVersion,
+        shiftEffectiveFrom: formData.shiftEffectiveFrom,
+        weeklyOffEffectiveFrom: formData.shiftEffectiveFrom,
+        salaryEffectiveFrom: formData.salaryEffectiveFrom,
+        revisionReason: formData.salaryRevisionReason || 'Employee profile revision',
+      });
       if (res && (res as any).success === false) {
         setValidationError(`Failed to update profile in database: ${(res as any).error || 'Unknown error'}`);
         setIsSaving(false);
@@ -1689,6 +1699,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div style={viewValueStyle}>{formData.personalEmail || currentEmp.email || '—'}</div>
           )}
         </div>
+
       </div>
     </div>
   );
@@ -2845,6 +2856,40 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </div>
           )}
         </div>
+
+        <div>
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            SALARY EFFECTIVE FROM
+          </div>
+          {isEditing ? (
+            <div style={{ display: 'grid', gap: '6px', marginTop: '4px' }}>
+              <DateInput value={formData.salaryEffectiveFrom} onChange={(value) => handleChange('salaryEffectiveFrom', value)} style={inputStyle} />
+              <input value={formData.salaryRevisionReason} onChange={(e) => handleChange('salaryRevisionReason', e.target.value)}
+                placeholder="Revision reason" maxLength={250} style={inputStyle} />
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#0F172A', marginTop: '6px' }}>
+              {formatDateDDMMYYYY(formData.salaryEffectiveFrom)}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            PAYROLL ELIGIBILITY
+          </div>
+          {isEditing ? (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.85rem', fontWeight: 700 }}>
+              <input type="checkbox" checked={formData.payrollEligible}
+                onChange={(e) => handleChange('payrollEligible', e.target.checked)} style={{ accentColor: '#0E7490' }} />
+              Include in applicable draft payroll
+            </label>
+          ) : (
+            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: formData.payrollEligible ? '#15803D' : '#B91C1C', marginTop: '6px' }}>
+              {formData.payrollEligible ? 'Eligible' : 'Not eligible'}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ALLOWANCES BREAKDOWN GRID */}
@@ -3231,6 +3276,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </select>
           ) : (
             <div style={viewValueStyle}>{formData.shift || 'No Shift Assigned'}</div>
+          )}
+        </div>
+
+        <div>
+          <label style={labelStyle}>Shift / Weekly Off Effective From</label>
+          {isEditing ? (
+            <DateInput value={formData.shiftEffectiveFrom} onChange={(value) => handleChange('shiftEffectiveFrom', value)} style={inputStyle} />
+          ) : (
+            <div style={viewValueStyle}>{formatDateDDMMYYYY(formData.shiftEffectiveFrom)}</div>
           )}
         </div>
 
@@ -3838,14 +3892,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 overflow-hidden flex flex-col"
+      className="fixed inset-0 z-50 overflow-hidden flex flex-col employee-profile-overlay"
       style={{ 
         position: 'fixed', 
         top: 0, 
         left: 0, 
         right: 0, 
         bottom: 0, 
-        zIndex: 9999, 
+        zIndex: 20000, 
         backgroundColor: 'rgba(15, 23, 42, 0.75)',
         backdropFilter: 'blur(8px)',
         display: 'flex',
@@ -3856,6 +3910,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           1. ENTERPRISE HEADER BANNER
           ========================================================================= */}
       <div 
+        className="employee-profile-banner"
         style={{ 
           background: 'linear-gradient(135deg, #0F172A 0%, #082F49 50%, #0E7490 100%)',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
@@ -4378,21 +4433,24 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       {/* Floating Bottom Action Bar when Editing */}
       {isEditing && (
-        <div style={{
-          position: 'sticky',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: '#FFFFFF',
-          borderTop: '2px solid #0E7490',
-          padding: '14px 36px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: '0 -6px 20px rgba(15, 23, 42, 0.12)',
-          zIndex: 50,
-          flexShrink: 0
-        }}>
+        <div 
+          className="employee-profile-save-bar"
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: '#FFFFFF',
+            borderTop: '2px solid #0E7490',
+            padding: '14px 36px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 -6px 20px rgba(15, 23, 42, 0.12)',
+            zIndex: 50,
+            flexShrink: 0
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{
               width: '10px',

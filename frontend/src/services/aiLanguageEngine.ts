@@ -487,7 +487,7 @@ export function normalizeIntent(
   // Casual Greeting / Hello / Hi / Vanakkam
   if (
     /^(hi|hello|hey|vanakkam|namaste|namaskar|namaskaram|bonjour|hola|dai|machi|thala|bro)$/i.test(lower) ||
-    /^(hi|hello|hey)\s+(bro|there|bot|ai|assistant|vrm|seri)/i.test(lower) ||
+    /^(hi|hello|hey)\s+(bro|there|bot|ai|assistant|vrm|seri|pavi|businz)/i.test(lower) ||
     /^(dai|machi|thala)\s+(hi|hello|vanakkam|sollu)/i.test(lower)
   ) {
     return 'GREETING_HELLO';
@@ -502,7 +502,7 @@ export function normalizeIntent(
 
   // Who Are You / Capabilities
   if (
-    /\b(who are you|who r u|ne yaru|nee yaru|yar nee|tu kaun hai|what can you do|features enna|enna panna mudiyum|unnala enna panna mudiyum)\b/i.test(lower) ||
+    /\b(who are you|who r u|ne yaru|nee yaru|yar nee|tu kaun hai|what can you do|features enna|enna panna mudiyum|unnala enna panna mudiyum|businz|pavi)\b/i.test(lower) ||
     /^(who are you|ne yaaru|nee yaaru|who is this)/i.test(lower)
   ) {
     return 'WHO_ARE_YOU';
@@ -737,10 +737,10 @@ export function normalizeIntent(
  */
 export const LOCALIZED_RESPONSES = {
   ta: {
-    greeting: 'வணக்கம்! நான் உங்கள் Pavi Chat Bot. நீங்கள் எந்த மொழியிலும் என்னிடம் HRMS விபரங்களை கேட்கலாம்.',
-    casualGreeting: 'Naan romba nalla irukken bro! 😊 Pavi Chat Bot-la ungalukku enna help venum? Inniku absent yaru, leave list, overdue tasks, performance, payroll pathi enna vena kelunga, instant-aa solren!',
-    botTrained: 'Kandippa nanba! 👍 Pavi Chat Bot ippo full-aa train aagi ready-aa irukken. Neenga Tanglish, Tamil, English, Hindi-la enna ketalum accurate-aa HRMS live data eduthu instant-aa solluven!\n\nIdha click panni paarunga:\n• Inniku absent yaru?\n• Nethu yaru leave?\n• En team-la overdue task yaruku irukku?\n• Total employees evlo peru?\n• Monthly attendance report excel-la kudu',
-    whoAreYou: 'Naan unga Pavi Chat Bot! 🤖 Office employees, daily attendance, biometric punches, leave requests, team tasks, performance ratings, mattrum payroll data-va ungalukku live-aa eduthu tharuven.',
+    greeting: 'வணக்கம்! நான் உங்கள் BUSINZ Chat Bot. நீங்கள் எந்த மொழியிலும் என்னிடம் HRMS விபரங்களை கேட்கலாம்.',
+    casualGreeting: 'Naan romba nalla irukken bro! 😊 BUSINZ Chat Bot-la ungalukku enna help venum? Inniku absent yaru, leave list, overdue tasks, performance, payroll pathi enna vena kelunga, instant-aa solren!',
+    botTrained: 'Kandippa nanba! 👍 BUSINZ Chat Bot ippo full-aa train aagi ready-aa irukken. Neenga Tanglish, Tamil, English, Hindi-la enna ketalum accurate-aa HRMS live data eduthu instant-aa solluven!\n\nIdha click panni paarunga:\n• Inniku absent yaru?\n• Nethu yaru leave?\n• En team-la overdue task yaruku irukku?\n• Total employees evlo peru?\n• Monthly attendance report excel-la kudu',
+    whoAreYou: 'Naan unga BUSINZ Chat Bot! 🤖 Office employees, daily attendance, biometric punches, leave requests, team tasks, performance ratings, mattrum payroll data-va ungalukku live-aa eduthu tharuven.',
     thankYou: 'Romba magizhchi bro! 😊 Vera edhavadhu report venuma? Kelunga, udaney solren!',
     leaveFound: (count: number, dateLabel: string) => `${dateLabel}-ல் Approved Leave பெற்ற ${count} ஊழியர்களின் விபரம் கீழே கொடுக்கப்பட்டுள்ளது:`,
     noLeaveFound: (dateLabel: string) => `${dateLabel}-ல் எந்த ஒரு ஊழியரும் Leave-ல் இல்லை. அனைவரும் வருகை புரிந்துள்ளனர்.`,
@@ -777,10 +777,10 @@ export const LOCALIZED_RESPONSES = {
     }
   },
   hi: {
-    greeting: 'नमस्ते! मैं आपका Pavi Chat Bot हूँ। आप किसी भी भाषा में HRMS से जुड़े प्रश्न पूछ सकते हैं।',
-    casualGreeting: 'Main bilkul badhiya hoon! 😊 Pavi Chat Bot mein aapki kya madad kar sakta hoon? Attendance, leave, overdue tasks ya payroll ke baare mein kuch bhi poochiye!',
-    botTrained: 'बिल्कुल! 👍 Pavi Chat Bot अब पूरी तरह तैयार है। आप Tanglish, हिंदी या अंग्रेज़ी में जो भी पूछेंगे, मैं HRMS लाइव डेटाबेस से सटीक जानकारी दूँगा!\n\nइनमें से कोई भी प्रश्न पूछें:\n• आज कौन absent है?\n• कल कौन छुट्टी पर था?\n• मेरी टीम में overdue tasks किसके पास हैं?\n• कुल कितने कर्मचारी हैं?',
-    whoAreYou: 'मैं आपका Pavi Chat Bot हूँ! 🤖 मैं कर्मचारियों की उपस्थिति, छुट्टियाँ, टास्क, परफॉरमेंस और वेतन का पूरा विवरण तुरंत दे सकता हूँ।',
+    greeting: 'नमस्ते! मैं आपका BUSINZ Chat Bot हूँ। आप किसी भी भाषा में HRMS से जुड़े प्रश्न पूछ सकते हैं।',
+    casualGreeting: 'Main bilkul badhiya hoon! 😊 BUSINZ Chat Bot mein aapki kya madad kar sakta hoon? Attendance, leave, overdue tasks ya payroll ke baare mein kuch bhi poochiye!',
+    botTrained: 'बिल्कुल! 👍 BUSINZ Chat Bot अब पूरी तरह तैयार है। आप Tanglish, हिंदी या अंग्रेज़ी में जो भी पूछेंगे, मैं HRMS लाइव डेटाबेस से सटीक जानकारी दूँगा!\n\nइनमें से कोई भी प्रश्न पूछें:\n• आज कौन absent है?\n• कल कौन छुट्टी पर था?\n• मेरी टीम में overdue tasks किसके पास हैं?\n• कुल कितने कर्मचारी हैं?',
+    whoAreYou: 'मैं आपका BUSINZ Chat Bot हूँ! 🤖 मैं कर्मचारियों की उपस्थिति, छुट्टियाँ, टास्क, परफॉरमेंस और वेतन का पूरा विवरण तुरंत दे सकता हूँ।',
     thankYou: 'आपका बहुत-बहुत धन्यवाद! 😊 क्या आपको किसी और रिपोर्ट या डेटा की आवश्यकता है?',
     leaveFound: (count: number, dateLabel: string) => `${dateLabel} को Approved Leave पर रहने वाले ${count} कर्मचारियों की सूची नीचे दी गई है:`,
     noLeaveFound: (dateLabel: string) => `${dateLabel} को कोई भी कर्मचारी छुट्टी पर नहीं था। सभी उपस्थित थे।`,
@@ -817,10 +817,10 @@ export const LOCALIZED_RESPONSES = {
     }
   },
   te: {
-    greeting: 'నమస్కారం! నేను మీ Pavi Chat Bot ని. మీరు ఏ భాషలోనైనా HRMS వివరాలను అడగవచ్చు.',
-    casualGreeting: 'నేను చాలా బాగున్నాను! 😊 Pavi Chat Bot లో మీకు ఏ సహాయం కావాలి? హాజరు, సెలవులు, టాస్కులు, జీతాల వివరాల గురించి అడగండి!',
-    botTrained: 'ఖచ్చితంగా! 👍 Pavi Chat Bot ఇప్పుడు పూర్తిగా సిద్ధంగా ఉంది. మీరు Tanglish, తెలుగు లేదా ఇంగ్లీషులో ఏది అడిగినా లైవ్ HRMS సమాచారం ఇస్తాను!',
-    whoAreYou: 'నేను మీ Pavi Chat Bot ని! 🤖 ఉద్యోగుల వివరాలు, హాజరు, సెలవులు, టాస్కులు మరియు జీతాల సమాచారాన్ని అందిస్తాను.',
+    greeting: 'నమస్కారం! నేను మీ BUSINZ Chat Bot ని. మీరు ఏ భాషలోనైనా HRMS వివరాలను అడగవచ్చు.',
+    casualGreeting: 'నేను చాలా బాగున్నాను! 😊 BUSINZ Chat Bot లో మీకు ఏ సహాయం కావాలి? హాజరు, సెలవులు, టాస్కులు, జీతాల వివరాల గురించి అడగండి!',
+    botTrained: 'ఖచ్చితంగా! 👍 BUSINZ Chat Bot ఇప్పుడు పూర్తిగా సిద్ధంగా ఉంది. మీరు Tanglish, తెలుగు లేదా ఇంగ్లీషులో ఏది అడిగినా లైవ్ HRMS సమాచారం ఇస్తాను!',
+    whoAreYou: 'నేను మీ BUSINZ Chat Bot ని! 🤖 ఉద్యోగుల వివరాలు, హాజరు, సెలవులు, టాస్కులు మరియు జీతాల సమాచారాన్ని అందిస్తాను.',
     thankYou: 'చాలా ధన్యవాదాలు! 😊 మీకు ఇంకా ఏదైనా సమాచారం కావాలా?',
     leaveFound: (count: number, dateLabel: string) => `${dateLabel}న Approved సెలవులో ఉన్న ${count} మంది ఉద్యోగుల వివరాలు:`,
     noLeaveFound: (dateLabel: string) => `${dateLabel}న ఎవరూ సెలవులో లేరు. అందరూ హాజరయ్యారు.`,
@@ -857,10 +857,10 @@ export const LOCALIZED_RESPONSES = {
     }
   },
   en: {
-    greeting: 'Hello! I am your Pavi Chat Bot. You can ask me any HRMS question in any language, script, or transliteration.',
-    casualGreeting: "I'm doing great, thank you! 😊 How can I assist you with your Pavi Chat Bot today? Feel free to ask about attendance, absent lists, leave requests, overdue tasks, or payroll!",
-    botTrained: "Understood! 👍 Pavi Chat Bot is fully trained and ready. Whatever you ask in Tamil, Tanglish, Hindi, or English, I will fetch live, accurate data directly from your HRMS database!\n\nTry clicking any of these:\n• Inniku absent yaru?\n• Nethu yaru leave?\n• En team-la overdue task yaruku irukku?\n• Total employees evlo peru?\n• Monthly attendance report excel-la kudu",
-    whoAreYou: "I am your Pavi Chat Bot! 🤖 I provide instant real-time data for employee directories, biometric attendance, leave approvals, team tasks, performance appraisals, and payroll records across languages.",
+    greeting: 'Hello! I am your BUSINZ Chat Bot. You can ask me any HRMS question in any language, script, or transliteration.',
+    casualGreeting: "I'm doing great, thank you! 😊 How can I assist you with your BUSINZ Chat Bot today? Feel free to ask about attendance, absent lists, leave requests, overdue tasks, or payroll!",
+    botTrained: "Understood! 👍 BUSINZ Chat Bot is fully trained and ready. Whatever you ask in Tamil, Tanglish, Hindi, or English, I will fetch live, accurate data directly from your HRMS database!\n\nTry clicking any of these:\n• Inniku absent yaru?\n• Nethu yaru leave?\n• En team-la overdue task yaruku irukku?\n• Total employees evlo peru?\n• Monthly attendance report excel-la kudu",
+    whoAreYou: "I am your BUSINZ Chat Bot! 🤖 I provide instant real-time data for employee directories, biometric attendance, leave approvals, team tasks, performance appraisals, and payroll records across languages.",
     thankYou: "You are very welcome! 😊 Let me know if you need any other reports, attendance metrics, or HRMS records.",
     leaveFound: (count: number, dateLabel: string) => `Here are the ${count} employee(s) who were on approved leave for ${dateLabel}:`,
     noLeaveFound: (dateLabel: string) => `No employees were on leave on ${dateLabel}. All employees were accounted for.`,

@@ -38,7 +38,13 @@ export const updateGeofenceSettingsSchema = z.object({
   address: z.string().optional(),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
+  centerLat: z.number().min(-90).max(90).optional(),
+  centerLng: z.number().min(-180).max(180).optional(),
   radiusMeters: z.number().positive().optional(),
   isEnabled: z.boolean().optional(),
+  enabled: z.boolean().optional(),
   strictMode: z.boolean().optional(),
+  enforceStrictly: z.boolean().optional(),
+  googleMapsLink: z.string().optional().or(z.literal('')),
 });
+

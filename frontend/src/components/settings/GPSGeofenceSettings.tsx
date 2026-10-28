@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { API_BASE_URL } from '../../config/api';
+import { parseGoogleMapsLink } from '../../utils/googleMapsParser';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { 
@@ -18,10 +20,10 @@ export const GPSGeofenceSettings: React.FC = () => {
   const { geofenceConfig, updateGeofenceConfig, currentUser } = useHRMS();
   const isPrivileged = currentUser.role !== 'Employee';
 
-  // Active Editing Fields (Clean slate for manual input)
+  // Active Editing Fields (Populated with saved geofence configuration)
   const [name, setName] = useState<string>(() => {
     const val = geofenceConfig.officeName;
-    return (val && val !== 'Businz HQ' && val !== 'Corporate Headquarters') ? val : '';
+    return (val && val !== 'Businz HQ' && val !== 'Corporate Headquarters') ? val : (val || '');
   });
 
   const [googleMapsLink, setGoogleMapsLink] = useState<string>(() => {
@@ -36,11 +38,11 @@ export const GPSGeofenceSettings: React.FC = () => {
 
   const [lat, setLat] = useState<number | ''>(() => {
     const val = Number(geofenceConfig.centerLat);
-    return (val && val !== 13.151968 && val !== 28.703197 && val !== 0) ? val : '';
+    return (val && !isNaN(val) && val !== 0) ? val : '';
   });
   const [lng, setLng] = useState<number | ''>(() => {
     const val = Number(geofenceConfig.centerLng);
-    return (val && val !== 80.2086053 && val !== 77.098123 && val !== 0) ? val : '';
+    return (val && !isNaN(val) && val !== 0) ? val : '';
   });
   const [radius, setRadius] = useState<number>(() => Number(geofenceConfig.radiusMeters) || 250);
   const [address, setAddress] = useState<string>(() => {
@@ -296,7 +298,7 @@ export const GPSGeofenceSettings: React.FC = () => {
     }
   };
 
-  // Google Maps Link & Address Parser (Handles short links, DMS, queries, !3d!4d, @coords, and geocoding)
+  // Google Maps Link & Address Parser with Pin Priority & Redirect Handling (Phase 2)
   const handleExtractFromGoogleMapsLink = async () => {
     const raw = googleMapsLink.trim();
     if (!raw) return;
@@ -305,71 +307,26 @@ export const GPSGeofenceSettings: React.FC = () => {
 
     let foundLat: number | null = null;
     let foundLng: number | null = null;
-    let decoded = raw;
-    try {
-      decoded = decodeURIComponent(raw);
-    } catch {}
+    let isViewportOnly = false;
+    let fallbackNotice = '';
 
-    // Pattern 1: @lat,lng,zoom e.g. @13.0827,80.2707,17z
-    const atMatch = decoded.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (atMatch) {
-      foundLat = parseFloat(atMatch[1]);
-      foundLng = parseFloat(atMatch[2]);
+    // Step 1: Direct Client-Side Parse prioritizing Place Pin over Viewport
+    const clientParsed = parseGoogleMapsLink(raw);
+    if (clientParsed.success && !clientParsed.isViewportFallback) {
+      foundLat = clientParsed.lat;
+      foundLng = clientParsed.lng;
+    } else if (clientParsed.success && clientParsed.isViewportFallback) {
+      // Keep as backup, but check backend resolver first in case it's a short link or redirect
+      foundLat = clientParsed.lat;
+      foundLng = clientParsed.lng;
+      isViewportOnly = true;
+      fallbackNotice = clientParsed.message || '';
     }
 
-    // Pattern 2: !3d<lat>!4d<lng> (Standard Google Maps Place URLs)
-    if (!foundLat) {
-      const dataMatch = decoded.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-      if (dataMatch) {
-        foundLat = parseFloat(dataMatch[1]);
-        foundLng = parseFloat(dataMatch[2]);
-      }
-    }
-
-    // Pattern 3: ?q=lat,lng or query=lat,lng or loc=lat,lng or center=lat,lng
-    if (!foundLat) {
-      const qMatch = decoded.match(/[?&](?:q|query|loc|center|destination)=(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)/i);
-      if (qMatch) {
-        foundLat = parseFloat(qMatch[1]);
-        foundLng = parseFloat(qMatch[2]);
-      }
-    }
-
-    // Pattern 4: ll=lat,lng
-    if (!foundLat) {
-      const llMatch = decoded.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (llMatch) {
-        foundLat = parseFloat(llMatch[1]);
-        foundLng = parseFloat(llMatch[2]);
-      }
-    }
-
-    // Pattern 5: Raw coordinates string "13.0827, 80.2707"
-    if (!foundLat) {
-      const rawMatch = decoded.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-      if (rawMatch) {
-        foundLat = parseFloat(rawMatch[1]);
-        foundLng = parseFloat(rawMatch[2]);
-      }
-    }
-
-    // Pattern 6: DMS coordinates (e.g. 13°04'57.7"N 80°16'14.5"E)
-    if (!foundLat) {
-      const dmsMatch = decoded.match(/(\d+)°(\d+)'([\d.]+)"([NS])[,\s]+(\d+)°(\d+)'([\d.]+)"([EW])/i);
-      if (dmsMatch) {
-        const latDeg = parseFloat(dmsMatch[1]) + parseFloat(dmsMatch[2]) / 60 + parseFloat(dmsMatch[3]) / 3600;
-        const latSign = dmsMatch[4].toUpperCase() === 'S' ? -1 : 1;
-        const lngDeg = parseFloat(dmsMatch[5]) + parseFloat(dmsMatch[6]) / 60 + parseFloat(dmsMatch[7]) / 3600;
-        const lngSign = dmsMatch[8].toUpperCase() === 'W' ? -1 : 1;
-        foundLat = latDeg * latSign;
-        foundLng = lngDeg * lngSign;
-      }
-    }
-
-    // Pattern 7: Short links (e.g. maps.app.goo.gl or goo.gl/maps) -> Backend resolver
-    if (!foundLat && (raw.includes('goo.gl') || raw.includes('maps.app'))) {
+    // Step 2: If coordinates not found or only viewport, and URL is a short link or HTTP URL, resolve via backend
+    if ((!foundLat || isViewportOnly) && (raw.includes('goo.gl') || raw.includes('maps.app') || raw.startsWith('http'))) {
       try {
-        const resp = await fetch('https://hrms.businz.com/api/v1/settings/resolve-map-link', {
+        const resp = await fetch(`${API_BASE_URL}/settings/resolve-map-link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: raw })
@@ -379,6 +336,8 @@ export const GPSGeofenceSettings: React.FC = () => {
           if (resData.success && resData.lat && resData.lng) {
             foundLat = parseFloat(resData.lat);
             foundLng = parseFloat(resData.lng);
+            isViewportOnly = Boolean(resData.isViewportFallback);
+            if (resData.message) fallbackNotice = resData.message;
           }
         }
       } catch (err) {
@@ -386,7 +345,7 @@ export const GPSGeofenceSettings: React.FC = () => {
       }
     }
 
-    // Pattern 8: If it's a place name or address query (e.g. user entered "Kathirvedu, Chennai")
+    // Step 3: If it's a place name or address query (e.g. user entered "Kathirvedu, Chennai")
     if (!foundLat && !raw.startsWith('http://') && !raw.startsWith('https://')) {
       try {
         const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(raw)}&limit=1`, {
@@ -411,9 +370,15 @@ export const GPSGeofenceSettings: React.FC = () => {
       const fixedLng = Number(foundLng.toFixed(6));
       setLat(fixedLat);
       setLng(fixedLng);
-      setLinkExtractMsg(`✓ Location detected: ${fixedLat}, ${fixedLng}`);
+
+      if (isViewportOnly) {
+        setLinkExtractMsg(`⚠️ Location estimated from map camera: ${fixedLat}, ${fixedLng}. Please verify the pin on the map matches your exact entrance.`);
+      } else {
+        setLinkExtractMsg(`✓ Intended office pin detected: ${fixedLat}, ${fixedLng}`);
+      }
+
       fetchAddress(fixedLat, fixedLng);
-      setTimeout(() => setLinkExtractMsg(null), 4000);
+      setTimeout(() => setLinkExtractMsg(null), 6000);
     } else {
       setLinkExtractMsg('Could not detect coordinates from this link. You can click directly on the map or enter Latitude and Longitude.');
       setTimeout(() => setLinkExtractMsg(null), 6000);
@@ -441,38 +406,58 @@ export const GPSGeofenceSettings: React.FC = () => {
         setIsDetectingLocation(false);
         alert(`Failed to retrieve location: ${err.message}`);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // Save / Confirm Action
-  const handleConfirmSave = () => {
+  // Save / Confirm Action (Persist to Backend PostgreSQL & Context)
+  const handleConfirmSave = async () => {
     const numLat = typeof lat === 'number' ? lat : parseFloat(String(lat)) || 0;
     const numLng = typeof lng === 'number' ? lng : parseFloat(String(lng)) || 0;
-    const finalName = name.trim() || address.trim() || 'Office Geofence';
+    const finalName = name.trim() || address.trim() || 'VRM Structures India Pvt Ltd';
     const finalLink = googleMapsLink.trim() || (numLat !== 0 && numLng !== 0 ? `https://www.google.com/maps?q=${numLat},${numLng}` : '');
 
-    updateGeofenceConfig({
+    const geofencePayload = {
       officeName: finalName,
       centerLat: numLat,
       centerLng: numLng,
+      latitude: numLat,
+      longitude: numLng,
       radiusMeters: radius,
       googleMapsLink: finalLink,
       address: address.trim() || finalName,
       enabled: Boolean(numLat !== 0 && numLng !== 0),
       enforceStrictly: Boolean(numLat !== 0 && numLng !== 0)
-    });
+    };
 
-    setSaveSuccessMsg(`Geofence "${finalName}" saved with ${radius}M perimeter boundary!`);
+    // Update Context & local storage
+    updateGeofenceConfig(geofencePayload);
+
+    // Persist to Backend API / PostgreSQL directly
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+      await fetch(`${API_BASE_URL}/settings/geofence`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(geofencePayload)
+      });
+    } catch (apiErr) {
+      console.warn('Backend geofence save warning:', apiErr);
+    }
+
+    setSaveSuccessMsg(`✓ Geofence "${finalName}" saved with ${radius}M perimeter boundary!`);
     setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
-  // Reset to clean slate or current non-mock values
+  // Reset to saved values
   const handleReset = () => {
     const savedName = geofenceConfig.officeName;
-    const cleanName = (savedName && savedName !== 'Businz HQ' && savedName !== 'Corporate Headquarters') ? savedName : '';
-    const cleanLat = (geofenceConfig.centerLat && geofenceConfig.centerLat !== 13.151968 && geofenceConfig.centerLat !== 28.703197) ? geofenceConfig.centerLat : '';
-    const cleanLng = (geofenceConfig.centerLng && geofenceConfig.centerLng !== 80.2086053 && geofenceConfig.centerLng !== 77.098123) ? geofenceConfig.centerLng : '';
+    const cleanName = (savedName && savedName !== 'Businz HQ' && savedName !== 'Corporate Headquarters') ? savedName : (savedName || '');
+    const cleanLat = geofenceConfig.centerLat || '';
+    const cleanLng = geofenceConfig.centerLng || '';
 
     setName(cleanName);
     setGoogleMapsLink(geofenceConfig.googleMapsLink || (cleanLat && cleanLng ? `https://www.google.com/maps?q=${cleanLat},${cleanLng}` : ''));

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 
 export interface StandardTablePaginationProps {
@@ -19,6 +19,22 @@ export const StandardTablePagination: React.FC<StandardTablePaginationProps> = (
   pageSizeOptions = [5, 10] // strictly [5, 10] as per design system specification
 }) => {
   const [jumpPage, setJumpPage] = useState<string>('');
+  const [isMobile, setIsMobile] = useState<boolean>(() => 
+    typeof window !== 'undefined' ? window.innerWidth <= 1024 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Standard table pagination is strictly disabled across all mobile screens
+  if (isMobile) {
+    return null;
+  }
   const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
 
   // Determine displayed entry bounds
@@ -140,6 +156,8 @@ export const StandardTablePagination: React.FC<StandardTablePaginationProps> = (
           <input
             id="standard-goto-input"
             type="number"
+            inputMode="numeric"
+            pattern="[0-9]*"
             min={1}
             max={totalPages}
             className="standard-goto-input"

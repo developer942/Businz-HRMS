@@ -335,7 +335,7 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
         overflow: 'hidden',
         boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
       }}>
-        <div className="table-responsive" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div className="table-responsive whatsapp-desktop-table" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           <table style={{ width: '100%', minWidth: '700px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#64748B', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -551,6 +551,160 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Contact List Cards */}
+        <div className="whatsapp-mobile-cards" style={{ padding: '12px' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '36px 16px', color: '#94A3B8' }}>
+              Loading contacts...
+            </div>
+          ) : contacts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+              <User size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+              <div style={{ fontWeight: 750, fontSize: '0.92rem', color: '#1E293B' }}>No contacts found</div>
+              <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '4px 0 14px' }}>Try searching with a different name, phone, or category.</p>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleOpenAddModal}
+                style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 650 }}
+              >
+                <Plus size={15} /> Add Contact
+              </button>
+            </div>
+          ) : (
+            contacts.map(c => {
+              return (
+                <div key={c.id} className="mobile-whatsapp-contact-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '50%',
+                        backgroundColor: '#0E7490',
+                        color: '#FFFFFF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        flexShrink: 0
+                      }}>
+                        {c.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 750, color: '#0F172A', fontSize: '0.9rem' }}>{c.name}</div>
+                        <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{c.companyName || c.designation || 'No company'}</div>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      backgroundColor:
+                        c.category === 'Employees'
+                          ? '#EFF6FF'
+                          : c.category === 'Customers'
+                          ? '#ECFEFF'
+                          : c.category === 'Scanned Contacts'
+                          ? '#FEF3C7'
+                          : '#F1F5F9',
+                      color:
+                        c.category === 'Employees'
+                          ? '#1D4ED8'
+                          : c.category === 'Customers'
+                          ? '#0E7490'
+                          : c.category === 'Scanned Contacts'
+                          ? '#B45309'
+                          : '#475569'
+                    }}>
+                      {c.category}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', padding: '8px 12px', borderRadius: '10px' }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 650, color: '#1E293B' }}>{c.phone}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: c.consentStatus === 'Opted In' ? '#166534' : '#64748B' }}>
+                      {c.consentStatus === 'Opted In' ? (
+                        <>
+                          <ShieldCheck size={14} color="#166534" />
+                          <span style={{ fontWeight: 600 }}>Opted In</span>
+                        </>
+                      ) : (
+                        <span>{c.consentStatus}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {c.tags && c.tags.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {c.tags.map(t => (
+                        <span
+                          key={t.id}
+                          style={{
+                            fontSize: '0.68rem',
+                            padding: '2px 7px',
+                            borderRadius: '9999px',
+                            backgroundColor: '#F1F5F9',
+                            color: '#334155',
+                            border: '1px solid #E2E8F0'
+                          }}
+                        >
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                    <button
+                      type="button"
+                      onClick={() => onStartChat(c.id)}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        backgroundColor: '#0E7490',
+                        color: '#FFFFFF',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <MessageSquare size={14} />
+                      <span>Chat on WhatsApp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(c)}
+                      title="Edit Contact"
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #E2E8F0',
+                        backgroundColor: '#FFFFFF',
+                        color: '#64748B',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Standardized VRM Pagination Footer: Rows strictly [5, 10] */}

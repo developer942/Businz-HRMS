@@ -41,15 +41,21 @@ export const DateInput: React.FC<DateInputProps> = ({ value = '', onChange, onBl
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', width: '100%', display: 'inline-block' }}>
       <input
         ref={inputRef}
         {...props}
         type="text"
         inputMode="numeric"
+        autoComplete="off"
         placeholder={props.placeholder || 'DD/MM/YYYY'}
         className={className}
-        style={{ ...style, paddingRight: '38px' }}
+        style={{
+          ...style,
+          paddingRight: '44px',
+          WebkitAppearance: 'none',
+          boxSizing: 'border-box'
+        }}
         value={displayValue}
         disabled={disabled}
         required={required}
@@ -70,32 +76,67 @@ export const DateInput: React.FC<DateInputProps> = ({ value = '', onChange, onBl
           onBlur?.(event);
         }}
       />
-      <button
-        type="button"
-        aria-label="Open date picker"
-        disabled={disabled}
-        onClick={() => pickerRef.current?.showPicker?.()}
-        style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', cursor: disabled ? 'not-allowed' : 'pointer', color: '#64748B', padding: '4px' }}
-      >
-        <Calendar size={17} />
-      </button>
-      <input
-        ref={pickerRef}
-        type="date"
-        tabIndex={-1}
-        aria-hidden="true"
-        value={normalizeToYYYYMMDD(value)}
-        min={typeof min === 'string' ? min : undefined}
-        max={typeof max === 'string' ? max : undefined}
-        onChange={event => {
-          const iso = event.target.value;
-          setDisplayValue(formatDateDDMMYYYY(iso));
-          setError(null);
-          inputRef.current?.setCustomValidity('');
-          emitValue(iso);
+      <div
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: '44px',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          zIndex: 1,
+          color: disabled ? '#CBD5E1' : '#64748B'
         }}
-        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-      />
+      >
+        <Calendar size={18} style={{ pointerEvents: 'none' }} />
+        <input
+          ref={pickerRef}
+          type="date"
+          tabIndex={-1}
+          aria-label="Pick date from calendar"
+          disabled={disabled}
+          value={normalizeToYYYYMMDD(value)}
+          min={typeof min === 'string' ? min : undefined}
+          max={typeof max === 'string' ? max : undefined}
+          onChange={event => {
+            const iso = event.target.value;
+            if (iso) {
+              setDisplayValue(formatDateDDMMYYYY(iso));
+              setError(null);
+              if (inputRef.current) inputRef.current.setCustomValidity('');
+              emitValue(iso);
+            }
+          }}
+          onClick={e => {
+            // Prevent event bubbling so form is not submitted accidentally
+            e.stopPropagation();
+            try {
+              if (pickerRef.current && typeof pickerRef.current.showPicker === 'function') {
+                pickerRef.current.showPicker();
+              }
+            } catch {
+              // Browser natively handles the tap on the input element
+            }
+          }}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            opacity: 0,
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            zIndex: 2,
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+            margin: 0
+          }}
+        />
+      </div>
       {error && <div role="alert" style={{ color: '#B91C1C', fontSize: '0.72rem', marginTop: '4px' }}>{error}</div>}
     </div>
   );

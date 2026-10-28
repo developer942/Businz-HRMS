@@ -79,15 +79,19 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
     );
   });
 
-  const paginatedExpenses = filteredExpenses.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+  const paginatedExpenses = (typeof window !== 'undefined' && window.innerWidth <= 1024)
+    ? filteredExpenses
+    : filteredExpenses.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize
+      );
 
-  const paginatedRequests = requests.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+  const paginatedRequests = (typeof window !== 'undefined' && window.innerWidth <= 1024)
+    ? requests
+    : requests.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize
+      );
 
   return (
     <div>

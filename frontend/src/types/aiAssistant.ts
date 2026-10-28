@@ -134,6 +134,14 @@ export interface RichPayload {
   };
   navigationTarget?: string; // HRMS module name to jump to
   exportAvailable?: boolean;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    hasMore: boolean;
+    serverSearch?: boolean;
+    search?: string;
+  };
 }
 
 export interface AIMessage {
@@ -148,6 +156,8 @@ export interface AIMessage {
   followUpSuggestions?: string[];
   isError?: boolean;
   geminiModel?: string;
+  dataSource?: 'postgresql' | 'local';
+  timingMs?: number;
 }
 
 export interface ConversationState {

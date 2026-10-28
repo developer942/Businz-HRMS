@@ -155,17 +155,36 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu size={18} />
         </button>
 
-        {/* Breadcrumb Title */}
+        {/* Breadcrumb Title (Desktop) */}
         <div className="header-breadcrumb">
           <span className="header-module-title">
             {getModuleTitle(activeModule)}
           </span>
         </div>
+
+        {/* Mobile Centered Brand Logo (Visible on mobile < 768px) */}
+        <div 
+          className="header-mobile-brand"
+          onClick={() => {
+            resetToDashboard?.();
+            setActiveModule('dashboard');
+          }}
+          style={{ cursor: 'pointer' }}
+        >
+          <img 
+            src={businessSettings?.logoUrl || "/logo.png"} 
+            alt="Logo" 
+            style={{ width: '22px', height: '22px', objectFit: 'contain' }} 
+          />
+          <span className="header-mobile-brand-title">
+            {businessSettings?.businessName || 'BUSINZ'} <span>HRMS</span>
+          </span>
+        </div>
       </div>
 
       <div className="header-right">
-        {/* Quick Add Menu */}
-        <div ref={quickAddRef} style={{ position: 'relative' }}>
+        {/* Quick Add Menu (Desktop) */}
+        <div ref={quickAddRef} className="header-quick-add-wrapper" style={{ position: 'relative' }}>
           <button 
             className="header-quick-add-btn"
             onClick={() => {

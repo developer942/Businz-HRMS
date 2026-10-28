@@ -77,10 +77,12 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
     );
   });
 
-  const paginatedExpenses = filteredExpenses.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+  const paginatedExpenses = (typeof window !== 'undefined' && window.innerWidth <= 1024)
+    ? filteredExpenses
+    : filteredExpenses.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize
+      );
 
   const handleExecuteReversal = async (e: React.FormEvent) => {
     e.preventDefault();

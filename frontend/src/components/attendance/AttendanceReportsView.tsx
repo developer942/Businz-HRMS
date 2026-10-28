@@ -1017,7 +1017,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       </div>
 
       {/* 2. FROM DATE / TO DATE */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+      <div className="attendance-report-date-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '20px' }}>
         
         {/* FROM DATE */}
         <div>
@@ -1150,12 +1150,34 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       </div>
 
       {/* 4. SELECT REPORT TYPE */}
-      <div style={{ marginBottom: '28px' }}>
-        <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '12px' }}>
-          SELECT REPORT TYPE
-        </label>
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 }}>
+            SELECT REPORT TYPE
+          </label>
+          <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 700 }} className="report-active-pill-label">
+            Active: {reportCards.find(c => c.key === selectedReportType)?.title}
+          </span>
+        </div>
 
-        <div className="report-type-cards-grid">
+        {/* Mobile Horizontal Scrollable Pills */}
+        <div className="report-type-mobile-pills">
+          {reportCards.map(card => {
+            const isSelected = selectedReportType === card.key;
+            return (
+              <button
+                key={card.key}
+                type="button"
+                onClick={() => setSelectedReportType(card.key)}
+                className={`report-mobile-pill ${isSelected ? 'active' : ''}`}
+              >
+                {card.title}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="report-type-cards-grid report-type-desktop-grid">
           {reportCards.map(card => {
             const isSelected = selectedReportType === card.key;
             return (

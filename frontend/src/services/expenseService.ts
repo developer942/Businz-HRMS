@@ -38,3 +38,58 @@ export const fetchExpenseClaims = async (): Promise<Expense[]> => {
   }
   return body.data as Expense[];
 };
+
+export const approveExpenseApi = async (id: string): Promise<Expense> => {
+  const token = getToken();
+  const response = await fetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success) {
+    throw new Error(body?.error?.message || 'Expense claim approval failed.');
+  }
+  return body.data as Expense;
+};
+
+export const rejectExpenseApi = async (id: string, rejectionReason: string): Promise<Expense> => {
+  const token = getToken();
+  const response = await fetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ rejectionReason }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success) {
+    throw new Error(body?.error?.message || 'Expense claim rejection failed.');
+  }
+  return body.data as Expense;
+};
+
+export const disburseExpenseApi = async (id: string, details: {
+  amountPaid: number;
+  paymentMode: string;
+  transactionRef?: string;
+  remarks?: string;
+}): Promise<Expense> => {
+  const token = getToken();
+  const response = await fetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/disburse`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(details),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success) {
+    throw new Error(body?.error?.message || 'Expense claim disbursement recording failed.');
+  }
+  return body.data as Expense;
+};

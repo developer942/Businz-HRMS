@@ -74,29 +74,24 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     recordManualRepayment 
   } = useHRMS();
 
-  // Role resolution & Permissions
-  const isApprovalAuthority = 
-    currentUser.role === 'CEO' || 
-    currentUser.role === 'Super Admin' || 
-    currentUser.role === 'HR Manager' || 
-    currentUser.role === 'HR Admin' ||
-    (currentUser as any).designation?.toLowerCase().includes('ceo') ||
-    (currentUser as any).designation?.toLowerCase().includes('managing director');
-
+  // Define Accounts Department users: Finance Manager or Accounts/Finance department/designation
   const isAccountsUser = 
     currentUser.role === 'Finance Manager' ||
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
-  const isEmployeeRole = currentUser.role === 'Employee' && !isAccountsUser && !isApprovalAuthority;
-  const isViewingAsEmployee = isEmployeeRole;
-
-  // CEO does not apply for advance salary — hide the request action on the CEO page only
+  // CEO / Managing Director is the sole approval authority
   const isCEOUser =
     currentUser.role === 'CEO' ||
     currentUser.role === 'Super Admin' ||
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
+
+  const isApprovalAuthority = isCEOUser;
+
+  // Accounts staff have normal employee access here (viewing/applying for their own advances only)
+  const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isApprovalAuthority;
+  const isViewingAsEmployee = isEmployeeRole;
 
   const isHrEmployeeRecord = (employeeId?: string, employeeName?: string) => {
     const nameKey = (employeeName || '').trim().toLowerCase();
@@ -182,6 +177,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
   const [disbursementModalRecord, setDisbursementModalRecord] = useState<LoanRecord | null>(null);
   const [manualRepaymentModalRecord, setManualRepaymentModalRecord] = useState<LoanRecord | null>(null);
   const [scheduleModalRecord, setScheduleModalRecord] = useState<LoanRecord | null>(null);
+  const [isMobileKpiExpanded, setIsMobileKpiExpanded] = useState(false);
 
   const getLocalDateString = (offsetDays: number = 0) => {
     const date = new Date();
@@ -804,8 +800,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
           ======================================================== */}
       {isViewingAsEmployee ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Employee KPI Cards */}
-          <div className="kpi-grid compact" style={{ gap: '10px', marginBottom: '8px' }}>
+          {/* Employee KPI Cards - Desktop */}
+          <div className="kpi-grid compact advance-salary-desktop-kpi" style={{ gap: '10px', marginBottom: '8px' }}>
             <div className="kpi-card compact" style={{ padding: '8px 12px', borderRadius: '10px' }}>
               <div className="kpi-card-header" style={{ marginBottom: '3px' }}>
                 <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#64748B' }}>
@@ -875,20 +871,76 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
             </div>
           </div>
 
+          {/* Employee KPI - Mobile 2-Column Summary + Expandable info */}
+          <div className="advance-salary-mobile-kpi">
+            <div className="advance-salary-summary-2col">
+              <div className="advance-salary-summary-box highlight">
+                <div className="advance-salary-summary-label">
+                  <span>Eligible Limit</span>
+                  <Calculator size={13} color="#0E7490" />
+                </div>
+                <div className="advance-salary-summary-val">{formatCurrency(employeeEligibility.maxEligibleAmount)}</div>
+                <div className="advance-salary-summary-caption">Max Policy Limit</div>
+              </div>
+              <div className="advance-salary-summary-box">
+                <div className="advance-salary-summary-label">
+                  <span>Outstanding</span>
+                  <Receipt size={13} color={myTotalOutstanding > 0 ? '#B45309' : '#166534'} />
+                </div>
+                <div className="advance-salary-summary-val" style={{ color: myTotalOutstanding > 0 ? '#B45309' : '#166534' }}>
+                  {formatCurrency(myTotalOutstanding)}
+                </div>
+                <div className="advance-salary-summary-caption" style={{ color: '#64748B' }}>To Recover</div>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              className="advance-salary-expand-btn"
+              onClick={() => setIsMobileKpiExpanded(prev => !prev)}
+            >
+              <span>{isMobileKpiExpanded ? 'Hide Loan Sanction & EMI ▲' : 'View Loan Sanction & Monthly EMI ▼'}</span>
+            </button>
+            {isMobileKpiExpanded && (
+              <div className="advance-salary-summary-2col" style={{ marginTop: '2px' }}>
+                <div className="advance-salary-summary-box">
+                  <div className="advance-salary-summary-label">
+                    <span>Active Loan</span>
+                    <Banknote size={13} color="#2563EB" />
+                  </div>
+                  <div className="advance-salary-summary-val" style={{ fontSize: '1rem' }}>
+                    {myTotalActiveAmount > 0 ? formatCurrency(myTotalActiveAmount) : 'None'}
+                  </div>
+                  <div className="advance-salary-summary-caption" style={{ color: '#64748B' }}>{myActiveLoans.length} active account{myActiveLoans.length === 1 ? '' : 's'}</div>
+                </div>
+                <div className="advance-salary-summary-box">
+                  <div className="advance-salary-summary-label">
+                    <span>Monthly EMI</span>
+                    <CreditCard size={13} color="#7C3AED" />
+                  </div>
+                  <div className="advance-salary-summary-val" style={{ fontSize: '1rem' }}>
+                    {formatCurrency(myTotalMonthlyEMI)}
+                  </div>
+                  <div className="advance-salary-summary-caption" style={{ color: '#64748B' }}>Payroll deduction</div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Employee Loan Applications & Active Records Table */}
           <div className="card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                   My Advance Salary Accounts
                 </h3>
-                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '4px 0 0' }}>
-                  Complete transparent statement of your requested amounts, approved terms, monthly deductions, and settlement status.
+                <p style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', margin: '4px 0 0' }}>
+                  Statement of your requested amounts, approved terms, monthly deductions, and settlement status.
                 </p>
               </div>
             </div>
 
-            <div className="table-responsive">
+            {/* Desktop Table View */}
+            <div className="table-responsive advance-salary-desktop-table">
               <table className="hrms-table">
                 <thead>
                   <tr>
@@ -958,6 +1010,78 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile Cards View */}
+            <div className="advance-salary-mobile-cards" style={{ padding: '12px' }}>
+              {myLoans.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+                  <Wallet size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+                  <div style={{ fontWeight: 750, fontSize: '0.92rem', color: '#1E293B' }}>No Advance Salary Requests Found</div>
+                  <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '4px 0 14px' }}>Submit an advance request against your eligible limit.</p>
+                  {!isCEOUser && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={openRequestModal}
+                      style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 700 }}
+                    >
+                      <Plus size={15} /> Request Advance Salary
+                    </button>
+                  )}
+                </div>
+              ) : (
+                myLoans.map(loan => (
+                  <div key={loan.id} className="mobile-advance-card">
+                    <div className="mobile-advance-card-header">
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.84rem' }}>{loan.id}</span>
+                          <span style={{ fontSize: '0.72rem', background: '#EFF6FF', color: '#1D4ED8', padding: '2px 6px', borderRadius: '6px', fontWeight: 700 }}>
+                            {loan.requestType}
+                          </span>
+                        </div>
+                        <div className="mobile-advance-card-sub">{formatDateDDMMYYYY(loan.requestedDate)}</div>
+                      </div>
+                      <div>{renderStatusBadge(loan.status)}</div>
+                    </div>
+
+                    <div className="mobile-advance-card-grid">
+                      <div>
+                        <div className="mobile-advance-card-field-label">Requested</div>
+                        <div className="mobile-advance-card-field-val" style={{ color: '#0F172A' }}>{formatCurrency(loan.requestedAmount)}</div>
+                      </div>
+                      <div>
+                        <div className="mobile-advance-card-field-label">Approved</div>
+                        <div className="mobile-advance-card-field-val" style={{ color: loan.approvedAmount ? '#166534' : '#94A3B8' }}>
+                          {loan.approvedAmount ? formatCurrency(loan.approvedAmount) : 'Pending'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mobile-advance-card-field-label">Monthly EMI</div>
+                        <div className="mobile-advance-card-field-val" style={{ color: '#0E7490' }}>{formatCurrency(loan.monthlyDeduction)}</div>
+                      </div>
+                      <div>
+                        <div className="mobile-advance-card-field-label">Outstanding</div>
+                        <div className="mobile-advance-card-field-val" style={{ color: loan.outstandingBalance > 0 ? '#B45309' : '#166534' }}>
+                          {formatCurrency(loan.outstandingBalance)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mobile-advance-card-actions">
+                      <button 
+                        type="button" 
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setScheduleModalRecord(loan)}
+                        style={{ width: '100%', borderRadius: '10px' }}
+                      >
+                        <Calendar size={14} /> View Repayment Schedule
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       ) : (
@@ -965,8 +1089,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
            2. HR & CEO ADMIN MANAGEMENT VIEW
            ======================================================== */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-          {/* Admin KPI Cards (Interactive & Active Highlight) */}
-          <div className="kpi-grid compact" style={{ gap: '10px', marginBottom: '8px' }}>
+          {/* Admin KPI Cards - Desktop */}
+          <div className="kpi-grid compact advance-salary-desktop-kpi" style={{ gap: '10px', marginBottom: '8px' }}>
             <div 
               className="kpi-card compact" 
               onClick={() => setAdminTab('pending')} 
@@ -1078,6 +1202,69 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Admin KPI - Mobile 2-Column Summary + Expandable info */}
+          <div className="advance-salary-mobile-kpi">
+            <div className="advance-salary-summary-2col">
+              <div 
+                className="advance-salary-summary-box highlight" 
+                onClick={() => setAdminTab('pending')} 
+                style={{ cursor: 'pointer', border: adminTab === 'pending' ? '2px solid #0E7490' : undefined }}
+              >
+                <div className="advance-salary-summary-label">
+                  <span>Pending Reviews</span>
+                  <Clock size={13} color="#D97706" />
+                </div>
+                <div className="advance-salary-summary-val" style={{ color: adminKPIs.totalPending > 0 ? '#B45309' : '#0F172A' }}>
+                  {adminKPIs.totalPending}
+                </div>
+                <div className="advance-salary-summary-caption">Awaiting review</div>
+              </div>
+              <div 
+                className="advance-salary-summary-box" 
+                onClick={() => setAdminTab('all')} 
+                style={{ cursor: 'pointer', border: adminTab === 'all' ? '2px solid #0E7490' : undefined }}
+              >
+                <div className="advance-salary-summary-label">
+                  <span>Total Outstanding</span>
+                  <Receipt size={13} color="#0E7490" />
+                </div>
+                <div className="advance-salary-summary-val">{formatCurrency(adminKPIs.totalOutstanding)}</div>
+                <div className="advance-salary-summary-caption" style={{ color: '#64748B' }}>Recoverable balance</div>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              className="advance-salary-expand-btn"
+              onClick={() => setIsMobileKpiExpanded(prev => !prev)}
+            >
+              <span>{isMobileKpiExpanded ? 'Hide Active Accounts & Deductions ▲' : 'View Active Accounts & Deductions ▼'}</span>
+            </button>
+            {isMobileKpiExpanded && (
+              <div className="advance-salary-summary-2col" style={{ marginTop: '2px' }}>
+                <div 
+                  className="advance-salary-summary-box"
+                  onClick={() => setAdminTab('active')} 
+                  style={{ cursor: 'pointer', border: adminTab === 'active' ? '2px solid #0E7490' : undefined }}
+                >
+                  <div className="advance-salary-summary-label">
+                    <span>Active Accounts</span>
+                    <CheckCircle2 size={13} color="#166534" />
+                  </div>
+                  <div className="advance-salary-summary-val">{adminKPIs.totalActiveCount}</div>
+                  <div className="advance-salary-summary-caption" style={{ color: '#64748B' }}>Salary deductions</div>
+                </div>
+                <div className="advance-salary-summary-box">
+                  <div className="advance-salary-summary-label">
+                    <span>Monthly Deductions</span>
+                    <CreditCard size={13} color="#0E7490" />
+                  </div>
+                  <div className="advance-salary-summary-val">{formatCurrency(adminKPIs.thisMonthDeductions)}</div>
+                  <div className="advance-salary-summary-caption" style={{ color: '#64748B' }}>Scheduled run</div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Clean Filter Bar with Unified Dropdowns */}
@@ -1253,7 +1440,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
 
           {/* Admin Table adhering to Standard Table Rules */}
           <div className="card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
-            <div className="table-responsive">
+            <div className="table-responsive advance-salary-desktop-table">
               <table className="hrms-table">
                 <thead>
                   <tr>
@@ -1474,6 +1661,137 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile Cards View for Admin */}
+            <div className="advance-salary-mobile-cards" style={{ padding: '12px' }}>
+              {paginatedRecords.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+                  <Banknote size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+                  <div style={{ fontWeight: 750, fontSize: '0.92rem', color: '#1E293B' }}>No Loan Requests Found</div>
+                  <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '4px 0 14px' }}>Try adjusting search terms, department, or selecting another tab.</p>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setDepartmentFilter('ALL');
+                      setTypeFilter('ALL');
+                      setSearchQuery('');
+                      setAdminTab('all');
+                    }}
+                    style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 650 }}
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
+                paginatedRecords.map(record => {
+                  const empInitials = record.employeeName
+                    ? record.employeeName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                    : 'EM';
+                  return (
+                    <div key={record.id} className="mobile-advance-card">
+                      <div className="mobile-advance-card-header">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{
+                            width: '34px',
+                            height: '34px',
+                            borderRadius: '8px',
+                            backgroundColor: '#ECFEFF',
+                            color: '#0E7490',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 800,
+                            fontSize: '0.76rem',
+                            flexShrink: 0
+                          }}>
+                            {empInitials}
+                          </div>
+                          <div>
+                            <div className="mobile-advance-card-title">{record.employeeName}</div>
+                            <div className="mobile-advance-card-sub">{record.department} • {record.employeeId}</div>
+                          </div>
+                        </div>
+                        <div>{renderStatusBadge(record.status)}</div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.72rem', background: '#EFF6FF', color: '#1D4ED8', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                          {(record.requestType as string) === 'Salary Advance' ? 'Advance Salary' : record.requestType}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                          Ref: <strong style={{ color: '#0E7490' }}>{record.id}</strong>
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#94A3B8' }}>•</span>
+                        <span style={{ fontSize: '0.72rem', color: '#64748B' }}>{formatDateDDMMYYYY(record.requestedDate)}</span>
+                      </div>
+
+                      <div className="mobile-advance-card-grid">
+                        <div>
+                          <div className="mobile-advance-card-field-label">Requested</div>
+                          <div className="mobile-advance-card-field-val" style={{ color: '#0F172A' }}>{formatCurrency(record.requestedAmount)}</div>
+                        </div>
+                        <div>
+                          <div className="mobile-advance-card-field-label">Sanctioned</div>
+                          <div className="mobile-advance-card-field-val" style={{ color: record.approvedAmount ? '#166534' : '#64748B' }}>
+                            {record.approvedAmount ? formatCurrency(record.approvedAmount) : 'Pending Review'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="mobile-advance-card-field-label">Eligible Limit</div>
+                          <div className="mobile-advance-card-field-val" style={{ color: '#0E7490' }}>{formatCurrency(record.eligibleLimitAmount)}</div>
+                        </div>
+                        <div>
+                          <div className="mobile-advance-card-field-label">Tenure / EMI</div>
+                          <div className="mobile-advance-card-field-val">{record.approvedMonths || record.installmentMonths} Mos • {formatCurrency(record.monthlyDeduction)}/mo</div>
+                        </div>
+                      </div>
+
+                      <div className="mobile-advance-card-actions">
+                        {record.status === 'Pending' && isApprovalAuthority && (
+                          <button 
+                            type="button" 
+                            className="btn btn-primary btn-sm"
+                            onClick={() => openReviewModal(record)}
+                            style={{ borderRadius: '8px', fontWeight: 700 }}
+                          >
+                            <Check size={14} /> Accept / Review
+                          </button>
+                        )}
+                        {record.status === 'Approved' && isAccountsUser && (
+                          <button 
+                            type="button" 
+                            className="btn btn-primary btn-sm"
+                            onClick={() => openDisbursementModal(record)}
+                            style={{ borderRadius: '8px', backgroundColor: '#0891B2', fontWeight: 700 }}
+                          >
+                            Disburse
+                          </button>
+                        )}
+                        {(record.status === 'Approved' || record.status === 'Active' || record.status === 'Disbursed' || record.status === 'Closed') && (
+                          <button 
+                            type="button" 
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleDownloadVoucher(record)}
+                            style={{ borderRadius: '8px' }}
+                          >
+                            <Download size={13} /> Voucher
+                          </button>
+                        )}
+                        <button 
+                          type="button" 
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setScheduleModalRecord(record)}
+                          style={{ borderRadius: '8px' }}
+                        >
+                          <Calendar size={13} /> Schedule
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           {/* Floating Action Bar (Standard VRM Table Rule) */}
@@ -1537,8 +1855,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
           .toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
         return (
-          <div className="modal-overlay" style={{ zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-            <div className="modal-content" style={{ maxWidth: '640px', width: '100%', borderRadius: '20px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', backgroundColor: '#ffffff', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
+          <div className="modal-overlay" style={{ zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+            <div className="modal-content" style={{ maxWidth: '640px', width: '95%', borderRadius: '20px', maxHeight: 'calc(100dvh - 24px)', display: 'flex', flexDirection: 'column', backgroundColor: '#ffffff', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
               {/* Pinned Modal Header */}
               <div className="modal-header" style={{ padding: '20px 24px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ffffff', flexShrink: 0 }}>
                 <div>
@@ -1838,10 +2156,10 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
         <div 
           className="modal-overlay" 
           style={{ 
-            zIndex: 9999,
+            zIndex: 20000,
             backgroundColor: 'rgba(15, 23, 42, 0.65)',
             backdropFilter: 'blur(6px)',
-            padding: isReviewFullScreen ? '12px' : '24px',
+            padding: isReviewFullScreen ? '12px' : '16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
@@ -1850,10 +2168,10 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
           <div 
             className="modal-content" 
             style={{ 
-              width: isReviewFullScreen ? '98vw' : '90vw',
+              width: isReviewFullScreen ? '98vw' : '95%',
               maxWidth: isReviewFullScreen ? '1200px' : '780px',
               height: isReviewFullScreen ? '96vh' : 'auto',
-              maxHeight: isReviewFullScreen ? '96vh' : '92vh',
+              maxHeight: isReviewFullScreen ? '96dvh' : 'calc(100dvh - 24px)',
               borderRadius: '20px',
               backgroundColor: '#FFFFFF',
               boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
@@ -2386,8 +2704,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
           MODAL 4: MANUAL REPAYMENT MODAL
           ======================================================== */}
       {manualRepaymentModalRecord && (
-        <div className="modal-overlay" style={{ zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="modal-content" style={{ maxWidth: '560px', width: '100%', borderRadius: '20px', backgroundColor: '#FFFFFF', boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-overlay" style={{ zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="modal-content" style={{ maxWidth: '560px', width: '100%', maxHeight: 'calc(100dvh - 24px)', borderRadius: '20px', backgroundColor: '#FFFFFF', boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             
             {/* Modal Header */}
             <div className="modal-header" style={{ padding: '20px 24px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF', flexShrink: 0 }}>
@@ -2555,8 +2873,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
         (() => {
           const rec = selectedRecordForDetail || scheduleModalRecord!;
           return (
-            <div className="modal-overlay" style={{ zIndex: 9999 }}>
-              <div className="modal-content" style={{ maxWidth: '750px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.18)' }}>
+            <div className="modal-overlay" style={{ zIndex: 20000 }}>
+              <div className="modal-content" style={{ maxWidth: '750px', maxHeight: 'calc(100dvh - 24px)', overflowY: 'auto', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.18)' }}>
                 <div className="modal-header" style={{ padding: '20px 24px', borderBottom: '1px solid #E2E8F0' }}>
                   <div>
                     <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>

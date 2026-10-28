@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { getAssignments, createAssignment, updateAssignment, startTrip, recordLocationPoints, endTrip, getTrips, getTripLocationPoints, getAlerts, resolveAlert, getTrackingOverview, } from '../controllers/trackingController.js';
+import { getAssignments, createAssignment, updateAssignment, startTrip, recordLocationPoints, endTrip, getTrips, getTripLocationPoints, getAlerts, resolveAlert, getTrackingOverview, streamLiveTracking, } from '../controllers/trackingController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
 export const trackingRouter = Router();
 trackingRouter.use(authenticateToken);
+// Real-Time SSE Telemetry Stream
+trackingRouter.get('/live-stream', streamLiveTracking);
 // Assignments
 trackingRouter.get('/assignments', getAssignments);
 trackingRouter.post('/assignments', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Department Manager', 'Department Head']), createAssignment);

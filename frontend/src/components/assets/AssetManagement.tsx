@@ -59,6 +59,9 @@ export const AssetManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState<boolean>(false);
+
+  const activeFilterCount = (categoryFilter !== 'All' ? 1 : 0) + (statusFilter !== 'All' ? 1 : 0);
 
   // Strict User Scoping: In employee view, strictly match assigned assets
   const isAssetAssignedToUser = (asset: AssetItem): boolean => {
@@ -414,8 +417,101 @@ export const AssetManagement: React.FC = () => {
         )}
       </div>
 
-      {/* KPI Overview Grid */}
-      <div className="kpi-grid" style={{ marginBottom: '24px' }}>
+      {/* Mobile Asset Summary Bar & Compact Search + Filter Bar */}
+      <div className="asset-mobile-summary-bar">
+        <div>
+          <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0F172A' }}>
+            {isEmployeeRole ? `${scopedAssets.length} Assigned Devices` : `${assets.length} Total Assets`}
+          </span>
+          <span style={{ fontSize: '0.72rem', color: '#64748B', marginLeft: '6px' }}>
+            ({isEmployeeRole ? scopedAssets.filter(a => a.status === 'Assigned').length : assignedCount} in use)
+          </span>
+        </div>
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0E7490' }}>
+          {formatCurrency(isEmployeeRole ? userTotalCost : totalCost)}
+        </div>
+      </div>
+
+      <div className="asset-mobile-search-row">
+        <div className="asset-mobile-search-wrap">
+          <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none' }} />
+          <input 
+            type="text" 
+            placeholder="Search tag, device, serial #..." 
+            value={searchQuery} 
+            onChange={e => setSearchQuery(e.target.value)} 
+          />
+          {searchQuery && (
+            <button 
+              type="button" 
+              onClick={() => setSearchQuery('')} 
+              style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <button 
+          type="button" 
+          className={`asset-mobile-filter-btn ${activeFilterCount > 0 ? 'active' : ''}`}
+          onClick={() => setIsMobileFiltersOpen(prev => !prev)}
+        >
+          <Filter size={14} /> Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}
+        </button>
+      </div>
+
+      {/* Collapsible Mobile Filters Drawer */}
+      {isMobileFiltersOpen && (
+        <div className="asset-mobile-filters-drawer">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: '6px' }}>
+            <span style={{ fontWeight: 800, fontSize: '0.84rem', color: '#0E7490' }}>Filter Assets</span>
+            <button type="button" onClick={() => setIsMobileFiltersOpen(false)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 0 }}>
+              <X size={15} />
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '3px' }}>Category</label>
+              <select 
+                style={{ width: '100%', height: '34px', fontSize: '0.76rem', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 6px' }}
+                value={categoryFilter} 
+                onChange={e => setCategoryFilter(e.target.value)}
+              >
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '3px' }}>Status</label>
+              <select 
+                style={{ width: '100%', height: '34px', fontSize: '0.76rem', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 6px' }}
+                value={statusFilter} 
+                onChange={e => setStatusFilter(e.target.value)}
+              >
+                {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #F1F5F9' }}>
+            <button 
+              type="button" 
+              onClick={() => { setCategoryFilter('All'); setStatusFilter('All'); }} 
+              style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              Reset Filters
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setIsMobileFiltersOpen(false)} 
+              style={{ backgroundColor: '#0E7490', color: '#FFFFFF', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* KPI Overview Grid (Desktop >= 768px) */}
+      <div className="kpi-grid asset-desktop-kpi" style={{ marginBottom: '24px' }}>
         {isEmployeeRole ? (
           <>
             <div className="kpi-card">
@@ -549,8 +645,8 @@ export const AssetManagement: React.FC = () => {
         )}
       </div>
 
-      {/* Filter Bar */}
-      <div className="card" style={{ padding: '14px 18px', marginBottom: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+      {/* Filter Bar (Desktop >= 768px) */}
+      <div className="card asset-desktop-filter-card" style={{ padding: '14px 18px', marginBottom: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -600,8 +696,10 @@ export const AssetManagement: React.FC = () => {
 
 
         </div>
-      </div>      {/* Asset Table Container */}
-      <div className="table-responsive" style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+      </div>
+
+      {/* Asset Table Container (Desktop >= 768px) */}
+      <div className="asset-desktop-table table-responsive" style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
         <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
           <thead>
             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
@@ -998,6 +1096,142 @@ export const AssetManagement: React.FC = () => {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Asset Cards (Mobile < 768px) */}
+      <div className="asset-mobile-cards">
+        {filteredAssets.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+            <Laptop size={32} color="#94A3B8" style={{ margin: '0 auto 8px auto', display: 'block' }} />
+            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#475569' }}>No Assets Found</div>
+            <div style={{ fontSize: '0.76rem', color: '#94A3B8', marginTop: '4px' }}>
+              {isEmployeeRole ? 'You currently have no hardware devices assigned.' : 'No asset records match your criteria.'}
+            </div>
+          </div>
+        ) : (
+          filteredAssets.map(asset => {
+            const isSelected = selectedAssetIds.includes(asset.id);
+            const statusClass = asset.status === 'Assigned' ? 'present' : asset.status === 'Available' ? 'active' : asset.status === 'Under Maintenance' ? 'late' : 'rejected';
+            const conditionBg = asset.condition === 'New' ? '#ecfdf5' : asset.condition === 'Good' ? '#eff6ff' : '#fff1f2';
+            const conditionColor = asset.condition === 'New' ? '#15803d' : asset.condition === 'Good' ? '#1d4ed8' : '#be123c';
+            const conditionBorder = asset.condition === 'New' ? '#bbf7d0' : asset.condition === 'Good' ? '#bfdbfe' : '#fecaca';
+
+            return (
+              <div 
+                key={asset.id} 
+                className={`mobile-asset-card ${isSelected ? 'selected' : ''}`}
+                onClick={() => setShowViewModal(asset)}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      fontFamily: 'monospace',
+                      backgroundColor: '#ECFEFF',
+                      color: '#0E7490',
+                      border: '1px solid #CFFAFE',
+                      padding: '2px 6px',
+                      borderRadius: '6px'
+                    }}>
+                      {asset.assetTag}
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>
+                      {asset.category}
+                    </span>
+                  </div>
+                  <span className={`status-pill ${statusClass}`} style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                    {asset.status}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0F172A' }}>
+                  {asset.name}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '0.74rem', backgroundColor: '#F8FAFC', padding: '8px 10px', borderRadius: '8px', border: '1px solid #F1F5F9' }}>
+                  <div>
+                    <div style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 500 }}>Serial Number</div>
+                    <div style={{ fontWeight: 600, color: '#1E293B', fontFamily: 'monospace' }}>
+                      {asset.serialNumber || 'N/A'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 500 }}>Condition</div>
+                    <span style={{
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: '99px',
+                      display: 'inline-block',
+                      backgroundColor: conditionBg,
+                      color: conditionColor,
+                      border: `1px solid ${conditionBorder}`
+                    }}>
+                      {asset.condition}
+                    </span>
+                  </div>
+                </div>
+
+                {!isEmployeeRole && (
+                  <div style={{ fontSize: '0.74rem', color: '#475569', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>
+                      <strong style={{ color: '#64748B' }}>Assigned: </strong>
+                      {asset.assignedEmployeeName || 'Unassigned / In Stock'}
+                    </span>
+                    {asset.purchaseCost ? (
+                      <span style={{ fontWeight: 700, color: '#0E7490' }}>
+                        {formatCurrency(asset.purchaseCost)}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #F1F5F9' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#94A3B8' }}>
+                    Warranty: {asset.warrantyExpiry ? formatDateDDMMYYYY(asset.warrantyExpiry) : 'None'}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                    {canManageAssets && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(asset)}
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          backgroundColor: '#FFFFFF',
+                          color: '#64748B',
+                          border: '1px solid #E2E8F0',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowViewModal(asset)}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        backgroundColor: '#ECFEFF',
+                        color: '#0E7490',
+                        border: '1px solid #CFFAFE',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Details →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Floating Action Bar per AGENTS.md */}

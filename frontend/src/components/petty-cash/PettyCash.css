@@ -529,10 +529,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: 20000;
   padding: 16px;
   box-sizing: border-box;
   animation: fadeIn 0.15s ease-out;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 @keyframes fadeIn {
@@ -547,6 +549,7 @@
   width: 100%;
   max-width: 580px;
   max-height: 90vh;
+  max-height: calc(100dvh - 24px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -767,6 +770,22 @@
     padding: 10px 16px;
     font-size: 0.8rem;
     bottom: calc(76px + env(safe-area-inset-bottom, 16px)) !important;
+  }
+
+  .petty-cash-modal-overlay {
+    align-items: flex-start !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 12px 8px !important;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .petty-cash-modal {
+    max-height: calc(100dvh - 24px) !important;
+    margin: auto 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 16px !important;
   }
 }
 

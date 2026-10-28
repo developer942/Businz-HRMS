@@ -737,7 +737,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 <tr style={{ backgroundColor: '#F8FAFC' }}>
                   
                   {/* Sticky Header Columns */}
-                  <th style={{
+                  <th className="muster-sticky-code" style={{
                     position: 'sticky',
                     left: 0,
                     top: 0,
@@ -754,7 +754,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                     Emp Code
                   </th>
 
-                  <th style={{
+                  <th className="muster-sticky-name" style={{
                     position: 'sticky',
                     left: '110px',
                     top: 0,
@@ -771,7 +771,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                     Employee Name
                   </th>
 
-                  <th style={{
+                  <th className="muster-hide-mobile" style={{
                     position: 'sticky',
                     top: 0,
                     zIndex: 10,
@@ -787,7 +787,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                     Department
                   </th>
 
-                  <th style={{
+                  <th className="muster-hide-mobile" style={{
                     position: 'sticky',
                     top: 0,
                     zIndex: 10,
@@ -853,29 +853,31 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 ) : paginatedEmployees.length === 0 ? (
                   // Empty State
                   <tr>
-                    <td colSpan={calendarDays.length + 10} style={{ padding: '48px 24px', textAlign: 'center' }}>
-                      <CalendarDays size={42} color="#94A3B8" style={{ margin: '0 auto 12px' }} />
-                      <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569' }}>No attendance records found</div>
-                      <div style={{ fontSize: '0.84rem', color: '#94A3B8', marginTop: '4px' }}>
-                        No employees match the selected department, location, or search filters.
+                    <td colSpan={calendarDays.length + 10} style={{ padding: '48px 16px', textAlign: 'center' }}>
+                      <div className="muster-empty-sticky-center">
+                        <CalendarDays size={42} color="#94A3B8" style={{ margin: '0 auto 12px' }} />
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569' }}>No attendance records found</div>
+                        <div style={{ fontSize: '0.84rem', color: '#94A3B8', marginTop: '4px' }}>
+                          No employees match the selected department, location, or search filters.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleClearFilters}
+                          style={{
+                            marginTop: '16px',
+                            padding: '8px 18px',
+                            borderRadius: '8px',
+                            border: '1px solid #0E7490',
+                            backgroundColor: '#ECFEFF',
+                            color: '#0E7490',
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Reset All Filters
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleClearFilters}
-                        style={{
-                          marginTop: '16px',
-                          padding: '8px 18px',
-                          borderRadius: '8px',
-                          border: '1px solid #0E7490',
-                          backgroundColor: '#ECFEFF',
-                          color: '#0E7490',
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Reset All Filters
-                      </button>
                     </td>
                   </tr>
                 ) : (
@@ -918,7 +920,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                         onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFFFFF'}
                       >
                         {/* Sticky Column 1: Emp Code */}
-                        <td style={{
+                        <td className="muster-sticky-code" style={{
                           position: 'sticky',
                           left: 0,
                           backgroundColor: '#FFFFFF',
@@ -937,7 +939,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                         </td>
 
                         {/* Sticky Column 2: Emp Name */}
-                        <td style={{
+                        <td className="muster-sticky-name" style={{
                           position: 'sticky',
                           left: '110px',
                           backgroundColor: '#FFFFFF',
@@ -953,15 +955,18 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                           <div style={{ fontWeight: 800, color: '#0F172A' }}>
                             {employee.firstName} {employee.lastName}
                           </div>
+                          <div className="muster-dept-desig-mobile" style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                            {employee.department} • {employee.designation}
+                          </div>
                         </td>
 
                         {/* Department */}
-                        <td style={{ padding: '10px 14px', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', color: '#475569' }}>
+                        <td className="muster-hide-mobile" style={{ padding: '10px 14px', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', color: '#475569' }}>
                           {employee.department}
                         </td>
 
                         {/* Designation */}
-                        <td style={{ padding: '10px 14px', borderRight: '2px solid #CBD5E1', borderBottom: '1px solid #F1F5F9', color: '#64748B' }}>
+                        <td className="muster-hide-mobile" style={{ padding: '10px 14px', borderRight: '2px solid #CBD5E1', borderBottom: '1px solid #F1F5F9', color: '#64748B' }}>
                           {employee.designation}
                         </td>
 

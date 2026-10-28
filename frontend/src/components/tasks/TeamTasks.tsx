@@ -74,6 +74,9 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
 
   // Paginated tasks
   const paginatedTasks = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return teamTasks;
+    }
     const start = (currentPage - 1) * pageSize;
     return teamTasks.slice(start, start + pageSize);
   }, [teamTasks, currentPage, pageSize]);
@@ -225,7 +228,10 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
             </div>
           </div>
         ) : (
-          <div className="table-responsive no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <>
+            {/* Desktop Table View (>= 768px) */}
+            <div className="task-desktop-table">
+              <div className="table-responsive no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <table className="hrms-table" style={{ width: '100%', minWidth: '840px', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#F8FAFC' }}>
@@ -427,7 +433,80 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
             </tbody>
           </table>
         </div>
-      )}
+      </div>
+
+      {/* Mobile Cards View (< 768px) */}
+      <div className="task-mobile-cards">
+        {paginatedTasks.map(task => {
+          const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
+          const isOverdue = dueStatus === 'Overdue';
+          const statusBadge = getStatusBadgeStyle(task.overallStatus);
+
+          return (
+            <div
+              key={task.id}
+              className="mobile-task-card"
+              onClick={() => onSelectTask(task.id)}
+            >
+              <div className="mobile-task-card-header">
+                <span className="mobile-task-number">{task.taskNumber}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                    {task.priority}
+                  </span>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    backgroundColor: statusBadge.bg,
+                    color: statusBadge.color
+                  }}>
+                    {task.overallStatus}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mobile-task-card-title">
+                {task.title}
+              </div>
+
+              <div className="mobile-task-card-meta">
+                <div className="mobile-task-meta-item">
+                  <span className="meta-label">Lead:</span>
+                  <span className="meta-val">{task.responsiblePersonName}</span>
+                </div>
+                <div className="mobile-task-meta-item">
+                  <span className="meta-label">Due:</span>
+                  <span className="meta-val" style={{ color: isOverdue ? '#DC2626' : '#1E293B', fontWeight: isOverdue ? 700 : 500 }}>
+                    {formatDateDDMMYYYY(task.dueDate)}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                <span style={{ fontWeight: 600 }}>Team Assignees ({task.assignees.length}): </span>
+                <span>{task.assignees.map(a => `${a.employeeName} (${a.individualStatus})`).join(', ')}</span>
+              </div>
+
+              <div className="mobile-task-card-actions" onClick={e => e.stopPropagation()}>
+                <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                  {task.department}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm mobile-task-action-btn"
+                  onClick={() => onSelectTask(task.id)}
+                >
+                  View Details →
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  )}
 
         {/* Standard Pagination Footer */}
         {teamTasks.length > 0 && (

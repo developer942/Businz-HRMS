@@ -23,7 +23,8 @@ import {
   Save, 
   X, 
   Check,
-  Key
+  Key,
+  MapPin
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 import { customerService } from '../../services/customerService';
@@ -38,8 +39,10 @@ import {
   listGeminiModels,
   cleanApiKey,
   syncApiKeyToBackend,
-  GeminiModelInfo
+  GeminiModelInfo,
+  DEFAULT_GEMINI_OCR_MODEL
 } from '../../services/geminiApiService';
+import { getStoredGoogleMapsApiKey, setStoredGoogleMapsApiKey } from '../../services/googleMapsLoader';
 
 // Types for the 8 Enterprise Integrations
 export type IntegrationCategory = 'all' | 'communication' | 'recruitment' | 'ai_productivity' | 'finance_erp' | 'hardware';
@@ -281,6 +284,10 @@ export const IntegrationsSettings: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        if (parsed.gemini_ai?.apiKey) {
+          parsed.gemini_ai.apiKey = '';
+          localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(parsed));
+        }
         if (parsed.meta_ads) {
           if (parsed.meta_ads.adAccountId && parsed.meta_ads.adAccountId.includes('@')) {
             parsed.meta_ads.adAccountId = '';
@@ -373,7 +380,8 @@ export const IntegrationsSettings: React.FC = () => {
       gemini_ai: getStoredGeminiApiKey() ? 'connected' : 'disconnected',
       google_workspace: 'disconnected',
       tally_zoho: 'disconnected',
-      biometrics: 'disconnected'
+      biometrics: 'disconnected',
+      google_maps: getStoredGoogleMapsApiKey() ? 'connected' : 'disconnected'
     };
   });
 
@@ -570,14 +578,14 @@ export const IntegrationsSettings: React.FC = () => {
     },
     {
       id: 'gemini_ai',
-      name: 'Google Gemini AI & Pavi Chat Bot',
+      name: 'Google Gemini AI & BUSINZ Chat Bot',
       category: 'ai_productivity',
       categoryLabel: 'AI & Productivity',
       icon: Bot,
       brandColor: '#0E7490',
       brandBg: '#ECFEFF',
       tagline: 'Multi-lingual Generative HRM Policy & Query Intelligence',
-      description: 'Supercharge HRM with Google Gemini models powering Pavi Chat Bot to answer employee policy questions in Tamil, English, and Tanglish.',
+      description: 'Supercharge HRM with Google Gemini models powering BUSINZ Chat Bot to answer employee policy questions in Tamil, English, and Tanglish.',
       status: connectionStatuses['gemini_ai'] || (geminiKey ? 'connected' : 'disconnected'),
       lastSynced: geminiKey ? 'Active & Listening' : 'API Key Required',
       features: [
@@ -599,28 +607,22 @@ export const IntegrationsSettings: React.FC = () => {
         },
         {
           key: 'model',
-          label: 'Active Gemini AI Model (Pavi Chatbot)',
+          label: 'Active Gemini AI Model (BUSINZ Chat Bot)',
           type: 'select',
-          options: [
-            { label: 'gemini-2.5-flash (Next Gen Preview - Recommended)', value: 'gemini-2.5-flash' },
-            { label: 'gemini-2.0-flash (Fast & Multimodal)', value: 'gemini-2.0-flash' },
-            { label: 'gemini-1.5-flash (Standard & Reliable)', value: 'gemini-1.5-flash' },
-            { label: 'gemini-1.5-pro (High Reasoning)', value: 'gemini-1.5-pro' },
-            { label: 'gemini-3.7-flash (Advanced Preview)', value: 'gemini-3.7-flash' }
-          ],
+          options: availableGeminiModels.length
+            ? availableGeminiModels.map(model => ({ label: model.displayName, value: model.name }))
+            : [{ label: geminiModel || 'Load models to select', value: geminiModel || 'gemini-2.5-flash' }],
           defaultValue: (geminiModel && !geminiModel.includes('3.6-flash')) ? geminiModel : 'gemini-2.5-flash'
         },
         {
           key: 'ocrModel',
           label: 'Visiting Card Scanner OCR Model (Vision Multimodal)',
           type: 'select',
-          options: [
-            { label: 'gemini-3.5-flash-lite (Fast 1.5s OCR - Recommended)', value: 'gemini-3.5-flash-lite' },
-            { label: 'gemini-flash-lite-latest (Latest Flash Lite)', value: 'gemini-flash-lite-latest' },
-            { label: 'gemini-3.7-flash (Advanced Preview)', value: 'gemini-3.7-flash' }
-          ],
-          helperText: 'Independent multimodal vision model used for visiting card extraction. Separate from Pavi chatbot model.',
-          defaultValue: geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite'
+          options: availableGeminiModels.length
+            ? availableGeminiModels.filter(model => model.isVisionCapable !== false).map(model => ({ label: model.displayName, value: model.name }))
+            : [{ label: geminiOcrModel || 'Load models to select', value: geminiOcrModel || 'gemini-2.5-flash' }],
+          helperText: 'Independent multimodal vision model used for visiting card extraction. Separate from BUSINZ Chat Bot model.',
+          defaultValue: geminiOcrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL
         }
       ]
     },
@@ -819,6 +821,51 @@ export const IntegrationsSettings: React.FC = () => {
           defaultValue: ''
         }
       ]
+    },
+    {
+      id: 'google_maps',
+      name: 'Google Maps Platform & Live GPS Field Tracking',
+      category: 'hardware',
+      categoryLabel: 'Hardware & IoT',
+      icon: MapPin,
+      brandColor: '#4285F4',
+      brandBg: '#E8F0FE',
+      tagline: 'Snap-to-Roads, Accurate Travel KM & Live Route Playback',
+      description: 'Connect Google Maps Platform APIs (Maps JavaScript, Routes, Roads, Geocoding) for high-accuracy road-snapped vehicle and field staff route tracking and distance reimbursement.',
+      status: connectionStatuses['google_maps'] || (getStoredGoogleMapsApiKey() ? 'connected' : 'disconnected'),
+      lastSynced: getStoredGoogleMapsApiKey() ? 'API Key Active' : 'Not configured',
+      features: [
+        'Google Maps JavaScript API interactive live map rendering',
+        'Google Roads API Snap-to-Roads route alignment',
+        'Google Routes / Directions API for missing background gap calculation',
+        'Interactive route playback with speed and accuracy telemetry'
+      ],
+      docsUrl: 'https://developers.google.com/maps/documentation',
+      configFields: [
+        {
+          key: 'apiKey',
+          label: 'Google Maps Platform API Key',
+          type: 'password',
+          required: true,
+          placeholder: 'AIzaSy...',
+          helperText: 'API key with Maps JavaScript, Routes, and Roads APIs enabled (from console.cloud.google.com)',
+          defaultValue: getStoredGoogleMapsApiKey() || ''
+        },
+        {
+          key: 'enableRoadsApi',
+          label: 'Enable Google Roads API (Snap to Roads)',
+          type: 'checkbox',
+          helperText: 'Automatically snap recorded GPS points to actual road centerlines',
+          defaultValue: true
+        },
+        {
+          key: 'enableRoutesApi',
+          label: 'Enable Google Routes API (Gap Route Estimation)',
+          type: 'checkbox',
+          helperText: 'Calculate real road route when mobile phone was locked or backgrounded',
+          defaultValue: true
+        }
+      ]
     }
   ];
 
@@ -844,7 +891,7 @@ export const IntegrationsSettings: React.FC = () => {
     if (item.id === 'gemini_ai') {
       const currentStoredKey = getStoredGeminiApiKey();
       const currentStoredModel = getStoredGeminiModel();
-      const currentStoredOcrModel = getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
+      const currentStoredOcrModel = getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL;
       setIntegrationFormValues(prev => {
         const existingKey = prev.gemini_ai?.apiKey || '';
         const cleanKey = existingKey || currentStoredKey;
@@ -979,12 +1026,23 @@ export const IntegrationsSettings: React.FC = () => {
                 ...prev.whatsapp,
                 phoneNumberId: prev.whatsapp?.phoneNumberId || cfg.phoneNumberId || '',
                 wabaId: prev.whatsapp?.wabaId || cfg.wabaId || '',
-                webhookSecret: prev.whatsapp?.webhookSecret || ''
               }
             }));
           }
         })
         .catch(() => {});
+    }
+
+    if (item.id === 'google_maps') {
+      const currentStoredKey = getStoredGoogleMapsApiKey() || '';
+      setIntegrationFormValues(prev => ({
+        ...prev,
+        google_maps: {
+          apiKey: prev.google_maps?.apiKey || currentStoredKey,
+          enableRoadsApi: prev.google_maps?.enableRoadsApi ?? true,
+          enableRoutesApi: prev.google_maps?.enableRoutesApi ?? true
+        }
+      }));
     }
 
     setTouchedFields({});
@@ -1297,26 +1355,32 @@ export const IntegrationsSettings: React.FC = () => {
       return;
     }
 
-    // 7. Google Gemini AI & Pavi Chat Bot
+    // 7. Google Gemini AI & BUSINZ Chat Bot
     if (id === 'gemini_ai') {
       const gKey = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey || '');
       const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.0-flash';
       const gModel = rawModel.includes('3.6-flash') ? 'gemini-2.0-flash' : rawModel;
-      const gOcrModel = integrationFormValues['gemini_ai']?.ocrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
+      const gOcrModel = integrationFormValues['gemini_ai']?.ocrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL;
 
-      setStoredGeminiApiKey(gKey);
+      try {
+        await syncApiKeyToBackend(gKey, gModel, gOcrModel);
+      } catch (err: any) {
+        setTestResult({ success: false, message: err.message || 'Gemini configuration was not saved.' });
+        triggerToast(err.message || 'Gemini configuration was not saved.', 'error');
+        return;
+      }
+      setStoredGeminiApiKey('');
       setStoredGeminiModel(gModel);
       setStoredGeminiOcrModel(gOcrModel);
-      setGeminiKey(gKey);
+      setGeminiKey('');
       setGeminiModel(gModel);
       setGeminiOcrModel(gOcrModel);
-      syncApiKeyToBackend(gKey, gModel, gOcrModel);
 
       const nextFormValues = {
         ...integrationFormValues,
         gemini_ai: {
           ...integrationFormValues['gemini_ai'],
-          apiKey: gKey,
+          apiKey: '',
           model: gModel,
           ocrModel: gOcrModel
         }
@@ -1331,6 +1395,47 @@ export const IntegrationsSettings: React.FC = () => {
         'Google Gemini AI credentials saved and model preferences updated.'
       );
       triggerToast('Google Gemini AI configuration saved', 'success');
+      setActiveModalIntegration(null);
+      return;
+    }
+
+    // 8. Google Maps Platform & Live GPS Field Tracking
+    if (id === 'google_maps') {
+      const gmVals = integrationFormValues['google_maps'] || {};
+      const apiKey = String(gmVals.apiKey || '').trim();
+      const enableRoadsApi = gmVals.enableRoadsApi ?? true;
+      const enableRoutesApi = gmVals.enableRoutesApi ?? true;
+
+      setStoredGoogleMapsApiKey(apiKey);
+
+      const nextFormValues = {
+        ...integrationFormValues,
+        google_maps: {
+          ...gmVals,
+          apiKey,
+          enableRoadsApi,
+          enableRoutesApi
+        }
+      };
+      setIntegrationFormValues(nextFormValues);
+      localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(nextFormValues));
+
+      setConnectionStatuses(prev => {
+        const next: Record<string, 'connected' | 'disconnected' | 'syncing'> = {
+          ...prev,
+          google_maps: (apiKey ? 'connected' : 'disconnected') as 'connected' | 'disconnected'
+        };
+        localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(next));
+        return next;
+      });
+
+      recordAuditLog(
+        activeModalIntegration.name,
+        activeModalIntegration.brandColor,
+        'Configuration Saved',
+        apiKey ? 'Google Maps Platform API key securely saved and activated.' : 'Google Maps configuration cleared.'
+      );
+      triggerToast(apiKey ? 'Google Maps Platform API key saved & activated' : 'Google Maps configuration saved', 'success');
       setActiveModalIntegration(null);
       return;
     }
@@ -1406,38 +1511,22 @@ export const IntegrationsSettings: React.FC = () => {
         return;
       }
       try {
-        let models: GeminiModelInfo[] = [];
-        let noteMsg = '';
-        try {
-          models = await listGeminiModels(key);
-        } catch (apiErr: any) {
-          models = [
-            { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (Next Gen Preview)', description: 'Fast, advanced reasoning', supportedGenerationMethods: ['generateContent'] },
-            { name: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash (Recommended)', description: 'Fast, multimodal, high accuracy', supportedGenerationMethods: ['generateContent'] },
-            { name: 'gemini-3.7-flash', displayName: 'Gemini 3.7 Flash', description: 'Next Gen Multimodal Preview', supportedGenerationMethods: ['generateContent'] },
-            { name: 'gemini-1.5-flash', displayName: 'Gemini 1.5 Flash', description: 'Fast and versatile performance', supportedGenerationMethods: ['generateContent'] },
-            { name: 'gemini-1.5-pro', displayName: 'Gemini 1.5 Pro', description: 'Complex reasoning and analysis', supportedGenerationMethods: ['generateContent'] },
-          ];
-          if (apiErr.message?.includes('ACCESS_TOKEN_TYPE') || apiErr.message?.includes('Generative Language API') || apiErr.message?.includes('devconsole')) {
-            noteMsg = ' (Note: If using an existing GCP project, ensure Generative Language API is enabled or create a key in a "new project" on Google AI Studio).';
-          }
-        }
+        const models: GeminiModelInfo[] = await listGeminiModels(key);
+        const noteMsg = '';
         setAvailableGeminiModels(models);
         setIsTestingConnection(false);
         const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash';
-        const currentOcrModel = integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite';
+        const currentOcrModel = integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL;
         
-        const validModel = (models.some(m => m.name === currentModel) || ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-3.7-flash'].includes(currentModel))
-          ? currentModel
-          : (models.find(m => m.name.includes('2.5-flash'))?.name || models.find(m => m.name.includes('2.0-flash'))?.name || models[0]?.name || 'gemini-2.5-flash');
+        const validModel = models.some(m => m.name === currentModel) ? currentModel : models[0]?.name;
+        if (!validModel) throw new Error('Google returned no generateContent-capable models for this key.');
 
-        setStoredGeminiApiKey(key);
         setStoredGeminiModel(validModel);
         setStoredGeminiOcrModel(currentOcrModel);
-        setGeminiKey(key);
+        setGeminiKey('');
         setGeminiModel(validModel);
         setGeminiOcrModel(currentOcrModel);
-        syncApiKeyToBackend(key, validModel, currentOcrModel);
+        await syncApiKeyToBackend(key, validModel, currentOcrModel);
 
         const nextStatuses = { ...connectionStatuses, gemini_ai: 'connected' as const };
         setConnectionStatuses(nextStatuses);
@@ -1447,13 +1536,13 @@ export const IntegrationsSettings: React.FC = () => {
           activeModalIntegration.name,
           activeModalIntegration.brandColor,
           'Live Handshake Verified',
-          `Connected to Google Gemini API (${models.length} models available). Pavi Chat Bot is live and listening.${noteMsg}`,
+          `Connected to Google Gemini API (${models.length} models available). BUSINZ Chat Bot is live and listening.${noteMsg}`,
           'Active (200 OK)'
         );
 
         setTestResult({
           success: true,
-          message: `Connection successful! Verified ${models.length} models and automatically connected Google Gemini AI & Pavi Chat Bot.${noteMsg}`
+          message: `Connection successful! Verified ${models.length} models and automatically connected Google Gemini AI & BUSINZ Chat Bot.${noteMsg}`
         });
         return;
       } catch (err: any) {
@@ -1765,32 +1854,23 @@ export const IntegrationsSettings: React.FC = () => {
       };
       // Auto-save form values into localStorage on every edit/paste
       try {
-        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updated));
+        const safeUpdated = integrationId === 'gemini_ai'
+          ? { ...updated, gemini_ai: { ...updated.gemini_ai, apiKey: '' } }
+          : updated;
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(safeUpdated));
       } catch (e) {}
       return updated;
     });
 
     // 1. Real-time dynamic sync logic for Google Gemini AI
     if (integrationId === 'gemini_ai') {
-      const currentKey = cleanApiKey(fieldKey === 'apiKey' ? value : (integrationFormValues['gemini_ai']?.apiKey || geminiKey));
-      const currentModel = fieldKey === 'model' ? value : (integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash');
-      const currentOcrModel = fieldKey === 'ocrModel' ? value : (integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || 'gemini-3.5-flash-lite');
-
       if (fieldKey === 'apiKey') {
         const cleaned = cleanApiKey(value || '');
         setGeminiKey(cleaned);
-        setStoredGeminiApiKey(cleaned);
-        syncApiKeyToBackend(cleaned, currentModel, currentOcrModel);
       } else if (fieldKey === 'model') {
         setGeminiModel(value);
-        setStoredGeminiModel(value);
-        syncApiKeyToBackend(currentKey, value, currentOcrModel);
-        triggerToast(`Pavi Chatbot AI model switched to ${value}`, 'info');
       } else if (fieldKey === 'ocrModel') {
         setGeminiOcrModel(value);
-        setStoredGeminiOcrModel(value);
-        syncApiKeyToBackend(currentKey, currentModel, value);
-        triggerToast(`Visiting Card Scanner OCR model switched to ${value}`, 'success');
       }
     }
 

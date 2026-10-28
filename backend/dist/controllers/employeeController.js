@@ -6,6 +6,7 @@ import { auditRepository } from '../repositories/auditRepository.js';
 import { generateTemporaryPassword } from '../services/passwordService.js';
 import { sendCredentialEmail, sendOfferLetterEmail } from '../services/emailService.js';
 import { createEmployeeSchema, updateEmployeeSchema } from '../validators/employeeValidators.js';
+import { employeeProfileSyncService } from '../services/employeeProfileSyncService.js';
 import { updateAccountStatusSchema } from '../validators/authValidators.js';
 const sendOfferLetterSchema = z.object({
     to: z.string().email(),
@@ -264,6 +265,34 @@ export const updateEmployee = async (req, res, next) => {
             success: true,
             data: updated,
         });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+export const syncEmployeeProfile = async (req, res, next) => {
+    try {
+        const id = String(req.params.id || '').trim();
+        const rawPayload = req.body?.employee;
+        const options = req.body?.options || {};
+        if (!id || !rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+            res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Employee profile payload is required.', details: [] } });
+            return;
+        }
+        // Password lifecycle is intentionally isolated from profile synchronization.
+        // Existing reset/change-password endpoints remain the only password writers.
+        const safePayload = { ...rawPayload };
+        delete safePayload.password;
+        delete safePayload.mustChangePassword;
+        const payload = updateEmployeeSchema.parse(safePayload);
+        const sensitiveChange = payload.salaryDetails !== undefined || payload.basicSalary !== undefined || payload.bankDetails !== undefined;
+        const sensitiveRoles = ['Super Admin', 'CEO', 'Admin', 'ERP Administrator', 'HR Manager', 'HR Admin', 'Finance Manager', 'HR'];
+        if (sensitiveChange && (!req.user || !sensitiveRoles.includes(req.user.role))) {
+            res.status(403).json({ success: false, error: { code: 'SENSITIVE_PROFILE_FORBIDDEN', message: 'Salary and bank changes require an authorized HR, payroll, finance, or administrator role.', details: [] } });
+            return;
+        }
+        const result = await employeeProfileSyncService.save(id, payload, options, req.user || {});
+        res.status(200).json({ success: true, data: result.employee, dependencies: result.dependencies });
     }
     catch (err) {
         next(err);

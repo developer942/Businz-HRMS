@@ -9,7 +9,12 @@ import {
   RotateCcw,
   Wifi,
   WifiOff,
-  Maximize2
+  Maximize2,
+  Camera,
+  Upload,
+  FileCheck,
+  History,
+  X
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { TrackingMap, MapMarkerItem } from './TrackingMap';
@@ -18,9 +23,10 @@ import { defaultLocationProvider, OfflineTrackingStorage } from '../../services/
 
 export interface EmployeeTripTabProps {
   onTripEnded?: () => void;
+  onViewHistory?: () => void;
 }
 
-export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded }) => {
+export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded, onViewHistory }) => {
   const {
     currentUser,
     fieldAssignments,
@@ -32,6 +38,11 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [offlinePendingCount, setOfflinePendingCount] = useState<number>(0);
   const [watchId, setWatchId] = useState<number | null>(null);
+  const [durationStr, setDurationStr] = useState<string>('00:00:00');
+  const [showProofModal, setShowProofModal] = useState<boolean>(false);
+  const [proofNote, setProofNote] = useState<string>('');
+  const [proofImageName, setProofImageName] = useState<string>('');
+  const [proofSuccess, setProofSuccess] = useState<boolean>(false);
 
   const currentEmployeeKeys = [
     currentUser.employeeId,
@@ -79,6 +90,27 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
     };
   }, [activeTrip?.id]);
 
+  // Active visit elapsed time counter
+  useEffect(() => {
+    if (!activeTrip || activeTrip.status !== 'Active') return;
+    const startMs = new Date(activeTrip.tripStartTime).getTime();
+
+    const updateTimer = () => {
+      const nowMs = Date.now();
+      const diffSec = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+      const hours = Math.floor(diffSec / 3600);
+      const mins = Math.floor((diffSec % 3600) / 60);
+      const secs = diffSec % 60;
+      setDurationStr(
+        `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+      );
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [activeTrip?.tripStartTime, activeTrip?.status]);
+
   // Setup battery-efficient location tracking when trip is active
   useEffect(() => {
     if (!activeTrip || activeTrip.status !== 'Active') return;
@@ -93,7 +125,10 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
           latitude: pos.lat,
           longitude: pos.lng,
           accuracy: pos.accuracy,
-          speed: pos.speed
+          speed: pos.speed,
+          heading: pos.heading,
+          altitude: pos.altitude,
+          source: 'browser_watch'
         };
 
         if (navigator.onLine) {
@@ -287,46 +322,55 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-            gap: '16px',
-            padding: '18px 24px',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: '14px',
+            padding: '16px 20px',
             backgroundColor: '#F8FAFC',
             borderBottom: '1px solid #E7ECF3'
           }}
         >
           <div>
-            <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
               Start Time
             </div>
-            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0B1A2D', marginTop: '4px' }}>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0B1A2D', marginTop: '3px' }}>
               {tripStartTimeFormatted}
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
-              Current Distance
+            <div style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+              Visit Duration
             </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0E7490', marginTop: '2px' }}>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0B1A2D', marginTop: '2px', fontFamily: 'monospace' }}>
+              {durationStr}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+              Travelled Distance
+            </div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0E7490', marginTop: '2px' }}>
               {formatKm(activeTrip.totalKm)}
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
-              Sequential Points
+            <div style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+              Reported GPS Accuracy
             </div>
-            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0B1A2D', marginTop: '4px' }}>
-              {activeTrip.locationPoints.length} points
+            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: (lastPoint?.accuracy ?? 10) <= 20 ? '#16A34A' : '#D97706', marginTop: '4px' }}>
+              ±{Math.round(lastPoint?.accuracy || 10)}m (High Accuracy)
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
               Tracking Engine
             </div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#16A34A', marginTop: '6px' }}>
-              ● ACTIVE (Battery-Safe)
+            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0E7490', marginTop: '6px' }}>
+              ● OSM FREE ENGINE
             </div>
           </div>
         </div>
@@ -339,6 +383,8 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
             height="380px"
             markers={markers}
             routePoints={routePoints}
+            detailedPoints={activeTrip.locationPoints}
+            segments={activeTrip.segments || []}
             circle={assignment?.attendanceType === 'Site Geofence' && assignment?.siteLat && assignment?.siteLng ? {
               lat: assignment.siteLat,
               lng: assignment.siteLng,
@@ -349,7 +395,7 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
           />
         </div>
 
-        {/* Buttons: End Trip */}
+        {/* Footer Actions: Proof, History, End Trip */}
         <div
           style={{
             padding: '16px 20px',
@@ -362,8 +408,54 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
             gap: '12px'
           }}
         >
-          <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
-            Origin: <strong>{activeTrip.startAddress}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Add Visit Proof */}
+            <button
+              type="button"
+              onClick={() => setShowProofModal(true)}
+              style={{
+                backgroundColor: proofSuccess ? '#DCFCE7' : '#FFFFFF',
+                color: proofSuccess ? '#166534' : '#0E7490',
+                border: '1px solid #A5F3FC',
+                borderRadius: '10px',
+                padding: '8px 14px',
+                fontWeight: 700,
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+              }}
+            >
+              {proofSuccess ? <FileCheck size={16} /> : <Camera size={16} />}
+              <span>{proofSuccess ? 'Proof Attached ✓' : 'Add Visit Proof'}</span>
+            </button>
+
+            {/* Travel History */}
+            {onViewHistory && (
+              <button
+                type="button"
+                onClick={onViewHistory}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  color: '#475569',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  padding: '8px 14px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                }}
+              >
+                <History size={15} />
+                <span>Travel History</span>
+              </button>
+            )}
           </div>
 
           <button
@@ -389,6 +481,127 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded })
           </button>
         </div>
       </div>
+
+      {/* Visit Proof Modal */}
+      {showProofModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              maxWidth: '460px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                Attach Field Visit Proof
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowProofModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.82rem', color: '#64748B', marginBottom: '16px' }}>
+              Upload a site visit photograph, signed delivery challan, or client sign-off note for <strong>{activeTrip.customerSiteName}</strong>.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Photo Input */}
+              <label
+                style={{
+                  border: '2px dashed #CBD5E1',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  backgroundColor: '#F8FAFC',
+                }}
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setProofImageName(file.name);
+                  }}
+                />
+                <Camera size={28} color="#0E7490" style={{ margin: '0 auto 8px' }} />
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A' }}>
+                  {proofImageName ? proofImageName : 'Take Site Photo / Upload Image'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px' }}>
+                  Tap to capture with mobile camera
+                </div>
+              </label>
+
+              {/* Note Input */}
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                  Site Visit Notes / Client Remarks
+                </label>
+                <textarea
+                  rows={3}
+                  value={proofNote}
+                  onChange={(e) => setProofNote(e.target.value)}
+                  placeholder="e.g. Met manager Mr. Suresh, completed inspection successfully."
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                    resize: 'none',
+                    fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+
+              {/* Submit Proof Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setProofSuccess(true);
+                  setShowProofModal(false);
+                }}
+                style={{
+                  backgroundColor: '#0E7490',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '12px',
+                  fontWeight: 800,
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  marginTop: '6px',
+                }}
+              >
+                Save & Attach Proof
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

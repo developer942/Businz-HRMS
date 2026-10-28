@@ -34,7 +34,7 @@ payrollRouter.post('/runs/:id/process', requireSpecialPermission('process_payrol
 payrollRouter.post('/runs/:id/approve', requireSpecialPermission('approve_payroll'), (req, res, next) =>
   payrollController.approveRun(req, res, next)
 );
-payrollRouter.post('/runs/:id/pay', requireRoles(['Super Admin', 'CEO', 'Finance Manager', 'HR Manager', 'HR Admin', 'HR']), (req, res, next) =>
+payrollRouter.post('/runs/:id/pay', requireRoles(['Super Admin', 'CEO', 'Finance Manager', 'Finance', 'Accountant', 'Admin']), (req, res, next) =>
   payrollController.payRun(req, res, next)
 );
 

@@ -8,8 +8,7 @@ import {
   CheckCircle2,
   Info,
   Timer,
-  Building2,
-  AlertTriangle
+  Building2
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
@@ -17,6 +16,46 @@ import { DateInput } from '../common/DateInput';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import { resolveEffectiveLatePolicy } from '../../services/policyEngine';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
+
+const format24to12 = (time24: string): string => {
+  if (!time24) return '';
+  const [hhStr, mmStr] = time24.split(':');
+  let hh = parseInt(hhStr, 10);
+  const mm = mmStr || '00';
+  const meridiem = hh >= 12 ? 'PM' : 'AM';
+  if (hh === 0) hh = 12;
+  else if (hh > 12) hh -= 12;
+  return `${String(hh).padStart(2, '0')}:${mm} ${meridiem}`;
+};
+
+const format12to24 = (time12: string): string => {
+  if (!time12) return '09:00';
+  const clean = time12.trim().replace('.', ':');
+  const match = clean.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return '09:00';
+  let hh = parseInt(match[1], 10);
+  const mm = match[2];
+  const meridiem = match[3]?.toUpperCase();
+  if (meridiem === 'PM' && hh < 12) hh += 12;
+  if (meridiem === 'AM' && hh === 12) hh = 0;
+  return `${String(hh).padStart(2, '0')}:${mm}`;
+};
+
+const normalizeTimeString = (raw: string): string => {
+  if (!raw || !raw.trim()) return '';
+  const clean = raw.trim().replace('.', ':');
+  const match = clean.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (match) {
+    let hh = parseInt(match[1], 10);
+    const mm = match[2];
+    const meridiem = match[3]?.toUpperCase();
+    if (meridiem) {
+      return `${String(hh).padStart(2, '0')}:${mm} ${meridiem}`;
+    }
+    return format24to12(`${String(hh).padStart(2, '0')}:${mm}`);
+  }
+  return raw;
+};
 
 interface ManualAttendanceEntryModalProps {
   isOpen: boolean;
@@ -40,9 +79,13 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     masterAttendancePolicies
   } = useHRMS();
 
-  const [selectedEmpId, setSelectedEmpId] = useState<string>(
-    defaultEmployeeId || employees[0]?.id || ''
-  );
+  const [selectedEmpId, setSelectedEmpId] = useState<string>(() => {
+    if (defaultEmployeeId) {
+      const match = employees.find(e => e.id === defaultEmployeeId || e.employeeId === defaultEmployeeId);
+      if (match) return match.id;
+    }
+    return employees[0]?.id || '';
+  });
   const [date, setDate] = useState<string>(
     defaultDate || new Date().toISOString().split('T')[0]
   );
@@ -60,6 +103,15 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   
   const [error, setError] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const initializedRecordKey = React.useRef<string>('');
+
+  // Sync selectedEmpId when defaultEmployeeId changes or on open
+  useEffect(() => {
+    if (isOpen && defaultEmployeeId) {
+      const found = employees.find(e => e.id === defaultEmployeeId || e.employeeId === defaultEmployeeId);
+      if (found) setSelectedEmpId(found.id);
+    }
+  }, [isOpen, defaultEmployeeId, employees]);
 
   // Look up selected employee details
   const selectedEmployee = useMemo(() => {
@@ -113,11 +165,20 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   const isCurrentlyLate = inMins !== null && shiftMins !== null && inMins > (shiftMins + effectiveGraceMins);
   const lateMinutesDiff = inMins !== null && shiftMins !== null ? Math.max(0, inMins - shiftMins) : 0;
 
-  // Sync state when existing record or defaults change
+  // Sync state when existing record or defaults change, without wiping active user edits
   useEffect(() => {
+    if (!isOpen) {
+      initializedRecordKey.current = '';
+      return;
+    }
+    const currentKey = `${selectedEmpId}_${date}`;
+    if (initializedRecordKey.current === currentKey) {
+      return;
+    }
+    initializedRecordKey.current = currentKey;
+
     if (existingRecord) {
-      // Normalize 'Late' to 'Present' so HR can edit timing without getting locked into Late
-      setStatus(existingRecord.status === 'Late' ? 'Present' : (existingRecord.status || 'Present'));
+      setStatus(existingRecord.status || 'Present');
       if (existingRecord.checkIn) {
         setCheckInTime(existingRecord.checkIn);
         setIsMissedCheckIn(false);
@@ -132,9 +193,13 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       }
       if (existingRecord.otHours) {
         setOtHours(existingRecord.otHours);
+      } else {
+        setOtHours(0);
       }
       if (existingRecord.breakDurationMinutes) {
         setBreakDuration(existingRecord.breakDurationMinutes);
+      } else {
+        setBreakDuration(45);
       }
     } else {
       // Default to employee's shift start time if available
@@ -143,9 +208,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       setIsMissedCheckIn(false);
       setIsMissedCheckOut(false);
       setOtHours(0);
+      setBreakDuration(45);
       setStatus('Present');
     }
-  }, [existingRecord, date, selectedEmpId, shiftStartTimeStr]);
+  }, [isOpen, existingRecord, date, selectedEmpId, shiftStartTimeStr]);
 
   if (!isOpen) return null;
 
@@ -155,8 +221,12 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     if (status === 'Half Day') return 4.0;
     if (status === 'On Leave') return 0;
 
-    if (isMissedCheckIn || isMissedCheckOut || !checkInTime || !checkOutTime) {
+    if (isMissedCheckIn || !checkInTime) {
       return 0;
+    }
+
+    if (isMissedCheckOut || !checkOutTime) {
+      return status === 'Present' ? 8.0 : 0;
     }
 
     const parseTime = (timeStr: string) => {
@@ -216,16 +286,11 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       return;
     }
 
-    const finalCheckIn = isMissedCheckIn ? null : checkInTime;
-    const finalCheckOut = isMissedCheckOut ? null : checkOutTime;
+    const finalCheckIn = isMissedCheckIn ? null : (normalizeTimeString(checkInTime) || checkInTime);
+    const finalCheckOut = isMissedCheckOut ? null : (normalizeTimeString(checkOutTime) || checkOutTime);
 
-    // Dynamically evaluate punctuality status
-    let statusToSend = status;
-    if (status === 'Present' || status === 'Late') {
-      if (!isMissedCheckIn && checkInTime) {
-        statusToSend = isCurrentlyLate ? 'Late' : 'Present';
-      }
-    }
+    // Administrative status explicitly selected by HR/CEO is preserved
+    const statusToSend = status;
 
     const addedBy = `${currentUser?.name} (${currentUser?.role})`;
 
@@ -379,30 +444,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               </div>
             )}
 
-            {/* Existing Record Indicator Banner */}
-            {existingRecord && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: '10px',
-                  backgroundColor: '#FFFBEB',
-                  border: '1px solid #FDE68A',
-                  color: '#92400E',
-                  fontSize: '0.8rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}
-              >
-                <AlertTriangle size={18} color="#D97706" style={{ flexShrink: 0 }} />
-                <div>
-                  <strong>Existing log found:</strong> Currently marked as{' '}
-                  <span style={{ fontWeight: 700 }}>{existingRecord.status}</span> (In:{' '}
-                  {existingRecord.checkIn || 'Missing'}, Out: {existingRecord.checkOut || 'Missing'}).
-                  Submitting will update and regularize this entry.
-                </div>
-              </div>
-            )}
 
             {/* Employee Selection */}
             <div>
@@ -582,85 +623,91 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                         <span>Missed In</span>
                       </label>
                     </div>
-                    <input
-                      type="text"
-                      disabled={isMissedCheckIn}
-                      value={isMissedCheckIn ? 'Missed / Absent' : checkInTime}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setCheckInTime(val);
-                        const tMins = parseTimeToMinutes(val);
-                        if (tMins !== null && shiftMins !== null) {
-                          if (tMins > (shiftMins + effectiveGraceMins)) {
-                            setStatus('Late');
-                          } else if (status === 'Late') {
-                            setStatus('Present');
-                          }
-                        }
-                      }}
-                      placeholder="e.g. 09:00 AM"
-                      style={{
-                        width: '100%',
-                        height: '40px',
-                        padding: '6px 12px',
-                        borderRadius: '8px',
-                        border: '1px solid #CBD5E1',
-                        fontSize: '0.86rem',
-                        fontWeight: 700,
-                        color: isMissedCheckIn ? '#94A3B8' : '#0F172A',
-                        backgroundColor: isMissedCheckIn ? '#F1F5F9' : '#FFFFFF',
-                        outline: 'none',
-                        boxSizing: 'border-box'
-                      }}
-                    />
-                    {!isMissedCheckIn && (
-                      <>
-                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                          {Array.from(new Set([shiftStartTimeStr, '09:00 AM', '09:30 AM', '10:00 AM'])).filter(Boolean).map(t => (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => {
-                                setCheckInTime(t);
-                                const tMins = parseTimeToMinutes(t);
-                                if (tMins !== null && shiftMins !== null) {
-                                  if (tMins > (shiftMins + effectiveGraceMins)) {
-                                    setStatus('Late');
-                                  } else if (status === 'Late') {
-                                    setStatus('Present');
-                                  }
-                                }
-                              }}
-                              style={{
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                backgroundColor: checkInTime === t ? '#ECFEFF' : '#FFFFFF',
-                                color: checkInTime === t ? '#0E7490' : '#64748B',
-                                border: checkInTime === t ? '1px solid #0E7490' : '1px solid #CBD5E1',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {t} {t === shiftStartTimeStr ? '(Shift)' : ''}
-                            </button>
-                          ))}
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        disabled={isMissedCheckIn}
+                        value={isMissedCheckIn ? 'Missed / Absent' : checkInTime}
+                        onChange={e => setCheckInTime(e.target.value)}
+                        onBlur={e => {
+                          const norm = normalizeTimeString(e.target.value);
+                          if (norm) setCheckInTime(norm);
+                        }}
+                        placeholder="e.g. 09:00 AM"
+                        style={{
+                          width: '100%',
+                          height: '40px',
+                          padding: '6px 36px 6px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.86rem',
+                          fontWeight: 700,
+                          color: isMissedCheckIn ? '#94A3B8' : '#0F172A',
+                          backgroundColor: isMissedCheckIn ? '#F1F5F9' : '#FFFFFF',
+                          outline: 'none',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                      {!isMissedCheckIn && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            cursor: 'pointer'
+                          }}
+                          title="Click to pick time"
+                        >
+                          <Clock size={16} color="#64748B" style={{ pointerEvents: 'none' }} />
+                          <input
+                            type="time"
+                            aria-label="Pick check-in time"
+                            value={format12to24(checkInTime)}
+                            onChange={e => {
+                              if (e.target.value) {
+                                setCheckInTime(format24to12(e.target.value));
+                                setIsMissedCheckIn(false);
+                              }
+                            }}
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              opacity: 0,
+                              cursor: 'pointer',
+                              width: '100%',
+                              height: '100%'
+                            }}
+                          />
                         </div>
-                        {checkInTime && (
-                          <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 600 }}>
-                            {isCurrentlyLate ? (
-                              <span style={{ color: '#D97706', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '6px' }}>
-                                ⚠️ Late Arrival (+{lateMinutesDiff}m) — Shift starts at {shiftStartTimeStr} ({effectiveGraceMins}m grace from Late Policy)
-                              </span>
-                            ) : (
-                              <span style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#ECFDF5', padding: '2px 8px', borderRadius: '6px' }}>
-                                🟢 On Time — Shift starts at {shiftStartTimeStr} ({effectiveGraceMins}m grace from Late Policy)
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                      {Array.from(new Set([shiftStartTimeStr, '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM'])).filter(Boolean).map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setIsMissedCheckIn(false);
+                            setCheckInTime(t);
+                          }}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            backgroundColor: (!isMissedCheckIn && checkInTime === t) ? '#ECFEFF' : '#FFFFFF',
+                            color: (!isMissedCheckIn && checkInTime === t) ? '#0E7490' : '#64748B',
+                            border: (!isMissedCheckIn && checkInTime === t) ? '1px solid #0E7490' : '1px solid #CBD5E1',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {t} {t === shiftStartTimeStr ? '(Shift)' : ''}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Check Out */}
@@ -678,49 +725,93 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                         <span>Missed Out</span>
                       </label>
                     </div>
-                    <input
-                      type="text"
-                      disabled={isMissedCheckOut}
-                      value={isMissedCheckOut ? 'Missed / None' : checkOutTime}
-                      onChange={e => setCheckOutTime(e.target.value)}
-                      placeholder="e.g. 06:00 PM"
-                      style={{
-                        width: '100%',
-                        height: '40px',
-                        padding: '6px 12px',
-                        borderRadius: '8px',
-                        border: '1px solid #CBD5E1',
-                        fontSize: '0.86rem',
-                        fontWeight: 700,
-                        color: isMissedCheckOut ? '#94A3B8' : '#0F172A',
-                        backgroundColor: isMissedCheckOut ? '#F1F5F9' : '#FFFFFF',
-                        outline: 'none',
-                        boxSizing: 'border-box'
-                      }}
-                    />
-                    {!isMissedCheckOut && (
-                      <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                        {['06:00 PM', '06:30 PM', '07:30 PM'].map(t => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setCheckOutTime(t)}
-                            style={{
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              backgroundColor: checkOutTime === t ? '#ECFEFF' : '#FFFFFF',
-                              color: checkOutTime === t ? '#0E7490' : '#64748B',
-                              border: '1px solid #CBD5E1',
-                              cursor: 'pointer'
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        disabled={isMissedCheckOut}
+                        value={isMissedCheckOut ? 'Missed / None' : checkOutTime}
+                        onChange={e => {
+                          setCheckOutTime(e.target.value);
+                        }}
+                        onBlur={e => {
+                          const norm = normalizeTimeString(e.target.value);
+                          if (norm) setCheckOutTime(norm);
+                        }}
+                        placeholder="e.g. 06:00 PM"
+                        style={{
+                          width: '100%',
+                          height: '40px',
+                          padding: '6px 36px 6px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.86rem',
+                          fontWeight: 700,
+                          color: isMissedCheckOut ? '#94A3B8' : '#0F172A',
+                          backgroundColor: isMissedCheckOut ? '#F1F5F9' : '#FFFFFF',
+                          outline: 'none',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                      {!isMissedCheckOut && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            cursor: 'pointer'
+                          }}
+                          title="Click to pick time"
+                        >
+                          <Clock size={16} color="#64748B" style={{ pointerEvents: 'none' }} />
+                          <input
+                            type="time"
+                            aria-label="Pick check-out time"
+                            value={format12to24(checkOutTime)}
+                            onChange={e => {
+                              if (e.target.value) {
+                                setCheckOutTime(format24to12(e.target.value));
+                                setIsMissedCheckOut(false);
+                              }
                             }}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              opacity: 0,
+                              cursor: 'pointer',
+                              width: '100%',
+                              height: '100%'
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                      {['06:00 PM', '06:30 PM', '07:00 PM', '07:30 PM'].map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setIsMissedCheckOut(false);
+                            setCheckOutTime(t);
+                          }}
+                          style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            backgroundColor: (!isMissedCheckOut && checkOutTime === t) ? '#ECFEFF' : '#FFFFFF',
+                            color: (!isMissedCheckOut && checkOutTime === t) ? '#0E7490' : '#64748B',
+                            border: (!isMissedCheckOut && checkOutTime === t) ? '1px solid #0E7490' : '1px solid #CBD5E1',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

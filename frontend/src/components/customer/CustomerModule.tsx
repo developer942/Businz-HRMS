@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { CustomerContact } from '../../types/customer';
 import { AddCustomerView } from './AddCustomerView';
 import { CustomerRecordsView } from './CustomerRecordsView';
-import { WhatsAppMessageHistoryView } from './WhatsAppMessageHistoryView';
 import { SendWhatsAppModal } from './SendWhatsAppModal';
 import { customerService } from '../../services/customerService';
 import { useHRMS } from '../../context/HRMSContext';
@@ -11,7 +10,6 @@ import {
   UserPlus, 
   Table, 
   MessageSquare, 
-  History, 
   ShieldCheck, 
   CheckCircle2, 
   AlertCircle,
@@ -19,7 +17,7 @@ import {
   Settings
 } from 'lucide-react';
 
-export type CustomerModuleTab = 'add_customer' | 'records' | 'history';
+export type CustomerModuleTab = 'add_customer' | 'records';
 
 interface CustomerModuleProps {
   initialTab?: CustomerModuleTab;
@@ -56,8 +54,7 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
 
   const tabs: { id: CustomerModuleTab; label: string; icon: React.ElementType }[] = [
     { id: 'records', label: 'Customer Records', icon: Table },
-    { id: 'add_customer', label: 'Add Customer', icon: UserPlus },
-    { id: 'history', label: 'Message History', icon: History }
+    { id: 'add_customer', label: 'Add Customer', icon: UserPlus }
   ];
 
   return (
@@ -150,13 +147,8 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
         {activeTab === 'records' && (
           <CustomerRecordsView
             onOpenSendWhatsApp={(c) => setActiveSendCustomer(c)}
-            onOpenMessageHistory={() => setActiveTab('history')}
             onNavigateToAddCustomer={() => setActiveTab('add_customer')}
           />
-        )}
-
-        {activeTab === 'history' && (
-          <WhatsAppMessageHistoryView />
         )}
       </div>
 

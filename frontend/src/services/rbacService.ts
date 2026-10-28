@@ -174,10 +174,13 @@ export const getInitialRBACState = (): RBACDataResponse => {
     ceoModules[m.key] = [...allActions];
   });
 
-  // HR
+  // HR (No CEO Financial Approval Privileges)
   const hrModules: Record<string, PermissionAction[]> = {};
   DEFAULT_CORE_MODULES.forEach(m => {
-    if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'payroll', 'advance_salary', 'reports', 'documents', 'notifications', 'expenses', 'dashboard'].includes(m.key)) {
+    if (['expenses', 'advance_salary', 'payroll'].includes(m.key)) {
+      // HR can view, create and export, but CANNOT approve financial requests
+      hrModules[m.key] = ['view', 'create', 'export'];
+    } else if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'reports', 'documents', 'notifications', 'dashboard'].includes(m.key)) {
       hrModules[m.key] = [...allActions];
     } else {
       hrModules[m.key] = ['view'];
@@ -234,8 +237,36 @@ export const getInitialRBACState = (): RBACDataResponse => {
     notifications: ['view'],
   };
 
+  // Accounts (Normal employee features + CEO-approved payment distribution & ledger)
+  const accountsModules: Record<string, PermissionAction[]> = {
+    dashboard: ['view'],
+    attendance: ['view', 'create'], // Self punching
+    shift: ['view'],
+    leave: ['view', 'create'], // Self leaves
+    tasks: ['view', 'edit'], // Self tasks
+    payroll: ['view', 'export'], // Self payslips
+    advance_salary: ['view', 'create', 'export'], // Disburse approved advances
+    expenses: ['view', 'create', 'export'], // Disburse approved claims
+    petty_cash: ['view', 'create', 'export'], // Disburse funding
+    documents: ['view'],
+    notifications: ['view'],
+  };
+
   const initialData: RBACDataResponse = {
-    roles: INITIAL_DEFAULT_ROLES,
+    roles: [
+      ...INITIAL_DEFAULT_ROLES,
+      {
+        id: 'role-accounts',
+        name: 'Finance Manager',
+        description: 'Accounts & Finance staff responsible for disbursement of CEO-approved financial requests, ledger tracking and payment recording.',
+        department: 'Accounts & Finance',
+        status: 'Active',
+        isDefault: true,
+        userCount: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
     modules: DEFAULT_CORE_MODULES,
     permissionsByRole: {
       'role-ceo': {
@@ -256,7 +287,6 @@ export const getInitialRBACState = (): RBACDataResponse => {
           'view_salary',
           'edit_salary',
           'process_payroll',
-          'approve_payroll',
           'view_employee_documents',
           'upload_documents',
           'edit_attendance',
@@ -266,10 +296,21 @@ export const getInitialRBACState = (): RBACDataResponse => {
           'create_tasks',
           'assign_tasks',
           'view_all_tasks',
-          'approve_salary_advance',
           'view_reports',
           'export_reports',
           'manage_employees',
+        ],
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'System',
+      },
+      'role-accounts': {
+        roleId: 'role-accounts',
+        roleName: 'Finance Manager',
+        dataAccess: 'own',
+        modulePermissions: accountsModules,
+        specialPermissions: [
+          'view_reports',
+          'export_reports',
         ],
         updatedAt: new Date().toISOString(),
         updatedBy: 'System',

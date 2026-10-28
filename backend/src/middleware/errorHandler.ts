@@ -36,16 +36,17 @@ export const errorHandler = (
   }
 
   if (err instanceof Error) {
+    const typed = err as Error & { statusCode?: number; code?: string; currentVersion?: number };
     const isNotFound = err.message.toLowerCase().includes('not found');
     const isConflict = err.message.toLowerCase().includes('already exists');
-    const statusCode = isNotFound ? 404 : isConflict ? 409 : 400;
+    const statusCode = typed.statusCode || (isNotFound ? 404 : isConflict ? 409 : 400);
 
     res.status(statusCode).json({
       success: false,
       error: {
-        code: isNotFound ? 'NOT_FOUND' : isConflict ? 'CONFLICT' : 'BAD_REQUEST',
+        code: typed.code || (isNotFound ? 'NOT_FOUND' : isConflict ? 'CONFLICT' : 'BAD_REQUEST'),
         message: err.message,
-        details: [],
+        details: typed.currentVersion === undefined ? [] : [{ currentVersion: typed.currentVersion }],
       },
     });
     return;

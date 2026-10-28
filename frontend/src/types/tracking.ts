@@ -1,6 +1,4 @@
-// ============================================================================
-// VRM Enterprise HRM — Field Duty & GPS Live Tracking Type Definitions
-// ============================================================================
+// VRM Enterprise HRMS - Field Duty & GPS Tracking Types
 
 export type DutyType = 
   | 'Site Visit' 
@@ -35,10 +33,17 @@ export type TripStatus =
 export type GpsStatus = 
   | 'GPS Active' 
   | 'GPS Lost' 
-  | 'GPS Off';
+  | 'GPS Off'
+  | 'Low Accuracy'
+  | 'No Signal';
 
 export type TrackingStatus = 
   | 'Travelling' 
+  | 'Stopped'
+  | 'Arrived at destination'
+  | 'Offline'
+  | 'GPS Signal Weak'
+  | 'Visit Completed'
   | 'On Site' 
   | 'Duty Active' 
   | 'Interrupted' 
@@ -64,8 +69,8 @@ export interface FieldAssignment {
   scheduleType: ScheduleType;
   startDate: string; // YYYY-MM-DD
   endDate: string;   // YYYY-MM-DD
-  startTime: string; // HH:mm (24hr e.g. "09:00")
-  endTime: string;   // HH:mm (24hr e.g. "18:00")
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
   customerSiteName: string;
   siteAddress: string;
   purpose: string;
@@ -74,7 +79,7 @@ export interface FieldAssignment {
   attendanceType: AttendanceType;
   siteLat?: number;
   siteLng?: number;
-  allowedRadiusMeters: number; // e.g. 200
+  allowedRadiusMeters: number;
   notes?: string;
   status: AssignmentStatus;
   createdBy?: string;
@@ -87,13 +92,52 @@ export interface LocationPoint {
   tripId: string;
   assignmentId: string;
   employeeId: string;
-  recordedAt: string; // ISO String
+  recordedAt: string;
   latitude: number;
   longitude: number;
-  accuracy?: number; // in meters
-  speed?: number;    // in m/s or km/h
-  batteryLevel?: number; // 0-100 percentage
+  accuracy?: number;
+  speed?: number;
+  heading?: number;
+  altitude?: number;
+  batteryLevel?: number;
   syncedOffline?: boolean;
+  distanceFromPrevMeters?: number;
+  isRejected?: boolean;
+  rejectionReason?: string;
+  source?: string;
+  isRoadSnapped?: boolean;
+  snappedLat?: number;
+  snappedLng?: number;
+}
+
+export interface FieldVisitStop {
+  id: string;
+  tripId: string;
+  assignmentId: string;
+  employeeId: string;
+  stopType: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  arrivedAt: string;
+  departedAt?: string;
+  durationSeconds: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface FieldVisitDistanceSegment {
+  id: string;
+  tripId: string;
+  segmentType: 'recorded' | 'road_matched' | 'unverified_gap';
+  startLat: number;
+  startLng: number;
+  endLat: number;
+  endLng: number;
+  distanceMeters: number;
+  durationSeconds: number;
+  polyline?: string;
+  createdAt: string;
 }
 
 export interface FieldTripSession {
@@ -104,8 +148,8 @@ export interface FieldTripSession {
   department: string;
   dutyType: DutyType;
   customerSiteName: string;
-  tripStartTime: string; // ISO
-  tripEndTime?: string;  // ISO
+  tripStartTime: string;
+  tripEndTime?: string;
   startLat: number;
   startLng: number;
   startAddress: string;
@@ -113,13 +157,25 @@ export interface FieldTripSession {
   endLng?: number;
   endAddress?: string;
   totalKm: number;
+  recordedDistanceMeters?: number;
+  roadMatchedDistanceMeters?: number;
+  suggestedDistanceMeters?: number;
+  unverifiedDistanceMeters?: number;
+  rawPointsCount?: number;
+  acceptedPointsCount?: number;
+  rejectedPointsCount?: number;
+  stopCount?: number;
+  totalStopDurationSeconds?: number;
+  routeGeometry?: string;
   status: TripStatus;
-  checkInTime?: string;  // ISO
-  checkOutTime?: string; // ISO
+  checkInTime?: string;
+  checkOutTime?: string;
   locationPoints: LocationPoint[];
+  stops?: FieldVisitStop[];
+  segments?: FieldVisitDistanceSegment[];
   gpsStatus: GpsStatus;
   trackingStatus: TrackingStatus;
-  lastGpsUpdate?: string; // ISO
+  lastGpsUpdate?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -147,28 +203,30 @@ export interface TrackingOverviewMetrics {
   currentlyTravelling: number;
   gpsIssues: number;
   totalKmToday: number;
+  totalVerifiedKmToday?: number;
+  totalEstimatedKmToday?: number;
 }
 
 export interface TodayFieldEmployeeItem {
   id: string;
-  assignmentId: string;
+  assignmentId?: string;
   employeeId: string;
   employeeName: string;
   employeeAvatar?: string;
   department: string;
   dutyType: DutyType;
   customerSiteName: string;
+  dutyTime?: string;
   checkInTime?: string;
-  travelKm: number;
-  gpsStatus: GpsStatus;
-  trackingStatus: TrackingStatus;
+  tripStatus?: 'Not Started' | 'In Progress' | 'Completed';
+  currentKm?: number;
+  travelKm?: number;
+  gpsStatus: 'GPS Active' | 'GPS Off' | 'GPS Lost' | string;
+  trackingStatus: string;
+  lastLocation?: string;
   lastUpdated: string;
   currentLat?: number;
   currentLng?: number;
-  startLat?: number;
-  startLng?: number;
-  siteLat?: number;
-  siteLng?: number;
-  allowedRadius?: number;
   activeTripId?: string;
 }
+

@@ -12,9 +12,9 @@ import {
   getLocalizedPack 
 } from '../../services/aiLanguageEngine';
 import { executeHRMSQuery } from '../../services/aiDataQueryService';
+import { executeVerifiedHRMSQuery } from '../../services/aiBackendQueryService';
 import { exportToExcel, exportToPDF, exportToCSV } from '../../services/aiExportService';
 import {
-  getStoredGeminiApiKey,
   setStoredGeminiApiKey,
   getStoredGeminiModel,
   setStoredGeminiModel,
@@ -112,7 +112,11 @@ const QUICK_ACTIONS = [
   }
 ];
 
-export const AIAssistantWidget: React.FC = () => {
+interface AIAssistantWidgetProps {
+  hideDesktopTrigger?: boolean;
+}
+
+export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDesktopTrigger = false }) => {
   const {
     currentUser,
     employees,
@@ -122,6 +126,7 @@ export const AIAssistantWidget: React.FC = () => {
     performanceScores,
     payrollRecords,
     departments,
+    activeModule,
     setActiveModule,
     holidayPolicies,
     leavePolicies,
@@ -143,6 +148,7 @@ export const AIAssistantWidget: React.FC = () => {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [tableSearch, setTableSearch] = useState<Record<string, string>>({});
+  const [tableLoading, setTableLoading] = useState<Record<string, boolean>>({});
 
   // UI Interactive States
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -150,14 +156,14 @@ export const AIAssistantWidget: React.FC = () => {
 
   // Gemini API Configuration State
   const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
-  const [apiKeyInput, setApiKeyInput] = useState<string>(getStoredGeminiApiKey());
+  const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [selectedModel, setSelectedModel] = useState<string>(getStoredGeminiModel());
   const [availableModels, setAvailableModels] = useState<GeminiModelInfo[]>([]);
   const [isTestingKey, setIsTestingKey] = useState<boolean>(false);
   const [keyTestStatus, setKeyTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [keyErrorMessage, setKeyErrorMessage] = useState<string>('');
   const [showKeyText, setShowKeyText] = useState<boolean>(false);
-  const [hasGeminiKey, setHasGeminiKey] = useState<boolean>(Boolean(getStoredGeminiApiKey()));
+  const [hasGeminiKey, setHasGeminiKey] = useState<boolean>(false);
 
   // Conversational Memory
   const [convState, setConvState] = useState<ConversationState>({
@@ -179,7 +185,7 @@ export const AIAssistantWidget: React.FC = () => {
         id: 'msg-welcome',
         sender: 'assistant',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        text: 'Hello! I am your Seri HR Copilot. Ask me anything about attendance, leaves, tasks, or payroll in Tamil, Tanglish, English, or Hindi.',
+        text: 'Hello! I am your BUSINZ Chat Bot. Ask me anything about attendance, leaves, tasks, or payroll in Tamil, Tanglish, English, or Hindi.',
         intent: 'GENERAL_HELP',
         followUpSuggestions: [
           'Inniku absent yaru?',
@@ -218,18 +224,43 @@ export const AIAssistantWidget: React.FC = () => {
     }
   }, [isOpen]);
 
+  // Listen for programmatic open / toggle events from MobileBottomNav
+  useEffect(() => {
+    const handleOpen = () => setIsOpen(true);
+    const handleClose = () => setIsOpen(false);
+    const handleToggle = () => setIsOpen(prev => !prev);
+
+    window.addEventListener('open-vrm-ai-chatbot', handleOpen);
+    window.addEventListener('close-vrm-ai-chatbot', handleClose);
+    window.addEventListener('toggle-vrm-ai-chatbot', handleToggle);
+
+    return () => {
+      window.removeEventListener('open-vrm-ai-chatbot', handleOpen);
+      window.removeEventListener('close-vrm-ai-chatbot', handleClose);
+      window.removeEventListener('toggle-vrm-ai-chatbot', handleToggle);
+    };
+  }, []);
+
+  // Broadcast state changes so navigation items can synchronize active indicators
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('vrm-ai-chatbot-state-change', { detail: { isOpen } }));
+  }, [isOpen]);
+
+  // Close mobile chatbot panel when navigating to another module
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      setIsOpen(false);
+    }
+  }, [activeModule]);
+
   // Real-time synchronization with Settings -> Integrations and backend AI status
   useEffect(() => {
     const syncStatus = async () => {
-      const stored = getStoredGeminiApiKey();
-      if (stored) {
-        setHasGeminiKey(true);
-        setApiKeyInput(stored);
-      } else {
+      try {
         const serverStatus = await checkAiServerStatus();
         setHasGeminiKey(serverStatus.isConfigured);
         if (serverStatus.model) setSelectedModel(serverStatus.model);
-      }
+      } catch { setHasGeminiKey(false); }
     };
     syncStatus();
 
@@ -267,30 +298,15 @@ export const AIAssistantWidget: React.FC = () => {
     }
   };
 
-  const handleSaveGeminiSettings = () => {
+  const handleSaveGeminiSettings = async () => {
     const cleanKey = cleanApiKey(apiKeyInput);
-    setStoredGeminiApiKey(cleanKey);
-    setStoredGeminiModel(selectedModel);
-    setHasGeminiKey(Boolean(cleanKey));
-    syncApiKeyToBackend(cleanKey, selectedModel);
-
-    // Cross-sync with Integrations configuration store
     try {
-      const saved = localStorage.getItem('vrm_enterprise_integrations_v6');
-      const parsed = saved ? JSON.parse(saved) : {};
-      parsed.gemini_ai = {
-        apiKey: cleanKey,
-        model: selectedModel
-      };
-      localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(parsed));
-
-      const statuses = localStorage.getItem('vrm_integration_statuses_v3');
-      const parsedStatuses = statuses ? JSON.parse(statuses) : {};
-      parsedStatuses.gemini_ai = cleanKey ? 'connected' : 'disconnected';
-      localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(parsedStatuses));
-    } catch {}
-
-    setShowApiKeyModal(false);
+      await syncApiKeyToBackend(cleanKey, selectedModel);
+      setStoredGeminiApiKey(''); setStoredGeminiModel(selectedModel);
+      setApiKeyInput(''); setHasGeminiKey(true); setShowApiKeyModal(false);
+    } catch (error: any) {
+      setKeyTestStatus('error'); setKeyErrorMessage(error.message || 'Configuration was not saved.');
+    }
   };
 
   // Speech to Text (Web Speech API)
@@ -366,6 +382,23 @@ export const AIAssistantWidget: React.FC = () => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const refreshDirectoryResult = async (message: AIMessage, page: number, search?: string) => {
+    if (!message.richPayload?.pagination?.serverSearch) return;
+    setTableLoading(prev => ({ ...prev, [message.id]: true }));
+    try {
+      const result = await executeVerifiedHRMSQuery('GET_EMPLOYEE_LIST', message.rawEntities || {}, {
+        page, pageSize: message.richPayload.pagination.pageSize,
+        search: search ?? tableSearch[message.id] ?? message.richPayload.pagination.search ?? '',
+      });
+      setConvState(prev => ({ ...prev, conversationHistory: prev.conversationHistory.map(item => item.id === message.id
+        ? { ...item, text: result.responseText, richPayload: result.payload, timingMs: result.timings?.totalMs } : item),
+        lastResultData: result.payload.rows || [], lastColumns: result.payload.columns || prev.lastColumns }));
+    } catch (error: any) {
+      setConvState(prev => ({ ...prev, conversationHistory: prev.conversationHistory.map(item => item.id === message.id
+        ? { ...item, text: error.message || "I couldn't verify this information from the HRMS database.", isError: true } : item) }));
+    } finally { setTableLoading(prev => ({ ...prev, [message.id]: false })); }
   };
 
   // Main message processor
@@ -462,87 +495,54 @@ export const AIAssistantWidget: React.FC = () => {
       return;
     }
 
-    // Process Query: Compute verified calculations deterministically first, then optionally ground Gemini
+    // Deterministic HRMS facts are fetched from the authenticated PostgreSQL backend.
     setTimeout(async () => {
-      const queryResult = executeHRMSQuery(
-        intent,
-        entities,
-        activeLang,
-        convState,
-        {
-          currentUser,
-          role,
-          employees,
-          attendanceRecords,
-          leaveRequests,
-          enhancedTasks,
-          performanceScores,
-          payrollRecords,
-          departments,
-          holidayPolicies,
-          leavePolicies,
-          attendancePolicies,
-          weeklySchedules,
-          attendanceConfig,
-          policyDocuments,
-          businessSettings,
-          shifts,
-          fieldAssignments
-        },
-        queryText
-      );
-
-      let geminiResponseText: string | null = null;
+      const verifiedIntents = new Set([
+        'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST', 'GET_EMPLOYEE_DETAILS', 'GET_ATTENDANCE',
+        'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_MY_ATTENDANCE', 'GET_LEAVE_RECORDS',
+        'GET_MY_LEAVE_BALANCE', 'GET_LEAVE_POLICIES', 'GET_SANDWICH_POLICY',
+        'GET_ATTENDANCE_POLICIES', 'GET_COMPANY_POLICIES', 'GET_PAYROLL', 'GET_SALARY_STRUCTURE', 'GET_MY_SHIFT',
+        'GET_TASKS', 'GET_OVERDUE_TASKS', 'GET_PERFORMANCE', 'GET_KPA', 'GET_KPI', 'GET_PIP', 'GET_REPORT'
+      ]);
+      let queryResult: any;
       let geminiModelUsed: string | null = null;
-      const currentApiKey = getStoredGeminiApiKey();
-
-      // Only invoke LLM when not a security error, grounding it strictly on deterministic facts
-      const factualAttendanceIntent = intent === 'GET_ABSENT_EMPLOYEES' || intent === 'GET_ATTENDANCE' || intent === 'GET_LATE_EMPLOYEES' || intent === 'GET_MY_ATTENDANCE';
-      if ((currentApiKey || hasGeminiKey) && !queryResult.isError && !factualAttendanceIntent) {
-        try {
-          const geminiResult = await callGeminiGenerateContent(
-            queryText,
-            {
-              employees,
-              leaveRequests,
-              attendanceRecords,
-              enhancedTasks,
-              performanceScores,
-              payrollRecords,
-              departments,
-              userRole: role,
-              currentUser,
-              verifiedFacts: queryResult.responseText
-            },
-            activeLang,
-            convState.conversationHistory,
-            currentApiKey,
-            selectedModel
-          );
-          if (geminiResult.text && geminiResult.text.trim()) {
-            geminiResponseText = geminiResult.text;
-            geminiModelUsed = geminiResult.modelUsed;
+      try {
+        if (verifiedIntents.has(intent)) {
+          queryResult = await executeVerifiedHRMSQuery(intent, entities);
+          const explanationIntent = ['GET_LEAVE_POLICIES', 'GET_SANDWICH_POLICY', 'GET_ATTENDANCE_POLICIES', 'GET_COMPANY_POLICIES'].includes(intent);
+          if (explanationIntent && hasGeminiKey && queryResult.verifiedFacts) {
+            try {
+              const explained = await callGeminiGenerateContent(queryText, { verifiedFacts: queryResult.verifiedFacts },
+                activeLang, convState.conversationHistory);
+              queryResult.responseText = explained.text;
+              geminiModelUsed = explained.modelUsed;
+            } catch { /* verified backend response remains authoritative */ }
           }
-        } catch (err: any) {
-          console.warn('Gemini API call error, falling back to local verified HRMS query engine:', err);
+        } else {
+          queryResult = executeHRMSQuery(intent, entities, activeLang, convState, {
+            currentUser, role, employees: [], attendanceRecords: [], leaveRequests: [], enhancedTasks: [],
+            performanceScores: [], payrollRecords: [], departments: [], holidayPolicies: [], leavePolicies: [],
+            attendancePolicies: [], weeklySchedules: [], attendanceConfig: {} as any, policyDocuments: [], businessSettings: {} as any, shifts: [], fieldAssignments: []
+          }, queryText);
         }
+      } catch (error: any) {
+        queryResult = { responseText: error?.status === 403 ? error.message : "I couldn't verify this information from the HRMS database.",
+          payload: { type: 'none' }, followUpSuggestions: [], isError: true, newFilters: {} };
       }
-
-      // Deterministic calculation is authoritative; Gemini provides natural multilingual phrasing
-      const finalResponseText = (queryResult.isError || !geminiResponseText) 
-        ? queryResult.responseText 
-        : geminiResponseText;
 
       const assistantMsg: AIMessage = {
         id: `asst-${Date.now()}`,
         sender: 'assistant',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        text: finalResponseText,
+        text: queryResult.responseText,
         intent,
+        rawEntities: entities,
         richPayload: queryResult.payload,
         followUpSuggestions: queryResult.followUpSuggestions,
         isError: queryResult.isError,
-        geminiModel: geminiModelUsed || undefined
+        geminiModel: geminiModelUsed || undefined,
+        dataSource: verifiedIntents.has(intent) ? 'postgresql' : 'local',
+        timingMs: queryResult.timings?.totalMs
       };
 
       setIsTyping(false);
@@ -577,7 +577,7 @@ export const AIAssistantWidget: React.FC = () => {
           id: 'msg-cleared',
           sender: 'assistant',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          text: 'Hello! I am your Seri HR Copilot. Ask me anything about attendance, leaves, tasks, or payroll.',
+          text: 'Hello! I am your BUSINZ Chat Bot. Ask me anything about attendance, leaves, tasks, or payroll.',
           followUpSuggestions: [
             'Inniku absent yaru?',
             'Nethu yaru leave?',
@@ -630,15 +630,15 @@ export const AIAssistantWidget: React.FC = () => {
         FLOATING TRIGGER BUTTON (Docked at Bottom-Right)
         ================================================================
       */}
-      {!isOpen && (
+      {!isOpen && !hideDesktopTrigger && (
         <button
           id="vrm-ai-chatbot-trigger"
           className="vrm-ai-trigger-btn"
           onClick={() => setIsOpen(true)}
-          title="Open Pavi Chat Bot"
-          aria-label="Open Pavi Chat Bot"
+          title="Open BUSINZ Chat Bot"
+          aria-label="Open BUSINZ Chat Bot"
         >
-          <img src="/seri-bot-logo.png?v=teal" alt="Pavi Chat Bot" className="vrm-ai-trigger-icon-img" />
+          <img src="/seri-bot-logo.png?v=teal" alt="BUSINZ Chat Bot" className="vrm-ai-trigger-icon-img" />
         </button>
       )}
 
@@ -654,13 +654,13 @@ export const AIAssistantWidget: React.FC = () => {
             <div className="vrm-ai-header-brand">
               <div className="vrm-ai-header-icon-wrap">
                 <div className="vrm-ai-header-icon">
-                  <img src="/seri-bot-logo.png?v=teal" alt="Pavi Logo" className="vrm-ai-header-logo-img" />
+                  <img src="/seri-bot-logo.png?v=teal" alt="BUSINZ Chat Bot Logo" className="vrm-ai-header-logo-img" />
                 </div>
               </div>
 
               <div className="vrm-ai-header-meta">
                 <div className="vrm-ai-header-title-row">
-                  <h3 className="vrm-ai-header-title">Pavi Chat Bot</h3>
+                  <h3 className="vrm-ai-header-title">BUSINZ Chat Bot</h3>
                 </div>
               </div>
             </div>
@@ -702,7 +702,7 @@ export const AIAssistantWidget: React.FC = () => {
               <div className="vrm-ai-welcome-hub">
                 <div className="vrm-ai-welcome-hero">
                   <div className="vrm-ai-welcome-avatar">
-                    <img src="/seri-bot-logo.png?v=teal" alt="Pavi" />
+                    <img src="/seri-bot-logo.png?v=teal" alt="BUSINZ Chat Bot" />
                   </div>
                   <h4 className="vrm-ai-welcome-title">How can I assist you today?</h4>
                 </div>
@@ -745,7 +745,7 @@ export const AIAssistantWidget: React.FC = () => {
                     {msg.sender === 'user' ? (
                       <User size={16} />
                     ) : (
-                      <img src="/seri-bot-logo.png?v=teal" alt="Pavi" className="vrm-ai-msg-avatar-img" />
+                      <img src="/seri-bot-logo.png?v=teal" alt="BUSINZ Chat Bot" className="vrm-ai-msg-avatar-img" />
                     )}
                   </div>
 
@@ -754,7 +754,7 @@ export const AIAssistantWidget: React.FC = () => {
                     {msg.sender === 'assistant' && (
                       <div className="vrm-ai-bubble-meta-header">
                         <span className="vrm-ai-bubble-badge" style={msg.geminiModel ? { background: '#ECFEFF', color: '#0E7490', border: '1px solid #A5F3FC' } : undefined}>
-                          {msg.geminiModel ? `✨ Gemini (${msg.geminiModel})` : 'Pavi AI'}
+                          {msg.geminiModel ? `✨ Gemini (${msg.geminiModel})` : 'BUSINZ Chat Bot'}
                         </span>
 
                         <div className="vrm-ai-bubble-tools">
@@ -837,11 +837,13 @@ export const AIAssistantWidget: React.FC = () => {
                     )}
 
                     {/* Data Table */}
-                    {msg.richPayload?.rows && msg.richPayload.rows.length > 0 && (
+                    {msg.richPayload?.rows && (
                       <div className="vrm-ai-table-container">
                         <div className="vrm-ai-table-header-bar">
                           <span className="vrm-ai-table-title">
-                            📋 {msg.richPayload.title || 'Records'} ({msg.richPayload.rows.length})
+                            📋 {msg.richPayload.title || 'Records'} {msg.richPayload.pagination
+                              ? `(Showing ${msg.richPayload.rows.length} of ${msg.richPayload.pagination.total})`
+                              : `(${msg.richPayload.rows.length})`}
                           </span>
                           <div className="vrm-ai-table-search-box">
                             <Search size={12} className="vrm-ai-table-search-icon" />
@@ -850,6 +852,11 @@ export const AIAssistantWidget: React.FC = () => {
                               placeholder="Search..."
                               value={tableSearch[msg.id] || ''}
                               onChange={e => setTableSearch({ ...tableSearch, [msg.id]: e.target.value })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && msg.richPayload?.pagination?.serverSearch) {
+                                  refreshDirectoryResult(msg, 1, tableSearch[msg.id] || '');
+                                }
+                              }}
                               className="vrm-ai-table-search-input"
                             />
                           </div>
@@ -866,6 +873,7 @@ export const AIAssistantWidget: React.FC = () => {
                             <tbody>
                               {msg.richPayload.rows
                                 .filter(row => {
+                                  if (msg.richPayload?.pagination?.serverSearch) return true;
                                   const term = (tableSearch[msg.id] || '').toLowerCase();
                                   if (!term) return true;
                                   return Object.values(row).some(v => String(v).toLowerCase().includes(term));
@@ -893,9 +901,23 @@ export const AIAssistantWidget: React.FC = () => {
                                     ))}
                                   </tr>
                                 ))}
+                              {msg.richPayload.rows.length === 0 && (
+                                <tr><td colSpan={(msg.richPayload.columns || []).length || 1}>No authorized records found.</td></tr>
+                              )}
                             </tbody>
                           </table>
                         </div>
+                        {msg.richPayload.pagination?.serverSearch && (
+                          <div className="vrm-ai-actions-row">
+                            <button className="vrm-ai-action-btn" disabled={tableLoading[msg.id] || msg.richPayload.pagination.page <= 1}
+                              onClick={() => refreshDirectoryResult(msg, msg.richPayload!.pagination!.page - 1)}>Previous</button>
+                            <span>Page {msg.richPayload.pagination.page} — Showing {msg.richPayload.rows.length} of {msg.richPayload.pagination.total}</span>
+                            <button className="vrm-ai-action-btn" disabled={tableLoading[msg.id] || !msg.richPayload.pagination.hasMore}
+                              onClick={() => refreshDirectoryResult(msg, msg.richPayload!.pagination!.page + 1)}>
+                              {tableLoading[msg.id] ? 'Loading…' : 'Next'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -959,7 +981,7 @@ export const AIAssistantWidget: React.FC = () => {
             {isTyping && (
               <div className="vrm-ai-msg-row assistant">
                 <div className="vrm-ai-avatar assistant">
-                  <img src="/seri-bot-logo.png?v=teal" alt="Pavi" className="vrm-ai-msg-avatar-img" />
+                  <img src="/seri-bot-logo.png?v=teal" alt="BUSINZ Chat Bot" className="vrm-ai-msg-avatar-img" />
                 </div>
                 <div className="vrm-ai-bubble assistant">
                   <div className="vrm-ai-typing">
@@ -1042,7 +1064,7 @@ export const AIAssistantWidget: React.FC = () => {
                 <div className="vrm-ai-modal-header">
                   <h4 className="vrm-ai-modal-title">
                     <Settings size={16} color="#0E7490" />
-                    <span>Gemini AI Configuration</span>
+                    <span>Gemini AI Configuration (BUSINZ Chat Bot)</span>
                   </h4>
                   <button
                     className="vrm-ai-header-btn close-btn"

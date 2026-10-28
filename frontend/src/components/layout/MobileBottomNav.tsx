@@ -1,24 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { ModuleName } from '../../types/hrms';
+import { isCeoOrHrUser } from '../../services/authService';
 import {
-  LayoutDashboard,
+  Home,
   ScanFace,
+  CalendarCheck,
   CalendarDays,
   CheckSquare,
-  User,
   Users,
   FileText,
   CheckCircle2,
-  Settings,
-  Layers
+  Receipt,
+  CreditCard,
+  Bot
 } from 'lucide-react';
 
 interface NavItem {
   key: string;
   label: string;
+  title?: string;
   icon: React.ElementType;
-  targetModule: ModuleName;
+  targetModule?: ModuleName;
   badge?: number;
   action?: () => void;
 }
@@ -27,26 +30,35 @@ interface MobileBottomNavProps {
   onOpenSidebar?: () => void;
 }
 
-export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar }) => {
-  const { 
-    currentUser, 
-    activeModule, 
-    setActiveModule, 
-    setActiveSettingsTab,
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = () => {
+  const {
+    currentUser,
+    activeModule,
+    setActiveModule,
+    hasPermission,
     tasks = [],
     leaveRequests = [],
+    expenses = [],
+    loanRecords = [],
     resetToDashboard
   } = useHRMS();
 
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [hasOpenModal, setHasOpenModal] = useState(false);
+  const [isChatBotOpen, setIsChatBotOpen] = useState(false);
 
-  // Monitor viewport resize to hide bottom nav when mobile virtual keyboard is active
+  // Monitor viewport resize to hide bottom nav only when virtual keyboard is actively open on an input
   useEffect(() => {
     const handleViewportChange = () => {
       if (window.visualViewport) {
-        const isKeyboard = window.visualViewport.height < window.innerHeight * 0.75;
+        const activeTag = document.activeElement?.tagName;
+        const isInputFocused =
+          activeTag === 'INPUT' ||
+          activeTag === 'TEXTAREA' ||
+          activeTag === 'SELECT' ||
+          (document.activeElement as HTMLElement | null)?.isContentEditable === true;
+        const isKeyboard = isInputFocused && window.visualViewport.height < window.innerHeight * 0.72;
         setIsKeyboardVisible(isKeyboard);
+        document.body.classList.toggle('mobile-keyboard-open', isKeyboard);
       }
     };
 
@@ -55,114 +67,93 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
     return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportChange);
       window.removeEventListener('resize', handleViewportChange);
+      document.body.classList.remove('mobile-keyboard-open');
     };
   }, []);
 
-  // Monitor DOM for open modals / fullscreen wizards to avoid overlapping action buttons
+  // Synchronize active indicator with BUSINZ Chat Bot open/close status
   useEffect(() => {
-    const checkModalState = () => {
-      const modalElements = document.querySelectorAll(
-        '.onboarding-fullscreen-modal, .modal-backdrop, .modal-overlay, .dialog-overlay, .profile-drawer'
-      );
-      let isOpen = false;
-      modalElements.forEach((el) => {
-        const style = window.getComputedStyle(el);
-        if (
-          style.display !== 'none' && 
-          style.visibility !== 'hidden' && 
-          style.opacity !== '0' &&
-          (el as HTMLElement).offsetWidth > 0
-        ) {
-          isOpen = true;
-        }
-      });
-      setHasOpenModal(isOpen);
+    const handleChatState = (e: Event) => {
+      const customEvent = e as CustomEvent<{ isOpen?: boolean }>;
+      setIsChatBotOpen(Boolean(customEvent?.detail?.isOpen));
     };
-
-    const observer = new MutationObserver(checkModalState);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-    checkModalState();
-
-    return () => observer.disconnect();
+    window.addEventListener('vrm-ai-chatbot-state-change', handleChatState);
+    return () => window.removeEventListener('vrm-ai-chatbot-state-change', handleChatState);
   }, []);
 
-  const role = currentUser?.role || 'Employee';
-  const designation = (currentUser?.designation || '').toLowerCase();
-  const isSuperAdmin = role === 'Super Admin' || role === 'ERP Administrator';
-  const isCEO = !isSuperAdmin && (role === 'CEO' || designation === 'ceo');
-  const isHR = role === 'HR Admin' || role === 'HR Manager' || role === 'HR';
-  const isAccounts = role === 'Finance Manager' || (currentUser?.department && currentUser.department.toLowerCase().includes('account'));
+  const role = (currentUser?.role || 'Employee').trim();
+  const designation = (currentUser?.designation || '').trim().toLowerCase();
+  const department = (currentUser?.department || '').trim().toLowerCase();
+
+  const isHR =
+    role === 'HR Admin' ||
+    role === 'HR Manager' ||
+    role === 'HR' ||
+    (role !== 'CEO' &&
+      role !== 'Super Admin' &&
+      (department === 'hr' ||
+        department.includes('human resource') ||
+        designation.includes('hr') ||
+        designation.includes('human resource')));
+
+  const isAccounts =
+    !isHR &&
+    (role === 'Finance Manager' ||
+      (role as string) === 'Accounts' ||
+      (role !== 'CEO' &&
+        role !== 'Super Admin' &&
+        (department.includes('account') ||
+          department.includes('finance') ||
+          designation.includes('account') ||
+          designation.includes('finance'))));
+
+  const isCEO =
+    !isHR &&
+    !isAccounts &&
+    (role === 'Super Admin' ||
+      role === 'CEO' ||
+      role === 'Management' ||
+      role === 'ERP Administrator' ||
+      designation === 'ceo' ||
+      designation.includes('chief executive') ||
+      designation.includes('managing director') ||
+      currentUser?.employeeId === 'EMP-000');
 
   const pendingTasksCount = tasks.filter(t => t.status !== 'Completed').length;
-  const pendingLeavesCount = (isSuperAdmin || isHR || isCEO) 
-    ? leaveRequests.filter(l => l.status === 'Pending').length 
+  const pendingLeavesCount = (isCEO || isHR)
+    ? leaveRequests.filter(l => l.status === 'Pending').length
+    : 0;
+  const pendingDisbursementsCount = isAccounts
+    ? (expenses.filter(e => e.status === 'Approved').length + loanRecords.filter(l => l.status === 'Approved').length)
     : 0;
 
-  // Build role-specific navigation items according to requirements
+  // Build role-specific navigation items according to Phase 8 requirements
   const getNavItems = (): NavItem[] => {
-    if (isSuperAdmin) {
-      // Super Admin: Home | Users | Modules | Settings | Profile
-      return [
-        {
-          key: 'home',
-          label: 'Home',
-          icon: LayoutDashboard,
-          targetModule: 'dashboard',
-          action: () => {
-            resetToDashboard?.();
-            setActiveModule('dashboard');
-          }
-        },
-        {
-          key: 'users',
-          label: 'Users',
-          icon: Users,
-          targetModule: 'employees'
-        },
-        {
-          key: 'modules',
-          label: 'Modules',
-          icon: Layers,
-          targetModule: activeModule,
-          action: () => {
-            if (onOpenSidebar) {
-              onOpenSidebar();
-            } else {
-              setActiveModule('settings');
-            }
-          }
-        },
-        {
-          key: 'settings',
-          label: 'Settings',
-          icon: Settings,
-          targetModule: 'settings'
-        },
-        {
-          key: 'profile',
-          label: 'Profile',
-          icon: User,
-          targetModule: 'profile',
-          action: () => {
-            setActiveModule('profile');
-          }
-        }
-      ];
-    }
+    const homeTab: NavItem = {
+      key: 'home',
+      label: 'Home',
+      icon: Home,
+      targetModule: 'dashboard',
+      action: () => {
+        resetToDashboard?.();
+        setActiveModule('dashboard');
+      }
+    };
+
+    const chatBotTab: NavItem = {
+      key: 'chatbot',
+      label: 'Chat Bot',
+      title: 'BUSINZ Chat Bot',
+      icon: Bot,
+      action: () => {
+        window.dispatchEvent(new CustomEvent('toggle-vrm-ai-chatbot'));
+      }
+    };
 
     if (isCEO) {
-      // CEO: Home | Approvals | Employees | Reports | Profile
+      // CEO: 1. Home, 2. Approvals, 3. Employees, 4. Reports, 5. Chat Bot
       return [
-        {
-          key: 'home',
-          label: 'Home',
-          icon: LayoutDashboard,
-          targetModule: 'dashboard',
-          action: () => {
-            resetToDashboard?.();
-            setActiveModule('dashboard');
-          }
-        },
+        homeTab,
         {
           key: 'approvals',
           label: 'Approvals',
@@ -182,30 +173,73 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
           icon: FileText,
           targetModule: 'reports'
         },
+        chatBotTab
+      ];
+    }
+
+    if (isHR) {
+      // HR: 1. Home, 2. Employees, 3. Attendance, 4. Leave, 5. Chat Bot
+      return [
+        homeTab,
         {
-          key: 'profile',
-          label: 'Profile',
-          icon: User,
-          targetModule: 'profile',
-          action: () => {
-            setActiveModule('profile');
-          }
+          key: 'employees',
+          label: 'Employees',
+          icon: Users,
+          targetModule: 'employees'
+        },
+        {
+          key: 'attendance',
+          label: 'Attendance',
+          icon: CalendarCheck,
+          targetModule: 'attendance'
+        },
+        {
+          key: 'leave',
+          label: 'Leave',
+          icon: CalendarDays,
+          targetModule: 'leaves',
+          badge: pendingLeavesCount > 0 ? pendingLeavesCount : undefined
+        },
+        chatBotTab
+      ];
+    }
+
+    if (isAccounts) {
+      // ACCOUNTS: 1. Home, 2. Attendance, 3. Payments, 4. Claims, 5. Tasks
+      return [
+        homeTab,
+        {
+          key: 'attendance',
+          label: 'Attendance',
+          icon: ScanFace,
+          targetModule: 'face_attendance'
+        },
+        {
+          key: 'payments',
+          label: 'Payments',
+          icon: CreditCard,
+          targetModule: 'accounts_payment',
+          badge: pendingDisbursementsCount > 0 ? pendingDisbursementsCount : undefined
+        },
+        {
+          key: 'claims',
+          label: 'Claims',
+          icon: Receipt,
+          targetModule: 'finance'
+        },
+        {
+          key: 'tasks',
+          label: 'Tasks',
+          icon: CheckSquare,
+          targetModule: 'tasks',
+          badge: pendingTasksCount > 0 ? pendingTasksCount : undefined
         }
       ];
     }
 
-    // Default for Employee, HR, and Accounts: Home | Attendance | Leave | Tasks | Profile
+    // EMPLOYEE (Strictly 4 items): 1. Home, 2. Attendance, 3. Leave, 4. Tasks
     return [
-      {
-        key: 'home',
-        label: 'Home',
-        icon: LayoutDashboard,
-        targetModule: 'dashboard',
-        action: () => {
-          resetToDashboard?.();
-          setActiveModule('dashboard');
-        }
-      },
+      homeTab,
       {
         key: 'attendance',
         label: 'Attendance',
@@ -224,45 +258,58 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
         icon: CheckSquare,
         targetModule: 'tasks',
         badge: pendingTasksCount > 0 ? pendingTasksCount : undefined
-      },
-      {
-        key: 'profile',
-        label: 'Profile',
-        icon: User,
-        targetModule: 'profile',
-        action: () => {
-          setActiveModule('profile');
-        }
       }
     ];
   };
 
-  const navItems = getNavItems();
+  // Show only navigation items permitted for the authenticated role
+  const navItems = getNavItems().filter((item) => {
+    if (item.key === 'chatbot') {
+      return isCeoOrHrUser(currentUser);
+    }
+    if (item.targetModule) {
+      return hasPermission(item.targetModule, 'view');
+    }
+    return true;
+  });
 
-  // If virtual keyboard is open or a modal dialog is displayed, hide bottom nav
-  if (isKeyboardVisible || hasOpenModal) {
+  if (isKeyboardVisible) {
     return null;
   }
 
   const handleNavClick = (item: NavItem) => {
+    if (item.key !== 'chatbot' && isChatBotOpen) {
+      window.dispatchEvent(new CustomEvent('close-vrm-ai-chatbot'));
+    }
     if (item.action) {
       item.action();
-    } else {
+    } else if (item.targetModule) {
       setActiveModule(item.targetModule);
     }
-    // Scroll to top smoothly on navigation
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (item.key !== 'chatbot') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const isItemActive = (item: NavItem) => {
-    if (item.key === 'modules') {
+    if (item.key === 'chatbot') {
+      return isChatBotOpen;
+    }
+    if (isChatBotOpen) {
       return false;
     }
-    return activeModule === item.targetModule;
+    if (item.key === 'attendance' && isHR) {
+      return activeModule === 'attendance' || activeModule === 'face_attendance';
+    }
+    return Boolean(item.targetModule && activeModule === item.targetModule);
   };
 
   return (
-    <nav className="mobile-bottom-nav" aria-label="Mobile Navigation">
+    <nav
+      className="mobile-bottom-nav"
+      aria-label="Mobile Navigation"
+      data-role={isCEO ? 'CEO' : isHR ? 'HR' : isAccounts ? 'Accounts' : 'Employee'}
+    >
       <div className="mobile-bottom-nav-inner">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -275,10 +322,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenSidebar 
               className={`mobile-bottom-nav-item ${active ? 'active' : ''}`}
               onClick={() => handleNavClick(item)}
               aria-current={active ? 'page' : undefined}
-              title={item.label}
+              aria-label={item.title || item.label}
+              title={item.title || item.label}
             >
               <div className="mobile-bottom-nav-icon-wrapper">
-                <Icon size={20} strokeWidth={active ? 2.5 : 2} />
+                <Icon size={19} strokeWidth={active ? 2.4 : 2} />
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className="mobile-bottom-nav-badge">
                     {item.badge > 99 ? '99+' : item.badge}

@@ -21,6 +21,10 @@ pettyCashRouter.post('/requests/:id/approve', requireRoles(['CEO', 'Super Admin'
 // 3. Accounts Cash Disbursement
 // ============================================================
 pettyCashRouter.post('/disbursements', requireRoles(['Finance Manager', 'Finance', 'Accountant', 'Admin', 'Super Admin', 'CEO']), (req, res, next) => pettyCashController.disburseCash(req, res, next));
+pettyCashRouter.post('/requests/:id/disburse', requireRoles(['Finance Manager', 'Finance', 'Accountant', 'Admin', 'Super Admin', 'CEO']), (req, res, next) => {
+    req.body.requestId = req.body.requestId || req.params.id;
+    return pettyCashController.disburseCash(req, res, next);
+});
 pettyCashRouter.get('/disbursements', (req, res, next) => pettyCashController.getDisbursements(req, res, next));
 // ============================================================
 // 4. Employee Cash Receipt Confirmation

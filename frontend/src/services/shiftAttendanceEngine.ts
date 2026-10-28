@@ -301,10 +301,31 @@ export function evaluateShiftAttendance(params: {
     const shiftDate = normalizeToYYYYMMDD(activeAttendance.shiftDate) || normalizeToYYYYMMDD(activeAttendance.date) || todayStr;
     const { startDateTime, endDateTime, earlyCheckInDateTime, isNightShift } = calculateShiftDateTimes(shiftDate, assignedShift);
 
+    const checkInComp = parseShiftTime(activeAttendance.checkIn, '09:00');
+    const [sy, sm, sd] = shiftDate.split('-').map(Number);
+    let checkInDateTime = new Date(sy, (sm || 1) - 1, sd || 1, checkInComp.hours, checkInComp.minutes, 0, 0);
+    if ((activeAttendance as any).checkInTimestamp && typeof (activeAttendance as any).checkInTimestamp === 'number') {
+      checkInDateTime = new Date((activeAttendance as any).checkInTimestamp);
+    } else if (typeof window !== 'undefined') {
+      try {
+        const savedEpoch = localStorage.getItem(`vrm_punch_in_epoch_${empId}_${shiftDate}`);
+        if (savedEpoch && !isNaN(Number(savedEpoch))) {
+          checkInDateTime = new Date(Number(savedEpoch));
+        }
+      } catch {}
+    }
+
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const elapsedSinceCheckInMs = now.getTime() - checkInDateTime.getTime();
+    const isWithinOneHourCooldown = elapsedSinceCheckInMs >= 0 && elapsedSinceCheckInMs < ONE_HOUR_MS;
+    const remainingCooldownMins = isWithinOneHourCooldown
+      ? Math.max(1, Math.ceil((ONE_HOUR_MS - elapsedSinceCheckInMs) / 60000))
+      : 0;
+
     return {
       state: 'CHECKED_IN',
       canCheckIn: false,
-      canCheckOut: true,
+      canCheckOut: !isWithinOneHourCooldown,
       activeAttendance,
       completedAttendance: null,
       assignedShift,
@@ -316,8 +337,10 @@ export function evaluateShiftAttendance(params: {
       statusBadge: 'Checked In',
       shiftTimingDisplay,
       availabilityDisplay: `Checked in at ${activeAttendance.checkIn}`,
-      countdownText: 'Shift In Progress',
-      message: 'You are currently checked in. Check-out is available when your shift ends.',
+      countdownText: isWithinOneHourCooldown ? `Punch Out in ${remainingCooldownMins}m` : 'Shift In Progress',
+      message: isWithinOneHourCooldown
+        ? `Punch In and Punch Out cannot be done at the same time. Punch Out available in ${remainingCooldownMins} min (1-hour delay required).`
+        : 'You are currently checked in. Check-out is available when your shift ends.',
       isNightShift,
       isNextDayShift: false
     };

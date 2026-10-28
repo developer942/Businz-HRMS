@@ -54,14 +54,14 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   const [zoom, setZoom] = useState<number>(1);
   const [rotation, setRotation] = useState<number>(0);
 
-  // Strict approval authority: CEO, HR Manager, HR Admin, Super Admin
-  const isApprovalAuthority = 
+  // Strict approval authority: CEO alone
+  const isCEOUser = 
     currentUser.role === 'CEO' || 
     currentUser.role === 'Super Admin' || 
-    currentUser.role === 'HR Manager' || 
-    currentUser.role === 'HR Admin' ||
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
+
+  const isApprovalAuthority = isCEOUser;
 
   // Accounts Department users: Finance Manager or Accounts/Finance department/designation
   const isAccountsUser = 
@@ -69,11 +69,12 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
-  const isEmployeeRole = currentUser.role === 'Employee' && !isAccountsUser && !isApprovalAuthority;
+  // Accounts staff have normal employee access in ExpenseManagement (viewing and submitting only their own claims)
+  const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isApprovalAuthority;
   const isHrUser = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || currentUser.role === 'HR';
   const canSubmitClaim = isEmployeeRole || isHrUser;
   const canApprove = isApprovalAuthority;
-  // Accounts only hands over the amount after HR/CEO approval (cannot approve)
+  // Accounts disburse CEO-approved claims in the Accounts Payment Dashboard
   const canDisburse = isAccountsUser;
   const isAccountsOnly = isAccountsUser && !isApprovalAuthority;
 
@@ -767,8 +768,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
           </div>
         </div>
 
-        {/* Unified Table - Single Box Container */}
-        <div style={{ overflowX: 'auto', width: '100%' }}>
+        {/* Unified Table - Single Box Container (Desktop) */}
+        <div className="expense-desktop-table" style={{ overflowX: 'auto', width: '100%' }}>
           <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -1089,6 +1090,153 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
           </table>
         </div>
 
+        {/* Expense Claims Mobile Cards */}
+        <div className="expense-mobile-cards" style={{ padding: '12px' }}>
+          {displayedExpenses.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+              <AlertCircle size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+              <div style={{ fontWeight: 750, fontSize: '0.92rem', color: '#1E293B' }}>No Expense Claims Found</div>
+              <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '4px 0 14px' }}>No claims matching the selected filters.</p>
+              {canSubmitClaim && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowModal(true)}
+                  style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 650 }}
+                >
+                  <Plus size={15} /> Submit Expense Claim
+                </button>
+              )}
+            </div>
+          ) : (
+            displayedExpenses.map(exp => {
+              const isPending = exp.status === 'Pending Finance' || exp.status === 'Pending Manager';
+              return (
+                <div key={exp.id} className="mobile-expense-card">
+                  <div className="mobile-expense-card-header">
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.84rem' }}>{exp.id}</span>
+                        <span style={{ fontSize: '0.72rem', background: '#EFF6FF', color: '#1D4ED8', padding: '2px 7px', borderRadius: '6px', fontWeight: 700 }}>
+                          {exp.category}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                        {exp.employeeName} • {formatDateDDMMYYYY(exp.date)}
+                      </div>
+                    </div>
+                    <div className="mobile-expense-card-amount">
+                      ₹{toNum(exp.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+
+                  {exp.description && (
+                    <div style={{ fontSize: '0.8rem', color: '#334155', background: '#F8FAFC', padding: '8px 10px', borderRadius: '8px', lineHeight: 1.4 }}>
+                      {exp.description}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        backgroundColor:
+                          exp.status === 'Reimbursed' ? '#DCFCE7' :
+                          exp.status === 'Approved' ? '#ECFEFF' :
+                          exp.status === 'Rejected' ? '#FEE2E2' : '#FEF3C7',
+                        color:
+                          exp.status === 'Reimbursed' ? '#15803D' :
+                          exp.status === 'Approved' ? '#0E7490' :
+                          exp.status === 'Rejected' ? '#B91C1C' : '#B45309',
+                        border: `1px solid ${
+                          exp.status === 'Reimbursed' ? '#BBF7D0' :
+                          exp.status === 'Approved' ? '#A5F3FC' :
+                          exp.status === 'Rejected' ? '#FECACA' : '#FDE68A'
+                        }`
+                      }}>
+                        {exp.status === 'Reimbursed' ? 'Paid / Reimbursed' : exp.status}
+                      </span>
+
+                      {exp.receiptUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setViewingReceiptExpense(exp)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: '#F1F5F9',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '6px',
+                            padding: '3px 8px',
+                            fontSize: '0.72rem',
+                            color: '#0E7490',
+                            fontWeight: 650,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Eye size={12} /> Receipt
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      {(exp.status === 'Reimbursed' || exp.status === 'Approved') && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleDownloadVoucher(exp)}
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: '8px' }}
+                        >
+                          <Download size={12} /> Voucher
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions for Approver / Disburser on Mobile */}
+                  {isPending && canApprove && (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ flex: 1, borderRadius: '8px', fontWeight: 700 }}
+                        onClick={() => approveExpense(exp.id, currentUser.name, 'Approved')}
+                      >
+                        <Check size={14} /> Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        style={{ flex: 1, borderRadius: '8px', fontWeight: 700 }}
+                        onClick={() => approveExpense(exp.id, currentUser.name, 'Rejected')}
+                      >
+                        <XCircle size={14} /> Reject
+                      </button>
+                    </div>
+                  )}
+
+                  {exp.status === 'Approved' && canDisburse && (
+                    <div style={{ marginTop: '2px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ width: '100%', borderRadius: '8px', fontWeight: 700, backgroundColor: '#0E7490' }}
+                        onClick={() => handleMarkPaid(exp.id)}
+                      >
+                        <IndianRupee size={14} /> Mark as Paid
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
         {/* Standardized Pagination Footer per AGENTS.md (Strictly [5, 10]) */}
         {!isEmployeeRole && (
           <div style={{
@@ -1355,13 +1503,13 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       {/* 1. EMPLOYEE SUBMIT EXPENSE CLAIM MODAL                   */}
       {/* ======================================================== */}
       {showModal && (
-        <div className="modal-overlay" style={{ zIndex: 1050 }}>
+        <div className="modal-overlay" style={{ zIndex: 20000 }}>
           <div
             className="modal-content"
             style={{
               maxWidth: '640px',
-              height: 'calc(100vh - 40px)',
-              maxHeight: '820px',
+              width: '95%',
+              maxHeight: 'calc(100dvh - 24px)',
               borderRadius: '20px',
               overflow: 'hidden',
               display: 'flex',
@@ -1474,7 +1622,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                 </div>
 
                 {/* Category & Amount */}
-                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                   <div className="form-group">
                     <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
                       Category <span style={{ color: '#EF4444' }}>*</span>
@@ -1509,6 +1657,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                       <input 
                         className="form-control" 
                         type="number" 
+                        inputMode="decimal"
                         min="1" 
                         max={MAX_EXPENSE_CLAIM_AMOUNT}
                         step="0.01" 
@@ -1733,11 +1882,11 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       {/* 2. HR / CEO BILL RECEIPT PROOF VIEWER / LIGHTBOX MODAL   */}
       {/* ======================================================== */}
       {viewingReceiptExpense && (
-        <div className="modal-overlay" style={{ zIndex: 1100, backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(4px)' }}>
+        <div className="modal-overlay" style={{ zIndex: 20000, backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(4px)' }}>
           <div style={{ 
             width: '94%', 
             maxWidth: '850px', 
-            maxHeight: '92vh', 
+            maxHeight: '92dvh', 
             backgroundColor: '#ffffff', 
             borderRadius: '20px', 
             overflow: 'hidden', 

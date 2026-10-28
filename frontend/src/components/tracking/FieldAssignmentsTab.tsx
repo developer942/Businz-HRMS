@@ -57,8 +57,11 @@ export const FieldAssignmentsTab: React.FC = () => {
     });
   }, [fieldAssignments, searchQuery, departmentFilter, statusFilter, dutyTypeFilter]);
 
-  // Paginated Slices
+  // Paginated Slices (on mobile screens, show all assignments without pagination slicing)
   const paginatedData = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return filteredAssignments;
+    }
     const start = (currentPage - 1) * pageSize;
     return filteredAssignments.slice(start, start + pageSize);
   }, [filteredAssignments, currentPage, pageSize]);

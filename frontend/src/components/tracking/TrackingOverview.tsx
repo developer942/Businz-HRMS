@@ -475,7 +475,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
 
                       {/* Travel KM */}
                       <td style={{ padding: '14px 16px', fontWeight: 800, color: '#0E7490' }}>
-                        {formatKm(row.travelKm)}
+                        {formatKm(row.travelKm || 0)}
                       </td>
 
                       {/* GPS Status */}
@@ -520,7 +520,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
                       <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                         <button
                           type="button"
-                          onClick={() => handleOpenDetail(row.assignmentId)}
+                          onClick={() => handleOpenDetail(row.assignmentId || row.id)}
                           style={{
                             backgroundColor: '#FFFFFF',
                             color: '#0E7490',

@@ -240,10 +240,14 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
             <TrackingMap
               center={[centerLat, centerLng]}
               zoom={13}
-              height="380px"
+              height="400px"
               markers={markers}
               routePoints={routePoints}
+              detailedPoints={trip?.locationPoints || []}
+              segments={trip?.segments || []}
+              stops={trip?.stops || []}
               circle={circleConfig}
+              showPlaybackControls={routePoints.length > 1}
             />
           </div>
 
@@ -279,10 +283,13 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
 
             <div>
               <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
-                Travel KM
+                Travel KM (Road)
               </div>
               <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0E7490', marginTop: '4px' }}>
                 {formatKm(trip?.totalKm || 0)}
+              </div>
+              <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                Verified: {trip?.recordedDistanceMeters ? (trip.recordedDistanceMeters / 1000).toFixed(2) + ' KM' : formatKm(trip?.totalKm || 0)}
               </div>
             </div>
 

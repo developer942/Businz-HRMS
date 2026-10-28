@@ -1,38 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { useHRMS } from '../../context/HRMSContext';
 
-// Import Module Views (to be built)
+// Dashboard stays eager; all feature routes load on demand to keep mobile startup lean.
 import { Dashboard } from '../dashboard/Dashboard';
-import { EmployeeList } from '../employees/EmployeeList';
-import { FaceAttendance } from '../attendance/FaceAttendance';
-import { AttendanceList } from '../attendance/AttendanceList';
-import { AttendanceManagementModule } from '../attendance/AttendanceManagementModule';
-import { AttendanceHub } from '../attendance/AttendanceHub';
-import { GpsGeofencePortal } from '../attendance/GpsGeofencePortal';
-import { LeaveManagement } from '../leave/LeaveManagement';
-import { ShiftManagement } from '../shift/ShiftManagement';
-import { OvertimeManagementModule } from '../overtime/OvertimeManagementModule';
-import { PerformanceTracking } from '../performance/PerformanceTracking';
-import { TaskManagement } from '../tasks/TaskManagement';
-import { RecruitmentPipeline } from '../recruitment/RecruitmentPipeline';
-import { ExpenseManagement } from '../finance/ExpenseManagement';
-import { PayrollManagement } from '../payroll/PayrollManagement';
-import { AdvanceSalaryManagement } from '../payroll/AdvanceSalaryManagement';
-import { ReportsAnalytics } from '../reports/ReportsAnalytics';
-import { AttendanceReportsView } from '../attendance/AttendanceReportsView';
-import { Organization } from '../organization/Organization';
-import { AssetManagement } from '../assets/AssetManagement';
-import { Settings } from '../settings/Settings';
-import { UserProfile } from '../profile/UserProfile';
-import { TrackingModule } from '../tracking/TrackingModule';
-import { CustomerModule } from '../customer/CustomerModule';
-import { WhatsAppCRMModule } from '../whatsapp-crm/WhatsAppCRMModule';
-import { PettyCashManagement } from '../petty-cash/PettyCashManagement';
-import { AIAssistantWidget } from '../ai/AIAssistantWidget';
 import { MobileBottomNav } from './MobileBottomNav';
 import { isCeoOrHrUser } from '../../services/authService';
+
+const EmployeeList = lazy(() => import('../employees/EmployeeList').then(m => ({ default: m.EmployeeList })));
+const FaceAttendance = lazy(() => import('../attendance/FaceAttendance').then(m => ({ default: m.FaceAttendance })));
+const LeaveManagement = lazy(() => import('../leave/LeaveManagement').then(m => ({ default: m.LeaveManagement })));
+const ShiftManagement = lazy(() => import('../shift/ShiftManagement').then(m => ({ default: m.ShiftManagement })));
+const TaskManagement = lazy(() => import('../tasks/TaskManagement').then(m => ({ default: m.TaskManagement })));
+const ExpenseManagement = lazy(() => import('../finance/ExpenseManagement').then(m => ({ default: m.ExpenseManagement })));
+const AttendanceReportsView = lazy(() => import('../attendance/AttendanceReportsView').then(m => ({ default: m.AttendanceReportsView })));
+const UserProfile = lazy(() => import('../profile/UserProfile').then(m => ({ default: m.UserProfile })));
+const AccountsPaymentDashboard = lazy(() => import('../finance/AccountsPaymentDashboard').then(m => ({ default: m.AccountsPaymentDashboard })));
+const AIAssistantWidget = lazy(() => import('../ai/AIAssistantWidget').then(m => ({ default: m.AIAssistantWidget })));
+
+// Secondary heavy modules.
+const GpsGeofencePortal = lazy(() => import('../attendance/GpsGeofencePortal').then(m => ({ default: m.GpsGeofencePortal })));
+const OvertimeManagementModule = lazy(() => import('../overtime/OvertimeManagementModule').then(m => ({ default: m.OvertimeManagementModule })));
+const PerformanceTracking = lazy(() => import('../performance/PerformanceTracking').then(m => ({ default: m.PerformanceTracking })));
+const RecruitmentPipeline = lazy(() => import('../recruitment/RecruitmentPipeline').then(m => ({ default: m.RecruitmentPipeline })));
+const PayrollManagement = lazy(() => import('../payroll/PayrollManagement').then(m => ({ default: m.PayrollManagement })));
+const AdvanceSalaryManagement = lazy(() => import('../payroll/AdvanceSalaryManagement').then(m => ({ default: m.AdvanceSalaryManagement })));
+const Organization = lazy(() => import('../organization/Organization').then(m => ({ default: m.Organization })));
+const AssetManagement = lazy(() => import('../assets/AssetManagement').then(m => ({ default: m.AssetManagement })));
+const Settings = lazy(() => import('../settings/Settings').then(m => ({ default: m.Settings })));
+const TrackingModule = lazy(() => import('../tracking/TrackingModule').then(m => ({ default: m.TrackingModule })));
+const CustomerModule = lazy(() => import('../customer/CustomerModule').then(m => ({ default: m.CustomerModule })));
+const WhatsAppCRMModule = lazy(() => import('../whatsapp-crm/WhatsAppCRMModule').then(m => ({ default: m.WhatsAppCRMModule })));
+const PettyCashManagement = lazy(() => import('../petty-cash/PettyCashManagement').then(m => ({ default: m.PettyCashManagement })));
 
 interface AppLayoutProps {
   onLogout?: () => void;
@@ -48,9 +48,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
   );
   const { activeModule, setActiveModule, hasPermission, currentUser, switchRole } = useHRMS();
 
-  // AI Assistant restricted strictly to HR / CEO roles, and ONLY rendered on the CEO/HR Dashboard page
+  // AI Assistant restricted strictly to HR / CEO roles (Super Admin, CEO, HR)
   const isHrOrCeo = isCeoOrHrUser(currentUser);
-  const showChatBot = isHrOrCeo && activeModule === 'dashboard';
+  const showChatBot = isHrOrCeo;
 
   // Quick Add modal states
   const [quickAddModal, setQuickAddModal] = useState<'employee' | 'leave' | 'wfh' | 'task' | 'expense' | 'overtime' | 'shift' | 'advance_salary' | null>(null);
@@ -112,21 +112,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         return <Dashboard />;
       case 'employees':
         return <EmployeeList openAddModal={quickAddModal === 'employee'} onCloseQuickAdd={() => setQuickAddModal(null)} />;
-      case 'face_attendance': {
-        const isCEO = 
-          currentUser.role === 'CEO' || 
-          currentUser.designation === 'CEO' || 
-          (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) || 
-          currentUser.employeeId === 'EMP-000';
-        return isCEO ? (
-          <AttendanceReportsView 
-            title="Attendance Management" 
-            subtitle="Executive attendance logs, muster roll verification, and departmental reports." 
-          />
-        ) : (
-          <FaceAttendance />
-        );
-      }
+      case 'face_attendance':
+        return <FaceAttendance />;
       case 'attendance':
         return <AttendanceReportsView title="Attendance Management" subtitle="Real-time attendance logs, muster roll verification, and departmental reports." />;
       case 'gps_geofence':
@@ -151,6 +138,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         return <AdvanceSalaryManagement openAddModal={quickAddModal === 'advance_salary'} onCloseQuickAdd={() => setQuickAddModal(null)} />;
       case 'petty_cash':
         return <PettyCashManagement />;
+      case 'accounts_payment':
+        return <AccountsPaymentDashboard />;
       case 'reports':
         return <AttendanceReportsView />;
       case 'organization':
@@ -193,6 +182,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
           if (!isMobile) setIsHovered(hovered);
         }}
         toggleSidebar={toggleSidebar} 
+        onLogout={onLogout}
       />
 
       <div className={`hrms-main-wrapper ${!isExpanded ? 'sidebar-collapsed' : ''}`}>
@@ -213,12 +203,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         />
 
         <main className="hrms-content">
-          {renderModuleView()}
+          <Suspense fallback={<div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '0.88rem', fontWeight: 600 }}>Loading...</div>}>
+            {renderModuleView()}
+          </Suspense>
         </main>
       </div>
 
-      {/* Multilingual AI HRMS Assistant Floating Widget (CEO & HR on dashboard page only) */}
-      {showChatBot && <AIAssistantWidget />}
+      {/* Multilingual AI HRMS Assistant Floating Widget (CEO & HR roles) */}
+      {showChatBot && (
+        <Suspense fallback={null}>
+          <AIAssistantWidget hideDesktopTrigger={!isMobile && activeModule !== 'dashboard'} />
+        </Suspense>
+      )}
 
       {/* Role-based Mobile Bottom Navigation (Hidden on desktop > 1024px via CSS) */}
       <MobileBottomNav onOpenSidebar={() => setIsMobileOpen(true)} />

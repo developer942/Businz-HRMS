@@ -139,8 +139,11 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
     });
   }, [myAssignedTasks, activeSection, currentEmpId, today, searchTerm]);
 
-  // Paginated tasks
+  // Paginated tasks (on mobile screens, show all section tasks without pagination slicing)
   const paginatedTasks = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return sectionTasks;
+    }
     const start = (currentPage - 1) * pageSize;
     return sectionTasks.slice(start, start + pageSize);
   }, [sectionTasks, currentPage, pageSize]);
@@ -158,7 +161,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
     <div className="my-tasks-container">
 
       {/* Top Controls: Status Dropdown & Search Bar */}
-      <div style={{ 
+      <div className="my-tasks-filters-bar" style={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center', 
@@ -167,7 +170,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
         marginBottom: '20px' 
       }}>
         {/* Status Dropdown Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="my-tasks-filter-select-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <label 
             htmlFor="my-tasks-status-filter"
             style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -209,7 +212,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
         </div>
 
         {/* Search Box */}
-        <div style={{ position: 'relative', width: '240px' }}>
+        <div className="my-tasks-search-group" style={{ position: 'relative', width: '240px' }}>
           <Search 
             size={15} 
             style={{ 
@@ -278,6 +281,28 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
             <div style={{ fontSize: '0.84rem', color: '#64748B' }}>
               {searchTerm ? 'Try adjusting your search query' : 'You are all caught up!'}
             </div>
+            {(searchTerm || activeSection !== 'pending') && (
+              <div style={{ marginTop: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setActiveSection('pending');
+                    setCurrentPage(1);
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
             {onSwitchToAssigned && assignedByMeCount > 0 && (
               <div style={{ marginTop: '16px' }}>
                 <button
@@ -301,127 +326,209 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
             )}
           </div>
         ) : (
-          <div className="table-responsive">
-            <table className="hrms-table" style={{ width: '100%', minWidth: '920px' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))}
-                      onChange={handleToggleSelectAll}
-                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
-                      aria-label="Select all tasks"
-                    />
-                  </th>
-                  <th>Task No & Title</th>
-                  <th>Priority</th>
-                  <th>Due Date</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedTasks.map(task => {
-                  const myAssignee = getAssigneeForTask(task);
-                  const myStatus = myAssignee?.individualStatus || 'Pending';
-                  const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
-                  const isSelected = selectedTaskIds.includes(task.id);
+          <>
+            {/* Desktop Table View (>= 768px) */}
+            <div className="task-desktop-table">
+              <div className="table-responsive">
+                <table className="hrms-table" style={{ width: '100%', minWidth: '920px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id))}
+                          onChange={handleToggleSelectAll}
+                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                          aria-label="Select all tasks"
+                        />
+                      </th>
+                      <th>Task No & Title</th>
+                      <th>Priority</th>
+                      <th>Due Date</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedTasks.map(task => {
+                      const myAssignee = getAssigneeForTask(task);
+                      const myStatus = myAssignee?.individualStatus || 'Pending';
+                      const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
+                      const isSelected = selectedTaskIds.includes(task.id);
 
-                  return (
-                    <tr 
-                      key={task.id} 
-                      style={{
-                        backgroundColor: isSelected ? '#ECFEFF' : undefined,
-                        borderLeft: isSelected ? '4px solid #0E7490' : undefined,
-                        transition: 'background-color 0.15s ease',
-                        cursor: 'pointer'
-                      }}
-                      onClick={(e) => {
-                        const target = e.target as HTMLElement;
-                        if (target.closest('input[type="checkbox"]') || target.closest('button')) return;
-                        onSelectTask(task.id);
-                      }}
-                    >
-                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
+                      return (
+                        <tr 
+                          key={task.id} 
+                          style={{
+                            backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                            borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                            transition: 'background-color 0.15s ease',
+                            cursor: 'pointer'
+                          }}
+                          onClick={(e) => {
+                            const target = e.target as HTMLElement;
+                            if (target.closest('input[type="checkbox"]') || target.closest('button')) return;
+                            onSelectTask(task.id);
+                          }}
+                        >
+                          <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleTask(task.id)}
+                              style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                              aria-label={`Select task ${task.taskNumber}`}
+                            />
+                          </td>
+                          <td>
+                            <div 
+                              style={{ fontWeight: 700, color: '#0E7490', cursor: 'pointer', fontSize: '0.88rem' }}
+                              onClick={() => onSelectTask(task.id)}
+                            >
+                              {task.taskNumber}: {task.title}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              Lead: <strong>{task.responsiblePersonName}</strong> • {task.department} • Assigned by: {task.assignedBy || task.createdBy}
+                            </div>
+
+                            {/* Task Description / Scope preview */}
+                            {task.description && (
+                              <div style={{ fontSize: '0.76rem', color: '#475569', marginTop: '4px', lineHeight: 1.4, maxWidth: '460px' }}>
+                                {task.description.length > 130 ? `${task.description.slice(0, 130)}...` : task.description}
+                              </div>
+                            )}
+                          </td>
+
+                          <td>
+                            <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.72rem' }}>
+                              {task.priority}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span style={{ fontSize: '0.78rem', color: dueStatus === 'Overdue' ? '#dc2626' : 'inherit', fontWeight: dueStatus === 'Overdue' ? 700 : 400 }}>
+                              {formatDateDDMMYYYY(task.dueDate)}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span className={`status-pill ${
+                              myStatus === 'Completed' ? 'present' :
+                              myStatus === 'In Progress' || myStatus === 'In Process' ? 'late' :
+                              myStatus === 'Under Review' ? 'pending' : 'half-day'
+                            }`} style={{ fontSize: '0.74rem', whiteSpace: 'nowrap', display: 'inline-block', fontWeight: 600 }}>
+                              {myStatus}
+                            </span>
+                          </td>
+
+                          <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                              <button 
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => onSelectTask(task.id)}
+                                style={{ 
+                                  fontSize: '0.75rem', 
+                                  padding: '5px 12px', 
+                                  background: '#0E7490', 
+                                  borderColor: '#0E7490', 
+                                  fontWeight: 700,
+                                  borderRadius: '8px'
+                                }}
+                              >
+                                Update Status
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mobile Cards View (< 768px) */}
+            <div className="task-mobile-cards">
+              {paginatedTasks.map(task => {
+                const myAssignee = getAssigneeForTask(task);
+                const myStatus = myAssignee?.individualStatus || 'Pending';
+                const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
+                const isSelected = selectedTaskIds.includes(task.id);
+                const isOverdue = dueStatus === 'Overdue';
+
+                return (
+                  <div
+                    key={task.id}
+                    className={`mobile-task-card ${isSelected ? 'selected' : ''}`}
+                    onClick={() => onSelectTask(task.id)}
+                  >
+                    <div className="mobile-task-card-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => handleToggleTask(task.id)}
-                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '18px', height: '18px' }}
                           aria-label={`Select task ${task.taskNumber}`}
                         />
-                      </td>
-                      <td>
-                        <div 
-                          style={{ fontWeight: 700, color: '#0E7490', cursor: 'pointer', fontSize: '0.88rem' }}
-                          onClick={() => onSelectTask(task.id)}
-                        >
-                          {task.taskNumber}: {task.title}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          Lead: <strong>{task.responsiblePersonName}</strong> • {task.department} • Assigned by: {task.assignedBy || task.createdBy}
-                        </div>
-
-                        {/* Task Description / Scope preview */}
-                        {task.description && (
-                          <div style={{ fontSize: '0.76rem', color: '#475569', marginTop: '4px', lineHeight: 1.4, maxWidth: '460px' }}>
-                            {task.description.length > 130 ? `${task.description.slice(0, 130)}...` : task.description}
-                          </div>
-                        )}
-
-
-                      </td>
-
-                      <td>
-                        <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.72rem' }}>
+                        <span className="mobile-task-number">{task.taskNumber}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
                           {task.priority}
                         </span>
-                      </td>
-
-                      <td>
-                        <span style={{ fontSize: '0.78rem', color: dueStatus === 'Overdue' ? '#dc2626' : 'inherit', fontWeight: dueStatus === 'Overdue' ? 700 : 400 }}>
-                          {formatDateDDMMYYYY(task.dueDate)}
-                        </span>
-                      </td>
-
-                      <td>
                         <span className={`status-pill ${
                           myStatus === 'Completed' ? 'present' :
                           myStatus === 'In Progress' || myStatus === 'In Process' ? 'late' :
                           myStatus === 'Under Review' ? 'pending' : 'half-day'
-                        }`} style={{ fontSize: '0.74rem', whiteSpace: 'nowrap', display: 'inline-block', fontWeight: 600 }}>
+                        }`} style={{ fontSize: '0.72rem', fontWeight: 700 }}>
                           {myStatus}
                         </span>
-                      </td>
+                      </div>
+                    </div>
 
-                      <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
-                          <button 
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() => onSelectTask(task.id)}
-                            style={{ 
-                              fontSize: '0.75rem', 
-                              padding: '5px 12px', 
-                              background: '#0E7490', 
-                              borderColor: '#0E7490', 
-                              fontWeight: 700,
-                              borderRadius: '8px'
-                            }}
-                          >
-                            Update Status
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              }
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <div className="mobile-task-card-title">
+                      {task.title}
+                    </div>
+
+                    {task.description && (
+                      <div className="mobile-task-card-desc">
+                        {task.description.length > 90 ? `${task.description.slice(0, 90)}...` : task.description}
+                      </div>
+                    )}
+
+                    <div className="mobile-task-card-meta">
+                      <div className="mobile-task-meta-item">
+                        <span className="meta-label">Lead:</span>
+                        <span className="meta-val">{task.responsiblePersonName}</span>
+                      </div>
+                      <div className="mobile-task-meta-item">
+                        <span className="meta-label">Due:</span>
+                        <span className="meta-val" style={{ color: isOverdue ? '#DC2626' : '#1E293B', fontWeight: isOverdue ? 700 : 500 }}>
+                          {formatDateDDMMYYYY(task.dueDate)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mobile-task-card-actions" onClick={e => e.stopPropagation()}>
+                      <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                        {task.department}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm mobile-task-action-btn"
+                        onClick={() => onSelectTask(task.id)}
+                      >
+                        Update Status →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Standard Table Pagination */}

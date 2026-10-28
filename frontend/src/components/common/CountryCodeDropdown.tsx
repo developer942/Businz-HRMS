@@ -62,8 +62,8 @@ export const CountryCodeDropdown: React.FC<CountryCodeDropdownProps> = ({
   const updatePosition = () => {
     if (!buttonRef.current) return;
     const rect = buttonRef.current.getBoundingClientRect();
-    const dropdownHeight = 340;
-    const dropdownWidth = 330;
+    const dropdownHeight = Math.min(340, window.innerHeight - 80);
+    const dropdownWidth = Math.min(330, Math.max(260, window.innerWidth - 20));
     const spaceBelow = window.innerHeight - rect.bottom;
     const openUpward = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
 
@@ -303,7 +303,7 @@ export const CountryCodeDropdown: React.FC<CountryCodeDropdownProps> = ({
                   border: 'none',
                   background: 'transparent',
                   outline: 'none',
-                  fontSize: '0.84rem',
+                  fontSize: '16px',
                   color: '#1E293B',
                   fontWeight: 500,
                 }}

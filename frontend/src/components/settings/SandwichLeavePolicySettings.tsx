@@ -130,6 +130,9 @@ export const SandwichLeavePolicySettings: React.FC = () => {
   // Pagination logic
   const totalEntries = filteredPolicies.length;
   const paginatedPolicies = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return filteredPolicies;
+    }
     const start = (currentPage - 1) * pageSize;
     return filteredPolicies.slice(start, start + pageSize);
   }, [filteredPolicies, currentPage, pageSize]);

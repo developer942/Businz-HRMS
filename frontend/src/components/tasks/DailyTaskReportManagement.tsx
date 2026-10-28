@@ -175,6 +175,9 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
   const totalPages = Math.ceil(filteredReports.length / pageSize) || 1;
   const validCurrentPage = Math.min(currentPage, totalPages);
   const paginatedReports = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return filteredReports;
+    }
     const startIndex = (validCurrentPage - 1) * pageSize;
     return filteredReports.slice(startIndex, startIndex + pageSize);
   }, [filteredReports, validCurrentPage, pageSize]);

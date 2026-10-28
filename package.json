@@ -1,20 +1,15 @@
 {
-  "name": "hrms",
-  "version": "1.0.0",
+  "name": "businz-hrms-root",
   "private": true,
-  "main": "app.js",
+  "version": "1.0.0",
   "scripts": {
-    "start": "node app.js",
-    "dev": "concurrently -n \"backend,frontend\" -c \"cyan,magenta\" \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
-    "dev:all": "concurrently -n \"backend,frontend\" -c \"cyan,magenta\" \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
-    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "concurrently -n BACKEND,FRONTEND -c cyan,green \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
     "dev:backend": "npm --prefix backend run dev",
-    "build": "npm --prefix backend run build && npm --prefix frontend run build",
-    "build:backend": "npm --prefix backend run build",
-    "build:frontend": "npm --prefix frontend run build",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
-    "db:sync": "npm --prefix backend run sync:db",
-    "db:seed": "npm --prefix backend run seed:db"
+    "lint": "npm --prefix frontend run lint",
+    "test:e2e": "npm --prefix frontend run test:e2e"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

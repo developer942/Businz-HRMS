@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getEmployees, getEmployeeById, createEmployee, updateEmployee, deleteEmployee, resetEmployeeLogin, updateEmployeeLoginStatus, getEmployeeLoginAccount, sendEmployeeCredentials, sendEmployeeOfferLetter, } from '../controllers/employeeController.js';
+import { getEmployees, getEmployeeById, createEmployee, updateEmployee, syncEmployeeProfile, deleteEmployee, resetEmployeeLogin, updateEmployeeLoginStatus, getEmployeeLoginAccount, sendEmployeeCredentials, sendEmployeeOfferLetter, } from '../controllers/employeeController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles, requirePermission, scopeDataAccess } from '../middleware/rbacMiddleware.js';
 import { credentialDispatchRateLimiter } from '../middleware/rateLimiter.js';
@@ -12,6 +12,7 @@ employeeRouter.post('/send-offer-letter', requireRoles(['Super Admin', 'CEO', 'H
 employeeRouter.get('/:id', scopeDataAccess, requirePermission('employees', 'view'), getEmployeeById);
 employeeRouter.post('/', requirePermission('employees', 'create'), createEmployee);
 employeeRouter.put('/:id', requirePermission('employees', 'edit'), updateEmployee);
+employeeRouter.put('/:id/profile-sync', requirePermission('employees', 'edit'), syncEmployeeProfile);
 employeeRouter.delete('/:id', requirePermission('employees', 'delete'), deleteEmployee);
 // Login Account Management (HR Admin / CEO / Super Admin / Admin)
 employeeRouter.post('/:id/reset-login', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'ERP Administrator']), resetEmployeeLogin);

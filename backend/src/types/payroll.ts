@@ -189,6 +189,7 @@ export interface CalculationBreakdownItem {
 
 export interface FullPayrollCalculationResult {
   employeeId: string;
+  status?: 'DRAFT' | 'PROCESSED' | 'APPROVED' | 'PAID';
   payrollMonth: number;
   payrollYear: number;
   withPf?: boolean;

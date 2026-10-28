@@ -11,6 +11,7 @@ import {
   getAlerts,
   resolveAlert,
   getTrackingOverview,
+  streamLiveTracking,
 } from '../controllers/trackingController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
@@ -18,6 +19,9 @@ import { requireRoles } from '../middleware/rbacMiddleware.js';
 export const trackingRouter = Router();
 
 trackingRouter.use(authenticateToken);
+
+// Real-Time SSE Telemetry Stream
+trackingRouter.get('/live-stream', streamLiveTracking);
 
 // Assignments
 trackingRouter.get('/assignments', getAssignments);

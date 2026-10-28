@@ -309,20 +309,25 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onLogout, isEmbedded =
       )}
 
       {/* Main Container */}
-      <div style={isEmbedded ? { display: 'block' } : {
-        display: 'grid',
-        gridTemplateColumns: '250px 1fr',
-        gap: '24px',
-        alignItems: 'start'
-      }}>
+      <div 
+        className="user-profile-layout-container"
+        style={isEmbedded ? { display: 'block' } : {
+          display: 'grid',
+          gridTemplateColumns: '250px 1fr',
+          gap: '24px',
+          alignItems: 'start'
+        }}
+      >
 
         {/* Vertical Navigation Menu - shown only when standalone */}
         {!isEmbedded && (
-          <div style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '16px',
-            border: '1px solid #e2e8f0',
-            padding: '12px 8px',
+          <div 
+            className="user-profile-menu-sidebar"
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '16px',
+              border: '1px solid #e2e8f0',
+              padding: '12px 8px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
             display: 'flex',
             flexDirection: 'column',

@@ -978,14 +978,14 @@ export function executeHRMSQuery(
     ];
 
     const responseText = lang === 'ta'
-      ? `✅ Pavi Chat Bot வெற்றிகரமாக Train செய்யப்பட்டு தயார் நிலையில் உள்ளது! 👍\n\nநான் உங்கள் VRM HRMS நேரடி தரவுத்தளத்துடன் (Live Database) இணைக்கப்பட்டு, தமிழ், Tanglish, மற்றும் ஆங்கில வினாக்களுக்கு துல்லியமான பதில்களை வழங்கப் பயிற்றுவிக்கப்பட்டுள்ளேன்:`
-      : `✅ Pavi Chat Bot is fully trained and synchronized with your live HRMS database! 👍\n\nI am trained across all 12 enterprise modules to provide instant data, tables, and Excel/PDF reports:`;
+      ? `✅ BUSINZ Chat Bot வெற்றிகரமாக Train செய்யப்பட்டு தயார் நிலையில் உள்ளது! 👍\n\nநான் உங்கள் VRM HRMS நேரடி தரவுத்தளத்துடன் (Live Database) இணைக்கப்பட்டு, தமிழ், Tanglish, மற்றும் ஆங்கில வினாக்களுக்கு துல்லியமான பதில்களை வழங்கப் பயிற்றுவிக்கப்பட்டுள்ளேன்:`
+      : `✅ BUSINZ Chat Bot is fully trained and synchronized with your live HRMS database! 👍\n\nI am trained across all 12 enterprise modules to provide instant data, tables, and Excel/PDF reports:`;
 
     return {
       responseText,
       payload: {
         type: 'table',
-        title: '🤖 Pavi AI HR Copilot - Trained Knowledge & Capabilities Matrix',
+        title: '🤖 BUSINZ Chat Bot - Trained Knowledge & Capabilities Matrix',
         columns: capabilitiesColumns,
         rows: capabilitiesRows,
         metrics: [
@@ -1170,8 +1170,8 @@ export function executeHRMSQuery(
     const total = data.employees.length;
     const active = data.employees.filter(e => e.status === 'Active').length;
     const reply = lang === 'ta'
-      ? `வணக்கம் / Hello! 👋 Pavi Chat Bot தயாராக உள்ளார். நிறுவனத்தில் மொத்தம் ${total} ஊழியர்கள் பதிவு செய்யப்பட்டுள்ளனர் (${active} பேர் Active). உங்களுக்கு என்ன விபரம் வேண்டும்?`
-      : `Hello! 👋 I am your Pavi Chat Bot. Currently ${total} staff are registered. How can I assist you with HR operations today?`;
+      ? `வணக்கம் / Hello! 👋 BUSINZ Chat Bot தயாராக உள்ளார். நிறுவனத்தில் மொத்தம் ${total} ஊழியர்கள் பதிவு செய்யப்பட்டுள்ளனர் (${active} பேர் Active). உங்களுக்கு என்ன விபரம் வேண்டும்?`
+      : `Hello! 👋 I am your BUSINZ Chat Bot. Currently ${total} staff are registered. How can I assist you with HR operations today?`;
 
     return {
       responseText: reply,
@@ -1188,7 +1188,7 @@ export function executeHRMSQuery(
 
   // 14. WHO_ARE_YOU
   if (intent === 'WHO_ARE_YOU') {
-    const reply = (pack as any).whoAreYou || 'I am your Pavi Chat Bot! 🤖 I provide instant real-time data for employee directories, biometric attendance, leave approvals, team tasks, and payroll records.';
+    const reply = (pack as any).whoAreYou || 'I am your BUSINZ Chat Bot! 🤖 I provide instant real-time data for employee directories, biometric attendance, leave approvals, team tasks, and payroll records.';
     return {
       responseText: reply,
       payload: { type: 'none' },

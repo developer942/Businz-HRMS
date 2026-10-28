@@ -66,7 +66,10 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
   }, [isOpen, initialMode, initialStep]);
 
   // Camera states (Detect if device is truly mobile - on desktop/laptop default to 'user' webcam)
-  const isMobile = typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '');
+  const isMobile = typeof navigator !== 'undefined' && (
+    /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ||
+    (typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 2)
+  );
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>(isMobile ? 'environment' : 'user');
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -107,13 +110,15 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
         });
         videoDevicesRef.current = sorted;
         setVideoDevices(sorted);
-        if (sorted.length > 0 && !selectedDeviceIdRef.current) {
+        // Only pre-select a specific device ID on non-mobile desktop devices.
+        // On mobile/smartphones, deviceId pinning overrides facingMode and blocks switching to back camera.
+        if (!isMobile && sorted.length > 0 && !selectedDeviceIdRef.current) {
           selectedDeviceIdRef.current = sorted[0].deviceId;
           setSelectedDeviceId(sorted[0].deviceId);
         }
       }).catch(() => {});
     }
-  }, [isOpen]);
+  }, [isOpen, isMobile]);
 
   // Raw Image states
   const [originalImageBase64, setOriginalImageBase64] = useState<string | null>(null);
@@ -175,69 +180,85 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
         videoRef.current.srcObject = null;
       }
 
-      // Small delay on Windows to ensure hardware driver releases exclusive lock
-      await new Promise(r => setTimeout(r, 60));
+      // Small delay on Windows/iOS to ensure hardware driver releases exclusive lock
+      await new Promise(r => setTimeout(r, 80));
 
-      const activeDevId = forcedDeviceId || selectedDeviceIdRef.current;
       const facing = forcedFacing || cameraFacingRef.current;
+      const isFacingSwitch = Boolean(forcedFacing) || isMobile;
+      const activeDevId = forcedDeviceId || (!isFacingSwitch ? selectedDeviceIdRef.current : '');
       const devices = videoDevicesRef.current;
 
       let stream: MediaStream | null = null;
       let lastErr: any = null;
 
-      // 1. Try selected device first if specified
-      if (activeDevId) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: activeDevId } }
-          });
-        } catch (devErr) {
-          console.warn('Selected camera device failed, trying alternatives:', devErr);
-          lastErr = devErr;
-        }
-      }
+      // 1. Mobile or Explicit Facing Request: prioritize facingMode ('environment' = Back, 'user' = Front)
+      if (isFacingSwitch) {
+        const mobileCandidates: MediaStreamConstraints[] = [
+          // 1. Exact facing mode with high resolution
+          { video: { facingMode: { exact: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+          // 2. Ideal facing mode with high resolution
+          { video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+          // 3. Ideal facing mode with standard resolution
+          { video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+          // 4. Loose facing
+          { video: { facingMode: facing } },
+          // 5. Basic video fallback
+          { video: true }
+        ];
 
-      // 2. If primary failed or not set, try every available enumerated device
-      if (!stream && devices.length > 0) {
-        for (const dev of devices) {
-          if (dev.deviceId === activeDevId) continue;
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: dev.deviceId } }
-            });
-            if (stream) {
-              selectedDeviceIdRef.current = dev.deviceId;
-              setSelectedDeviceId(dev.deviceId);
-              break;
-            }
-          } catch (altErr) {
-            console.warn(`Camera ${dev.label} failed:`, altErr);
-            lastErr = altErr;
-          }
-        }
-      }
-
-      // 3. If still no stream, try progressive constraint candidates
-      if (!stream) {
-        const constraintCandidates: MediaStreamConstraints[] = isMobile
-          ? [
-              { video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
-              { video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-              { video: { facingMode: facing } },
-              { video: true }
-            ]
-          : [
-              { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
-              { video: { facingMode: 'user' } },
-              { video: true }
-            ];
-
-        for (const candidate of constraintCandidates) {
+        for (const candidate of mobileCandidates) {
           try {
             stream = await navigator.mediaDevices.getUserMedia(candidate);
             if (stream) break;
           } catch (candErr: any) {
             lastErr = candErr;
+          }
+        }
+      } else {
+        // 2. Desktop Path: device ID selection
+        if (activeDevId) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: activeDevId } }
+            });
+          } catch (devErr) {
+            console.warn('Selected camera device failed, trying alternatives:', devErr);
+            lastErr = devErr;
+          }
+        }
+
+        if (!stream && devices.length > 0) {
+          for (const dev of devices) {
+            if (dev.deviceId === activeDevId) continue;
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: dev.deviceId } }
+              });
+              if (stream) {
+                selectedDeviceIdRef.current = dev.deviceId;
+                setSelectedDeviceId(dev.deviceId);
+                break;
+              }
+            } catch (altErr) {
+              lastErr = altErr;
+            }
+          }
+        }
+
+        if (!stream) {
+          const desktopCandidates: MediaStreamConstraints[] = [
+            { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+            { video: { facingMode: 'user' } },
+            { video: true }
+          ];
+
+          for (const candidate of desktopCandidates) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia(candidate);
+              if (stream) break;
+            } catch (candErr: any) {
+              lastErr = candErr;
+            }
           }
         }
       }
@@ -247,6 +268,22 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
       }
 
       streamRef.current = stream;
+
+      // Extract active track settings
+      const track = stream.getVideoTracks()[0];
+      const settings: any = track?.getSettings?.() || {};
+      if (settings.facingMode) {
+        setCameraFacing(settings.facingMode as 'environment' | 'user');
+        cameraFacingRef.current = settings.facingMode as 'environment' | 'user';
+      } else if (forcedFacing) {
+        setCameraFacing(forcedFacing);
+        cameraFacingRef.current = forcedFacing;
+      }
+      if (settings.deviceId) {
+        selectedDeviceIdRef.current = settings.deviceId;
+        setSelectedDeviceId(settings.deviceId);
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
@@ -262,7 +299,6 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
       }
 
       // Check torch support
-      const track = stream.getVideoTracks()[0];
       const capabilities: any = track?.getCapabilities?.() || {};
       setHasTorch(Boolean(capabilities.torch));
     } catch (err: any) {
@@ -386,25 +422,26 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     }
   };
 
-  const toggleCameraFacing = () => {
-    if (isMobile) {
-      const nextFacing = cameraFacing === 'environment' ? 'user' : 'environment';
-      setCameraFacing(nextFacing);
-      cameraFacingRef.current = nextFacing;
-      startCamera(undefined, nextFacing);
-    } else if (videoDevices.length > 1) {
-      const currentIdx = videoDevices.findIndex(d => d.deviceId === selectedDeviceIdRef.current);
-      const nextIdx = (currentIdx + 1) % videoDevices.length;
-      const nextDevId = videoDevices[nextIdx].deviceId;
-      setSelectedDeviceId(nextDevId);
-      selectedDeviceIdRef.current = nextDevId;
-      startCamera(nextDevId);
-    } else {
-      const nextFacing = cameraFacing === 'environment' ? 'user' : 'environment';
-      setCameraFacing(nextFacing);
-      cameraFacingRef.current = nextFacing;
-      startCamera(undefined, nextFacing);
-    }
+  const toggleCameraFacing = async () => {
+    // Determine actual current facing from active stream track if possible
+    const track = streamRef.current?.getVideoTracks()[0];
+    const settings: any = track?.getSettings?.() || {};
+    const currentTrackFacing = settings.facingMode as 'environment' | 'user' | undefined;
+    const currentFacing = currentTrackFacing || cameraFacingRef.current;
+    const nextFacing: 'environment' | 'user' = currentFacing === 'environment' ? 'user' : 'environment';
+
+    // Clear pinned deviceId to prevent overriding the facingMode on mobile
+    selectedDeviceIdRef.current = '';
+    setSelectedDeviceId('');
+    setCameraFacing(nextFacing);
+    cameraFacingRef.current = nextFacing;
+
+    // Fully stop current tracks so hardware lock is released on iOS Safari
+    stopCamera();
+    await new Promise(r => setTimeout(r, 120));
+
+    // Start with the toggled facing
+    await startCamera(undefined, nextFacing);
   };
 
   // 2. Shutter Capture

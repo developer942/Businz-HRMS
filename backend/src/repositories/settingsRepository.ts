@@ -371,11 +371,67 @@ export class SettingsRepository {
   }
 
   async getGeofenceSettings(): Promise<any> {
+    // 1. Direct Hostinger VPS PostgreSQL query for company_settings
+    try {
+      const res = await query(
+        `SELECT setting_val FROM public.company_settings WHERE setting_key = $1 LIMIT 1`,
+        ['geofence_config']
+      );
+      if (res.rows && res.rows[0]?.setting_val) {
+        const v = res.rows[0].setting_val as any;
+        const lat = Number(v.centerLat ?? v.latitude ?? 0);
+        const lng = Number(v.centerLng ?? v.longitude ?? 0);
+        return {
+          officeName: v.officeName || 'VRM Structures India Pvt Ltd',
+          address: v.address || v.officeName || '',
+          latitude: lat,
+          longitude: lng,
+          centerLat: lat,
+          centerLng: lng,
+          radiusMeters: Number(v.radiusMeters) || 200,
+          isEnabled: v.enabled ?? v.isEnabled ?? true,
+          enabled: v.enabled ?? v.isEnabled ?? true,
+          strictMode: v.enforceStrictly ?? v.strictMode ?? true,
+          enforceStrictly: v.enforceStrictly ?? v.strictMode ?? true,
+          googleMapsLink: v.googleMapsLink || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : ''),
+        };
+      }
+    } catch (err: any) {
+      console.warn('PostgreSQL query error in getGeofenceSettings:', err.message);
+    }
+
+    // 2. Direct PostgreSQL query for geofence_config relational table
+    try {
+      const gfRes = await query(
+        `SELECT * FROM public.geofence_config ORDER BY updated_at DESC LIMIT 1`
+      );
+      if (gfRes.rows && gfRes.rows[0]) {
+        const row = gfRes.rows[0];
+        const lat = Number(row.center_lat || 0);
+        const lng = Number(row.center_lng || 0);
+        return {
+          officeName: row.office_name || 'VRM Structures India Pvt Ltd',
+          address: row.office_name || '',
+          latitude: lat,
+          longitude: lng,
+          centerLat: lat,
+          centerLng: lng,
+          radiusMeters: Number(row.radius_meters) || 200,
+          isEnabled: row.enabled ?? true,
+          enabled: row.enabled ?? true,
+          strictMode: row.enforce_strictly ?? true,
+          enforceStrictly: row.enforce_strictly ?? true,
+          googleMapsLink: lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '',
+        };
+      }
+    } catch (err: any) {
+      console.warn('PostgreSQL query error in geofence_config table:', err.message);
+    }
+
     if (isRealSupabaseConfigured()) {
       try {
         const supabase = getSupabaseAdmin();
 
-        // 1. Try company_settings geofence_config
         const { data: csData } = await supabase
           .from('company_settings')
           .select('setting_val')
@@ -384,32 +440,45 @@ export class SettingsRepository {
 
         if (csData?.setting_val) {
           const v = csData.setting_val;
+          const lat = Number(v.centerLat ?? v.latitude ?? 0);
+          const lng = Number(v.centerLng ?? v.longitude ?? 0);
           return {
-            officeName: v.officeName || '',
-            address: v.officeName || '',
-            latitude: v.centerLat || 0,
-            longitude: v.centerLng || 0,
-            radiusMeters: v.radiusMeters || 200,
-            isEnabled: v.enabled ?? true,
-            strictMode: v.enforceStrictly ?? false,
+            officeName: v.officeName || 'VRM Structures India Pvt Ltd',
+            address: v.address || v.officeName || '',
+            latitude: lat,
+            longitude: lng,
+            centerLat: lat,
+            centerLng: lng,
+            radiusMeters: Number(v.radiusMeters) || 200,
+            isEnabled: v.enabled ?? v.isEnabled ?? true,
+            enabled: v.enabled ?? v.isEnabled ?? true,
+            strictMode: v.enforceStrictly ?? v.strictMode ?? true,
+            enforceStrictly: v.enforceStrictly ?? v.strictMode ?? true,
+            googleMapsLink: v.googleMapsLink || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : ''),
           };
         }
 
-        // 2. Try geofence_config table
         const { data: gfData } = await supabase
           .from('geofence_config')
           .select('*')
           .maybeSingle();
 
         if (gfData) {
+          const lat = Number(gfData.center_lat || 0);
+          const lng = Number(gfData.center_lng || 0);
           return {
-            officeName: gfData.office_name || '',
+            officeName: gfData.office_name || 'VRM Structures India Pvt Ltd',
             address: gfData.office_name || '',
-            latitude: gfData.center_lat || 0,
-            longitude: gfData.center_lng || 0,
-            radiusMeters: gfData.radius_meters || 200,
+            latitude: lat,
+            longitude: lng,
+            centerLat: lat,
+            centerLng: lng,
+            radiusMeters: Number(gfData.radius_meters) || 200,
             isEnabled: gfData.enabled ?? true,
-            strictMode: gfData.enforce_strictly ?? false,
+            enabled: gfData.enabled ?? true,
+            strictMode: gfData.enforce_strictly ?? true,
+            enforceStrictly: gfData.enforce_strictly ?? true,
+            googleMapsLink: lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '',
           };
         }
       } catch (err) {
@@ -418,32 +487,96 @@ export class SettingsRepository {
     }
 
     return {
-      officeName: '',
+      officeName: 'VRM Structures India Pvt Ltd',
       address: '',
-      latitude: 0,
-      longitude: 0,
-      radiusMeters: 200,
-      isEnabled: false,
-      strictMode: false,
+      latitude: 13.151968,
+      longitude: 80.2086053,
+      centerLat: 13.151968,
+      centerLng: 80.2086053,
+      radiusMeters: 250,
+      isEnabled: true,
+      enabled: true,
+      strictMode: true,
+      enforceStrictly: true,
+      googleMapsLink: 'https://www.google.com/maps?q=13.151968,80.2086053',
     };
   }
 
   async updateGeofenceSettings(updates: any): Promise<any> {
+    const current = await this.getGeofenceSettings();
+    const lat = updates.latitude !== undefined ? Number(updates.latitude) : (updates.centerLat !== undefined ? Number(updates.centerLat) : current.latitude);
+    const lng = updates.longitude !== undefined ? Number(updates.longitude) : (updates.centerLng !== undefined ? Number(updates.centerLng) : current.longitude);
+    const radius = Number(updates.radiusMeters ?? current.radiusMeters ?? 250);
+    const isEnabled = updates.isEnabled !== undefined ? Boolean(updates.isEnabled) : (updates.enabled !== undefined ? Boolean(updates.enabled) : current.isEnabled);
+    const strictMode = updates.strictMode !== undefined ? Boolean(updates.strictMode) : (updates.enforceStrictly !== undefined ? Boolean(updates.enforceStrictly) : current.strictMode);
+    const officeName = (updates.officeName || current.officeName || 'VRM Structures India Pvt Ltd').trim();
+    const address = (updates.address || current.address || officeName).trim();
+    const googleMapsLink = (updates.googleMapsLink || current.googleMapsLink || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '')).trim();
+
+    const merged = {
+      officeName,
+      address,
+      latitude: lat,
+      longitude: lng,
+      centerLat: lat,
+      centerLng: lng,
+      radiusMeters: radius,
+      isEnabled,
+      enabled: isEnabled,
+      strictMode,
+      enforceStrictly: strictMode,
+      googleMapsLink,
+    };
+
+    const settingVal = {
+      enabled: isEnabled,
+      centerLat: lat,
+      centerLng: lng,
+      officeName,
+      address,
+      radiusMeters: radius,
+      enforceStrictly: strictMode,
+      googleMapsLink,
+    };
+
+    // 1. Persist to company_settings (PostgreSQL)
+    try {
+      await query(
+        `INSERT INTO public.company_settings (setting_key, setting_val, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (setting_key) DO UPDATE
+         SET setting_val = $2::jsonb, updated_at = NOW()`,
+        ['geofence_config', JSON.stringify(settingVal)]
+      );
+    } catch (err: any) {
+      console.warn('PostgreSQL save error in company_settings geofence_config:', err.message);
+    }
+
+    // 2. Synchronize to geofence_config table (PostgreSQL)
+    try {
+      const gfExisting = await query(`SELECT id FROM public.geofence_config LIMIT 1`);
+      if (gfExisting.rows && gfExisting.rows[0]) {
+        await query(
+          `UPDATE public.geofence_config
+           SET office_name = $1, center_lat = $2, center_lng = $3, radius_meters = $4, enabled = $5, enforce_strictly = $6, updated_at = NOW()
+           WHERE id = $7`,
+          [officeName, lat, lng, radius, isEnabled, strictMode, gfExisting.rows[0].id]
+        );
+      } else {
+        await query(
+          `INSERT INTO public.geofence_config (office_name, center_lat, center_lng, radius_meters, enabled, enforce_strictly, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+          [officeName, lat, lng, radius, isEnabled, strictMode]
+        );
+      }
+    } catch (err: any) {
+      console.warn('PostgreSQL save error in geofence_config table:', err.message);
+    }
+
+    // 3. Keep Supabase in sync if configured
     if (isRealSupabaseConfigured()) {
       try {
         const supabase = getSupabaseAdmin();
-        const current = await this.getGeofenceSettings();
-        const merged = { ...current, ...updates };
-
-        const settingVal = {
-          enabled: merged.isEnabled,
-          centerLat: merged.latitude,
-          centerLng: merged.longitude,
-          officeName: merged.officeName,
-          radiusMeters: merged.radiusMeters,
-          enforceStrictly: merged.strictMode,
-        };
-
         const { data: existing } = await supabase
           .from('company_settings')
           .select('id')
@@ -461,13 +594,32 @@ export class SettingsRepository {
             .insert({ setting_key: 'geofence_config', setting_val: settingVal });
         }
 
-        return merged;
+        // Also update geofence_config table in Supabase
+        const { data: gfSupabase } = await supabase
+          .from('geofence_config')
+          .select('id')
+          .maybeSingle();
+
+        if (gfSupabase?.id) {
+          await supabase
+            .from('geofence_config')
+            .update({
+              office_name: officeName,
+              center_lat: lat,
+              center_lng: lng,
+              radius_meters: radius,
+              enabled: isEnabled,
+              enforce_strictly: strictMode,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', gfSupabase.id);
+        }
       } catch (err) {
         console.warn('Could not save geofence settings to Supabase:', err);
       }
     }
 
-    return updates;
+    return merged;
   }
 
   async getCompanySmtpConfig(companyId?: string): Promise<CompanySmtpConfig | null> {

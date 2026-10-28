@@ -44,7 +44,7 @@ export const ShiftCheckInCard: React.FC<ShiftCheckInCardProps> = ({
   useEffect(() => {
     const timer = setInterval(() => {
       setTicker(prev => prev + 1);
-    }, 1000);
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -139,7 +139,7 @@ export const ShiftCheckInCard: React.FC<ShiftCheckInCardProps> = ({
     return formatShiftCountdown(diffSecs);
   }, [shiftEval]);
 
-  const isExecutiveCEO = currentUser.role === 'CEO' || currentUser.designation?.toLowerCase().includes('ceo') || targetEmpId === 'EMP-000';
+  const isExecutiveCEO = currentUser.role === 'CEO' || currentUser.designation?.toLowerCase().includes('ceo');
   if (isExecutiveCEO) {
     return (
       <div 

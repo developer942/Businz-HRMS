@@ -22,7 +22,10 @@ import {
   X,
   User,
   Filter,
-  ChevronDown
+  ChevronDown,
+  Upload,
+  FileText,
+  ChevronLeft
 } from 'lucide-react';
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
@@ -149,6 +152,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   const [overrideLeave, setOverrideLeave] = useState<LeaveRequest | null>(null);
   const [rejectModalTarget, setRejectModalTarget] = useState<LeaveRequest | null>(null);
   const [rejectComment, setRejectComment] = useState<string>('');
+  const [isQuotaExpanded, setIsQuotaExpanded] = useState<boolean>(false);
 
   const openInspectLeaveModal = (l: LeaveRequest) => {
     setInspectLeave(l);
@@ -353,19 +357,60 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   }, [statusFilter, searchQuery]);
 
   const paginatedLeaves = useMemo(() => {
-    if (isEmployeeRole) return displayedLeaves;
+    if (isEmployeeRole || (typeof window !== 'undefined' && window.innerWidth <= 1024)) {
+      return displayedLeaves;
+    }
     const startIndex = (currentPage - 1) * pageSize;
     return displayedLeaves.slice(startIndex, startIndex + pageSize);
   }, [displayedLeaves, currentPage, pageSize, isEmployeeRole]);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    employeeId: string;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    reason: string;
+    attachmentUrl: string;
+    attachmentName?: string;
+    isHalfDay: boolean;
+    halfDayType: 'First Half' | 'Second Half';
+  }>({
     employeeId: currentEmployeeId,
     leaveType: leavePolicies[0]?.name || 'Casual Leave (CL)',
     startDate: minRequestDate,
     endDate: minRequestDate,
     reason: '',
-    attachmentUrl: ''
+    attachmentUrl: '',
+    attachmentName: '',
+    isHalfDay: false,
+    halfDayType: 'First Half'
   });
+
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [leaveSuccessBanner, setLeaveSuccessBanner] = useState<string | null>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size exceeds 5MB limit. Please choose a smaller file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm(prev => ({
+        ...prev,
+        attachmentUrl: (reader.result as string) || '',
+        attachmentName: file.name
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAttachment = () => {
+    setForm(prev => ({ ...prev, attachmentUrl: '', attachmentName: '' }));
+  };
 
   const targetEmpId = form.employeeId || currentEmployeeId;
   const selectedApplicant = employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || currentEmployee;
@@ -422,8 +467,15 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       employeeId: isEmployeeRole ? currentEmployeeId : (prev.employeeId || currentEmployeeId),
       startDate: nextMin,
       endDate: nextMin,
-      reason: ''
+      reason: '',
+      attachmentUrl: '',
+      attachmentName: '',
+      isHalfDay: false,
+      halfDayType: 'First Half'
     }));
+    setDateRangeError(null);
+    setDuplicateError(null);
+    setLeaveReasonError(null);
     setShowModal(true);
   };
 
@@ -495,6 +547,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setDateRangeError(null);
+    setDuplicateError(null);
+
     const reasonValidation = validateRequestReason(form.reason);
     if (!reasonValidation.valid) {
       setLeaveReasonError(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
@@ -503,9 +558,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     }
 
     // Rule 1: Validate date range (authoritative Asia/Kolkata check)
-    const rangeCheck = validateDateRange(form.startDate, form.endDate);
+    const effectiveEndDate = form.isHalfDay ? form.startDate : form.endDate;
+    const rangeCheck = validateDateRange(form.startDate, effectiveEndDate);
     if (!rangeCheck.isValid) {
-      alert(rangeCheck.error || PAST_DATE_ERROR_MESSAGE);
+      setDateRangeError(rangeCheck.error || PAST_DATE_ERROR_MESSAGE);
       return;
     }
 
@@ -513,9 +569,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     const emp = employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || currentEmployee || employees[0];
 
     // Rule 2: Prevent duplicate or overlapping active (Pending / Approved) leave requests
-    const dupCheck = checkDuplicateLeaveRequest(leaveRequests, targetEmpId, form.startDate, form.endDate);
+    const dupCheck = checkDuplicateLeaveRequest(leaveRequests, targetEmpId, form.startDate, effectiveEndDate);
     if (dupCheck.hasDuplicate) {
-      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      setDuplicateError(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
       return;
     }
 
@@ -523,20 +579,30 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
     setIsSubmittingLeave(true);
 
     try {
-      applyLeave({
+      const computedDays = form.isHalfDay ? 0.5 : (liveCalculation?.totalDays || 1);
+      const leaveReason = form.isHalfDay
+        ? `[Half Day - ${form.halfDayType}] ${reasonValidation.value!}`
+        : reasonValidation.value!;
+
+      await applyLeave({
         employeeId: targetEmpId,
         employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : currentEmployeeName,
         department: emp?.department || currentUser.department || 'General',
         leaveType: form.leaveType,
         startDate: form.startDate,
-        endDate: form.endDate,
-        daysCount: liveCalculation?.totalDays || 1,
-        reason: reasonValidation.value!,
-        sandwichDetails: liveCalculation || undefined
+        endDate: effectiveEndDate,
+        daysCount: computedDays,
+        reason: leaveReason,
+        attachmentUrl: form.attachmentUrl || undefined,
+        halfDayType: form.isHalfDay ? form.halfDayType : undefined,
+        sandwichDetails: form.isHalfDay ? undefined : (liveCalculation || undefined)
       });
 
+      setLeaveSuccessBanner(`Leave request for ${computedDays} day(s) submitted successfully!`);
       setShowModal(false);
       if (onCloseQuickAdd) onCloseQuickAdd();
+    } catch (err: any) {
+      alert(`Submission failed: ${err?.message || 'Please check your connection and try again.'}`);
     } finally {
       setIsSubmittingLeave(false);
     }
@@ -645,6 +711,33 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
   return (
     <div>
+      {leaveSuccessBanner && (
+        <div style={{
+          backgroundColor: '#DCFCE7',
+          border: '1px solid #86EFAC',
+          color: '#166534',
+          padding: '12px 16px',
+          borderRadius: '12px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.88rem',
+          fontWeight: 600
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>✅</span>
+            <span>{leaveSuccessBanner}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setLeaveSuccessBanner(null)}
+            style={{ background: 'transparent', border: 'none', color: '#166534', cursor: 'pointer', fontSize: '1rem', fontWeight: 700 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="page-header">
         <div className="page-title-group">
           <h1>{isEmployeeRole ? 'Leave Request' : 'Leave Management System'}</h1>
@@ -655,7 +748,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           </p>
         </div>
         {isEmployeeRole && (
-          <div className="header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div className="header-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button 
               type="button"
               className="btn btn-outline-primary btn-sm" 
@@ -668,19 +761,20 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 alignItems: 'center', 
                 gap: '6px', 
                 fontWeight: 700,
-                padding: '8px 16px',
-                borderRadius: '10px'
+                padding: '7px 12px',
+                borderRadius: '10px',
+                fontSize: '0.8rem'
               }}
             >
-              <Home size={16} /> Request Work From Home
+              <Home size={15} /> Request WFH
             </button>
             <button 
               type="button"
               className="btn btn-primary btn-sm" 
               onClick={openLeaveModal}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '10px', padding: '8px 16px' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '10px', padding: '7px 14px', fontSize: '0.8rem', fontWeight: 700 }}
             >
-              <Plus size={16} /> Apply Leave Request
+              <Plus size={15} /> Apply Leave
             </button>
           </div>
         )}
@@ -692,26 +786,50 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           backgroundColor: '#FFFFFF',
           border: '1px solid #E2E8F0',
           borderRadius: '14px',
-          padding: '16px 20px',
-          marginBottom: '20px',
+          padding: '14px 16px',
+          marginBottom: '16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '12px',
+          gap: '10px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <CalendarDays size={18} color="#0E7490" />
-              <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0F172A' }}>
-                My Leave Balance & Quotas ({new Date().getFullYear()})
+              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0F172A' }}>
+                My Leave Balance ({new Date().getFullYear()})
               </span>
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#64748B', fontWeight: 600 }}>
-              Total Available Paid Balance: <strong style={{ color: '#0E7490', fontSize: '0.95rem' }}>{myLeaveSummary.totalPaidRemaining} Days Left</strong> ({myLeaveSummary.totalPaidUsed} Taken of {myLeaveSummary.totalAnnualQuota}d Annual Quota)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '0.8rem', color: '#64748B', fontWeight: 600 }}>
+                Paid Balance: <strong style={{ color: '#0E7490', fontSize: '0.92rem' }}>{myLeaveSummary.totalPaidRemaining} Days Left</strong> ({myLeaveSummary.totalPaidUsed} taken)
+              </div>
+              <button
+                type="button"
+                className="leave-quota-toggle-btn"
+                onClick={() => setIsQuotaExpanded(prev => !prev)}
+                style={{
+                  background: '#ECFEFF',
+                  border: '1px solid #CFFAFE',
+                  color: '#0E7490',
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                {isQuotaExpanded ? 'Hide Quotas ▲' : 'View Quotas ▼'}
+              </button>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+          <div 
+            className={`leave-quota-grid ${isQuotaExpanded ? 'expanded' : ''}`}
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}
+          >
             {myLeaveSummary.balances.filter(b => b.isPaid).map(b => (
               <div 
                 key={b.id} 
@@ -719,23 +837,23 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   backgroundColor: '#F8FAFC',
                   border: '1px solid #E2E8F0',
                   borderRadius: '10px',
-                  padding: '12px 14px',
+                  padding: '10px 12px',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center'
                 }}
               >
                 <div>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1E293B' }}>{b.name}</div>
-                  <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1E293B' }}>{b.name}</div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px' }}>
                     Quota: {b.annualQuota}d • Taken: {b.usedDays}d
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: b.remainingDays > 0 ? '#0E7490' : '#DC2626' }}>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: b.remainingDays > 0 ? '#0E7490' : '#DC2626' }}>
                     {b.remainingDays}
                   </div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B' }}>Days Left</div>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748B' }}>Days Left</div>
                 </div>
               </div>
             ))}
@@ -745,23 +863,23 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 backgroundColor: '#FFFBEB',
                 border: '1px solid #FDE68A',
                 borderRadius: '10px',
-                padding: '12px 14px',
+                padding: '10px 12px',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center'
               }}
             >
               <div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#92400E' }}>Loss of Pay (Unpaid)</div>
-                <div style={{ fontSize: '0.74rem', color: '#B45309', marginTop: '2px' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#92400E' }}>Loss of Pay (Unpaid)</div>
+                <div style={{ fontSize: '0.72rem', color: '#B45309', marginTop: '2px' }}>
                   Deducted from salary like Absent
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: myLeaveSummary.totalUnpaidUsed > 0 ? '#DC2626' : '#92400E' }}>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: myLeaveSummary.totalUnpaidUsed > 0 ? '#DC2626' : '#92400E' }}>
                   {myLeaveSummary.totalUnpaidUsed}
                 </div>
-                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#92400E' }}>Days Taken</div>
+                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#92400E' }}>Days Taken</div>
               </div>
             </div>
           </div>
@@ -994,7 +1112,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
         </div>
         
         {/* Streamlined Clean Table */}
-        <div style={{ overflowX: 'auto', width: '100%' }}>
+        <div className="leave-desktop-table" style={{ overflowX: 'auto', width: '100%' }}>
           <table className="hrms-table" style={{ width: '100%', minWidth: '940px', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -1445,6 +1563,157 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
           </table>
         </div>
 
+        {/* Mobile Leave Cards */}
+        <div className="leave-mobile-cards">
+          {paginatedLeaves.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px 16px', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+              <div style={{ fontSize: '0.92rem', fontWeight: 600, color: '#64748B' }}>No applications found</div>
+              <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginTop: '4px' }}>Try adjusting your status filter or search query.</div>
+            </div>
+          ) : (
+            paginatedLeaves.map((l, index) => {
+              const serialNo = isEmployeeRole ? (index + 1) : ((currentPage - 1) * pageSize + index + 1);
+              const isWfh = l.leaveType === 'Work From Home' || 
+                (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+                (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+              const isSelected = selectedLeaveIds.includes(l.id);
+              
+              const statusBg = l.status === 'Approved' ? '#DCFCE7' : l.status === 'Rejected' ? '#FEE2E2' : '#FEF3C7';
+              const statusColor = l.status === 'Approved' ? '#15803D' : l.status === 'Rejected' ? '#B91C1C' : '#B45309';
+
+              return (
+                <div 
+                  key={l.id} 
+                  className={`mobile-leave-card ${isSelected ? 'selected' : ''}`}
+                  onClick={() => openInspectLeaveModal(l)}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B', background: '#F1F5F9', padding: '2px 6px', borderRadius: '4px' }}>
+                        #{serialNo}
+                      </span>
+                      <span style={{ 
+                        fontSize: '0.75rem', 
+                        fontWeight: 700, 
+                        color: isWfh ? '#0E7490' : '#1E293B', 
+                        backgroundColor: isWfh ? '#ECFEFF' : '#F1F5F9',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        border: isWfh ? '1px solid #CFFAFE' : '1px solid #E2E8F0'
+                      }}>
+                        {l.leaveType}
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      backgroundColor: statusBg,
+                      color: statusColor,
+                      padding: '2px 8px',
+                      borderRadius: '9999px'
+                    }}>
+                      {l.status}
+                    </span>
+                  </div>
+
+                  {!isEmployeeRole && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                      <span style={{ fontWeight: 700, color: '#0F172A' }}>{l.employeeName}</span>
+                      <span style={{ color: '#64748B', fontSize: '0.74rem' }}>{l.department || l.employeeId}</span>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '0.75rem', backgroundColor: '#F8FAFC', padding: '8px 10px', borderRadius: '8px', border: '1px solid #F1F5F9' }}>
+                    <div>
+                      <div style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 500 }}>Duration</div>
+                      <div style={{ fontWeight: 700, color: '#0E7490' }}>
+                        {l.daysCount} {l.daysCount === 1 ? 'Day' : 'Days'}
+                        {l.halfDayType ? ` (${l.halfDayType})` : ''}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 500 }}>Dates</div>
+                      <div style={{ fontWeight: 600, color: '#1E293B' }}>
+                        {formatDateDDMMYYYY(l.startDate)} - {formatDateDDMMYYYY(l.endDate)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {l.reason && (
+                    <div style={{ fontSize: '0.74rem', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 600, color: '#64748B' }}>Reason: </span>
+                      {l.reason}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #F1F5F9' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#94A3B8' }}>
+                      Applied: {formatDateDDMMYYYY(l.appliedDate || l.startDate)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                      {l.status === 'Pending' && canApprove && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => approveLeave(l.id, reviewerName)}
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              borderRadius: '6px',
+                              backgroundColor: '#ECFDF5',
+                              color: '#059669',
+                              border: '1px solid #A7F3D0',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectModalTarget(l);
+                              setRejectComment('');
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              borderRadius: '6px',
+                              backgroundColor: '#FEF2F2',
+                              color: '#DC2626',
+                              border: '1px solid #FECACA',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openInspectLeaveModal(l)}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          backgroundColor: '#FFFFFF',
+                          color: '#0E7490',
+                          border: '1px solid #E2E8F0',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Details →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
         {/* Standard Pagination Footer strictly [5, 10] - hidden in employee page view */}
         {!isEmployeeRole && (
           <StandardTablePagination
@@ -1586,12 +1855,35 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       {showModal && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '580px', width: '92%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '18px', padding: '24px' }}>
-            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '10px', marginBottom: '8px' }}>
-              <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Request Leave</h2>
-                <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
-                  Select dates to preview real-time sandwich calculations and working days
-                </p>
+            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '10px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    if (onCloseQuickAdd) onCloseQuickAdd();
+                  }}
+                  className="modal-back-arrow-btn"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#1E293B'
+                  }}
+                  title="Back"
+                  aria-label="Back"
+                >
+                  <ChevronLeft size={22} strokeWidth={2.4} />
+                </button>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Apply for Leave</h2>
+                  <p className="desktop-only-text" style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
+                    Select dates to preview real-time sandwich calculations and working days
+                  </p>
+                </div>
               </div>
               <button 
                 type="button"
@@ -1600,8 +1892,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   if (onCloseQuickAdd) onCloseQuickAdd();
                 }}
                 style={{
-                  width: '30px',
-                  height: '30px',
+                  width: '32px',
+                  height: '32px',
                   borderRadius: '8px',
                   backgroundColor: '#f8fafc',
                   border: '1px solid var(--border-light)',
@@ -1740,13 +2032,50 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   );
                 })()}
 
+                {/* Inline Validation Alerts */}
+                {dateRangeError && (
+                  <div style={{
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    borderRadius: '10px',
+                    padding: '10px 14px',
+                    fontSize: '0.8rem',
+                    color: '#B91C1C',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span>⚠️</span>
+                    <span>{dateRangeError}</span>
+                  </div>
+                )}
+
+                {duplicateError && (
+                  <div style={{
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    borderRadius: '10px',
+                    padding: '10px 14px',
+                    fontSize: '0.8rem',
+                    color: '#B91C1C',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span>⚠️</span>
+                    <span>{duplicateError}</span>
+                  </div>
+                )}
+
                 {/* Date Selection */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
                       FROM DATE (FUTURE DATES ONLY) <span style={{ color: '#EF4444' }}>*</span>
                     </label>
-            <DateInput
+                    <DateInput
                       className="form-control" 
                       value={form.startDate} 
                       min={minRequestDate}
@@ -1756,15 +2085,17 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                         setForm(prev => ({
                           ...prev,
                           startDate: nextStart,
-                          endDate: prev.endDate < nextStart ? nextStart : prev.endDate
+                          endDate: prev.isHalfDay ? nextStart : (prev.endDate < nextStart ? nextStart : prev.endDate)
                         }));
+                        if (dateRangeError) setDateRangeError(null);
+                        if (duplicateError) setDuplicateError(null);
                       }} 
                       onBlur={() => {
                         if (!form.startDate || form.startDate < minRequestDate) {
                           setForm(prev => ({
                             ...prev,
                             startDate: minRequestDate,
-                            endDate: prev.endDate < minRequestDate ? minRequestDate : prev.endDate
+                            endDate: prev.isHalfDay ? minRequestDate : (prev.endDate < minRequestDate ? minRequestDate : prev.endDate)
                           }));
                         }
                       }}
@@ -1778,37 +2109,122 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      TO DATE <span style={{ color: '#EF4444' }}>*</span>
+                      TO DATE {form.isHalfDay ? '(LOCKED FOR HALF DAY)' : ''} <span style={{ color: '#EF4444' }}>*</span>
                     </label>
                     <DateInput
                       className="form-control" 
-                      value={form.endDate} 
+                      value={form.isHalfDay ? form.startDate : form.endDate} 
                       min={form.startDate || minRequestDate}
+                      disabled={form.isHalfDay}
                       onChange={e => {
+                        if (form.isHalfDay) return;
                         const minEnd = form.startDate || minRequestDate;
                         const val = e.target.value;
                         setForm(prev => ({
                           ...prev,
                           endDate: !val || val < minEnd ? minEnd : val
                         }));
+                        if (dateRangeError) setDateRangeError(null);
+                        if (duplicateError) setDuplicateError(null);
                       }} 
                       onBlur={() => {
+                        if (form.isHalfDay) return;
                         const minEnd = form.startDate || minRequestDate;
                         if (!form.endDate || form.endDate < minEnd) {
                           setForm(prev => ({ ...prev, endDate: minEnd }));
                         }
                       }}
-                      style={{ borderRadius: '10px', backgroundColor: '#f8fafc', fontSize: '0.85rem' }}
+                      style={{ 
+                        borderRadius: '10px', 
+                        backgroundColor: form.isHalfDay ? '#F1F5F9' : '#f8fafc', 
+                        fontSize: '0.85rem',
+                        cursor: form.isHalfDay ? 'not-allowed' : 'auto'
+                      }}
                       required 
                     />
+                    {form.isHalfDay && (
+                      <span style={{ fontSize: '0.69rem', color: '#0E7490', display: 'block', marginTop: '3px', fontWeight: 600 }}>
+                        Single day applies automatically for half-day requests.
+                      </span>
+                    )}
                   </div>
+                </div>
+
+                {/* Half Day Selection Toggle */}
+                <div style={{
+                  backgroundColor: form.isHalfDay ? '#ECFEFF' : '#F8FAFC',
+                  border: `1px solid ${form.isHalfDay ? '#A5F3FC' : '#E2E8F0'}`,
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, fontWeight: 700, fontSize: '0.84rem', color: '#1E293B' }}>
+                      <input 
+                        type="checkbox"
+                        checked={form.isHalfDay}
+                        onChange={e => {
+                          const checked = e.target.checked;
+                          setForm(prev => ({
+                            ...prev,
+                            isHalfDay: checked,
+                            endDate: checked ? prev.startDate : prev.endDate
+                          }));
+                          if (dateRangeError) setDateRangeError(null);
+                          if (duplicateError) setDuplicateError(null);
+                        }}
+                        style={{ width: '18px', height: '18px', accentColor: '#0E7490', cursor: 'pointer' }}
+                      />
+                      <span>Apply for Half Day Leave (0.5 Day)</span>
+                    </label>
+                    {form.isHalfDay && (
+                      <span style={{ fontSize: '0.72rem', backgroundColor: '#CFFAFE', color: '#0E7490', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
+                        0.5 Day Leave
+                      </span>
+                    )}
+                  </div>
+
+                  {form.isHalfDay && (
+                    <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginTop: '2px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B' }}>Select Session:</span>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, fontSize: '0.82rem', color: '#334155' }}>
+                        <input 
+                          type="radio" 
+                          name="halfDaySession" 
+                          value="First Half"
+                          checked={form.halfDayType === 'First Half'}
+                          onChange={() => setForm(prev => ({ ...prev, halfDayType: 'First Half' }))}
+                          style={{ accentColor: '#0E7490' }}
+                        />
+                        <span>First Half (Morning)</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, fontSize: '0.82rem', color: '#334155' }}>
+                        <input 
+                          type="radio" 
+                          name="halfDaySession" 
+                          value="Second Half"
+                          checked={form.halfDayType === 'Second Half'}
+                          onChange={() => setForm(prev => ({ ...prev, halfDayType: 'Second Half' }))}
+                          style={{ accentColor: '#0E7490' }}
+                        />
+                        <span>Second Half (Afternoon)</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 {/* Reason Textarea */}
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                    REASON <span style={{ color: '#EF4444' }}>*</span>
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', margin: 0 }}>
+                      REASON <span style={{ color: '#EF4444' }}>*</span>
+                    </label>
+                    <span style={{ fontSize: '0.72rem', color: '#94A3B8', fontWeight: 600 }}>
+                      {(form.reason || '').length}/250
+                    </span>
+                  </div>
                   <textarea 
                     ref={leaveReasonRef}
                     className="form-control" 
@@ -1823,7 +2239,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       setLeaveReasonError(result.valid ? null : result.error || REQUEST_REASON_ERROR_MESSAGE);
                     }}
                     onKeyDown={preventSpaceEnterPropagation}
-                    placeholder="Personal leave, medical reason, etc."
+                    placeholder="Personal leave, medical reason, family event, etc."
                     required
                     maxLength={500}
                     aria-invalid={Boolean(leaveReasonError)}
@@ -1833,8 +2249,110 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   {leaveReasonError && <div id="leave-reason-error" style={{ color: '#B91C1C', fontSize: '0.75rem', marginTop: '4px' }}>{leaveReasonError}</div>}
                 </div>
 
-                {/* Live Sandwich Rule Preview Info Banner */}
-                {liveCalculation && (
+                {/* Supporting Document Upload (Optional) */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>SUPPORTING DOCUMENT (OPTIONAL)</span>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 500, color: '#94A3B8' }}>PDF, PNG, JPG up to 5MB</span>
+                  </label>
+                  
+                  {form.attachmentUrl ? (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      backgroundColor: '#F0FDFA',
+                      border: '1px solid #99F6E4',
+                      borderRadius: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        <FileText size={16} color="#0E7490" />
+                        <span style={{ fontSize: '0.82rem', color: '#0F766E', fontWeight: 600, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                          {form.attachmentName || 'Attached Document'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveAttachment}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#DC2626',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                        title="Remove attachment"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="file"
+                        id="leave-supporting-document"
+                        accept=".pdf,image/png,image/jpeg,image/jpg"
+                        onChange={handleFileUpload}
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
+                          opacity: 0,
+                          cursor: 'pointer',
+                          zIndex: 2
+                        }}
+                      />
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        padding: '16px 14px',
+                        backgroundColor: '#F8FAFC',
+                        border: '1.5px dashed #CBD5E1',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        transition: 'all 0.15s ease'
+                      }}>
+                        <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Upload size={18} color="#0E7490" strokeWidth={2.4} />
+                        </div>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1E293B' }}>Upload File</span>
+                        <span style={{ fontSize: '0.74rem', color: '#64748B' }}>PDF, JPG, PNG (Max 5MB)</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Live Sandwich / Half-Day Calculation Preview Banner */}
+                {form.isHalfDay ? (
+                  <div style={{
+                    backgroundColor: '#ECFEFF',
+                    border: '1px solid #A5F3FC',
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    fontSize: '0.82rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontWeight: 800, color: '#0E7490', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Sliders size={15} color="#0E7490" />
+                        <span>Half Day Session: {form.halfDayType} ({form.startDate ? formatDateDDMMYYYY(form.startDate) : ''})</span>
+                      </div>
+                      <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0E7490' }}>
+                        0.5 Day
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#0E7490', marginTop: '4px' }}>
+                      Deducted as 0.5 working day. Weekly off / sandwich rules are not applicable to single half days.
+                    </div>
+                  </div>
+                ) : liveCalculation ? (
                   <div style={{
                     backgroundColor: liveCalculation.sandwichDays > 0 ? '#ECFEFF' : '#F8FAFC',
                     border: `1px solid ${liveCalculation.sandwichDays > 0 ? '#A5F3FC' : '#E2E8F0'}`,
@@ -1865,12 +2383,12 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                       </div>
                     )}
                   </div>
-                )}
+                ) : null}
 
               </div>
 
               {/* Modal Footer */}
-              <div className="modal-footer" style={{ borderTop: 'none', padding: 0, marginTop: '20px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <div className="modal-footer" style={{ borderTop: 'none', padding: 0, marginTop: '20px', display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button 
                   type="button" 
                   className="btn btn-secondary btn-sm" 
@@ -1878,7 +2396,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     setShowModal(false);
                     if (onCloseQuickAdd) onCloseQuickAdd();
                   }}
-                  style={{ borderRadius: '10px', padding: '10px 20px' }}
+                  style={{ borderRadius: '10px', padding: '10px 20px', minHeight: '44px' }}
                 >
                   Cancel
                 </button>
@@ -1892,10 +2410,13 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     padding: '10px 24px',
                     backgroundColor: '#0E7490',
                     borderColor: '#0E7490',
-                    fontWeight: 700
+                    fontWeight: 700,
+                    minHeight: '44px'
                   }}
                 >
-                  {isSubmittingLeave ? 'Submitting...' : `Submit Leave Request (${liveCalculation?.totalDays || 1} Days)`}
+                  {isSubmittingLeave 
+                    ? 'Submitting...' 
+                    : `Submit Leave Request (${form.isHalfDay ? 0.5 : (liveCalculation?.totalDays || 1)} Days)`}
                 </button>
               </div>
 
@@ -2626,7 +3147,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       {/* ======================================================== */}
       {showWfhModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '560px', width: '92%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '18px', padding: '24px' }}>
+          <div className="modal-content" style={{ maxWidth: '560px', width: '95%', maxHeight: 'calc(100dvh - 24px)', overflowY: 'auto', borderRadius: '18px', padding: '20px' }}>
             <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '10px', marginBottom: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#ECFEFF', color: '#0E7490', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -2643,8 +3164,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   if (onCloseQuickAdd) onCloseQuickAdd();
                 }}
                 style={{
-                  width: '30px',
-                  height: '30px',
+                  width: '32px',
+                  height: '32px',
                   borderRadius: '8px',
                   backgroundColor: '#f8fafc',
                   border: '1px solid var(--border-light)',
@@ -2684,7 +3205,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 )}
 
                 {/* Date Selection */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155' }}>
                       START DATE (FUTURE DATES ONLY) <span style={{ color: '#EF4444' }}>*</span>
@@ -2793,7 +3314,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 </div>
               </div>
 
-              <div className="modal-footer" style={{ borderTop: '1px solid #E2E8F0', padding: '16px 0 0', marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer" style={{ borderTop: '1px solid #E2E8F0', padding: '16px 0 0', marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -2801,7 +3322,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     setShowWfhModal(false);
                     if (onCloseQuickAdd) onCloseQuickAdd();
                   }}
-                  style={{ borderRadius: '10px', padding: '8px 18px' }}
+                  style={{ borderRadius: '10px', padding: '10px 18px', minHeight: '44px' }}
                 >
                   Cancel
                 </button>
@@ -2813,8 +3334,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     backgroundColor: '#0E7490',
                     borderColor: '#0E7490',
                     borderRadius: '10px',
-                    padding: '8px 22px',
+                    padding: '10px 22px',
                     fontWeight: 700,
+                    minHeight: '44px',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px'

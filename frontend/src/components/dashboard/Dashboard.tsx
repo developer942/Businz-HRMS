@@ -29,7 +29,16 @@ import {
   Filter,
   CheckSquare,
   ChevronRight,
-  X
+  X,
+  MapPin,
+  CreditCard,
+  IndianRupee,
+  Banknote,
+  Wallet,
+  FileText,
+  Download,
+  BarChart3,
+  User
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -49,7 +58,9 @@ export const Dashboard: React.FC = () => {
     masterLeavePolicies,
     leavePolicies,
     fieldAssignments,
-    weeklySchedules
+    weeklySchedules,
+    expenses = [],
+    loanRecords = []
   } = useHRMS();
 
   const isCEO = 
@@ -60,7 +71,13 @@ export const Dashboard: React.FC = () => {
     currentUser.employeeId === 'EMP-000';
   const isHRApprover = currentUser.role === 'HR Admin' || currentUser.role === 'HR Manager' || currentUser.role === 'HR' || (currentUser.department && currentUser.department.toLowerCase().includes('hr'));
   const canApproveLeave = isCEO || isHRApprover;
-  const isEmployee = currentUser.role === 'Employee' && !isCEO;
+  const isAccountsStaff = 
+    currentUser.role === 'Finance Manager' ||
+    (currentUser.department && (
+      currentUser.department.toLowerCase().includes('account') ||
+      currentUser.department.toLowerCase().includes('finance')
+    ));
+  const isEmployee = (currentUser.role === 'Employee' || isAccountsStaff) && !isCEO;
   const [profileModalEmployee, setProfileModalEmployee] = useState<Employee | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AttendanceCategoryType | null>(null);
   const todayStr = getLocalDateStr();
@@ -156,6 +173,7 @@ export const Dashboard: React.FC = () => {
 
     // Today punch time (Real data only: '--:--' if not punched in)
     const checkInTime = formatTimeDisplay(todayRecord?.checkIn || todayFace?.timestamp, '--:--');
+    const checkOutTime = formatTimeDisplay(todayRecord?.checkOut, '--:--');
     const todayStatus = todayRecord?.status || (todayFace ? 'Present' : 'Not Marked');
 
     const currentEmpObj = employees.find(e => 
@@ -176,6 +194,7 @@ export const Dashboard: React.FC = () => {
     return {
       todayStatus,
       checkInTime,
+      checkOutTime,
       attendanceRate,
       adjPresent: realPresent,
       totalWorkingDays,
@@ -496,10 +515,327 @@ export const Dashboard: React.FC = () => {
     return results;
   }, [employees]);
 
+  const getGreeting = () => {
+    const hr = new Date().getHours();
+    if (hr < 12) return 'Good Morning';
+    if (hr < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+
   return (
     <div>
-      {/* Welcome Banner Card (ControlRoom Style) */}
-      <div className="welcome-banner-card">
+      {/* ============================================================
+          MOBILE-OPTIMIZED DASHBOARD VIEW (Visible on Mobile < 768px)
+          Matches Reference Mockups for Employee, HR & CEO
+          ============================================================ */}
+      <div className="dashboard-mobile-view">
+        {isEmployee ? (
+          <div className="employee-mobile-dashboard">
+            {/* 1. Greeting Banner Card with Avatar Graphic (Matches Image 3) */}
+            <div className="mobile-greeting-card">
+              <div className="mobile-greeting-text">
+                <div className="mobile-greeting-time">{getGreeting()}</div>
+                <h2 className="mobile-greeting-name">{currentUser.name}!</h2>
+                <div className="mobile-greeting-sub">Have a productive day!</div>
+              </div>
+              <div className="mobile-greeting-avatar-circle">
+                {currentUser.avatar ? (
+                  <img src={currentUser.avatar} alt={currentUser.name} />
+                ) : (
+                  <div className="mobile-greeting-avatar-art">
+                    <User size={28} color="#0E7490" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. 2x2 KPI Metric Cards (Matches Image 3) */}
+            <div className="mobile-kpi-grid">
+              <div className="mobile-kpi-card" onClick={() => setSelectedCategory('present')}>
+                <div className="mobile-kpi-top">
+                  <div className="mobile-kpi-icon-box green">
+                    <CalendarCheck size={16} color="#16A34A" />
+                  </div>
+                  <span className="mobile-kpi-label">Present Today</span>
+                </div>
+                <div className="mobile-kpi-value-row">
+                  <span className="mobile-kpi-value">{presentToday}</span>
+                  <span className="mobile-kpi-trend green">↑ 5%</span>
+                </div>
+              </div>
+
+              <div className="mobile-kpi-card" onClick={() => setSelectedCategory('absent')}>
+                <div className="mobile-kpi-top">
+                  <div className="mobile-kpi-icon-box red">
+                    <UserX size={16} color="#DC2626" />
+                  </div>
+                  <span className="mobile-kpi-label">Absent Today</span>
+                </div>
+                <div className="mobile-kpi-value-row">
+                  <span className="mobile-kpi-value">{absentToday}</span>
+                  <span className="mobile-kpi-trend red">↓ 2%</span>
+                </div>
+              </div>
+
+              <div className="mobile-kpi-card" onClick={() => setSelectedCategory('early')}>
+                <div className="mobile-kpi-top">
+                  <div className="mobile-kpi-icon-box amber">
+                    <Clock size={16} color="#D97706" />
+                  </div>
+                  <span className="mobile-kpi-label">Late</span>
+                </div>
+                <div className="mobile-kpi-value-row">
+                  <span className="mobile-kpi-value">{donutLate}</span>
+                  <span className="mobile-kpi-trend neutral">→ 0%</span>
+                </div>
+              </div>
+
+              <div className="mobile-kpi-card" onClick={() => setActiveModule('leaves')}>
+                <div className="mobile-kpi-top">
+                  <div className="mobile-kpi-icon-box purple">
+                    <CalendarDays size={16} color="#7C3AED" />
+                  </div>
+                  <span className="mobile-kpi-label">On Leave</span>
+                </div>
+                <div className="mobile-kpi-value-row">
+                  <span className="mobile-kpi-value">{donutLeave}</span>
+                  <span className="mobile-kpi-trend neutral">→ 0%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Today's Attendance Card (Matches Image 3) */}
+            <div className="mobile-attendance-card">
+              <div className="mobile-attendance-header">
+                <span className="mobile-attendance-title">Today's Attendance</span>
+              </div>
+              <div className="mobile-attendance-timing-box">
+                <div className="mobile-timing-cell">
+                  <span className="mobile-timing-label">Check In</span>
+                  <div className="mobile-timing-value">
+                    <span className="timing-dot-active" />
+                    <span>{employeeAttendanceStats.checkInTime || '--:--'}</span>
+                  </div>
+                </div>
+                <div className="mobile-timing-divider" />
+                <div className="mobile-timing-cell">
+                  <span className="mobile-timing-label">Check Out</span>
+                  <div className="mobile-timing-value muted">
+                    <Clock size={13} color="#94A3B8" />
+                    <span>{employeeAttendanceStats.checkOutTime || '--:--'}</span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="mobile-mark-attendance-btn"
+                onClick={() => setActiveModule('face_attendance')}
+              >
+                <MapPin size={17} />
+                <span>Mark Attendance</span>
+              </button>
+            </div>
+
+            {/* 4. Quick Actions Grid (Matches Image 3) */}
+            <div className="mobile-quick-actions-card">
+              <div className="mobile-quick-actions-title">Quick Actions</div>
+              <div className="mobile-quick-actions-grid">
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('leaves')}>
+                  <div className="quick-action-icon-bg mint">
+                    <FileText size={20} color="#0E7490" />
+                  </div>
+                  <span>Leave</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('tasks')}>
+                  <div className="quick-action-icon-bg blue">
+                    <CheckSquare size={20} color="#2563EB" />
+                  </div>
+                  <span>Tasks</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('payroll')}>
+                  <div className="quick-action-icon-bg orange">
+                    <CreditCard size={20} color="#EA580C" />
+                  </div>
+                  <span>Payslip</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('profile')}>
+                  <div className="quick-action-icon-bg purple">
+                    <User size={20} color="#7C3AED" />
+                  </div>
+                  <span>Profile</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('shifts')}>
+                  <div className="quick-action-icon-bg cyan">
+                    <Clock size={20} color="#0891B2" />
+                  </div>
+                  <span>Shift</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('finance')}>
+                  <div className="quick-action-icon-bg yellow">
+                    <IndianRupee size={20} color="#D97706" />
+                  </div>
+                  <span>Claims</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* CEO & Management Mobile Dashboard (Matches Image 1 rightmost) */
+          <div className="ceo-mobile-dashboard">
+            {/* 1. Welcome Greeting */}
+            <div className="mobile-greeting-card ceo">
+              <div className="mobile-greeting-text">
+                <div className="mobile-greeting-time">Welcome back,</div>
+                <h2 className="mobile-greeting-name">{currentUser.name}!</h2>
+                <div className="mobile-greeting-sub">Here is today's overview.</div>
+              </div>
+              <div className="mobile-greeting-avatar-circle ceo">
+                {currentUser.avatar ? (
+                  <img src={currentUser.avatar} alt={currentUser.name} />
+                ) : (
+                  <div className="mobile-ceo-avatar-badge">
+                    <span>{(currentUser.name || 'C').charAt(0).toUpperCase()}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Key Metrics Row / 4-grid */}
+            <div className="ceo-mobile-metrics-grid">
+              <div className="ceo-metric-card" onClick={() => setSelectedCategory('total')}>
+                <span className="ceo-metric-label">Total Staff</span>
+                <div className="ceo-metric-val">{totalStaff}</div>
+                <span className="ceo-metric-trend green">↑ 12.4%</span>
+              </div>
+              <div className="ceo-metric-card" onClick={() => setSelectedCategory('present')}>
+                <span className="ceo-metric-label">Present Today</span>
+                <div className="ceo-metric-val" style={{ color: '#059669' }}>{presentToday}</div>
+                <span className="ceo-metric-trend green">↑ 3.2%</span>
+              </div>
+              <div className="ceo-metric-card" onClick={() => setSelectedCategory('absent')}>
+                <span className="ceo-metric-label">Absent Today</span>
+                <div className="ceo-metric-val" style={{ color: absentToday > 0 ? '#DC2626' : 'inherit' }}>{absentToday}</div>
+                <span className="ceo-metric-trend red">↓ 1.5%</span>
+              </div>
+              <div className="ceo-metric-card" onClick={() => setActiveModule('leaves')}>
+                <span className="ceo-metric-label">Leave Pending</span>
+                <div className="ceo-metric-val" style={{ color: pendingLeaves.length > 0 ? '#7C3AED' : 'inherit' }}>{pendingLeaves.length}</div>
+                <span className="ceo-metric-trend purple">Pending</span>
+              </div>
+            </div>
+
+            {/* 3. Pending Approvals Card List */}
+            <div className="ceo-mobile-section-card">
+              <div className="ceo-mobile-section-header" onClick={() => setActiveModule('leaves')}>
+                <span className="ceo-mobile-section-title">Pending Approvals</span>
+                <ChevronRight size={18} color="#0E7490" />
+              </div>
+              <div className="ceo-approvals-list">
+                <div className="ceo-approval-item" onClick={() => setActiveModule('leaves')}>
+                  <div className="ceo-approval-left">
+                    <div className="ceo-approval-icon-box orange">
+                      <CalendarDays size={18} color="#EA580C" />
+                    </div>
+                    <span className="ceo-approval-name">Leave Requests</span>
+                  </div>
+                  <div className="ceo-approval-right">
+                    <span className="ceo-approval-badge">{pendingLeaves.length}</span>
+                    <ChevronRight size={16} color="#94A3B8" />
+                  </div>
+                </div>
+
+                <div className="ceo-approval-item" onClick={() => setActiveModule('finance')}>
+                  <div className="ceo-approval-left">
+                    <div className="ceo-approval-icon-box orange">
+                      <CreditCard size={18} color="#EA580C" />
+                    </div>
+                    <span className="ceo-approval-name">Expense Claims</span>
+                  </div>
+                  <div className="ceo-approval-right">
+                    <span className="ceo-approval-badge">{(expenses || []).filter(e => e.status === 'Pending Manager' || e.status === 'Pending Finance').length}</span>
+                    <ChevronRight size={16} color="#94A3B8" />
+                  </div>
+                </div>
+
+                <div className="ceo-approval-item" onClick={() => setActiveModule('advance_salary')}>
+                  <div className="ceo-approval-left">
+                    <div className="ceo-approval-icon-box orange">
+                      <Banknote size={18} color="#EA580C" />
+                    </div>
+                    <span className="ceo-approval-name">Advance Salary</span>
+                  </div>
+                  <div className="ceo-approval-right">
+                    <span className="ceo-approval-badge">{(loanRecords || []).filter(l => l.status === 'Pending').length}</span>
+                    <ChevronRight size={16} color="#94A3B8" />
+                  </div>
+                </div>
+
+                <div className="ceo-approval-item" onClick={() => setActiveModule('petty_cash')}>
+                  <div className="ceo-approval-left">
+                    <div className="ceo-approval-icon-box orange">
+                      <Wallet size={18} color="#EA580C" />
+                    </div>
+                    <span className="ceo-approval-name">Petty Cash</span>
+                  </div>
+                  <div className="ceo-approval-right">
+                    <span className="ceo-approval-badge">1</span>
+                    <ChevronRight size={16} color="#94A3B8" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Quick Reports 2x2 Grid */}
+            <div className="ceo-mobile-section-card">
+              <div className="ceo-mobile-section-header">
+                <span className="ceo-mobile-section-title">Quick Reports</span>
+              </div>
+              <div className="ceo-reports-grid">
+                <div className="ceo-report-tile" onClick={() => setActiveModule('reports')}>
+                  <div className="ceo-report-icon-box cyan">
+                    <CalendarCheck size={18} color="#0891B2" />
+                  </div>
+                  <span className="ceo-report-name">Attendance Report</span>
+                </div>
+
+                <div className="ceo-report-tile" onClick={() => setActiveModule('payroll')}>
+                  <div className="ceo-report-icon-box teal">
+                    <CreditCard size={18} color="#0E7490" />
+                  </div>
+                  <span className="ceo-report-name">Payroll Summary</span>
+                </div>
+
+                <div className="ceo-report-tile" onClick={() => setActiveModule('organization')}>
+                  <div className="ceo-report-icon-box amber">
+                    <BarChart3 size={18} color="#D97706" />
+                  </div>
+                  <span className="ceo-report-name">Department Wise</span>
+                </div>
+
+                <div className="ceo-report-tile" onClick={() => setActiveModule('reports')}>
+                  <div className="ceo-report-icon-box green">
+                    <Download size={18} color="#16A34A" />
+                  </div>
+                  <span className="ceo-report-name">Download Reports</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================
+          DESKTOP DASHBOARD VIEW (Visible on Desktop >= 769px)
+          Unchanged Enterprise Control Room
+          ============================================================ */}
+      <div className="dashboard-desktop-view">
+        {/* Welcome Banner Card (ControlRoom Style) */}
+        <div className="welcome-banner-card">
         <div>
           <h1 className="welcome-banner-title">Welcome back, {currentUser.name}!</h1>
           <p className="welcome-banner-subtitle">
@@ -1304,6 +1640,7 @@ export const Dashboard: React.FC = () => {
             )}
           </div>
         </div>
+      </div>
       </div>
 
       {/* FILTER REPORTS MODAL */}

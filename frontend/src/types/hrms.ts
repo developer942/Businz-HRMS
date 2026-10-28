@@ -49,6 +49,7 @@ export type ModuleName =
   | 'payroll'
   | 'advance_salary'
   | 'petty_cash'
+  | 'accounts_payment'
   | 'reports'
   | 'organization'
   | 'assets'
@@ -81,6 +82,7 @@ export interface BankDetails {
 export interface Employee {
   id: string;
   employeeId: string;
+  rowVersion?: number;
   company_id?: string;
   companyId?: string;
   firstName: string;
@@ -109,6 +111,7 @@ export interface Employee {
     [key: string]: any;
   };
   withPf?: boolean;
+  payrollEligible?: boolean;
   bankDetails: BankDetails;
   attendanceMethod: 'Face Scan' | 'GPS Location' | 'Manual' | 'Biometric' | 'Exempt';
   gpsAllowed: boolean;
@@ -328,6 +331,8 @@ export interface LeaveRequest {
   unpaidSandwichDays?: number;
   paidDaysCount?: number;
   unpaidDaysCount?: number;
+  isHalfDay?: boolean;
+  halfDayType?: 'First Half' | 'Second Half';
 }
 
 export interface Shift {
@@ -436,9 +441,16 @@ export interface Expense {
   receiptUrl?: string;
   status: 'Pending Manager' | 'Pending Finance' | 'Approved' | 'Rejected' | 'Reimbursed';
   approvedBy?: string;
-  /** Accounts employee who handed over the amount (after HR/CEO approval) */
+  approvedAt?: string;
+  rejectionReason?: string;
+  /** Accounts employee who handed over the amount (after CEO approval) */
   reimbursedBy?: string;
   reimbursedDate?: string;
+  paymentMode?: 'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque';
+  transactionRef?: string;
+  paymentProofUrl?: string;
+  paymentRemarks?: string;
+  disbursedAmount?: number;
 }
 
 export interface NotificationItem {
@@ -971,9 +983,10 @@ export interface LoanRecord {
   disbursementDetails?: {
     disbursedAt: string;
     disbursedBy: string;
-    paymentMode: 'NEFT' | 'IMPS' | 'Cheque' | 'Cash';
+    paymentMode: 'NEFT' | 'IMPS' | 'Cheque' | 'Cash' | 'Bank Transfer' | 'UPI';
     transactionRef?: string;
     notes?: string;
+    paymentProofUrl?: string;
   };
   
   // Repayments & Audits

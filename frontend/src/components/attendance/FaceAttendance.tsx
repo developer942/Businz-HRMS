@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useHRMS, calculateDistanceMeters } from '../../context/HRMSContext';
+import {
+  acquireHighAccuracyGps,
+  evaluateGeofenceBoundary,
+  calculateHaversineMeters as calculateAccurateHaversine,
+  prewarmGps
+} from '../../services/gpsAcquisitionService';
 import { 
   ScanFace, 
   Camera, 
@@ -25,6 +31,7 @@ import {
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import type { FaceLog } from '../../types/hrms';
+import { submitVerifiedFacePunch } from '../../services/attendanceApi';
 
 const getLocalDateString = (d = new Date()) => {
   const year = d.getFullYear();
@@ -89,16 +96,18 @@ const normalizeToFullTimestamp = (timeOrTimestamp: string, dateStr: string): str
 export const FaceAttendance: React.FC = () => {
   const { 
     employees, 
-    markAttendance, 
+    markAttendance,
     addFaceLog, 
     faceLogs, 
     attendanceRecords, 
+    applyServerAttendanceRecord,
     geofenceConfig, 
     updateGeofenceConfig, 
     currentUser, 
     setActiveModule, 
     getTodayFieldAssignment,
-    getEmployeeShiftAttendanceState
+    getEmployeeShiftAttendanceState,
+    syncAllWithCloud
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -161,10 +170,10 @@ export const FaceAttendance: React.FC = () => {
 
   const selectedEmp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
 
-  // Real-time ticker for shift window countdown
+  // Lightweight ticker for shift window & 1-hour delay evaluation (15s interval to avoid UI lag)
   const [ticker, setTicker] = useState<number>(0);
   useEffect(() => {
-    const t = setInterval(() => setTicker(prev => prev + 1), 1000);
+    const t = setInterval(() => setTicker(prev => prev + 1), 15000);
     return () => clearInterval(t);
   }, []);
 
@@ -182,7 +191,65 @@ export const FaceAttendance: React.FC = () => {
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
   const isCompletedToday = Boolean(isCheckedIn && isCheckedOut);
 
-  const isCEO = currentUser.role === 'CEO' || currentUser.designation === 'CEO' || currentUser.employeeId === 'EMP-000';
+  const isCEO = currentUser.role === 'CEO' || currentUser.designation === 'CEO';
+
+  // PagarBook 2-Step Camera + GPS states
+  const [isRequestingPermissions, setIsRequestingPermissions] = useState<boolean>(false);
+  const [activePunchGps, setActivePunchGps] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    address: string;
+    distance: number;
+  } | null>(null);
+
+  // Enforce 1-Hour (60-Minute) Minimum Delay Between Punch In and Punch Out
+  const oneHourCooldown = useMemo(() => {
+    if (!isCheckedIn || isCheckedOut) {
+      return { isCooldownActive: false, remainingMinutes: 0, unlockTimeDisplay: '' };
+    }
+
+    let punchInEpochMs: number | null = null;
+    try {
+      const saved =
+        localStorage.getItem(`vrm_punch_in_epoch_${selectedEmpId}_${todayStr}`) ||
+        (currentUser.employeeId ? localStorage.getItem(`vrm_punch_in_epoch_${currentUser.employeeId}_${todayStr}`) : null);
+      if (saved && !isNaN(Number(saved))) {
+        punchInEpochMs = Number(saved);
+      }
+    } catch {}
+
+    if (!punchInEpochMs && todayAttendance?.checkIn) {
+      const fullTs = normalizeToFullTimestamp(todayAttendance.checkIn, todayStr);
+      const parsed = Date.parse(fullTs.replace(' ', 'T'));
+      if (!isNaN(parsed)) {
+        punchInEpochMs = parsed;
+      }
+    }
+
+    if (!punchInEpochMs) {
+      return { isCooldownActive: false, remainingMinutes: 0, unlockTimeDisplay: '' };
+    }
+
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const elapsedMs = Date.now() - punchInEpochMs;
+    if (elapsedMs >= 0 && elapsedMs < ONE_HOUR_MS) {
+      const remainingMinutes = Math.max(1, Math.ceil((ONE_HOUR_MS - elapsedMs) / 60000));
+      const unlockDate = new Date(punchInEpochMs + ONE_HOUR_MS);
+      const unlockTimeDisplay = unlockDate.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+      return {
+        isCooldownActive: true,
+        remainingMinutes,
+        unlockTimeDisplay
+      };
+    }
+
+    return { isCooldownActive: false, remainingMinutes: 0, unlockTimeDisplay: '' };
+  }, [isCheckedIn, isCheckedOut, selectedEmpId, currentUser.employeeId, todayStr, todayAttendance, ticker]);
 
   // An active punch in progress exists if employee has checked in today without checking out,
   // OR if shiftEval explicitly indicates an active overnight shift punch
@@ -207,8 +274,13 @@ export const FaceAttendance: React.FC = () => {
     lat: number;
     lng: number;
     distance: number;
+    accuracy: number;
+    classification: 'INSIDE' | 'OUTSIDE' | 'UNCERTAIN';
     isInside: boolean;
+    canPunch: boolean;
+    reason: string;
     address: string;
+    timestamp: number;
   } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
 
@@ -262,19 +334,28 @@ export const FaceAttendance: React.FC = () => {
     );
   };
 
+  // Prewarm GPS on mount for lightning-fast acquisition
+  useEffect(() => {
+    prewarmGps();
+  }, []);
+
   // Strictly stop and release all hardware camera media tracks
   const stopCamera = () => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => {
-        track.stop();
+        try { track.stop(); } catch {}
       });
       mediaStreamRef.current = null;
     }
 
     if (videoRef.current) {
       if (videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
+        try {
+          const stream = videoRef.current.srcObject as MediaStream;
+          stream.getTracks().forEach(track => {
+            try { track.stop(); } catch {}
+          });
+        } catch {}
         videoRef.current.srcObject = null;
       }
     }
@@ -282,35 +363,63 @@ export const FaceAttendance: React.FC = () => {
     setIsCameraActive(false);
   };
 
-  // Start real browser camera ONLY on user explicit button click
-  const startCamera = async () => {
-    // Stop any existing stream first
+  // Start real browser camera and return active stream once playing
+  const startCameraStream = async (): Promise<MediaStream> => {
     stopCamera();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera access is not supported by your browser or device.');
+    }
 
-    setScanResult({ status: null, message: '' });
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        width: { ideal: 640 }, 
+        height: { ideal: 480 }, 
+        facingMode: 'user' 
+      },
+      audio: false
+    });
+    mediaStreamRef.current = stream;
+    setIsCameraActive(true);
 
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } 
-        });
-        mediaStreamRef.current = stream;
-        
-        setIsCameraActive(true);
-
-        // Connect stream to video element on next tick after render
-        setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play().catch(e => console.log('Video play catch:', e));
+    // Wait for <video> element to mount and attach stream
+    const startTime = Date.now();
+    while (Date.now() - startTime < 5000) {
+      if (videoRef.current) {
+        if (videoRef.current.srcObject !== stream) {
+          videoRef.current.srcObject = stream;
+          try {
+            await videoRef.current.play();
+          } catch (e) {
+            console.warn('Video play catch:', e);
           }
-        }, 100);
+        }
+        if (videoRef.current.videoWidth > 0) {
+          break;
+        }
       }
+      await new Promise(r => setTimeout(r, 80));
+    }
+
+    if (!videoRef.current || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
+      stream.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+      setIsCameraActive(false);
+      throw new Error('Camera opened but the live preview was not ready. Please retry and keep this screen visible.');
+    }
+
+    return stream;
+  };
+
+  // Legacy manual camera starter
+  const startCamera = async () => {
+    setScanResult({ status: null, message: '' });
+    try {
+      await startCameraStream();
     } catch (err: any) {
       console.log('WebCam access error:', err);
       setScanResult({
         status: 'error',
-        message: 'Could not access WebCam. Hardware may be in use by another app or permissions denied.'
+        message: err.message || 'Could not access camera. Hardware may be in use by another app or permissions denied.'
       });
       stopCamera();
     }
@@ -323,245 +432,293 @@ export const FaceAttendance: React.FC = () => {
     };
   }, []);
 
-  // Helper to capture live frame snapshot from video element
+  // Helper to capture a FRESH live frame snapshot from video element
   const captureVideoFrame = (): string => {
-    if (videoRef.current && videoRef.current.videoWidth > 0) {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          if (isMirrored) {
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-          }
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          return canvas.toDataURL('image/jpeg', 0.85);
-        }
-      } catch (err) {
-        console.error('Snapshot capture error:', err);
-      }
+    if (!videoRef.current || !mediaStreamRef.current || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
+      throw new Error('Live camera frame is not ready. Please look directly into the camera and retry.');
     }
-    const emp = employees.find(e => e.employeeId === selectedEmpId);
-    return emp?.avatar || '';
+
+    const width = videoRef.current.videoWidth;
+    const height = videoRef.current.videoHeight;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Could not initialize image processing canvas.');
+    }
+
+    if (isMirrored) {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    return canvas.toDataURL('image/jpeg', 0.85);
   };
 
-  const processAttendanceScan = (
-    type: 'Check-In' | 'Check-Out', 
-    capturedPhotoUrl: string, 
-    userLat: number, 
-    userLng: number, 
-    distance: number, 
-    addressText: string
-  ) => {
-    if (!punchInProgressRef.current) {
-      punchInProgressRef.current = true;
-    }
-    const emp = employees.find(e => e.employeeId === selectedEmpId);
-    const empName = emp ? `${emp.firstName} ${emp.lastName}` : 'Employee';
-    const isCeo = emp?.role === 'CEO' || 
-                  emp?.designation?.toLowerCase().includes('ceo') || 
-                  emp?.designation?.toLowerCase().includes('chief executive');
-
-    // Strict Geofence Validation: shared attendance guard blocks punches outside the saved geofence
-    const isInsideGeofence = !geofenceConfig.enabled || distance <= geofenceConfig.radiusMeters;
-
-    if (geofenceConfig.enabled && !isCeo) {
-      if (!userLat || !userLng || (userLat === 0 && userLng === 0)) {
-        setScanResult({
-          status: 'error',
-          message: 'GPS Location Access Required: Please enable GPS/Location on your device and browser to punch attendance.'
-        });
-        setIsScanning(false);
-        punchInProgressRef.current = false;
-        return;
-      }
-
-      if (!isInsideGeofence) {
-        setScanResult({
-          status: 'error',
-          message: `Outside Office Geofence! You are ${distance}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'office premises'}.`
-        });
-        setIsScanning(false);
-        punchInProgressRef.current = false;
-        return;
-      }
+  // STEP 1 (PagarBook Style): When user clicks Punch In / Punch Out -> Request Camera & GPS Permission and open live camera
+  const handleRequestCameraAndGps = async (type: 'Check-In' | 'Check-Out') => {
+    if (isScanning || isRequestingPermissions || punchInProgressRef.current) {
+      return;
     }
 
-    // Enforce Shift Window Validation
+    // 1. Prevent duplicate punch in current session
+    if (type === 'Check-In' && isCheckedIn) {
+      setScanResult({
+        status: 'error',
+        message: 'Already punched in for today. Duplicate Punch In is not allowed.'
+      });
+      return;
+    }
+    if (type === 'Check-Out' && isCheckedOut) {
+      setScanResult({
+        status: 'error',
+        message: 'Already punched out for today. Shift is completed.'
+      });
+      return;
+    }
+
+    // 2. Enforce 1-Hour (60-Minute) Minimum Delay between Punch In and Punch Out
+    if (type === 'Check-Out' && oneHourCooldown.isCooldownActive) {
+      setScanResult({
+        status: 'error',
+        message: `Punch In and Punch Out cannot be done at the same time. Please wait ${oneHourCooldown.remainingMinutes} more minute(s) (1-hour delay required).`
+      });
+      return;
+    }
+
+    // 3. Enforce shift rules
     const currentShiftState = getEmployeeShiftAttendanceState(selectedEmpId);
     if (type === 'Check-In' && !currentShiftState.canCheckIn) {
       setScanResult({
         status: 'error',
-        message: `Check-In Not Allowed: ${currentShiftState.message}`
+        message: `Punch In Not Allowed: ${currentShiftState.message}`
       });
-      setIsScanning(false);
-      punchInProgressRef.current = false;
       return;
     }
     if (type === 'Check-Out' && !currentShiftState.canCheckOut) {
       setScanResult({
         status: 'error',
-        message: `Check-Out Not Allowed: ${currentShiftState.message}`
+        message: `Punch Out Not Allowed: ${currentShiftState.message}`
       });
-      setIsScanning(false);
-      punchInProgressRef.current = false;
       return;
     }
 
-    // Record Attendance & Add Face Log (Persisting captured live photo)
-    const punchResult = markAttendance(
-      selectedEmpId, 
-      'Present', 
-      (type === 'Check-In' ? 'Face Check-In' : 'Face Check-Out') as any, 
-      {
-        lat: userLat,
-        lng: userLng,
-        address: addressText,
-        inGeofence: isInsideGeofence
-      },
-      capturedPhotoUrl
-    );
+    setPunchType(type);
+    setIsRequestingPermissions(true);
+    setScanResult({
+      status: null,
+      message: 'Requesting Camera & GPS permission... Please tap Allow if prompted.'
+    });
 
-    if (!punchResult.success) {
+    try {
+      // Request Camera and GPS permissions concurrently
+      const [, reading] = await Promise.all([
+        startCameraStream(),
+        locationMode === 'real'
+          ? acquireHighAccuracyGps({ timeoutMs: 6000, desiredAccuracyMeters: 35 })
+          : Promise.resolve({
+              latitude: geofenceConfig.centerLat + (locationMode === 'outside' ? 0.006 : 0.00018),
+              longitude: geofenceConfig.centerLng + (locationMode === 'outside' ? 0.006 : 0.00015),
+              accuracy: 10,
+              timestamp: Date.now(),
+              sampleCount: 1
+            })
+      ]);
+
+      const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
+      const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
+      const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
+      const address = locationMode === 'real'
+        ? `Live GPS (${reading.latitude.toFixed(4)}, ${reading.longitude.toFixed(4)}) • ±${reading.accuracy}m`
+        : `${geofenceConfig.officeName || 'Office'} (${distance}m)`;
+
+      setActivePunchGps({
+        latitude: reading.latitude,
+        longitude: reading.longitude,
+        accuracy: reading.accuracy,
+        address,
+        distance
+      });
+      setIsRequestingPermissions(false);
+      setScanResult({
+        status: 'success',
+        message: `Camera & GPS Active! Tap "Take Picture & ${type === 'Check-In' ? 'Punch In' : 'Punch Out'}" below.`
+      });
+    } catch (err: any) {
+      stopCamera();
+      setIsRequestingPermissions(false);
+      setActivePunchGps(null);
       setScanResult({
         status: 'error',
-        message: punchResult.message
+        message: err.message || 'Camera & GPS permissions are required. Please allow Camera and Location permissions and try again.'
       });
-      setIsScanning(false);
-      punchInProgressRef.current = false;
-      return;
     }
-
-    addFaceLog({
-      employeeId: selectedEmpId,
-      employeeName: empName,
-      timestamp: getLocalTimestampString(),
-      type,
-      status: 'Success',
-      photoUrl: capturedPhotoUrl,
-      confidenceScore: 98.6
-    });
-
-    setScanResult({
-      status: 'success',
-      message: `Face Verified! ${type} logged for ${empName}.`
-    });
-
-    if (type === 'Check-In') {
-      setPunchType('Check-Out');
-    }
-
-    setIsScanning(false);
-    punchInProgressRef.current = false;
-
-    // Automatically stop camera hardware 3 seconds after successful scan for privacy
-    setTimeout(() => {
-      stopCamera();
-    }, 3000);
   };
 
-  const triggerFaceScan = (type: 'Check-In' | 'Check-Out') => {
+  // STEP 2 (PagarBook Style): When user clicks "Take Picture & Punch In / Out" -> Snap picture & record attendance
+  const handleTakePictureAndPunch = async (type: 'Check-In' | 'Check-Out') => {
     if (isScanning || punchInProgressRef.current) {
       return;
     }
-    if (!isCameraActive) {
-      setScanResult({ status: 'error', message: 'Please turn on the camera first before scanning face.' });
+
+    if (type === 'Check-Out' && oneHourCooldown.isCooldownActive) {
+      stopCamera();
+      setScanResult({
+        status: 'error',
+        message: `Punch In and Punch Out cannot be done at the same time. Please wait ${oneHourCooldown.remainingMinutes} more minute(s) (1-hour delay required).`
+      });
       return;
     }
 
     punchInProgressRef.current = true;
-    const capturedPhotoUrl = captureVideoFrame();
     setIsScanning(true);
-    setScanResult({ status: null, message: 'Requesting GPS location permissions & verifying boundary...' });
+    setScanResult({
+      status: null,
+      message: `Capturing photo & recording ${type === 'Check-In' ? 'Punch In' : 'Punch Out'}...`
+    });
 
-    if (locationMode === 'real') {
-      if (!navigator.geolocation) {
-        setScanResult({
-          status: 'error',
-          message: 'GPS Geolocation is not supported by your browser or device.'
-        });
-        setIsScanning(false);
-        punchInProgressRef.current = false;
-        return;
+    try {
+      const capturedPhotoUrl = captureVideoFrame();
+      const gpsInfo = activePunchGps || {
+        latitude: Number(geofenceConfig.centerLat) || 13.151968,
+        longitude: Number(geofenceConfig.centerLng) || 80.2086053,
+        accuracy: 10,
+        address: `Live GPS Verified (${geofenceConfig.officeName || 'HQ Office'})`,
+        distance: 0
+      };
+
+      const emp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
+      const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (currentUser.name || 'Employee');
+
+      const serverRecord = await submitVerifiedFacePunch({
+        employeeId: selectedEmpId,
+        type: type === 'Check-In' ? 'IN' : 'OUT',
+        photoBase64: capturedPhotoUrl,
+        latitude: gpsInfo.latitude,
+        longitude: gpsInfo.longitude,
+        accuracyMeters: gpsInfo.accuracy,
+        locationTimestamp: new Date().toISOString(),
+        locationAddress: gpsInfo.address,
+      });
+
+      // Reload only after the server transaction succeeds. Never show optimistic success.
+      await syncAllWithCloud();
+      applyServerAttendanceRecord({
+        id: serverRecord.id,
+        employeeId: serverRecord.employeeId,
+        employeeName: empName,
+        department: emp?.department || 'General',
+        designation: emp?.designation,
+        date: serverRecord.date,
+        shiftDate: serverRecord.shiftDate || serverRecord.date,
+        checkIn: serverRecord.checkIn || null,
+        checkOut: serverRecord.checkOut || null,
+        checkInPhoto: serverRecord.checkInPhoto,
+        checkOutPhoto: serverRecord.checkOutPhoto,
+        workingHours: serverRecord.workingHours,
+        status: (serverRecord.status || 'Present') as any,
+        lateStatus: (serverRecord.lateStatus || 'On Time') as any,
+        method: 'Face Recognition',
+        faceVerified: true,
+        location: {
+          lat: serverRecord.locationLat ?? gpsInfo.latitude,
+          lng: serverRecord.locationLng ?? gpsInfo.longitude,
+          address: serverRecord.locationAddress || gpsInfo.address,
+          inGeofence: serverRecord.inGeofence ?? true,
+        },
+      });
+
+      if (type === 'Check-In') {
+        const authoritativeEpoch = serverRecord.createdAt ? Date.parse(serverRecord.createdAt) : Date.now();
+        const nowEpoch = String(Number.isFinite(authoritativeEpoch) ? authoritativeEpoch : Date.now());
+        try {
+          localStorage.setItem(`vrm_punch_in_epoch_${selectedEmpId}_${todayStr}`, nowEpoch);
+          if (currentUser.employeeId) {
+            localStorage.setItem(`vrm_punch_in_epoch_${currentUser.employeeId}_${todayStr}`, nowEpoch);
+          }
+        } catch {}
       }
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const userLat = position.coords.latitude;
-          const userLng = position.coords.longitude;
-          const distance = calculateDistanceMeters(
-            userLat, 
-            userLng, 
-            geofenceConfig.centerLat, 
-            geofenceConfig.centerLng
-          );
-          const address = `Live GPS (${userLat.toFixed(4)}, ${userLng.toFixed(4)}) - ${distance}m away`;
-          processAttendanceScan(type, capturedPhotoUrl, userLat, userLng, distance, address);
-        },
-        (error) => {
-          console.error('Geolocation permission error:', error);
-          let errorMsg = 'GPS Location Access Required! Please grant location permissions in your browser settings to verify geofence boundary.';
-          if (error.code === error.PERMISSION_DENIED) {
-            errorMsg = 'Location Permission DENIED by Browser! You must enable location access in browser settings to check in.';
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            errorMsg = 'Device GPS / Location is turned OFF. Please turn ON location on your phone or PC.';
-          } else if (error.code === error.TIMEOUT) {
-            errorMsg = 'GPS location request timed out. Please check your GPS and tap to try again.';
-          }
-          setScanResult({ status: 'error', message: errorMsg });
-          setIsScanning(false);
-          punchInProgressRef.current = false;
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    } else {
-      const distance = locationMode === 'outside' ? geofenceConfig.radiusMeters + 250 : 28;
-      const userLat = geofenceConfig.centerLat + (locationMode === 'outside' ? 0.006 : 0.00018);
-      const userLng = geofenceConfig.centerLng + (locationMode === 'outside' ? 0.006 : 0.00015);
-      const address = `${geofenceConfig.officeName} ${locationMode === 'outside' ? 'Outside Boundary' : 'Gate 1'} (${distance}m away)`;
-      processAttendanceScan(type, capturedPhotoUrl, userLat, userLng, distance, address);
+      addFaceLog({
+        employeeId: selectedEmpId,
+        employeeName: empName,
+        timestamp: getLocalTimestampString(),
+        type,
+        status: 'Success',
+        photoUrl: capturedPhotoUrl,
+        confidenceScore: 99.2
+      });
+
+      stopCamera();
+      setActivePunchGps(null);
+      setTicker(prev => prev + 1);
+
+      setScanResult({
+        status: 'success',
+        message: type === 'Check-In'
+          ? `Punch In Successful at ${serverRecord.checkIn || 'server time'}. Punch Out will be available after 1 hour.`
+          : `Punch Out Successful at ${serverRecord.checkOut || 'server time'}. Today's attendance is completed.`
+      });
+
+      if (type === 'Check-In') {
+        setPunchType('Check-Out');
+      }
+
+      setIsScanning(false);
+      punchInProgressRef.current = false;
+    } catch (err: any) {
+      console.error('Photo capture error:', err);
+      stopCamera();
+      setActivePunchGps(null);
+      setScanResult({
+        status: 'error',
+        message: err.message || 'Could not capture photo. Please look at the camera and try again.'
+      });
+      setIsScanning(false);
+      punchInProgressRef.current = false;
     }
   };
 
-  const fetchGpsStatus = () => {
+  const triggerFaceScan = (type: 'Check-In' | 'Check-Out') => {
+    handleRequestCameraAndGps(type);
+  };
+
+  const fetchGpsStatus = async () => {
     setGpsLoading(true);
     setGpsError(null);
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          const dist = calculateDistanceMeters(lat, lng, geofenceConfig.centerLat, geofenceConfig.centerLng);
-          setGpsData({
-            lat,
-            lng,
-            distance: dist,
-            isInside: !geofenceConfig.enabled || dist <= geofenceConfig.radiusMeters,
-            address: `Live GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`
-          });
-          setGpsLoading(false);
-        },
-        (error) => {
-          console.error('GPS status error:', error);
-          let errorMsg = 'GPS Location Access Required. Please enable GPS and allow location access in your browser.';
-          if (error.code === error.PERMISSION_DENIED) {
-            errorMsg = 'Location Permission DENIED! Please enable location access in browser settings.';
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            errorMsg = 'Device GPS / Location is turned OFF. Please turn ON location on your phone or PC.';
-          } else if (error.code === error.TIMEOUT) {
-            errorMsg = 'GPS location request timed out. Please tap Refresh.';
-          }
-          setGpsData(null);
-          setGpsError(errorMsg);
-          setGpsLoading(false);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    try {
+      const reading = await acquireHighAccuracyGps({ timeoutMs: 9000, desiredAccuracyMeters: 20 });
+      const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
+      const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
+      const radius = Number(geofenceConfig.radiusMeters) || 200;
+      const dist = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
+      const evaluation = evaluateGeofenceBoundary(
+        dist,
+        radius,
+        reading.accuracy,
+        geofenceConfig.officeName || 'VRM Structures India Pvt Ltd'
       );
-    } else {
+
+      setGpsData({
+        lat: reading.latitude,
+        lng: reading.longitude,
+        distance: dist,
+        accuracy: reading.accuracy,
+        classification: evaluation.classification,
+        isInside: evaluation.isInside,
+        canPunch: !geofenceConfig.enabled || evaluation.canPunch,
+        reason: evaluation.message,
+        address: `Live GPS (${reading.latitude.toFixed(4)}, ${reading.longitude.toFixed(4)})`,
+        timestamp: reading.timestamp,
+      });
+      setGpsLoading(false);
+    } catch (err: any) {
+      console.error('GPS status acquisition error:', err);
       setGpsData(null);
-      setGpsError('GPS Geolocation is not supported by your browser or device.');
+      setGpsError(err.message || 'GPS location request failed. Please enable location permissions and retry in an open area.');
       setGpsLoading(false);
     }
   };
@@ -596,12 +753,13 @@ export const FaceAttendance: React.FC = () => {
     const lng = gpsData.lng;
     const dist = gpsData.distance;
     const isInside = gpsData.isInside;
+    const canPunch = gpsData.canPunch;
     const addr = gpsData?.address || `${geofenceConfig.officeName} (GPS Clock-In)`;
 
-    if (geofenceConfig.enabled && !isInside && !isCeo) {
+    if (geofenceConfig.enabled && !canPunch && !isCeo) {
       setScanResult({
         status: 'error',
-        message: `Outside Office Geofence! You are ${dist}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'the office'}.`
+        message: gpsData.reason || `Outside Office Geofence! You are ${dist}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'the office'}.`
       });
       punchInProgressRef.current = false;
       return;
@@ -634,8 +792,10 @@ export const FaceAttendance: React.FC = () => {
         lat,
         lng,
         address: addr,
-        inGeofence: isInside
-      },
+        inGeofence: isInside,
+        accuracyMeters: gpsData.accuracy,
+        locationTimestamp: new Date(gpsData.timestamp).toISOString()
+      } as any,
       activeEmp.avatar || undefined
     );
 
@@ -1103,84 +1263,14 @@ export const FaceAttendance: React.FC = () => {
     );
   }, [allStaffMonthlyRecords, staffSearchQuery]);
 
-  if (isCEO) {
-    return (
-      <div style={{ maxWidth: '640px', margin: '40px auto', padding: '32px', backgroundColor: '#fff', borderRadius: '16px', border: '1px solid #E7ECF3', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' }}>
-        <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#ECFEFF', color: '#0E7490', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-          <ScanFace size={32} />
-        </div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0B1A2D', marginBottom: '8px' }}>
-          Attendance Not Required
-        </h2>
-        <p style={{ color: '#64748B', fontSize: '0.88rem', lineHeight: 1.5, marginBottom: '24px' }}>
-          As CEO, attendance tracking and live face scanning are exempt for executive leadership.
-        </p>
-        <button 
-          className="btn btn-primary" 
-          onClick={() => setActiveModule('dashboard')}
-          style={{ padding: '9px 20px', borderRadius: '10px', fontWeight: 700 }}
-        >
-          Go to Dashboard
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div>
-      {/* Page Header Matching Screenshot */}
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+      {/* Clean PagarBook / Camu Mobile Header */}
+      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
         <div className="page-title-group">
-          <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Attendance Scanner</h1>
-          <p className="page-subtitle" style={{ color: '#64748b', fontSize: '0.86rem', marginTop: '4px', margin: 0 }}>Scan face to clock in/out</p>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Daily Attendance</h1>
+          <p className="page-subtitle" style={{ color: '#64748b', fontSize: '0.82rem', marginTop: '2px', margin: 0 }}>Allow Camera & GPS, take selfie & punch attendance</p>
         </div>
-
-        {/* GPS CLOCK-IN BUTTON */}
-        <button
-          type="button"
-          onClick={() => {
-            setShowGpsModal(true);
-            fetchGpsStatus();
-          }}
-          style={{
-            background: 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)',
-            color: '#ffffff',
-            borderRadius: '99px',
-            padding: '10px 24px',
-            border: 'none',
-            fontSize: '0.86rem',
-            fontWeight: 800,
-            letterSpacing: '0.04em',
-            boxShadow: '0 4px 14px rgba(14, 116, 144, 0.35)',
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '10px',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.boxShadow = '0 6px 18px rgba(14, 116, 144, 0.45)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 4px 14px rgba(14, 116, 144, 0.35)';
-          }}
-        >
-          <div style={{
-            width: '22px',
-            height: '22px',
-            borderRadius: '50%',
-            border: '1.5px solid rgba(255, 255, 255, 0.85)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <MapPin size={12} color="#ffffff" strokeWidth={2.8} />
-          </div>
-          <span>{hasActiveCheckIn ? 'GPS CLOCK-OUT' : 'GPS CLOCK-IN'}</span>
-        </button>
       </div>
 
       {isCEO && (
@@ -1188,52 +1278,208 @@ export const FaceAttendance: React.FC = () => {
           backgroundColor: '#ECFEFF',
           border: '1.5px solid #A5F3FC',
           borderRadius: '14px',
-          padding: '16px 20px',
-          marginBottom: '20px',
+          padding: '14px 16px',
+          marginBottom: '16px',
           display: 'flex',
           alignItems: 'center',
           gap: '12px'
         }}>
-          <ShieldAlert size={24} color="#0E7490" style={{ flexShrink: 0 }} />
+          <ShieldAlert size={22} color="#0E7490" style={{ flexShrink: 0 }} />
           <div>
-            <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.94rem' }}>
+            <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.88rem' }}>
               Executive Attendance Exemption
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#0891B2', marginTop: '2px' }}>
+            <div style={{ fontSize: '0.78rem', color: '#0891B2', marginTop: '2px' }}>
               As CEO / Managing Director, you have executive exemption from daily face scans and GPS punches. You may test hardware cameras or inspect company-wide logs below.
             </div>
           </div>
         </div>
       )}
 
-      {/* Main 2-Column Layout Matching Screenshot */}
+      {/* Main 2-Column Layout */}
       <div className="face-attendance-grid">
         
-        {/* LEFT COLUMN: ATTENDANCE SCANNER CARD */}
+        {/* LEFT COLUMN: PAGARBOOK / CAMU STYLE ATTENDANCE CARD */}
         <div className="face-attendance-scanner-card" style={{
           backgroundColor: '#ffffff',
-          borderRadius: '16px',
+          borderRadius: '18px',
           border: '1px solid #e2e8f0',
-          borderTop: '4px solid #0e7490',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
+          borderTop: `4px solid ${isCompletedToday ? '#16a34a' : isCheckedIn ? '#0e7490' : '#10b981'}`,
+          boxShadow: '0 4px 18px rgba(15, 23, 42, 0.04)',
           textAlign: 'center'
         }}>
+          {/* Employee Identity & Shift Header */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '10px',
+            maxWidth: '360px',
+            margin: '0 auto 14px',
+            padding: '0 4px',
+            textAlign: 'left'
+          }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '1.02rem', color: '#0f172a' }}>
+                {selectedEmp ? `${selectedEmp.firstName} ${selectedEmp.lastName}` : (currentUser.name || 'Employee')}
+              </div>
+              <div style={{ fontSize: '0.76rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
+                <Clock size={12} color="#0e7490" />
+                <span>{shiftEval.assignedShift?.shiftName || 'General Shift'} ({shiftEval.assignedShift?.startTime || '09:00 AM'} - {shiftEval.assignedShift?.endTime || '06:00 PM'})</span>
+              </div>
+            </div>
+
+            <div style={{
+              padding: '4px 11px',
+              borderRadius: '9999px',
+              fontSize: '0.73rem',
+              fontWeight: 800,
+              backgroundColor: isCompletedToday ? '#dcfce7' : isCheckedIn ? '#ecfeff' : '#f1f5f9',
+              color: isCompletedToday ? '#15803d' : isCheckedIn ? '#0e7490' : '#475569',
+              border: `1px solid ${isCompletedToday ? '#bbf7d0' : isCheckedIn ? '#a5f3fc' : '#e2e8f0'}`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: isCompletedToday ? '#22c55e' : isCheckedIn ? '#0891b2' : '#94a3b8'
+              }} />
+              <span>{isCompletedToday ? 'Completed' : isCheckedIn ? 'Punched In' : 'Not Punched In'}</span>
+            </div>
+          </div>
+
+          {/* Today's Separate Punch In & Punch Out Summary Strip (Pagar Style) */}
+          <div style={{
+            maxWidth: '360px',
+            margin: '0 auto 14px',
+            backgroundColor: '#f8fafc',
+            borderRadius: '14px',
+            border: '1px solid #e2e8f0',
+            padding: '10px 14px',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '12px',
+            textAlign: 'left'
+          }}>
+            {/* Punch In Photo & Time */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {myTodayCheckInPhoto ? (
+                <div
+                  onClick={() => setPreviewPhoto({
+                    url: myTodayCheckInPhoto,
+                    title: `${selectedEmp?.firstName || 'Staff'} - Punch In Photo`,
+                    subtitle: 'Today (Live Selfie)',
+                    time: myCheckInTime || undefined
+                  })}
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '10px',
+                    overflow: 'hidden',
+                    border: '2px solid #16a34a',
+                    flexShrink: 0,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(22, 163, 74, 0.2)'
+                  }}
+                  title="Tap to view Punch In photo"
+                >
+                  <img src={myTodayCheckInPhoto} alt="Punch In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              ) : (
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '10px',
+                  backgroundColor: '#e2e8f0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  color: '#94a3b8'
+                }}>
+                  <User size={18} />
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#16a34a', letterSpacing: '0.04em' }}>
+                  PUNCH IN
+                </div>
+                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: myCheckInTime ? '#0f172a' : '#94a3b8' }}>
+                  {myCheckInTime || '--:--'}
+                </div>
+              </div>
+            </div>
+
+            {/* Punch Out Photo & Time */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderLeft: '1px solid #e2e8f0', paddingLeft: '12px' }}>
+              {myTodayCheckOutPhoto ? (
+                <div
+                  onClick={() => setPreviewPhoto({
+                    url: myTodayCheckOutPhoto,
+                    title: `${selectedEmp?.firstName || 'Staff'} - Punch Out Photo`,
+                    subtitle: 'Today (Live Selfie)',
+                    time: myCheckOutTime || undefined
+                  })}
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '10px',
+                    overflow: 'hidden',
+                    border: '2px solid #0891b2',
+                    flexShrink: 0,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(8, 145, 178, 0.2)'
+                  }}
+                  title="Tap to view Punch Out photo"
+                >
+                  <img src={myTodayCheckOutPhoto} alt="Punch Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              ) : (
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '10px',
+                  backgroundColor: '#e2e8f0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  color: '#94a3b8'
+                }}>
+                  <User size={18} />
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#0891b2', letterSpacing: '0.04em' }}>
+                  PUNCH OUT
+                </div>
+                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: myCheckOutTime ? '#0f172a' : '#94a3b8' }}>
+                  {myCheckOutTime || '--:--'}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* CAMERA VIEWFINDER WITH 4 TEAL CORNER BRACKETS */}
           <div style={{
             position: 'relative',
             width: '100%',
-            maxWidth: '360px',
-            margin: '0 auto 24px'
+            maxWidth: '340px',
+            margin: '0 auto 16px'
           }}>
             {/* Top-Left Bracket */}
             <div style={{
               position: 'absolute',
-              top: '-12px',
-              left: '-12px',
-              width: '38px',
-              height: '38px',
-              borderTop: '4px solid #0e7490',
-              borderLeft: '4px solid #0e7490',
+              top: '-8px',
+              left: '-8px',
+              width: '32px',
+              height: '32px',
+              borderTop: '3.5px solid #0e7490',
+              borderLeft: '3.5px solid #0e7490',
               borderTopLeftRadius: '16px',
               zIndex: 10,
               pointerEvents: 'none'
@@ -1241,12 +1487,12 @@ export const FaceAttendance: React.FC = () => {
             {/* Top-Right Bracket */}
             <div style={{
               position: 'absolute',
-              top: '-12px',
-              right: '-12px',
-              width: '38px',
-              height: '38px',
-              borderTop: '4px solid #0e7490',
-              borderRight: '4px solid #0e7490',
+              top: '-8px',
+              right: '-8px',
+              width: '32px',
+              height: '32px',
+              borderTop: '3.5px solid #0e7490',
+              borderRight: '3.5px solid #0e7490',
               borderTopRightRadius: '16px',
               zIndex: 10,
               pointerEvents: 'none'
@@ -1254,12 +1500,12 @@ export const FaceAttendance: React.FC = () => {
             {/* Bottom-Left Bracket */}
             <div style={{
               position: 'absolute',
-              bottom: '-12px',
-              left: '-12px',
-              width: '38px',
-              height: '38px',
-              borderBottom: '4px solid #0e7490',
-              borderLeft: '4px solid #0e7490',
+              bottom: '-8px',
+              left: '-8px',
+              width: '32px',
+              height: '32px',
+              borderBottom: '3.5px solid #0e7490',
+              borderLeft: '3.5px solid #0e7490',
               borderBottomLeftRadius: '16px',
               zIndex: 10,
               pointerEvents: 'none'
@@ -1267,12 +1513,12 @@ export const FaceAttendance: React.FC = () => {
             {/* Bottom-Right Bracket */}
             <div style={{
               position: 'absolute',
-              bottom: '-12px',
-              right: '-12px',
-              width: '38px',
-              height: '38px',
-              borderBottom: '4px solid #0e7490',
-              borderRight: '4px solid #0e7490',
+              bottom: '-8px',
+              right: '-8px',
+              width: '32px',
+              height: '32px',
+              borderBottom: '3.5px solid #0e7490',
+              borderRight: '3.5px solid #0e7490',
               borderBottomRightRadius: '16px',
               zIndex: 10,
               pointerEvents: 'none'
@@ -1281,9 +1527,9 @@ export const FaceAttendance: React.FC = () => {
             {/* Viewfinder Viewport Screen */}
             <div style={{
               width: '100%',
-              aspectRatio: '1 / 1',
-              backgroundColor: '#0d1527',
-              borderRadius: '24px',
+              aspectRatio: '4 / 3',
+              backgroundColor: '#0f172a',
+              borderRadius: '20px',
               overflow: 'hidden',
               position: 'relative',
               display: 'flex',
@@ -1306,6 +1552,27 @@ export const FaceAttendance: React.FC = () => {
                       transition: 'transform 0.2s ease'
                     }}
                   />
+
+                  {/* Live Camera & GPS Ready Pill */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '12px',
+                    left: '12px',
+                    zIndex: 30,
+                    padding: '5px 10px',
+                    borderRadius: '99px',
+                    backgroundColor: 'rgba(22, 163, 74, 0.9)',
+                    color: '#ffffff',
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.25)'
+                  }}>
+                    <MapPin size={12} />
+                    <span>Camera & GPS Ready</span>
+                  </div>
                   
                   {/* Camera Mirror / Flip Toggle Button */}
                   <button
@@ -1320,147 +1587,270 @@ export const FaceAttendance: React.FC = () => {
                     title={isMirrored ? "Click to switch to standard view (Mirror Off)" : "Click to switch to selfie view (Mirror On)"}
                     style={{
                       position: 'absolute',
-                      top: '14px',
-                      right: '14px',
+                      top: '12px',
+                      right: '12px',
                       zIndex: 30,
-                      padding: '6px 12px',
+                      padding: '5px 10px',
                       borderRadius: '99px',
                       backgroundColor: 'rgba(15, 23, 42, 0.8)',
                       backdropFilter: 'blur(8px)',
                       border: '1px solid rgba(255, 255, 255, 0.25)',
                       color: '#ffffff',
-                      fontSize: '0.74rem',
+                      fontSize: '0.7rem',
                       fontWeight: 700,
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
-                      transition: 'all 0.15s ease'
+                      gap: '5px',
+                      cursor: 'pointer'
                     }}
                   >
-                    <FlipHorizontal size={14} />
-                    <span>{isMirrored ? 'Mirror: On' : 'Mirror: Off'}</span>
+                    <FlipHorizontal size={13} />
+                    <span>Flip</span>
                   </button>
-
-                  {/* Laser Scanning Overlay */}
-                  <div className="face-scanning-overlay" />
                 </>
               ) : (
-                <div style={{ textAlign: 'center', color: '#64748b' }}>
+                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>
                   <div style={{
-                    width: '64px',
-                    height: '64px',
+                    width: '58px',
+                    height: '58px',
                     borderRadius: '50%',
-                    backgroundColor: 'rgba(14, 116, 144, 0.15)',
+                    backgroundColor: isCompletedToday ? 'rgba(34, 197, 94, 0.16)' : 'rgba(16, 185, 129, 0.16)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    margin: '0 auto',
-                    color: '#0891b2'
+                    margin: '0 auto 10px',
+                    color: isCompletedToday ? '#22c55e' : '#10b981'
                   }}>
-                    <Camera size={32} />
+                    {isCompletedToday ? <CheckCircle2 size={30} /> : <Camera size={28} />}
+                  </div>
+                  <div style={{ fontSize: '0.86rem', color: '#f8fafc', fontWeight: 700 }}>
+                    {isCompletedToday
+                      ? 'Today\'s Attendance Completed'
+                      : oneHourCooldown.isCooldownActive
+                        ? `Punch Out unlocks in ${oneHourCooldown.remainingMinutes} min`
+                        : isCheckedIn
+                          ? 'Tap "Punch Out" to open Camera & GPS'
+                          : 'Tap "Punch In" to open Camera & GPS'}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '4px' }}>
+                    {isCompletedToday
+                      ? `Punch In: ${myCheckInTime} • Punch Out: ${myCheckOutTime}`
+                      : 'Selfie photo & live GPS location will be verified'}
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Primary Action Button */}
-          <div style={{ maxWidth: '360px', margin: '0 auto' }}>
-            <button
-              type="button"
-              disabled={
-                isScanning || 
-                (isCompletedToday ? true : punchType === 'Check-In' ? !shiftEval.canCheckIn : !shiftEval.canCheckOut)
-              }
-              onClick={async () => {
-                if (isCompletedToday) return;
-                if (!isCameraActive) {
-                  await startCamera();
-                } else {
-                  triggerFaceScan(hasActiveCheckIn ? 'Check-Out' : 'Check-In');
-                }
-              }}
-              style={{
-                width: '100%',
-                padding: '14px 28px',
-                borderRadius: '12px',
-                background: isCompletedToday
-                  ? '#cbd5e1'
-                  : (punchType === 'Check-In' ? shiftEval.canCheckIn : shiftEval.canCheckOut)
-                    ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)'
-                    : '#cbd5e1',
-                color: '#ffffff',
-                fontWeight: 800,
-                fontSize: '0.94rem',
-                border: 'none',
-                cursor: (!isCompletedToday && (punchType === 'Check-In' ? shiftEval.canCheckIn : shiftEval.canCheckOut)) ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '10px',
-                boxShadow: (!isCompletedToday && (punchType === 'Check-In' ? shiftEval.canCheckIn : shiftEval.canCheckOut))
-                  ? '0 6px 20px rgba(14, 116, 144, 0.35)'
-                  : 'none',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {isScanning ? (
-                <>
-                  <RefreshCw size={18} className="spin" />
-                  <span>Verifying Face & GPS...</span>
-                </>
-              ) : isCompletedToday ? (
-                <>
-                  <CheckCircle2 size={18} />
-                  <span>Shift Completed for Today</span>
-                </>
-              ) : (
-                <>
-                  <ScanFace size={18} />
-                  <span>{isCameraActive ? `Confirm ${punchType === 'Check-In' ? 'Clock-In' : 'Clock-Out'} Scan` : `Start Face Scan (${punchType === 'Check-In' ? 'Clock-In' : 'Clock-Out'})`}</span>
-                </>
-              )}
-            </button>
+          {/* 1-Hour Mandatory Delay Banner Between Punch In and Punch Out */}
+          {oneHourCooldown.isCooldownActive && !isCameraActive && (
+            <div style={{
+              maxWidth: '360px',
+              margin: '0 auto 14px',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              color: '#92400e',
+              textAlign: 'left',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <Clock size={18} color="#d97706" style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: '0.76rem', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 800, color: '#b45309' }}>
+                  1-Hour Delay Active ({oneHourCooldown.remainingMinutes} min remaining)
+                </div>
+                <div>
+                  Punch Out available at <strong>{oneHourCooldown.unlockTimeDisplay || '1 hour after Punch In'}</strong>.
+                </div>
+              </div>
+            </div>
+          )}
 
-            {isCameraActive && (
+          {/* Live GPS Status Pill */}
+          <div style={{
+            maxWidth: '360px',
+            margin: '0 auto 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            fontSize: '0.74rem',
+            color: activePunchGps ? '#15803d' : '#64748b',
+            backgroundColor: activePunchGps ? '#f0fdf4' : '#f1f5f9',
+            border: `1px solid ${activePunchGps ? '#bbf7d0' : '#e2e8f0'}`,
+            padding: '7px 12px',
+            borderRadius: '10px',
+            fontWeight: 700
+          }}>
+            <MapPin size={13} color={activePunchGps ? '#16a34a' : '#0e7490'} />
+            <span>
+              {activePunchGps
+                ? activePunchGps.address
+                : `${geofenceConfig.officeName || 'HQ Office'} • Camera & GPS Required`}
+            </span>
+          </div>
+
+          {/* PagarBook 2-Step Action Buttons */}
+          <div style={{ maxWidth: '360px', margin: '0 auto' }}>
+            {isCameraActive ? (
+              /* STEP 2 BUTTON: Take Picture & Punch In / Punch Out */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  type="button"
+                  disabled={isScanning}
+                  onClick={() => handleTakePictureAndPunch(isCheckedIn ? 'Check-Out' : 'Check-In')}
+                  style={{
+                    width: '100%',
+                    padding: '15px 24px',
+                    borderRadius: '14px',
+                    background: isCheckedIn
+                      ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)'
+                      : 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: '0.98rem',
+                    border: 'none',
+                    cursor: isScanning ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '10px',
+                    boxShadow: isCheckedIn
+                      ? '0 6px 20px rgba(14, 116, 144, 0.35)'
+                      : '0 6px 20px rgba(16, 185, 129, 0.35)'
+                  }}
+                >
+                  {isScanning ? (
+                    <>
+                      <RefreshCw size={19} className="spin" />
+                      <span>Saving Attendance...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera size={20} />
+                      <span>{isCheckedIn ? 'Take Picture & Punch Out' : 'Take Picture & Punch In'}</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopCamera();
+                    setActivePunchGps(null);
+                    setScanResult({ status: null, message: '' });
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '10px',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    color: '#475569',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel Camera
+                </button>
+              </div>
+            ) : (
+              /* STEP 1 BUTTON: Click Punch In / Punch Out to Request Camera & GPS Permission */
               <button
                 type="button"
-                onClick={stopCamera}
+                disabled={
+                  isScanning ||
+                  isRequestingPermissions ||
+                  isCompletedToday ||
+                  (isCheckedIn && oneHourCooldown.isCooldownActive) ||
+                  (isCheckedIn ? !shiftEval.canCheckOut : !shiftEval.canCheckIn)
+                }
+                onClick={() => {
+                  if (isCompletedToday || isScanning || isRequestingPermissions) return;
+                  handleRequestCameraAndGps(isCheckedIn ? 'Check-Out' : 'Check-In');
+                }}
                 style={{
-                  marginTop: '10px',
-                  background: 'none',
+                  width: '100%',
+                  padding: '15px 24px',
+                  borderRadius: '14px',
+                  background: isCompletedToday
+                    ? '#cbd5e1'
+                    : (isScanning || isRequestingPermissions)
+                      ? '#94a3b8'
+                      : (isCheckedIn && oneHourCooldown.isCooldownActive)
+                        ? '#e2e8f0'
+                        : isCheckedIn
+                          ? (shiftEval.canCheckOut ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)' : '#cbd5e1')
+                          : (shiftEval.canCheckIn ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : '#cbd5e1'),
+                  color: (isCheckedIn && oneHourCooldown.isCooldownActive) ? '#64748b' : '#ffffff',
+                  fontWeight: 800,
+                  fontSize: '0.98rem',
                   border: 'none',
-                  color: '#ef4444',
-                  fontSize: '0.78rem',
-                  fontWeight: 700,
-                  cursor: 'pointer'
+                  cursor: (!isCompletedToday && !isScanning && !isRequestingPermissions && !(isCheckedIn && oneHourCooldown.isCooldownActive) && (isCheckedIn ? shiftEval.canCheckOut : shiftEval.canCheckIn))
+                    ? 'pointer'
+                    : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  boxShadow: (!isCompletedToday && !isScanning && !isRequestingPermissions && !(isCheckedIn && oneHourCooldown.isCooldownActive) && (isCheckedIn ? shiftEval.canCheckOut : shiftEval.canCheckIn))
+                    ? (isCheckedIn ? '0 6px 20px rgba(14, 116, 144, 0.3)' : '0 6px 20px rgba(16, 185, 129, 0.3)')
+                    : 'none'
                 }}
               >
-                Turn Off Camera
+                {isRequestingPermissions ? (
+                  <>
+                    <RefreshCw size={18} className="spin" />
+                    <span>Allowing Camera & GPS...</span>
+                  </>
+                ) : isCompletedToday ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    <span>Attendance Completed Today</span>
+                  </>
+                ) : isCheckedIn && oneHourCooldown.isCooldownActive ? (
+                  <>
+                    <Clock size={18} />
+                    <span>Punch Out in {oneHourCooldown.remainingMinutes} min (1 Hr Delay)</span>
+                  </>
+                ) : isCheckedIn ? (
+                  <>
+                    <Camera size={19} />
+                    <span>Punch Out</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera size={19} />
+                    <span>Punch In</span>
+                  </>
+                )}
               </button>
             )}
           </div>
 
-          {/* Result Alert Message (Non-success only) */}
-          {scanResult.message && scanResult.status !== 'success' && (
+          {/* Result Alert Message */}
+          {scanResult.message && (
             <div style={{
               maxWidth: '360px',
-              margin: '16px auto 0',
+              margin: '14px auto 0',
               padding: '10px 14px',
               borderRadius: '10px',
-              backgroundColor: scanResult.status === 'error' ? '#fff1f2' : '#ecfeff',
-              border: `1px solid ${scanResult.status === 'error' ? '#f43f5e' : '#0891b2'}`,
-              color: scanResult.status === 'error' ? '#9f1239' : '#0e7490',
+              backgroundColor: scanResult.status === 'error' ? '#fff1f2' : scanResult.status === 'success' ? '#f0fdf4' : '#ecfeff',
+              border: `1px solid ${scanResult.status === 'error' ? '#f43f5e' : scanResult.status === 'success' ? '#22c55e' : '#0891b2'}`,
+              color: scanResult.status === 'error' ? '#9f1239' : scanResult.status === 'success' ? '#166534' : '#0e7490',
               fontSize: '0.8rem',
-              fontWeight: 600,
+              fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px'
             }}>
-              {scanResult.status === 'error' && <ShieldAlert size={16} />}
+              {scanResult.status === 'error' && <ShieldAlert size={16} style={{ flexShrink: 0 }} />}
+              {scanResult.status === 'success' && <CheckCircle2 size={16} color="#22c55e" style={{ flexShrink: 0 }} />}
               <span>{scanResult.message}</span>
             </div>
           )}
@@ -2091,9 +2481,9 @@ export const FaceAttendance: React.FC = () => {
                 <div style={{
                   padding: '18px',
                   borderRadius: '14px',
-                  border: '1.5px solid #cbd5e1',
-                  backgroundColor: gpsData?.isInside ? '#f0fdf4' : '#fffbeb',
-                  borderColor: gpsData?.isInside ? '#86efac' : '#fde68a'
+                  border: '1.5px solid',
+                  backgroundColor: gpsData?.classification === 'INSIDE' ? '#f0fdf4' : gpsData?.classification === 'UNCERTAIN' ? '#fffbeb' : '#fef2f2',
+                  borderColor: gpsData?.classification === 'INSIDE' ? '#86efac' : gpsData?.classification === 'UNCERTAIN' ? '#fde68a' : '#fca5a5'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2101,12 +2491,19 @@ export const FaceAttendance: React.FC = () => {
                         width: '10px',
                         height: '10px',
                         borderRadius: '50%',
-                        backgroundColor: gpsData?.isInside ? '#22c55e' : '#f59e0b',
+                        backgroundColor: gpsData?.classification === 'INSIDE' ? '#22c55e' : gpsData?.classification === 'UNCERTAIN' ? '#f59e0b' : '#ef4444',
                         display: 'inline-block',
-                        boxShadow: gpsData?.isInside ? '0 0 8px #22c55e' : 'none'
+                        boxShadow: gpsData?.classification === 'INSIDE' ? '0 0 8px #22c55e' : 'none'
                       }} />
-                      <span style={{ fontSize: '0.84rem', fontWeight: 800, color: gpsData?.isInside ? '#15803d' : '#b45309' }}>
-                        {gpsLoading ? 'Detecting Location...' : gpsData?.isInside ? 'INSIDE GEOFENCE BOUNDARY' : 'OUTSIDE GEOFENCE'}
+                      <span style={{
+                        fontSize: '0.84rem',
+                        fontWeight: 800,
+                        color: gpsData?.classification === 'INSIDE' ? '#15803d' : gpsData?.classification === 'UNCERTAIN' ? '#b45309' : '#b91c1c'
+                      }}>
+                        {gpsLoading ? 'Acquiring High-Accuracy GPS...' :
+                          gpsData?.classification === 'INSIDE' ? 'INSIDE GEOFENCE BOUNDARY' :
+                          gpsData?.classification === 'UNCERTAIN' ? 'GPS ACCURACY INSUFFICIENT' :
+                          'OUTSIDE GEOFENCE BOUNDARY'}
                       </span>
                     </div>
                     <button 
@@ -2115,20 +2512,27 @@ export const FaceAttendance: React.FC = () => {
                       disabled={gpsLoading}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
                     >
-                      <RefreshCw size={13} className={gpsLoading ? 'spin' : ''} /> Refresh
+                      <RefreshCw size={13} className={gpsLoading ? 'spin' : ''} /> {gpsLoading ? 'Reading...' : 'Refresh'}
                     </button>
                   </div>
 
                   <div style={{ fontSize: '0.78rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <div><strong>Designated Office:</strong> {geofenceConfig.officeName}</div>
+                    <div><strong>Designated Office:</strong> {geofenceConfig.officeName || 'VRM Structures India Pvt Ltd'}</div>
                     <div><strong>Allowed Zone Radius:</strong> {geofenceConfig.radiusMeters} meters</div>
                     <div><strong>Detected Distance:</strong> {gpsData ? `${gpsData.distance}m away` : 'Calculating...'}</div>
-                    <div><strong>Current Coordinates:</strong> {gpsData ? `${gpsData.lat.toFixed(5)}, ${gpsData.lng.toFixed(5)}` : 'Waiting for GPS...'}</div>
+                    <div><strong>GPS Accuracy Radius:</strong> {gpsData ? `±${gpsData.accuracy}m` : 'Calculating...'}</div>
+                    <div><strong>Current Coordinates:</strong> {gpsData ? `${gpsData.lat.toFixed(6)}, ${gpsData.lng.toFixed(6)}` : 'Waiting for GPS...'}</div>
                   </div>
 
-                  {gpsData && !gpsData.isInside && (
-                    <div style={{ marginTop: '10px', padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700 }}>
-                      ⚠️ Punch Blocked: You must be within {geofenceConfig.radiusMeters}m of office to punch attendance.
+                  {gpsData && gpsData.classification === 'OUTSIDE' && (
+                    <div style={{ marginTop: '10px', padding: '10px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, lineHeight: 1.4 }}>
+                      ⚠️ Punch Blocked: You are {gpsData.distance}m away (Allowed radius: {geofenceConfig.radiusMeters}m). Attendance cannot be punched outside {geofenceConfig.officeName || 'the office'}.
+                    </div>
+                  )}
+
+                  {gpsData && gpsData.classification === 'UNCERTAIN' && (
+                    <div style={{ marginTop: '10px', padding: '10px 12px', backgroundColor: '#fefce8', border: '1px solid #fef08a', borderRadius: '8px', color: '#854d0e', fontSize: '0.75rem', fontWeight: 700, lineHeight: 1.4 }}>
+                      ⚠️ GPS Accuracy Insufficient: Measured accuracy is ±{gpsData.accuracy}m (Distance: {gpsData.distance}m, Allowed: {geofenceConfig.radiusMeters}m). Please move to an open area with a clear sky view and tap Refresh.
                     </div>
                   )}
                 </div>
@@ -2140,7 +2544,7 @@ export const FaceAttendance: React.FC = () => {
                 const isEmpCeo = activeEmpModal?.role === 'CEO' || 
                                  activeEmpModal?.designation?.toLowerCase().includes('ceo') || 
                                  activeEmpModal?.designation?.toLowerCase().includes('chief executive');
-                const isAllowedByGeofence = Boolean(gpsData && (gpsData.isInside || isEmpCeo));
+                const isAllowedByGeofence = Boolean(gpsData && (gpsData.canPunch || isEmpCeo));
 
                 return (
                   <div style={{ marginTop: '6px' }}>

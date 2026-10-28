@@ -120,7 +120,7 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
   };
 
   return (
-    <div className="filter-modal-overlay" onClick={onClose} style={{ zIndex: 9999 }}>
+    <div className="filter-modal-overlay" onClick={onClose} style={{ zIndex: 20000 }}>
       <div className="filter-reports-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px' }}>
         
         {/* Modal Header */}

@@ -27,17 +27,26 @@ export const GeofenceControlCard: React.FC<GeofenceControlCardProps> = ({ onLoca
   const { geofenceConfig, updateGeofenceConfig, isGeofenceAdmin, currentUser } = useHRMS();
 
   // Local state for editing form
-  const [radiusMeters, setRadiusMeters] = useState<number>(geofenceConfig.radiusMeters || 200);
+  const [radiusMeters, setRadiusMeters] = useState<number>(Number(geofenceConfig.radiusMeters) || 200);
   const [officeName, setOfficeName] = useState<string>(() => {
-    return (geofenceConfig.officeName && geofenceConfig.officeName !== 'Businz HQ') ? geofenceConfig.officeName : '';
+    return geofenceConfig.officeName || 'VRM Structures India Pvt Ltd';
   });
   const [centerLat, setCenterLat] = useState<number>(() => {
-    return (geofenceConfig.centerLat && geofenceConfig.centerLat !== 13.151968) ? geofenceConfig.centerLat : 0;
+    return Number(geofenceConfig.centerLat) || 13.151968;
   });
   const [centerLng, setCenterLng] = useState<number>(() => {
-    return (geofenceConfig.centerLng && geofenceConfig.centerLng !== 80.2086053) ? geofenceConfig.centerLng : 0;
+    return Number(geofenceConfig.centerLng) || 80.2086053;
   });
-  const [enabled, setEnabled] = useState<boolean>(geofenceConfig.enabled);
+  const [enabled, setEnabled] = useState<boolean>(geofenceConfig.enabled ?? true);
+
+  // Sync state when geofenceConfig updates
+  React.useEffect(() => {
+    if (geofenceConfig.centerLat) setCenterLat(Number(geofenceConfig.centerLat));
+    if (geofenceConfig.centerLng) setCenterLng(Number(geofenceConfig.centerLng));
+    if (geofenceConfig.radiusMeters) setRadiusMeters(Number(geofenceConfig.radiusMeters));
+    if (geofenceConfig.officeName) setOfficeName(geofenceConfig.officeName);
+    if (geofenceConfig.enabled !== undefined) setEnabled(geofenceConfig.enabled);
+  }, [geofenceConfig]);
   const [isGettingGPS, setIsGettingGPS] = useState<boolean>(false);
   const [saveToast, setSaveToast] = useState<boolean>(false);
 

@@ -74,10 +74,6 @@ export const PayrollManagement: React.FC = () => {
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
-  const isEmployeeRole = currentUser.role === 'Employee' && !isAccountsUser && !isApprovalAuthority;
-  const isPrivilegedViewer = isAccountsUser || isApprovalAuthority;
-  const canProcessPayroll = isApprovalAuthority;
-
   // CEO / Managing Director (CEO login uses 'Super Admin')
   const isCEOUser =
     currentUser.role === 'CEO' ||
@@ -85,10 +81,14 @@ export const PayrollManagement: React.FC = () => {
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
 
-  // Full payroll register: Accounts (they hand over salaries) + CEO. Everyone else (incl. HR) sees only own payslip.
-  const canViewAllPayroll = isAccountsUser || isCEOUser;
-  // Only Accounts marks salaries as paid (amount handed over)
-  const canMarkPaid = isAccountsUser;
+  const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isCEOUser;
+  const isPrivilegedViewer = isApprovalAuthority && !isAccountsUser;
+  const canProcessPayroll = isApprovalAuthority && !isAccountsUser;
+
+  // Full payroll register: Restricted strictly to CEO/Super Admin. Accounts employees see only their own payslip.
+  const canViewAllPayroll = isCEOUser;
+  // Marking full payroll paid is restricted to CEO
+  const canMarkPaid = isCEOUser;
 
   const myEmployeeId = (currentUser.employeeId || '').trim().toLowerCase();
   const currentMonthInfo = useMemo(() => getMonthInfo(), []);
@@ -175,7 +175,8 @@ export const PayrollManagement: React.FC = () => {
   const totalEntries = visibleRecords.length;
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedRecords = visibleRecords.slice(startIndex, startIndex + pageSize);
-  const displayedRecords = isEmployeeRole ? visibleRecords : paginatedRecords;
+  const isMobileScreen = typeof window !== 'undefined' && window.innerWidth <= 1024;
+  const displayedRecords = (isEmployeeRole || isMobileScreen) ? visibleRecords : paginatedRecords;
 
   const totalPayout = visibleRecords.reduce((acc, curr) => acc + toNum(curr.netSalary), 0);
   const totalStaffIncluded = new Set(
@@ -700,7 +701,7 @@ export const PayrollManagement: React.FC = () => {
           )}
         </div>
 
-        <div className="table-responsive">
+        <div className="table-responsive payroll-desktop-table">
           <table className="hrms-table">
             <thead>
               <tr>
@@ -898,6 +899,93 @@ export const PayrollManagement: React.FC = () => {
           </table>
         </div>
 
+        {/* Mobile Payslip Cards */}
+        <div className="payroll-mobile-cards" style={{ padding: '12px' }}>
+          {displayedRecords.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+              <FileText size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+              <div style={{ fontWeight: 750, fontSize: '0.92rem', color: '#1E293B' }}>No Payslips Available</div>
+              <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '4px 0 0' }}>No salary records found for the selected period.</p>
+            </div>
+          ) : (
+            displayedRecords.map(p => {
+              const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
+              const basic = toNum(p.basicSalary);
+              const advance = toNum(p.advanceDeduction || 0);
+              const statutoryTax = toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0);
+
+              return (
+                <div key={p.id} className="mobile-payroll-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0F172A' }}>{p.employeeName}</div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                        {p.employeeId} • {resolveDepartmentName(p.department, emp)}
+                      </div>
+                    </div>
+                    <span className={`status-pill ${p.status === 'Paid' ? 'approved' : 'cyan'}`}>
+                      {p.status}
+                    </span>
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: '#ECFEFF',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1px solid #A5F3FC'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: '#0E7490' }}>Net Salary Payout</div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{p.presentDays} / {p.workingDays} working days</div>
+                    </div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0E7490' }}>
+                      {formatCurrency(p.netSalary)}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: '#F8FAFC', padding: '10px 12px', borderRadius: '10px' }}>
+                    <div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' }}>Basic Salary</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1E293B' }}>{formatCurrency(basic)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' }}>Deductions</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#E11D48' }}>
+                        -{formatCurrency(advance + statutoryTax)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setSelectedPayslip(p)}
+                      style={{ flex: 1, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    >
+                      <FileText size={14} />
+                      <span>View Payslip</span>
+                    </button>
+                    {canMarkPaid && p.status !== 'Paid' && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => handleMarkPaid([p.id])}
+                        style={{ borderRadius: '10px', backgroundColor: '#0E7490', borderColor: '#0E7490', fontWeight: 700 }}
+                      >
+                        <IndianRupee size={14} /> Pay
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
         {/* Standardized Table Pagination */}
         {!isEmployeeRole && (
           <StandardTablePagination
@@ -935,7 +1023,7 @@ export const PayrollManagement: React.FC = () => {
 
       {/* Modal: Edit Advance / Loan Recovery ("Others") */}
       {editingAdvance && (
-        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+        <div className="modal-overlay" style={{ zIndex: 20000 }}>
           <div className="modal-content" style={{ maxWidth: '420px', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
             <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

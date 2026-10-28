@@ -16,6 +16,26 @@ const resolveDatabaseRestBaseUrl = (): string => {
 };
 
 const DATABASE_REST_URL = resolveDatabaseRestBaseUrl();
+const nativeFetch = globalThis.fetch.bind(globalThis);
+let restOfflineUntil = 0;
+
+const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  if (Date.now() < restOfflineUntil) {
+    return new Response('[]', { status: 503, headers: { 'Content-Type': 'application/json' } });
+  }
+  try {
+    const res = await nativeFetch(input, init);
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('text/html')) {
+      restOfflineUntil = Date.now() + 60000;
+      return new Response('[]', { status: 503, headers: { 'Content-Type': 'application/json' } });
+    }
+    return res;
+  } catch {
+    restOfflineUntil = Date.now() + 30000;
+    return new Response('[]', { status: 503, headers: { 'Content-Type': 'application/json' } });
+  }
+};
 const DATABASE_REST_KEY = (import.meta as any).env?.VITE_DB_REST_KEY
   || (import.meta as any).env?.VITE_DATABASE_REST_KEY
   || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY
@@ -128,6 +148,9 @@ const resolveEmployeeUuid = async (employeeIdOrCode?: string): Promise<string | 
 };
 
 export const supabaseDirect = {
+  isRestAvailable(): boolean {
+    return Date.now() >= restOfflineUntil;
+  },
   /**
    * Fetches all active employees directly from the VPS database REST API
    */
@@ -1238,6 +1261,85 @@ export const supabaseDirect = {
     } catch (err) {
       console.warn('[DatabaseRest] updateAttendanceRecord error:', err);
       return false;
+    }
+  },
+
+  async upsertAttendanceRecord(record: {
+    employee_id: string;
+    date: string;
+    check_in?: string | null;
+    check_out?: string | null;
+    working_hours?: number;
+    status?: string;
+    late_status?: string;
+    method?: string;
+    shift_date?: string;
+    check_in_photo?: string | null;
+    check_out_photo?: string | null;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const employeeUuid = await resolveEmployeeUuid(record.employee_id);
+      if (!employeeUuid) {
+        return { success: false, error: `Employee '${record.employee_id}' was not found in employees table.` };
+      }
+
+      let status = 'Present';
+      const rawStatus = (record.status || '').toLowerCase();
+      if (rawStatus.includes('absent')) status = 'Absent';
+      else if (rawStatus.includes('late')) status = 'Late';
+      else if (rawStatus.includes('half')) status = 'Half Day';
+      else if (rawStatus.includes('home') || rawStatus.includes('wfh')) status = 'Work From Home';
+      else if (rawStatus.includes('leave') || rawStatus.includes('off') || rawStatus.includes('holiday')) status = 'On Leave';
+
+      const payload: Record<string, any> = {
+        employee_id: employeeUuid,
+        date: record.date,
+        status,
+        late_status: record.late_status || 'On Time',
+        method: record.method || 'Manual Punch',
+        shift_date: record.shift_date || record.date,
+        updated_at: new Date().toISOString()
+      };
+
+      if (record.check_in !== undefined) payload.check_in = record.check_in;
+      if (record.check_out !== undefined) payload.check_out = record.check_out;
+      if (record.working_hours !== undefined) payload.working_hours = record.working_hours;
+      if (record.check_in_photo !== undefined) payload.check_in_photo = record.check_in_photo;
+      if (record.check_out_photo !== undefined) payload.check_out_photo = record.check_out_photo;
+
+      // 1. Try to PATCH existing record by employee_id + date
+      const patchRes = await fetch(
+        `${DATABASE_REST_URL}/rest/v1/attendance_records?employee_id=eq.${encodeURIComponent(employeeUuid)}&date=eq.${encodeURIComponent(record.date)}`,
+        {
+          method: 'PATCH',
+          headers: { ...getHeaders(), 'Prefer': 'return=representation' },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (patchRes.ok) {
+        const patchData = await patchRes.json().catch(() => []);
+        if (Array.isArray(patchData) && patchData.length > 0) {
+          return { success: true, data: patchData[0] };
+        }
+      }
+
+      // 2. If no record was patched, INSERT new record
+      const insertRes = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records`, {
+        method: 'POST',
+        headers: { ...getHeaders(), 'Prefer': 'return=representation' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!insertRes.ok) {
+        const err = await insertRes.text();
+        return { success: false, error: err };
+      }
+      const insertData = await insertRes.json().catch(() => null);
+      return { success: true, data: Array.isArray(insertData) ? insertData[0] : insertData };
+    } catch (err: any) {
+      console.warn('[DatabaseRest] upsertAttendanceRecord error:', err);
+      return { success: false, error: err?.message || err };
     }
   },
 

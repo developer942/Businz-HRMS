@@ -53,6 +53,9 @@ export const EmployeeHistoryTab: React.FC = () => {
   }, [fieldAssignments, tripSessions, currentUser]);
 
   const paginatedData = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return myRecords;
+    }
     const start = (currentPage - 1) * pageSize;
     return myRecords.slice(start, start + pageSize);
   }, [myRecords, currentPage, pageSize]);

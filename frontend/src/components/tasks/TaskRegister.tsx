@@ -239,8 +239,11 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
     }
   }, [sortedTasks.length, pageSize, currentPage]);
 
-  // Standard Paginated Tasks
+  // Standard Paginated Tasks (on mobile screens, show all sorted tasks without pagination slicing)
   const paginatedTasks = useMemo(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+      return sortedTasks;
+    }
     const startIndex = (currentPage - 1) * pageSize;
     return sortedTasks.slice(startIndex, startIndex + pageSize);
   }, [sortedTasks, currentPage, pageSize]);
@@ -507,12 +510,14 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02)',
         overflow: 'hidden'
       }}>
-        <div style={{ 
-          overflowX: 'auto', 
-          width: '100%',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none'
-        }}>
+        {/* Desktop Table View (>= 768px) */}
+        <div className="task-desktop-table">
+          <div style={{ 
+            overflowX: 'auto', 
+            width: '100%',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none'
+          }}>
           <table className="hrms-table" style={{ width: '100%', minWidth: '1050px', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
@@ -860,6 +865,121 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile Cards View (< 768px) */}
+      <div className="task-mobile-cards">
+        {paginatedTasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 16px', color: '#64748B' }}>
+            <CheckSquare size={38} style={{ opacity: 0.3, margin: '0 auto 10px', color: '#0E7490' }} />
+            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1E293B' }}>No tasks match current filters</div>
+            <div style={{ fontSize: '0.78rem', marginTop: '4px', color: '#64748B' }}>Try clearing search keywords or preset filters</div>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleResetAllFilters}
+                style={{
+                  marginTop: '12px',
+                  padding: '6px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #0E7490',
+                  background: '#ECFEFF',
+                  color: '#0E7490',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Reset All Filters
+              </button>
+            )}
+          </div>
+        ) : (
+          paginatedTasks.map(task => {
+            const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
+            const isSelected = selectedTaskIds.includes(task.id);
+            const isOverdue = dueStatus === 'Overdue';
+
+            return (
+              <div
+                key={task.id}
+                className={`mobile-task-card ${isSelected ? 'selected' : ''}`}
+                onClick={() => onSelectTask(task.id)}
+              >
+                <div className="mobile-task-card-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleToggleTask(task.id)}
+                      style={{ accentColor: '#0E7490', cursor: 'pointer', width: '18px', height: '18px' }}
+                      aria-label={`Select task ${task.taskNumber}`}
+                    />
+                    <span className="mobile-task-number">{task.taskNumber}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                      {task.priority}
+                    </span>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      backgroundColor: 
+                        task.overallStatus === 'COMPLETED' || task.overallStatus === 'CLOSED' ? '#DCFCE7' :
+                        task.overallStatus === 'OVERDUE' ? '#FEE2E2' :
+                        task.overallStatus === 'IN PROGRESS' ? '#EFF6FF' : '#F1F5F9',
+                      color: 
+                        task.overallStatus === 'COMPLETED' || task.overallStatus === 'CLOSED' ? '#15803D' :
+                        task.overallStatus === 'OVERDUE' ? '#DC2626' :
+                        task.overallStatus === 'IN PROGRESS' ? '#1D4ED8' : '#475569'
+                    }}>
+                      {task.overallStatus === 'CLOSED' ? 'COMPLETED' : task.overallStatus === 'PARTIALLY COMPLETED' ? 'IN PROGRESS' : task.overallStatus}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mobile-task-card-title">
+                  {task.title}
+                </div>
+
+                {task.description && (
+                  <div className="mobile-task-card-desc">
+                    {task.description.length > 90 ? `${task.description.slice(0, 90)}...` : task.description}
+                  </div>
+                )}
+
+                <div className="mobile-task-card-meta">
+                  <div className="mobile-task-meta-item">
+                    <span className="meta-label">Lead:</span>
+                    <span className="meta-val">{task.responsiblePersonName}</span>
+                  </div>
+                  <div className="mobile-task-meta-item">
+                    <span className="meta-label">Due:</span>
+                    <span className="meta-val" style={{ color: isOverdue ? '#DC2626' : '#1E293B', fontWeight: isOverdue ? 700 : 500 }}>
+                      {formatDateDDMMYYYY(task.dueDate)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mobile-task-card-actions" onClick={e => e.stopPropagation()}>
+                  <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                    {task.department} • {task.assignees.length} Assignee{task.assignees.length === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm mobile-task-action-btn"
+                    onClick={() => onSelectTask(task.id)}
+                  >
+                    View Details →
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
 
         {/* Standardized AGENTS.md Pagination Footer */}
         <StandardTablePagination

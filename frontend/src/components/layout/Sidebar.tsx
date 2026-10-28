@@ -26,7 +26,11 @@ import {
   PinOff,
   X,
   Contact2,
-  MessageSquare
+  MessageSquare,
+  Receipt,
+  ChevronRight,
+  Bell,
+  LogOut
 } from 'lucide-react';
 import { pettyCashService } from '../../services/pettyCashService';
 
@@ -38,6 +42,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   onTogglePin?: () => void;
   onHoverChange?: (hovered: boolean) => void;
+  onLogout?: () => void;
 }
 
 interface MenuItem {
@@ -54,7 +59,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile,
   onTogglePin,
-  onHoverChange
+  onHoverChange,
+  onLogout
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,6 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     notifications = [],
     leaveRequests = [],
     loanRecords = [],
+    expenses = [],
     overtimeRequests = [],
     trackingAlerts = []
   } = useHRMS();
@@ -206,17 +213,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
 
     // Finance & Payroll
-    { id: 'finance', label: 'Finance & Expenses', icon: IndianRupee, section: 'FINANCE & PAYROLL' },
-    { id: 'payroll', label: 'Payroll', icon: CreditCard, section: 'FINANCE & PAYROLL' },
+    { 
+      id: 'accounts_payment', 
+      label: 'Payment Disbursement', 
+      icon: Receipt, 
+      section: 'FINANCE & PAYROLL' 
+    },
+    { 
+      id: 'finance', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Expenses' : 'Finance & Expenses', 
+      icon: IndianRupee, 
+      section: 'FINANCE & PAYROLL' 
+    },
+    { 
+      id: 'payroll', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Payslip' : 'Payroll', 
+      icon: CreditCard, 
+      section: 'FINANCE & PAYROLL' 
+    },
     { 
       id: 'advance_salary', 
-      label: (currentUser.role === 'Employee' && !isHRorAdmin && !isAccountsStaff) ? 'My Advance Salary' : 'Advance Salary Management', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Advance Salary' : 'Advance Salary Management', 
       icon: Banknote, 
       section: 'FINANCE & PAYROLL' 
     },
     {
       id: 'petty_cash',
-      label: (currentUser.role === 'Employee' && !isHRorAdmin && !isAccountsStaff) ? 'My Petty Cash' : 'Petty Cash',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Petty Cash Desk' : 'Petty Cash',
       icon: Wallet,
       section: 'FINANCE & PAYROLL'
     },
@@ -242,6 +265,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pendingLoansCount = (currentUser.role === 'Super Admin' || currentUser.role === 'HR Admin')
     ? loanRecords.filter(l => l.status === 'Pending').length
     : 0;
+  const pendingDisbursementsCount = (isAccountsStaff || currentUser.role === 'CEO' || currentUser.role === 'Super Admin')
+    ? (
+        (expenses || []).filter(e => e.status === 'Approved').length +
+        (loanRecords || []).filter(l => l.status === 'Approved').length
+      )
+    : 0;
   const isManagerOrAdmin = 
     currentUser.role === 'Super Admin' || 
     currentUser.role === 'HR Admin' || 
@@ -258,6 +287,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (id === 'notifications' && unreadNotificationsCount > 0) return unreadNotificationsCount;
     if (id === 'leaves' && pendingLeavesCount > 0) return pendingLeavesCount;
     if (id === 'advance_salary' && pendingLoansCount > 0) return pendingLoansCount;
+    if (id === 'accounts_payment' && pendingDisbursementsCount > 0) return pendingDisbursementsCount;
     if (id === 'overtime' && pendingOtCount > 0) return pendingOtCount;
     if (id === 'tracking') {
       const openAlerts = trackingAlerts.filter(a => a.status === 'Open').length;
@@ -283,8 +313,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return item.label.toLowerCase().includes(query) || item.section.toLowerCase().includes(query);
     }
 
-    // Hide Employee directory and Attendance Management modules for standard Employee role
-    if (currentUser.role === 'Employee' && (item.id === 'employees' || item.id === 'attendance')) {
+    // Hide Employee directory and Attendance Management modules for standard Employee role AND Accounts role
+    if ((currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin && (item.id === 'employees' || item.id === 'attendance')) {
+      return false;
+    }
+
+    // Accounts role: Normal employee features + payment disbursement desk.
+    // STRICTLY NO access to Employee Directory, Attendance Management, Executive Reports, HRMS Settings, Customer Data, or WhatsApp CRM
+    if (isAccountsStaff && !isCEO) {
+      if (['employees', 'attendance', 'reports', 'settings', 'customer_data', 'whatsapp_crm'].includes(item.id)) {
+        return false;
+      }
+    }
+
+    // Restrict Accounts Payment Disbursement strictly to Accounts staff and CEO
+    if (item.id === 'accounts_payment' && !(isCEO || isAccountsStaff)) {
       return false;
     }
 
@@ -313,6 +356,155 @@ export const Sidebar: React.FC<SidebarProps> = ({
   let renderedSections = new Set<string>();
 
   const brandInitial = (businessSettings?.businessName || 'Businz').charAt(0).toUpperCase() + '.';
+
+  if (isMobileOpen) {
+    return (
+      <aside className="hrms-sidebar mobile-open">
+        <div className="sidebar-mobile-content">
+          {/* Header */}
+          <div className="sidebar-mobile-header">
+            <div 
+              className="sidebar-mobile-brand"
+              onClick={() => {
+                setActiveModule('dashboard');
+                onCloseMobile?.();
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              <img 
+                src={businessSettings?.logoUrl || "/logo.png"} 
+                alt="Logo" 
+                className="sidebar-mobile-logo" 
+              />
+              <span className="sidebar-mobile-brand-title">
+                {businessSettings?.businessName || 'BUSINZ'} <span style={{ color: '#0E7490' }}>HRMS</span>
+              </span>
+            </div>
+            <button 
+              type="button" 
+              className="sidebar-mobile-close-btn"
+              onClick={onCloseMobile}
+              aria-label="Close Menu"
+            >
+              <X size={20} strokeWidth={2.4} />
+            </button>
+          </div>
+
+          {/* User Profile Snippet Card (Matches Reference Mockup) */}
+          <div 
+            className="sidebar-mobile-user-card"
+            onClick={() => {
+              setActiveModule('profile');
+              onCloseMobile?.();
+            }}
+          >
+            <div className="sidebar-mobile-user-avatar">
+              {currentUser.avatar ? (
+                <img src={currentUser.avatar} alt={currentUser.name} />
+              ) : (
+                <span>{(currentUser.name || 'U').charAt(0).toUpperCase()}</span>
+              )}
+            </div>
+            <div className="sidebar-mobile-user-info">
+              <div className="sidebar-mobile-user-name">{currentUser.name}</div>
+              <div className="sidebar-mobile-user-role">
+                {currentUser.designation || (currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role)}
+              </div>
+            </div>
+            <ChevronRight size={18} color="#94A3B8" />
+          </div>
+
+          {/* Search Box */}
+          <div className="sidebar-mobile-search-box">
+            <Search size={16} color="#64748B" />
+            <input 
+              type="text"
+              placeholder="Search menu..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              className="sidebar-mobile-search-input"
+            />
+            {searchFilter && (
+              <button 
+                type="button" 
+                onClick={() => setSearchFilter('')} 
+                className="sidebar-mobile-search-clear"
+                aria-label="Clear Search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Navigation Items */}
+          <nav className="sidebar-mobile-nav">
+            {filteredItems.map((item) => {
+              const IconComponent = item.icon;
+              const isActive = activeModule === item.id;
+              const badgeCount = getItemBadge(item.id);
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`sidebar-mobile-nav-item ${isActive ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveModule(item.id);
+                    onCloseMobile?.();
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+                    <IconComponent size={19} strokeWidth={isActive ? 2.5 : 2} />
+                    <span className="sidebar-mobile-nav-label">{item.label}</span>
+                  </div>
+                  {badgeCount !== null && (
+                    <span className={`sidebar-mobile-badge ${isActive ? 'badge-on-active' : ''}`}>
+                      {badgeCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* OTHER Section */}
+          <div className="sidebar-mobile-other-section">
+            <div className="sidebar-mobile-section-heading">OTHER</div>
+            <button
+              type="button"
+              className="sidebar-mobile-other-item"
+              onClick={() => {
+                setActiveModule('notifications' as any);
+                onCloseMobile?.();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <Bell size={18} strokeWidth={2.2} color="#475569" />
+                <span>Notifications</span>
+              </div>
+              {unreadNotificationsCount > 0 && (
+                <span className="sidebar-mobile-badge-red">{unreadNotificationsCount}</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="sidebar-mobile-other-item logout"
+              onClick={() => {
+                onCloseMobile?.();
+                if (onLogout) onLogout();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <LogOut size={18} strokeWidth={2.2} />
+                <span>Logout</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside 

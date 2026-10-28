@@ -12,7 +12,6 @@ import {
   Edit3, 
   CreditCard, 
   Send, 
-  History, 
   ShieldCheck, 
   ShieldAlert, 
   HelpCircle, 
@@ -34,13 +33,11 @@ import {
 
 interface CustomerRecordsViewProps {
   onOpenSendWhatsApp?: (customer: CustomerContact) => void;
-  onOpenMessageHistory?: (customer?: CustomerContact) => void;
   onNavigateToAddCustomer?: () => void;
 }
 
 export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
   onOpenSendWhatsApp,
-  onOpenMessageHistory,
   onNavigateToAddCustomer
 }) => {
   const { currentUser, hasPermission } = useHRMS();
@@ -578,21 +575,6 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                             }}
                           >
                             <Send size={13} /> Send
-                          </button>
-
-                          <button
-                            onClick={() => onOpenMessageHistory?.(c)}
-                            title="Message History"
-                            style={{
-                              border: 'none',
-                              backgroundColor: '#F1F5F9',
-                              color: '#475569',
-                              padding: '6px',
-                              borderRadius: '8px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <History size={15} />
                           </button>
                         </div>
                       </td>

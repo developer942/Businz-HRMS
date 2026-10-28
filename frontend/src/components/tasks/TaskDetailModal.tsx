@@ -401,8 +401,8 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
   };
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 60, backdropFilter: 'blur(4px)', backgroundColor: 'rgba(15, 23, 42, 0.6)' }}>
-      <div className="modal-content" style={{ maxWidth: '860px', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 45px rgba(14, 116, 144, 0.15)', border: '1px solid #E7ECF3' }}>
+    <div className="modal-overlay" style={{ zIndex: 20000, backdropFilter: 'blur(4px)', backgroundColor: 'rgba(15, 23, 42, 0.6)' }}>
+      <div className="modal-content" style={{ maxWidth: '860px', maxHeight: 'calc(100dvh - 24px)', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 45px rgba(14, 116, 144, 0.15)', border: '1px solid #E7ECF3' }}>
         
         {/* ======================================================== */}
         {/* HEADER: Software Theme Color (#0E7490 Deep Teal)         */}
@@ -1533,7 +1533,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
         {/* CLOSE & REOPEN MODALS                                    */}
         {/* ======================================================== */}
         {showClosePrompt && (
-          <div className="modal-overlay" style={{ zIndex: 70 }}>
+          <div className="modal-overlay" style={{ zIndex: 20010 }}>
             <div className="modal-content" style={{ maxWidth: '420px', borderRadius: '12px' }}>
               <div className="modal-header" style={{ padding: '14px 18px', background: '#0E7490', color: '#fff' }}>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: '#fff' }}>Sign-Off &amp; Close Task</h3>
@@ -1562,7 +1562,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
         )}
 
         {showReopenPrompt && (
-          <div className="modal-overlay" style={{ zIndex: 70 }}>
+          <div className="modal-overlay" style={{ zIndex: 20010 }}>
             <div className="modal-content" style={{ maxWidth: '420px', borderRadius: '12px' }}>
               <div className="modal-header" style={{ padding: '14px 18px', background: '#F59E0B', color: '#fff' }}>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: '#fff' }}>Reopen Task</h3>

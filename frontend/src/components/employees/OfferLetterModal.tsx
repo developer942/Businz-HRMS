@@ -628,14 +628,14 @@ ${documentProfile.phone || ''}`;
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 110 }}>
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 20000 }}>
       <div 
         className="modal-content" 
         onClick={(e) => e.stopPropagation()} 
         style={{ 
           maxWidth: '920px', 
           width: '95%',
-          maxHeight: '92vh',
+          maxHeight: 'calc(100dvh - 24px)',
           backgroundColor: '#ffffff', 
           borderRadius: '16px', 
           overflow: 'hidden',
@@ -668,15 +668,15 @@ ${documentProfile.phone || ''}`;
         <div style={{ backgroundColor: '#f8fafc', padding: '14px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
           
           {/* Employee Selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '280px' }}>
-            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 'min(280px, 100%)', flex: '1 1 auto' }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
               <User size={15} color="#0891b2" /> Candidate:
             </span>
             <select
               className="form-control"
               value={selectedEmpId}
               onChange={(e) => setSelectedEmpId(e.target.value)}
-              style={{ fontSize: '0.84rem', padding: '6px 12px', borderRadius: '8px', minWidth: '240px', borderColor: '#cbd5e1' }}
+              style={{ fontSize: '0.84rem', padding: '6px 12px', borderRadius: '8px', minWidth: 'min(240px, 100%)', flex: 1, borderColor: '#cbd5e1' }}
             >
               {employees.map(emp => (
                 <option key={emp.id} value={emp.id}>

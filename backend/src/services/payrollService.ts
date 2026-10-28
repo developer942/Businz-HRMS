@@ -73,7 +73,10 @@ export class PayrollService {
       throw new Error(`Employee with ID ${input.employee_id} not found`);
     }
 
-    const structure = await employeeRepository.getSalaryStructure(input.employee_id);
+    const structure = await employeeRepository.getSalaryStructure(
+      input.employee_id,
+      `${input.payroll_year}-${String(input.payroll_month).padStart(2, '0')}-01`
+    );
     if (!structure) {
       throw new Error(`No active salary structure found for employee ${input.employee_id}`);
     }
@@ -178,7 +181,10 @@ export class PayrollService {
     const processedRecords: FullPayrollCalculationResult[] = [];
 
     for (const emp of employees) {
-      const structure = await employeeRepository.getSalaryStructure(emp.employeeId);
+      const structure = await employeeRepository.getSalaryStructure(
+        emp.employeeId,
+        `${run.payrollYear}-${String(run.payrollMonth).padStart(2, '0')}-01`
+      );
       if (!structure) continue;
 
       // Check approved overtime

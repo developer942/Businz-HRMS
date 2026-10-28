@@ -24,7 +24,8 @@ import {
   MapPin,
   X,
   RotateCcw,
-  Filter
+  Filter,
+  ChevronRight
 } from 'lucide-react';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 
@@ -51,6 +52,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
   const [selectedDesignation, setSelectedDesignation] = useState<string>('All');
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState<boolean>(false);
+
+  const activeFilterCount = (selectedDepartment !== 'All' ? 1 : 0) +
+    (selectedDesignation !== 'All' ? 1 : 0) +
+    (selectedLocation !== 'All' ? 1 : 0) +
+    (selectedStatus !== 'All' ? 1 : 0);
 
   // Multi-row selection state
   const [selectedEmpIds, setSelectedEmpIds] = useState<string[]>([]);
@@ -262,8 +269,194 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
         </div>
       </div>
 
-      {/* KPI Overview Cards */}
-      <div className="kpi-grid compact">
+      {/* Mobile Employee Summary & Compact Search + Filter Bar */}
+      <div className="employee-mobile-summary-bar">
+        <span>{filteredEmployees.length} of {roleScopedEmployees.length} Employees</span>
+        <span style={{ color: '#0E7490', fontWeight: 700 }}>
+          {roleScopedEmployees.filter(e => e.status === 'Active').length} Active
+        </span>
+      </div>
+
+      <div className="employee-mobile-search-row">
+        <div className="employee-mobile-search-wrap">
+          <Search 
+            size={15} 
+            style={{ 
+              position: 'absolute', 
+              left: '10px', 
+              top: '50%', 
+              transform: 'translateY(-50%)', 
+              color: '#64748B',
+              pointerEvents: 'none' 
+            }} 
+          />
+          <input 
+            type="text"
+            placeholder="Search name, ID, email..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: '#94A3B8',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <button 
+          type="button"
+          className={`employee-mobile-filter-btn ${activeFilterCount > 0 ? 'active' : ''}`}
+          onClick={() => setIsMobileFiltersOpen(prev => !prev)}
+          title="Toggle Filters"
+        >
+          <Filter size={14} />
+          Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}
+        </button>
+      </div>
+
+      {/* Collapsible Mobile Filters Drawer */}
+      {isMobileFiltersOpen && (
+        <div className="employee-mobile-filters-drawer">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: '8px' }}>
+            <span style={{ fontWeight: 800, fontSize: '0.86rem', color: '#0E7490' }}>
+              Filter Directory
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsMobileFiltersOpen(false)}
+              style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 0 }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '3px' }}>
+                Department
+              </label>
+              <select 
+                style={{ width: '100%', height: '34px', fontSize: '0.78rem', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 6px' }}
+                value={isManagerRole ? currentUser.department : selectedDepartment} 
+                onChange={e => setSelectedDepartment(e.target.value)}
+                disabled={isManagerRole || isEmployeeRole}
+              >
+                <option value="All">All Depts</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '3px' }}>
+                Designation
+              </label>
+              <select 
+                style={{ width: '100%', height: '34px', fontSize: '0.78rem', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 6px' }}
+                value={selectedDesignation} 
+                onChange={e => setSelectedDesignation(e.target.value)}
+              >
+                <option value="All">All Designations</option>
+                {designations.map(des => (
+                  <option key={des.id} value={des.title}>{des.title}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '3px' }}>
+                Location
+              </label>
+              <select 
+                style={{ width: '100%', height: '34px', fontSize: '0.78rem', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 6px' }}
+                value={selectedLocation} 
+                onChange={e => setSelectedLocation(e.target.value)}
+              >
+                <option value="All">All Locations</option>
+                {branches.map(b => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '3px' }}>
+                Status
+              </label>
+              <select 
+                style={{ width: '100%', height: '34px', fontSize: '0.78rem', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 6px' }}
+                value={selectedStatus} 
+                onChange={e => setSelectedStatus(e.target.value)}
+              >
+                <option value="All">All Statuses</option>
+                <option value="Active">Active</option>
+                <option value="On Leave">On Leave</option>
+                <option value="Terminated">Terminated</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #F1F5F9' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDepartment('All');
+                setSelectedDesignation('All');
+                setSelectedLocation('All');
+                setSelectedStatus('All');
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#EF4444',
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <RotateCcw size={12} /> Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsMobileFiltersOpen(false)}
+              style={{
+                backgroundColor: '#0E7490',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '5px 14px',
+                fontSize: '0.76rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* KPI Overview Cards (Desktop >= 768px) */}
+      <div className="kpi-grid compact employee-desktop-kpi">
         <div className="kpi-card compact">
           <div className="kpi-card-header">
             <span>{isEmployeeRole ? 'My Profile Status' : isManagerRole ? 'Department Staff' : 'Total Employees'}</span>
@@ -305,8 +498,22 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
         </div>
       </div>
 
+      {/* Mobile Status Filter Pills (Matches Image 5 Mockup) */}
+      <div className="employee-mobile-filters-pills">
+        {['All', 'Active', 'On Leave', 'Resigned'].map(status => (
+          <button
+            key={status}
+            type="button"
+            className={`employee-filter-pill ${selectedStatus === status ? 'active' : ''}`}
+            onClick={() => setSelectedStatus(status)}
+          >
+            {status}
+          </button>
+        ))}
+      </div>
+
       {/* Unified Single-Line Filter Bar */}
-      <div className="card" style={{ padding: '16px 20px', marginBottom: '20px' }}>
+      <div className="card employee-filter-card employee-desktop-filters-card" style={{ padding: '16px 20px', marginBottom: '20px' }}>
         <div className="employee-filters-bar" style={{
           display: 'flex',
           alignItems: 'flex-end',
@@ -482,8 +689,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
         </div>
       </div>
 
-      {/* Main Table */}
-      <div className="table-responsive">
+      {/* Main Table (Desktop >= 768px) */}
+      <div className="employee-desktop-table-container">
+        <div className="table-responsive">
         <table className="hrms-table" style={{ width: '100%', minWidth: '1000px' }}>
           <thead>
             <tr>
@@ -692,6 +900,62 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
           </tbody>
         </table>
       </div>
+      </div>
+
+      {/* Mobile Card List View (Visible on Mobile < 768px, Matches Reference Image 5) */}
+      <div className="employee-mobile-card-list">
+        {filteredEmployees.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '40px 20px', color: '#64748B', borderRadius: '16px' }}>
+            No employees found matching your criteria.
+          </div>
+        ) : (
+          filteredEmployees.map((emp, index) => {
+            const avatarColorPalettes = [
+              { bg: '#DBEAFE', color: '#1D4ED8' },
+              { bg: '#FEF3C7', color: '#D97706' },
+              { bg: '#EDE9FE', color: '#7C3AED' },
+              { bg: '#CFFAFE', color: '#0E7490' },
+              { bg: '#E0F2FE', color: '#0284C7' },
+              { bg: '#DCFCE7', color: '#16A34A' }
+            ];
+            const palette = avatarColorPalettes[index % avatarColorPalettes.length];
+            const initials = `${emp.firstName?.[0] || ''}${emp.lastName?.[0] || ''}`.toUpperCase();
+
+            return (
+              <div 
+                key={emp.id}
+                className="employee-mobile-card"
+                onClick={() => setActiveProfileEmp(emp)}
+              >
+                <div 
+                  className="employee-mobile-avatar"
+                  style={{ backgroundColor: palette.bg, color: palette.color }}
+                >
+                  {emp.avatar ? (
+                    <img src={emp.avatar} alt={emp.firstName} style={{ width: '100%', height: '100%', borderRadius: '9999px', objectFit: 'cover' }} />
+                  ) : (
+                    <span>{initials}</span>
+                  )}
+                </div>
+
+                <div className="employee-mobile-details">
+                  <div className="employee-mobile-name">{emp.firstName} {emp.lastName}</div>
+                  <div className="employee-mobile-sub">
+                    {emp.employeeId} | {getEmployeeDepartmentDisplay(emp)}
+                  </div>
+                </div>
+
+                <div className="employee-mobile-meta">
+                  <span className={`status-pill ${emp.status.toLowerCase().replace(' ', '-')}`}>
+                    {emp.status}
+                  </span>
+                  <ChevronRight size={18} color="#94A3B8" />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
 
       {/* Floating Action Bar per AGENTS.md */}
       {isCEO && (
@@ -801,7 +1065,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
         };
 
         return (
-          <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-overlay" style={{ zIndex: 20000 }}>
             <div className="modal-content" style={{ maxWidth: '520px', borderRadius: 'var(--radius-dialog)' }}>
               <div className="modal-header" style={{ alignItems: 'flex-start' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
