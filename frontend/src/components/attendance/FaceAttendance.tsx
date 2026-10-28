@@ -182,10 +182,18 @@ export const FaceAttendance: React.FC = () => {
     return getEmployeeShiftAttendanceState(selectedEmpId);
   }, [selectedEmpId, ticker, attendanceRecords, getEmployeeShiftAttendanceState]);
 
-  const todayAttendance = attendanceRecords.find(
-    a => (a.employeeId === selectedEmpId || a.employeeId === selectedEmp?.employeeId || a.employeeId === selectedEmp?.id) && 
-         (normalizeToYYYYMMDD(a.shiftDate) === todayStr || normalizeToYYYYMMDD(a.date) === todayStr)
-  );
+  const todayAttendance = useMemo(() => {
+    const matches = attendanceRecords.filter(
+      a => (a.employeeId === selectedEmpId || a.employeeId === selectedEmp?.employeeId || a.employeeId === selectedEmp?.id) && 
+           (normalizeToYYYYMMDD(a.shiftDate) === todayStr || normalizeToYYYYMMDD(a.date) === todayStr)
+    );
+    if (matches.length <= 1) return matches[0];
+    return (
+      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
+      matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
+      matches[0]
+    );
+  }, [attendanceRecords, selectedEmpId, selectedEmp, todayStr]);
 
   const isCheckedIn = Boolean(todayAttendance?.checkIn && todayAttendance.checkIn.trim() !== '' && todayAttendance.checkIn !== '--:--');
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
@@ -209,22 +217,32 @@ export const FaceAttendance: React.FC = () => {
       return { isCooldownActive: false, remainingMinutes: 0, unlockTimeDisplay: '' };
     }
 
-    let punchInEpochMs: number | null = null;
+    let parsedRecordEpochMs: number | null = null;
+    if (todayAttendance?.checkIn && todayAttendance.checkIn !== '--:--' && todayAttendance.checkIn.trim() !== '') {
+      const fullTs = normalizeToFullTimestamp(todayAttendance.checkIn, todayStr);
+      const parsed = Date.parse(fullTs.replace(' ', 'T'));
+      if (!isNaN(parsed)) {
+        parsedRecordEpochMs = parsed;
+      }
+    }
+
+    let savedEpochMs: number | null = null;
     try {
       const saved =
         localStorage.getItem(`vrm_punch_in_epoch_${selectedEmpId}_${todayStr}`) ||
         (currentUser.employeeId ? localStorage.getItem(`vrm_punch_in_epoch_${currentUser.employeeId}_${todayStr}`) : null);
       if (saved && !isNaN(Number(saved))) {
-        punchInEpochMs = Number(saved);
+        savedEpochMs = Number(saved);
       }
     } catch {}
 
-    if (!punchInEpochMs && todayAttendance?.checkIn) {
-      const fullTs = normalizeToFullTimestamp(todayAttendance.checkIn, todayStr);
-      const parsed = Date.parse(fullTs.replace(' ', 'T'));
-      if (!isNaN(parsed)) {
-        punchInEpochMs = parsed;
-      }
+    // If HR manually changed the check-in time, parsedRecordEpochMs will differ from savedEpochMs by more than 2 minutes;
+    // always respect the authoritative attendance record checkIn time when adjusted!
+    let punchInEpochMs: number | null = null;
+    if (parsedRecordEpochMs !== null && savedEpochMs !== null) {
+      punchInEpochMs = Math.abs(savedEpochMs - parsedRecordEpochMs) <= 120000 ? savedEpochMs : parsedRecordEpochMs;
+    } else {
+      punchInEpochMs = parsedRecordEpochMs ?? savedEpochMs;
     }
 
     if (!punchInEpochMs) {
@@ -887,12 +905,18 @@ export const FaceAttendance: React.FC = () => {
 
   // 1. My Attendance record for TODAY strictly (date matches todayStr)
   const myTodayAttendance = useMemo(() => {
-    return attendanceRecords.find(a => {
+    const matches = attendanceRecords.filter(a => {
       const d = normalizeToYYYYMMDD(a.date);
       const sd = normalizeToYYYYMMDD(a.shiftDate);
       const matchesDate = d === todayStr || sd === todayStr;
       return matchesDate && isLogForCurrentUser(a);
     });
+    if (matches.length <= 1) return matches[0];
+    return (
+      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
+      matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
+      matches[0]
+    );
   }, [attendanceRecords, todayStr, isLogForCurrentUser]);
 
   // 2. My Face / GPS logs for TODAY strictly (timestamp matches todayStr)
@@ -909,28 +933,30 @@ export const FaceAttendance: React.FC = () => {
     return Array.from(latestByType.values()).sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
   }, [faceLogs, todayStr, isLogForCurrentUser]);
 
-  // 3. Extract My Check-In & Check-Out Times for Today
+  // 3. Extract My Check-In & Check-Out Times for Today (Authoritative Attendance Record FIRST so HR manual updates always reflect immediately)
   const myCheckInTime = useMemo(() => {
+    const attIn = myTodayAttendance?.checkIn || todayAttendance?.checkIn;
+    if (attIn && attIn !== '--:--' && attIn.trim() !== '') {
+      return formatAttendanceTime(attIn);
+    }
     const faceIn = myTodayFaceLogs.find(l => l.type === 'Check-In');
     if (faceIn && faceIn.timestamp) {
       return formatAttendanceTime(faceIn.timestamp);
     }
-    if (myTodayAttendance?.checkIn && myTodayAttendance.checkIn !== '--:--' && myTodayAttendance.checkIn.trim() !== '') {
-      return formatAttendanceTime(myTodayAttendance.checkIn);
-    }
     return null;
-  }, [myTodayFaceLogs, myTodayAttendance]);
+  }, [myTodayAttendance, todayAttendance, myTodayFaceLogs]);
 
   const myCheckOutTime = useMemo(() => {
+    const attOut = myTodayAttendance?.checkOut || todayAttendance?.checkOut;
+    if (attOut && attOut !== '--:--' && attOut.trim() !== '') {
+      return formatAttendanceTime(attOut);
+    }
     const faceOut = myTodayFaceLogs.find(l => l.type === 'Check-Out');
     if (faceOut && faceOut.timestamp) {
       return formatAttendanceTime(faceOut.timestamp);
     }
-    if (myTodayAttendance?.checkOut && myTodayAttendance.checkOut !== '--:--' && myTodayAttendance.checkOut.trim() !== '') {
-      return formatAttendanceTime(myTodayAttendance.checkOut);
-    }
     return null;
-  }, [myTodayFaceLogs, myTodayAttendance]);
+  }, [myTodayAttendance, todayAttendance, myTodayFaceLogs]);
 
   const myTodayStatus: 'Completed' | 'Checked In' | 'Not Marked' = useMemo(() => {
     if (myCheckInTime && myCheckOutTime) return 'Completed';
@@ -940,10 +966,21 @@ export const FaceAttendance: React.FC = () => {
 
   // 4. Construct My Today's verified punch events list
   const myTodayLogs = useMemo(() => {
-    const logs: typeof faceLogs = [...myTodayFaceLogs];
+    const attIn = myTodayAttendance?.checkIn || todayAttendance?.checkIn;
+    const attOut = myTodayAttendance?.checkOut || todayAttendance?.checkOut;
+
+    const logs: typeof faceLogs = myTodayFaceLogs.map(log => {
+      if (log.type === 'Check-In' && attIn && attIn !== '--:--' && attIn.trim() !== '') {
+        return { ...log, timestamp: normalizeToFullTimestamp(attIn, todayStr) };
+      }
+      if (log.type === 'Check-Out' && attOut && attOut !== '--:--' && attOut.trim() !== '') {
+        return { ...log, timestamp: normalizeToFullTimestamp(attOut, todayStr) };
+      }
+      return log;
+    });
 
     if (myCheckInTime && !logs.some(l => l.type === 'Check-In')) {
-      const fullTs = normalizeToFullTimestamp(myTodayAttendance?.checkIn || '', todayStr);
+      const fullTs = normalizeToFullTimestamp(attIn || '', todayStr);
       logs.push({
         id: `my-att-in-${myTodayAttendance?.id || 'today'}`,
         employeeId: currentUser.employeeId || 'EMP-001',
@@ -957,7 +994,7 @@ export const FaceAttendance: React.FC = () => {
     }
 
     if (myCheckOutTime && !logs.some(l => l.type === 'Check-Out')) {
-      const fullTs = normalizeToFullTimestamp(myTodayAttendance?.checkOut || '', todayStr);
+      const fullTs = normalizeToFullTimestamp(attOut || '', todayStr);
       logs.push({
         id: `my-att-out-${myTodayAttendance?.id || 'today'}`,
         employeeId: currentUser.employeeId || 'EMP-001',
@@ -971,7 +1008,7 @@ export const FaceAttendance: React.FC = () => {
     }
 
     return logs.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
-  }, [myTodayFaceLogs, myCheckInTime, myCheckOutTime, myTodayAttendance, todayStr, currentUser, currentUserEmp]);
+  }, [myTodayFaceLogs, myCheckInTime, myCheckOutTime, myTodayAttendance, todayAttendance, todayStr, currentUser, currentUserEmp]);
 
   // 5. Construct All Staff Today Attendance (each staff with checkIn and checkOut for TODAY only)
   const allTodayStaffAttendance = useMemo(() => {
@@ -984,7 +1021,13 @@ export const FaceAttendance: React.FC = () => {
     attendanceRecords.forEach(att => {
       if (isToday(att.date) || isToday(att.shiftDate)) {
         const key = String(att.employeeId || '').toLowerCase();
-        if (key) todayAttMap.set(key, att);
+        if (key) {
+          const existing = todayAttMap.get(key);
+          const isNewManual = (att.method as string) === 'Manual Override' || att.method === 'Manual Punch' || Boolean(att.reason);
+          if (!existing || isNewManual) {
+            todayAttMap.set(key, att);
+          }
+        }
       }
     });
 
@@ -1038,8 +1081,8 @@ export const FaceAttendance: React.FC = () => {
       const avatar = emp?.avatar || faceIn?.photoUrl || faceOut?.photoUrl || '';
       const department = emp?.department || 'General';
 
-      const inTimeRaw = faceIn?.timestamp || att?.checkIn;
-      const outTimeRaw = faceOut?.timestamp || att?.checkOut;
+      const inTimeRaw = (att?.checkIn && att.checkIn !== '--:--' && att.checkIn.trim() !== '') ? att.checkIn : faceIn?.timestamp;
+      const outTimeRaw = (att?.checkOut && att.checkOut !== '--:--' && att.checkOut.trim() !== '') ? att.checkOut : faceOut?.timestamp;
 
       const checkInTime = inTimeRaw && inTimeRaw !== '--:--' && inTimeRaw.trim() !== '' ? formatAttendanceTime(inTimeRaw) : null;
       const checkOutTime = outTimeRaw && outTimeRaw !== '--:--' && outTimeRaw.trim() !== '' ? formatAttendanceTime(outTimeRaw) : null;
@@ -1135,33 +1178,40 @@ export const FaceAttendance: React.FC = () => {
       const existingHours = Number(existing.workingHours || 0);
       const recHours = Number(rec.workingHours || 0);
 
-      // Prefer record that has complete check-out or higher worked hours
-      const preferRec = (recHasOut && !existingHasOut) || (recHours > existingHours);
+      const isRecManual = (rec.method as string) === 'Manual Override' || rec.method === 'Manual Punch' || Boolean(rec.reason);
+      const isExistingManual = (existing.method as string) === 'Manual Override' || existing.method === 'Manual Punch' || Boolean(existing.reason);
+
+      // Prefer HR manual override record, or record that has complete check-out / higher worked hours
+      const preferRec = (isRecManual && !isExistingManual) || (!isExistingManual && ((recHasOut && !existingHasOut) || (recHours > existingHours)));
       const base = preferRec ? { ...rec } : { ...existing };
 
       let finalCheckIn = base.checkIn;
       if (existingHasIn && recHasIn) {
-        const inMin1 = parseTimeToMinutes(existing.checkIn);
-        const inMin2 = parseTimeToMinutes(rec.checkIn);
-        if (inMin1 !== null && inMin2 !== null) {
-          finalCheckIn = inMin1 <= inMin2 ? existing.checkIn : rec.checkIn;
+        if (isRecManual && !isExistingManual) {
+          finalCheckIn = rec.checkIn;
+        } else if (isExistingManual && !isRecManual) {
+          finalCheckIn = existing.checkIn;
+        } else {
+          finalCheckIn = base.checkIn;
         }
       } else {
-        finalCheckIn = existing.checkIn || rec.checkIn;
+        finalCheckIn = existingHasIn ? existing.checkIn : rec.checkIn;
       }
 
       let finalCheckOut = base.checkOut;
       if (existingHasOut && recHasOut) {
-        const outMin1 = parseTimeToMinutes(existing.checkOut);
-        const outMin2 = parseTimeToMinutes(rec.checkOut);
-        if (outMin1 !== null && outMin2 !== null) {
-          finalCheckOut = outMin1 >= outMin2 ? existing.checkOut : rec.checkOut;
+        if (isRecManual && !isExistingManual) {
+          finalCheckOut = rec.checkOut;
+        } else if (isExistingManual && !isRecManual) {
+          finalCheckOut = existing.checkOut;
+        } else {
+          finalCheckOut = base.checkOut;
         }
       } else {
-        finalCheckOut = existing.checkOut || rec.checkOut;
+        finalCheckOut = existingHasOut ? existing.checkOut : rec.checkOut;
       }
 
-      const finalHours = Math.max(existingHours, recHours);
+      const finalHours = (isRecManual && !isExistingManual) ? recHours : (isExistingManual && !isRecManual) ? existingHours : Math.max(existingHours, recHours);
 
       byDate.set(dateKey, {
         ...base,
@@ -1226,19 +1276,24 @@ export const FaceAttendance: React.FC = () => {
         return;
       }
 
+      const existingHasIn = existing.checkIn && existing.checkIn !== '--:--' && existing.checkIn.trim() !== '';
+      const recHasIn = rec.checkIn && rec.checkIn !== '--:--' && rec.checkIn.trim() !== '';
       const existingHasOut = existing.checkOut && existing.checkOut !== '--:--' && existing.checkOut.trim() !== '';
       const recHasOut = rec.checkOut && rec.checkOut !== '--:--' && rec.checkOut.trim() !== '';
       const existingHours = Number(existing.workingHours || 0);
       const recHours = Number(rec.workingHours || 0);
 
-      const preferRec = (recHasOut && !existingHasOut) || (recHours > existingHours);
+      const isRecManual = (rec.method as string) === 'Manual Override' || rec.method === 'Manual Punch' || Boolean(rec.reason);
+      const isExistingManual = (existing.method as string) === 'Manual Override' || existing.method === 'Manual Punch' || Boolean(existing.reason);
+
+      const preferRec = (isRecManual && !isExistingManual) || (!isExistingManual && ((recHasOut && !existingHasOut) || (recHours > existingHours)));
       const base = preferRec ? { ...rec } : { ...existing };
-      const finalHours = Math.max(existingHours, recHours);
+      const finalHours = (isRecManual && !isExistingManual) ? recHours : (isExistingManual && !isRecManual) ? existingHours : Math.max(existingHours, recHours);
 
       byEmpDate.set(uniqueKey, {
         ...base,
-        checkIn: existing.checkIn || rec.checkIn,
-        checkOut: (existingHasOut && recHasOut) ? (preferRec ? rec.checkOut : existing.checkOut) : (existing.checkOut || rec.checkOut),
+        checkIn: (existingHasIn && recHasIn) ? (preferRec ? rec.checkIn : existing.checkIn) : (existingHasIn ? existing.checkIn : rec.checkIn),
+        checkOut: (existingHasOut && recHasOut) ? (preferRec ? rec.checkOut : existing.checkOut) : (existingHasOut ? existing.checkOut : rec.checkOut),
         workingHours: finalHours > 0 ? finalHours : base.workingHours,
         checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
         checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto

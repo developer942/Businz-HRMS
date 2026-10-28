@@ -1765,6 +1765,85 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     calibrateTrustedTime();
   }, []);
 
+  // Helper to keep faceLogs and 1-hour punch epoch in sync whenever HR/CEO manually updates checkIn/checkOut
+  const syncFaceLogsAndEpochWithAttendance = (
+    employeeId: string,
+    employeeName: string,
+    rawDate: string,
+    checkIn?: string | null,
+    checkOut?: string | null
+  ) => {
+    const cleanDate = String(rawDate || '').trim().split('T')[0].split(' ')[0];
+    if (!cleanDate) return;
+
+    const toWallTimestamp = (datePart: string, timeStr?: string | null): string | null => {
+      if (!timeStr || timeStr === '--:--' || timeStr === '—' || !timeStr.trim()) return null;
+      const raw = String(timeStr).trim().replace('.', ':');
+      if (raw.includes('-') && (raw.includes(' ') || raw.includes('T'))) {
+        return raw.replace('T', ' ').slice(0, 19);
+      }
+      const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+      if (!match) return null;
+      let h = parseInt(match[1], 10) || 0;
+      const m = parseInt(match[2], 10) || 0;
+      const s = match[3] ? parseInt(match[3], 10) : 0;
+      const mer = match[4]?.toUpperCase();
+      if (mer === 'PM' && h < 12) h += 12;
+      if (mer === 'AM' && h === 12) h = 0;
+      return `${datePart} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    };
+
+    const inTs = toWallTimestamp(cleanDate, checkIn);
+    const outTs = toWallTimestamp(cleanDate, checkOut);
+
+    // 1. Update localStorage punch epoch for 1-hour delay calculation
+    try {
+      if (inTs) {
+        const parsedMs = Date.parse(inTs.replace(' ', 'T'));
+        if (!isNaN(parsedMs)) {
+          localStorage.setItem(`vrm_punch_in_epoch_${employeeId}_${cleanDate}`, String(parsedMs));
+        }
+      } else {
+        localStorage.removeItem(`vrm_punch_in_epoch_${employeeId}_${cleanDate}`);
+      }
+    } catch {}
+
+    // 2. Sync faceLogs timestamps for this employee & date so Daily Attendance never shows stale punch times
+    const normEmpId = String(employeeId || '').trim().toLowerCase();
+    const normEmpName = String(employeeName || '').trim().toLowerCase();
+    setFaceLogs(prev => {
+      let changed = false;
+      const updated = prev.map(log => {
+        const logDate = String(log.timestamp || '').trim().split('T')[0].split(' ')[0];
+        if (logDate !== cleanDate) return log;
+        const lId = String(log.employeeId || '').trim().toLowerCase();
+        const lName = String(log.employeeName || '').trim().toLowerCase();
+        const isSameEmp = (normEmpId && lId === normEmpId) || (normEmpName && lName === normEmpName);
+        if (!isSameEmp) return log;
+
+        if (log.type === 'Check-In' && inTs && log.timestamp !== inTs) {
+          changed = true;
+          return { ...log, timestamp: inTs };
+        }
+        if (log.type === 'Check-Out' && outTs && log.timestamp !== outTs) {
+          changed = true;
+          return { ...log, timestamp: outTs };
+        }
+        return log;
+      });
+
+      if (changed) {
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(updated));
+          }
+        } catch {}
+        supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => {});
+      }
+      return changed ? updated : prev;
+    });
+  };
+
   const correctAttendanceRecord = (params: {
     attendanceId: string;
     status: AttendanceRecord['status'];
@@ -1905,14 +1984,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       approvedOtHours: approvedOt,
       otStatus: finalOtStatus,
       otReason: params.otReason,
-      reason: params.reason
+      reason: params.reason,
+      method: 'Manual Punch'
     };
 
     setAttendanceRecords(prev => prev.map(r => r.id === params.attendanceId ? updatedRecord : r));
 
+    syncFaceLogsAndEpochWithAttendance(
+      existingRec.employeeId,
+      existingRec.employeeName,
+      existingRec.date || existingRec.shiftDate || '',
+      effectiveCheckIn,
+      effectiveCheckOut
+    );
+
+    const checkInIso = effectiveCheckIn ? localDateTimeToIso(existingRec.date, effectiveCheckIn) : null;
+    const checkOutIso = effectiveCheckOut ? localDateTimeToIso(existingRec.date, effectiveCheckOut) : null;
     if (existingRec.id && existingRec.id.length === 36) {
-      const checkInIso = effectiveCheckIn ? localDateTimeToIso(existingRec.date, effectiveCheckIn) : null;
-      const checkOutIso = effectiveCheckOut ? localDateTimeToIso(existingRec.date, effectiveCheckOut) : null;
       supabaseDirect.updateAttendanceRecord(existingRec.id, {
         check_in: checkInIso,
         check_out: checkOutIso,
@@ -1922,6 +2010,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         method: 'Manual Override'
       });
     }
+    const targetEmp = employees.find(e => e.employeeId === existingRec.employeeId || e.id === existingRec.employeeId);
+    supabaseDirect.upsertAttendanceRecord({
+      employee_id: targetEmp?.id || existingRec.employeeId,
+      date: String(existingRec.date || '').split('T')[0],
+      check_in: checkInIso,
+      check_out: checkOutIso,
+      working_hours: computedWorkingHours,
+      status: finalStatus,
+      late_status: finalLateStatus,
+      method: 'Manual Override',
+      shift_date: String(existingRec.shiftDate || existingRec.date || '').split('T')[0]
+    }).catch(() => {});
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -2294,7 +2394,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     setAttendanceRecords(prev => {
-      const idx = prev.findIndex(a => a.employeeId === target.employeeId && a.date === target.date);
+      const cleanTargetDate = String(target.date || '').split('T')[0];
+      const idx = prev.findIndex(a =>
+        a.employeeId === target.employeeId &&
+        (String(a.date || '').split('T')[0] === cleanTargetDate || String(a.shiftDate || '').split('T')[0] === cleanTargetDate)
+      );
       if (idx !== -1) {
         const existing = prev[idx];
         const updated: AttendanceRecord = {
@@ -2302,6 +2406,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           checkIn: targetCheckIn,
           checkOut: targetCheckOut,
           status: calc.status,
+          method: 'Manual Punch',
           workingHours: calc.workedHours,
           calculatedOtHours: calc.potentialOtHours,
           lateStatus: calc.lateStatus,
@@ -2338,6 +2443,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return [newRec, ...prev];
       }
     });
+
+    syncFaceLogsAndEpochWithAttendance(
+      target.employeeId,
+      target.employeeName,
+      target.date,
+      targetCheckIn,
+      targetCheckOut
+    );
+
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    supabaseDirect.upsertAttendanceRecord({
+      employee_id: targetEmpObj?.id || target.employeeId,
+      date: String(target.date || '').split('T')[0],
+      check_in: targetCheckIn ? localDateTimeToIso(target.date, targetCheckIn) : null,
+      check_out: targetCheckOut ? localDateTimeToIso(target.date, targetCheckOut) : null,
+      working_hours: calc.workedHours || 0,
+      status: calc.status,
+      late_status: calc.lateStatus,
+      method: 'Manual Override',
+      shift_date: String(target.date || '').split('T')[0]
+    }).catch(() => {});
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -2449,7 +2575,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     setAttendanceRecords(prev => {
-      const idx = prev.findIndex(a => a.employeeId === target.employeeId && a.date === target.date);
+      const cleanTargetDate = String(target.date || '').split('T')[0];
+      const idx = prev.findIndex(a =>
+        a.employeeId === target.employeeId &&
+        (String(a.date || '').split('T')[0] === cleanTargetDate || String(a.shiftDate || '').split('T')[0] === cleanTargetDate)
+      );
       if (idx !== -1) {
         const existing = prev[idx];
         const updated: AttendanceRecord = {
@@ -2457,6 +2587,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           checkIn: adjustedCheckIn,
           checkOut: adjustedCheckOut,
           status: calc.status,
+          method: 'Manual Punch',
           workingHours: calc.workedHours,
           calculatedOtHours: calc.potentialOtHours,
           lateStatus: calc.lateStatus,
@@ -2493,6 +2624,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return [newRec, ...prev];
       }
     });
+
+    syncFaceLogsAndEpochWithAttendance(
+      target.employeeId,
+      target.employeeName,
+      target.date,
+      adjustedCheckIn,
+      adjustedCheckOut
+    );
+
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    supabaseDirect.upsertAttendanceRecord({
+      employee_id: targetEmpObj?.id || target.employeeId,
+      date: String(target.date || '').split('T')[0],
+      check_in: adjustedCheckIn ? localDateTimeToIso(target.date, adjustedCheckIn) : null,
+      check_out: adjustedCheckOut ? localDateTimeToIso(target.date, adjustedCheckOut) : null,
+      working_hours: calc.workedHours || 0,
+      status: calc.status,
+      late_status: calc.lateStatus,
+      method: 'Manual Override',
+      shift_date: String(target.date || '').split('T')[0]
+    }).catch(() => {});
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -2984,6 +3136,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return [newRec, ...prev];
       }
     });
+
+    syncFaceLogsAndEpochWithAttendance(
+      canonicalEmployeeId,
+      fullName,
+      entry.date,
+      cleanCheckIn,
+      cleanCheckOut
+    );
 
     const employeeDbId = emp.id;
     const checkInIso = cleanCheckIn ? localDateTimeToIso(entry.date, cleanCheckIn) : null;
@@ -4937,7 +5097,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const checkOutVal = adjustedTime?.checkOut || target.requestedCheckOut || '18:30';
 
       setAttendanceRecords(prev => {
-        const existingIdx = prev.findIndex(r => r.employeeId === target.employeeId && r.date === target.date);
+        const cleanTargetDate = String(target.date || '').split('T')[0];
+        const existingIdx = prev.findIndex(r =>
+          r.employeeId === target.employeeId &&
+          (String(r.date || '').split('T')[0] === cleanTargetDate || String(r.shiftDate || '').split('T')[0] === cleanTargetDate)
+        );
         if (existingIdx >= 0) {
           const updated = [...prev];
           updated[existingIdx] = {
@@ -4974,6 +5138,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return [newAtt, ...prev];
         }
       });
+
+      syncFaceLogsAndEpochWithAttendance(
+        target.employeeId,
+        target.employeeName,
+        target.date,
+        checkInVal,
+        checkOutVal
+      );
+
+      const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+      supabaseDirect.upsertAttendanceRecord({
+        employee_id: targetEmpObj?.id || target.employeeId,
+        date: String(target.date || '').split('T')[0],
+        check_in: checkInVal ? localDateTimeToIso(target.date, checkInVal) : null,
+        check_out: checkOutVal ? localDateTimeToIso(target.date, checkOutVal) : null,
+        working_hours: 8.5,
+        status: 'Present',
+        late_status: 'On Time',
+        method: 'Manual Override',
+        shift_date: String(target.date || '').split('T')[0]
+      }).catch(() => {});
 
       triggerToast(`Correction Approved: Attendance for ${target.employeeName} updated to Check-in ${checkInVal}.`);
     } else {
@@ -11153,12 +11338,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           });
         }
 
-        // Face Logs sync
+        // Face Logs sync (cloud settings take precedence over stale local logs when HR updates punch times)
         if (Array.isArray(settings.face_logs_data) && settings.face_logs_data.length > 0) {
           setFaceLogs(prev => {
             const map = new Map<string, FaceLog>();
-            settings.face_logs_data.forEach((l: FaceLog) => map.set(l.id, l));
             prev.forEach(l => map.set(l.id, l));
+            settings.face_logs_data.forEach((l: FaceLog) => map.set(l.id, l));
             const merged = Array.from(map.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 200);
             try {
               if (typeof window !== 'undefined') {
