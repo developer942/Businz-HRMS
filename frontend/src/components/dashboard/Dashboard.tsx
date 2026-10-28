@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { FilterReportsModal, FilterReportsState, initialFilterReportsState } from '../common/FilterReportsModal';
 import { EmployeeProfile } from '../employees/EmployeeProfile';
@@ -11,6 +11,7 @@ import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } f
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
 import { buildAttendanceReport } from '../../services/attendanceReportService';
+import { pettyCashService } from '../../services/pettyCashService';
 import { 
   Users, 
   UserCheck, 
@@ -47,7 +48,9 @@ export const Dashboard: React.FC = () => {
     employees, 
     attendanceRecords, 
     leaveRequests, 
-    tasks, 
+    tasks,
+    enhancedTasks = [],
+    departments = [],
     approveLeave,
     rejectLeave,
     setActiveModule,
@@ -80,7 +83,28 @@ export const Dashboard: React.FC = () => {
   const isEmployee = (currentUser.role === 'Employee' || isAccountsStaff) && !isCEO;
   const [profileModalEmployee, setProfileModalEmployee] = useState<Employee | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AttendanceCategoryType | null>(null);
+  const [pendingPettyCashCount, setPendingPettyCashCount] = useState<number>(0);
   const todayStr = getLocalDateStr();
+
+  useEffect(() => {
+    if (isEmployee) return;
+    let active = true;
+    pettyCashService
+      .getRequests()
+      .then(reqs => {
+        if (!active) return;
+        const pending = (reqs || []).filter(
+          r => r.status === 'PENDING_CEO_APPROVAL' || (r.status as string) === 'PENDING'
+        ).length;
+        setPendingPettyCashCount(pending);
+      })
+      .catch(() => {
+        if (active) setPendingPettyCashCount(0);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isEmployee]);
 
   const normalizeKey = (value?: string | null) => (value || '').trim().toLowerCase();
   const employeeFullName = (emp: Employee) => `${emp.firstName} ${emp.lastName}`.trim();
@@ -89,7 +113,8 @@ export const Dashboard: React.FC = () => {
   const doesAttendanceMatchEmployee = (record: AttendanceRecord, emp: Employee) => {
     const recId = normalizeKey(record.employeeId);
     const empId = normalizeKey(emp.employeeId);
-    if (recId && empId && recId === empId) return true;
+    const empUuid = normalizeKey(emp.id);
+    if (recId && ((empId && recId === empId) || (empUuid && recId === empUuid))) return true;
 
     const recName = normalizeKey(record.employeeName);
     const fullName = normalizeKey(employeeFullName(emp));
@@ -103,55 +128,86 @@ export const Dashboard: React.FC = () => {
   const doesLeaveMatchEmployee = (leave: LeaveRequest, emp: Employee) => {
     const leaveId = normalizeKey(leave.employeeId);
     const empId = normalizeKey(emp.employeeId);
-    if (leaveId && empId && leaveId === empId) return true;
+    const empUuid = normalizeKey(emp.id);
+    if (leaveId && ((empId && leaveId === empId) || (empUuid && leaveId === empUuid))) return true;
 
     const leaveName = normalizeKey(leave.employeeName);
     const fullName = normalizeKey(employeeFullName(emp));
     return !!leaveName && !!fullName && leaveName === fullName;
   };
 
-  // Current user's individual attendance metrics for Employee Dashboard
+  // Current user's individual attendance metrics for Employee Dashboard (shared across Desktop and Mobile)
   const employeeAttendanceStats = useMemo(() => {
     const month = getMonthInfo();
     const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
     const userName = (currentUser.name || '').trim().toLowerCase();
+    const userEmail = (currentUser.email || '').trim().toLowerCase();
+
+    const currentEmpObj = employees.find(e => {
+      const eCode = (e.employeeId || '').trim().toLowerCase();
+      const eId = (e.id || '').trim().toLowerCase();
+      const eEmail = (e.email || '').trim().toLowerCase();
+      const eName = `${e.firstName} ${e.lastName}`.trim().toLowerCase();
+      return (
+        (userEmpId && (eCode === userEmpId || eId === userEmpId)) ||
+        (userEmail && eEmail === userEmail) ||
+        (userName && eName === userName)
+      );
+    });
+
+    const validIds = new Set(
+      [currentUser.employeeId, currentUser.id, currentEmpObj?.employeeId, currentEmpObj?.id]
+        .filter(Boolean)
+        .map(id => String(id).trim().toLowerCase())
+    );
+    const validNames = new Set(
+      [currentUser.name, currentEmpObj ? `${currentEmpObj.firstName} ${currentEmpObj.lastName}`.trim() : '']
+        .filter(Boolean)
+        .map(n => String(n).trim().toLowerCase())
+    );
 
     const matchesCurrentUser = (employeeId?: string, employeeName?: string) => {
       const recId = (employeeId || '').trim().toLowerCase();
-      if (userEmpId && recId && userEmpId === recId) return true;
+      if (recId && validIds.has(recId)) return true;
 
       const recName = (employeeName || '').trim().toLowerCase();
-      return !!userName && !!recName && recName === userName;
+      return !!recName && validNames.has(recName);
     };
 
-    // Match today's attendance record (local today date or shiftDate)
-    const todayRecord = attendanceRecords.find(a => {
-      const recId = (a.employeeId || '').trim().toLowerCase();
-      const recName = (a.employeeName || '').trim().toLowerCase();
-      return matchesCurrentUser(recId, recName) && isTodayAttendanceRecord(a);
-    });
-
-    // Match today's biometric face scan
-    const todayFace = (faceLogs || []).find(f => {
-      const fId = (f.employeeId || '').trim().toLowerCase();
-      const fName = (f.employeeName || '').trim().toLowerCase();
-      return matchesCurrentUser(fId, fName) && f.timestamp.startsWith(todayStr);
-    });
+    // Match today's attendance record (local today date or shiftDate), prioritizing Manual Override / complete records
+    const todayCandidates = attendanceRecords.filter(
+      a => matchesCurrentUser(a.employeeId, a.employeeName) && isTodayAttendanceRecord(a)
+    );
+    const todayRecord =
+      todayCandidates.find(a => String(a.method || '') === 'Manual Punch' || String(a.method || '') === 'Manual Override') ||
+      todayCandidates.find(a => Boolean(a.checkIn)) ||
+      todayCandidates[0];
 
     // Match leaves
     const userLeaves = leaveRequests.filter(l => {
-      const lId = (l.employeeId || '').trim().toLowerCase();
-      const lName = (l.employeeName || '').trim().toLowerCase();
-      return matchesCurrentUser(lId, lName) && l.status === 'Approved';
+      return matchesCurrentUser(l.employeeId, l.employeeName) && l.status === 'Approved';
     });
 
-    // Current month attendance records only
-    const userRecords = attendanceRecords.filter(a => {
-      if (!isDateInMonth(a.shiftDate || a.date, month)) return false;
-      const recId = (a.employeeId || '').trim().toLowerCase();
-      const recName = (a.employeeName || '').trim().toLowerCase();
-      return matchesCurrentUser(recId, recName);
-    });
+    // Current month attendance records deduplicated by date (YYYY-MM-DD)
+    const byDate = new Map<string, AttendanceRecord>();
+    for (const a of attendanceRecords) {
+      const dateKey = attendanceRecordDate(a);
+      if (!dateKey || !isDateInMonth(dateKey, month)) continue;
+      if (!matchesCurrentUser(a.employeeId, a.employeeName)) continue;
+      const existing = byDate.get(dateKey);
+      if (!existing) {
+        byDate.set(dateKey, a);
+      } else {
+        const isManual = String(a.method || '') === 'Manual Punch' || String(a.method || '') === 'Manual Override';
+        const existingIsManual = String(existing.method || '') === 'Manual Punch' || String(existing.method || '') === 'Manual Override';
+        if (isManual && !existingIsManual) {
+          byDate.set(dateKey, a);
+        } else if (Boolean(a.checkOut) && !existing.checkOut) {
+          byDate.set(dateKey, a);
+        }
+      }
+    }
+    const userRecords = Array.from(byDate.values());
 
     const totalWorkingDays = month.elapsedWorkingDays;
     const userPresentCount = userRecords.filter(r => r.status === 'Present' || r.status === 'Work From Home').length;
@@ -163,28 +219,54 @@ export const Dashboard: React.FC = () => {
     const realLate = userLateCount;
     const attendanceRate = totalWorkingDays > 0 ? Math.min(100, Math.round(((realPresent + (realLate * 0.5)) / totalWorkingDays) * 100)) : 0;
 
-    // Current shift
-    const userShift = (shifts || []).find(s => 
-      s.assignments?.some(a => a.employeeId?.trim().toLowerCase() === userEmpId)
-    ) || (shifts || [])[0];
+    // Resolve assigned shift: check employee profile workShift first, then shift assignments, then default shift
+    const rawEmpWorkShift = (currentEmpObj?.workShift || '').trim();
+    const cleanEmpWorkShiftName = rawEmpWorkShift.includes('(')
+      ? rawEmpWorkShift.split('(')[0].trim()
+      : rawEmpWorkShift;
 
-    const rawShiftName = userShift?.shiftName || 'Shift 1';
+    const userShift =
+      (rawEmpWorkShift
+        ? (shifts || []).find(
+            s =>
+              s.id?.trim().toLowerCase() === rawEmpWorkShift.toLowerCase() ||
+              s.shiftName?.trim().toLowerCase() === rawEmpWorkShift.toLowerCase() ||
+              s.shiftName?.trim().toLowerCase() === cleanEmpWorkShiftName.toLowerCase()
+          )
+        : undefined) ||
+      (shifts || []).find(s =>
+        s.assignments?.some(a => validIds.has((a.employeeId || '').trim().toLowerCase()))
+      ) ||
+      (shifts || [])[0];
+
+    const rawShiftName = userShift?.shiftName || cleanEmpWorkShiftName || 'NORMAL SHIFT';
     const cleanShiftName = rawShiftName.includes('(') ? rawShiftName.split('(')[0].trim() : rawShiftName;
+    const parsedShiftRange = rawEmpWorkShift.match(/\(([^)]+)\)/)?.[1]?.trim();
+    const resolvedShiftTimes = userShift
+      ? `${userShift.startTime} - ${userShift.endTime}`
+      : parsedShiftRange || '09:30 - 18:30';
 
-    // Today punch time (Real data only: '--:--' if not punched in)
-    const checkInTime = formatTimeDisplay(todayRecord?.checkIn || todayFace?.timestamp, '--:--');
-    const checkOutTime = formatTimeDisplay(todayRecord?.checkOut, '--:--');
-    const todayStatus = todayRecord?.status || (todayFace ? 'Present' : 'Not Marked');
-
-    const currentEmpObj = employees.find(e => 
-      e.employeeId === currentUser.employeeId || 
-      `${e.firstName} ${e.lastName}`.trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase()
+    // Today punch time (Authoritative saved attendance record only: '--:--' if not punched in)
+    const hasSavedCheckIn = Boolean(
+      todayRecord &&
+        todayRecord.status !== 'Absent' &&
+        todayRecord.checkIn &&
+        todayRecord.checkIn.trim() !== '' &&
+        todayRecord.checkIn !== '--:--'
     );
+    const checkInTime = hasSavedCheckIn ? formatTimeDisplay(todayRecord?.checkIn, '--:--') : '--:--';
+    const checkOutTime =
+      hasSavedCheckIn && todayRecord?.checkOut
+        ? formatTimeDisplay(todayRecord.checkOut, '--:--')
+        : '--:--';
+    const todayStatus = todayRecord?.status
+      ? todayRecord.status
+      : 'Not Marked';
 
     // Dynamically calculate leave balances from active master leave policies
     const leaveSummary = getEmployeeTotalLeaveSummary(
-      currentUser.employeeId,
-      currentUser.name,
+      currentEmpObj?.employeeId || currentUser.employeeId,
+      currentEmpObj ? `${currentEmpObj.firstName} ${currentEmpObj.lastName}`.trim() : currentUser.name,
       masterLeavePolicies,
       leavePolicies,
       leaveRequests,
@@ -203,7 +285,7 @@ export const Dashboard: React.FC = () => {
       annualQuota: leaveSummary.totalAnnualQuota,
       leaveBalances: leaveSummary.balances,
       shiftName: cleanShiftName,
-      shiftTimes: userShift ? `${userShift.startTime} - ${userShift.endTime}` : '--:--',
+      shiftTimes: resolvedShiftTimes,
       monthLabel: month.label
     };
   }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies, employees]);
@@ -431,30 +513,114 @@ export const Dashboard: React.FC = () => {
   const absentToday = absentEmployees.length;
   const earlyClockOut = earlyEmployees.length;
   const missClockOut = missClockOutEmployees.length;
+
+  const activeDepartmentsCount = useMemo(() => {
+    const empDepts = new Set(
+      filteredEmployees
+        .map(e => (e.department || '').trim())
+        .filter(d => d && d.toLowerCase() !== 'general')
+    );
+    if (empDepts.size > 0) return empDepts.size;
+    return (departments || []).filter(d => d.name && d.name.trim().toLowerCase() !== 'general').length;
+  }, [filteredEmployees, departments]);
+
+  const presentRatePct = totalStaff > 0 ? Math.round((presentToday / totalStaff) * 100) : 0;
+  const absentRatePct = totalStaff > 0 ? Math.round((absentToday / totalStaff) * 100) : 0;
   
   const pendingLeaves = leaveRequests.filter(l => l.status === 'Pending');
-  const dueTasks = tasks.filter(t => t.status !== 'Completed');
+
+  // Unify enhancedTasks (PostgreSQL synced) with legacy tasks so Dashboard and Tasks module match 100%
+  const allUnifiedTasks = useMemo<TaskItem[]>(() => {
+    const mappedEnhanced: TaskItem[] = (enhancedTasks || []).map(et => {
+      const firstAssignee = et.assignees?.[0];
+      const isCompleted =
+        et.overallStatus === 'COMPLETED' ||
+        et.overallStatus === 'CLOSED' ||
+        (et.assignees?.length > 0 &&
+          et.assignees.every(a => a.individualStatus === 'Completed' || a.progressPercentage === 100));
+      return {
+        id: et.id,
+        title: et.title,
+        description: et.description || '',
+        assignedEmployeeId: firstAssignee?.employeeId || et.responsiblePersonId || '',
+        assignedEmployeeName: firstAssignee?.employeeName || et.responsiblePersonName || 'Staff',
+        department: et.department || currentUser.department || 'General',
+        assignedBy: et.assignedBy || et.createdBy || 'Management',
+        priority: (et.priority || 'Medium') as TaskItem['priority'],
+        dueDate: et.dueDate,
+        status: isCompleted ? 'Completed' : 'In Progress',
+        createdAt: et.createdAt || todayStr
+      };
+    });
+    const seenIds = new Set(mappedEnhanced.map(t => t.id));
+    const legacyOnly = (tasks || []).filter(t => !seenIds.has(t.id));
+    return [...mappedEnhanced, ...legacyOnly];
+  }, [enhancedTasks, tasks, currentUser.department, todayStr]);
+
+  const dueTasks = allUnifiedTasks.filter(t => t.status !== 'Completed');
 
   // Filter tasks belonging strictly to currently logged in user (for Employee & HR Dashboard)
-  const isTaskAssignedToUser = (task: TaskItem): boolean => {
+  const ownTasks = useMemo<TaskItem[]>(() => {
     const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
     const userName = (currentUser.name || '').trim().toLowerCase();
-    const taskEmpId = (task.assignedEmployeeId || '').trim().toLowerCase();
-    const taskEmpName = (task.assignedEmployeeName || '').trim().toLowerCase();
+    const currentEmpObj = employees.find(e => {
+      const eCode = (e.employeeId || '').trim().toLowerCase();
+      const eId = (e.id || '').trim().toLowerCase();
+      const eName = `${e.firstName} ${e.lastName}`.trim().toLowerCase();
+      return (userEmpId && (eCode === userEmpId || eId === userEmpId)) || (userName && eName === userName);
+    });
+    const validIds = new Set(
+      [currentUser.employeeId, currentUser.id, currentEmpObj?.employeeId, currentEmpObj?.id]
+        .filter(Boolean)
+        .map(id => String(id).trim().toLowerCase())
+    );
 
-    // Match by Employee ID
-    if (userEmpId && taskEmpId && userEmpId === taskEmpId) return true;
+    const fromEnhanced: TaskItem[] = (enhancedTasks || [])
+      .filter(et => {
+        if (et.overallStatus === 'COMPLETED' || et.overallStatus === 'CLOSED') return false;
+        const matchedAssignee = (et.assignees || []).find(a => {
+          const aId = (a.employeeId || '').trim().toLowerCase();
+          const aName = (a.employeeName || '').trim().toLowerCase();
+          return (
+            (aId && validIds.has(aId)) ||
+            (userName && aName && (aName === userName || aName.includes(userName) || userName.includes(aName)))
+          );
+        });
+        if (matchedAssignee) {
+          return matchedAssignee.individualStatus !== 'Completed' && matchedAssignee.progressPercentage !== 100;
+        }
+        const respId = (et.responsiblePersonId || '').trim().toLowerCase();
+        return Boolean(respId && validIds.has(respId));
+      })
+      .map(et => ({
+        id: et.id,
+        title: et.title,
+        description: et.description || '',
+        assignedEmployeeId: currentUser.employeeId || currentUser.id,
+        assignedEmployeeName: currentUser.name,
+        department: currentEmpObj?.department || currentUser.department || 'General',
+        assignedBy: et.assignedBy || et.createdBy || 'Management',
+        priority: (et.priority || 'Medium') as TaskItem['priority'],
+        dueDate: et.dueDate,
+        status: 'In Progress',
+        createdAt: et.createdAt || todayStr
+      }));
 
-    // Match by Employee Name (exact or substring match)
-    if (userName && taskEmpName) {
-      if (taskEmpName === userName) return true;
-      if (taskEmpName.includes(userName) || userName.includes(taskEmpName)) return true;
-    }
+    const seenIds = new Set(fromEnhanced.map(t => t.id));
+    const fromLegacy = (tasks || []).filter(task => {
+      if (seenIds.has(task.id) || task.status === 'Completed') return false;
+      const taskEmpId = (task.assignedEmployeeId || '').trim().toLowerCase();
+      const taskEmpName = (task.assignedEmployeeName || '').trim().toLowerCase();
+      if (taskEmpId && validIds.has(taskEmpId)) return true;
+      if (userName && taskEmpName) {
+        if (taskEmpName === userName || taskEmpName.includes(userName) || userName.includes(taskEmpName)) return true;
+      }
+      return false;
+    });
 
-    return false;
-  };
+    return [...fromEnhanced, ...fromLegacy];
+  }, [enhancedTasks, tasks, currentUser, employees, todayStr]);
 
-  const ownTasks = tasks.filter(t => isTaskAssignedToUser(t) && t.status !== 'Completed');
   const displayedTasks = isCEO ? dueTasks : ownTasks;
 
   // Metrics for Today's Attendance Donut Card
@@ -526,16 +692,16 @@ export const Dashboard: React.FC = () => {
     <div>
       {/* ============================================================
           MOBILE-OPTIMIZED DASHBOARD VIEW (Visible on Mobile < 768px)
-          Matches Reference Mockups for Employee, HR & CEO
+          Authoritative Personal & Role-Scoped Metrics (Matches Desktop Data 100%)
           ============================================================ */}
       <div className="dashboard-mobile-view">
         {isEmployee ? (
-          <div className="employee-mobile-dashboard">
-            {/* 1. Greeting Banner Card with Avatar Graphic (Matches Image 3) */}
+          <div className="employee-mobile-dashboard" data-testid="employee-mobile-dashboard">
+            {/* 1. Greeting Banner Card with Avatar Graphic */}
             <div className="mobile-greeting-card">
               <div className="mobile-greeting-text">
                 <div className="mobile-greeting-time">{getGreeting()}</div>
-                <h2 className="mobile-greeting-name">{currentUser.name}!</h2>
+                <h2 className="mobile-greeting-name" data-testid="mobile-employee-name">{currentUser.name}!</h2>
                 <div className="mobile-greeting-sub">Have a productive day!</div>
               </div>
               <div className="mobile-greeting-avatar-circle">
@@ -549,79 +715,147 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. 2x2 KPI Metric Cards (Matches Image 3) */}
-            <div className="mobile-kpi-grid">
-              <div className="mobile-kpi-card" onClick={() => setSelectedCategory('present')}>
+            {/* 2. 2x2 Personal KPI Metric Cards (Identical Data Source to Desktop Employee KPI Cards) */}
+            <div className="mobile-kpi-grid" data-testid="mobile-personal-kpi-grid">
+              <div
+                className="mobile-kpi-card"
+                data-testid="mobile-kpi-monthly-attendance"
+                onClick={() => setActiveModule('attendance_log')}
+              >
                 <div className="mobile-kpi-top">
                   <div className="mobile-kpi-icon-box green">
-                    <CalendarCheck size={16} color="#16A34A" />
+                    <CalendarCheck size={16} color="#0E7490" />
                   </div>
-                  <span className="mobile-kpi-label">Present Today</span>
+                  <span className="mobile-kpi-label">Monthly Attendance</span>
                 </div>
                 <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">{presentToday}</span>
-                  <span className="mobile-kpi-trend green">↑ 5%</span>
+                  <span className="mobile-kpi-value">{employeeAttendanceStats.attendanceRate}%</span>
+                  <span className="mobile-kpi-trend green">{employeeAttendanceStats.monthLabel}</span>
                 </div>
               </div>
 
-              <div className="mobile-kpi-card" onClick={() => setSelectedCategory('absent')}>
+              <div
+                className="mobile-kpi-card"
+                data-testid="mobile-kpi-present-days"
+                onClick={() => setActiveModule('attendance_log')}
+              >
                 <div className="mobile-kpi-top">
-                  <div className="mobile-kpi-icon-box red">
-                    <UserX size={16} color="#DC2626" />
+                  <div className="mobile-kpi-icon-box green">
+                    <CheckCircle2 size={16} color="#16A34A" />
                   </div>
-                  <span className="mobile-kpi-label">Absent Today</span>
+                  <span className="mobile-kpi-label">Present Days</span>
                 </div>
                 <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">{absentToday}</span>
-                  <span className="mobile-kpi-trend red">↓ 2%</span>
+                  <span className="mobile-kpi-value">
+                    {employeeAttendanceStats.adjPresent} / {employeeAttendanceStats.totalWorkingDays}
+                  </span>
+                  <span className="mobile-kpi-trend green">Days On Duty</span>
                 </div>
               </div>
 
-              <div className="mobile-kpi-card" onClick={() => setSelectedCategory('early')}>
+              <div
+                className="mobile-kpi-card"
+                data-testid="mobile-kpi-shift-timings"
+                onClick={() => setActiveModule('shifts')}
+              >
                 <div className="mobile-kpi-top">
                   <div className="mobile-kpi-icon-box amber">
                     <Clock size={16} color="#D97706" />
                   </div>
-                  <span className="mobile-kpi-label">Late</span>
+                  <span className="mobile-kpi-label">My Shift Timings</span>
                 </div>
-                <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">{donutLate}</span>
-                  <span className="mobile-kpi-trend neutral">→ 0%</span>
+                <div className="mobile-kpi-value-row" style={{ flexWrap: 'wrap', gap: '4px' }}>
+                  <span className="mobile-kpi-value" style={{ fontSize: '0.95rem' }}>
+                    {employeeAttendanceStats.shiftTimes}
+                  </span>
+                  <span className="mobile-kpi-trend neutral">{employeeAttendanceStats.shiftName}</span>
                 </div>
               </div>
 
-              <div className="mobile-kpi-card" onClick={() => setActiveModule('leaves')}>
+              <div
+                className="mobile-kpi-card"
+                data-testid="mobile-kpi-leave-balance"
+                onClick={() => setActiveModule('leaves')}
+              >
                 <div className="mobile-kpi-top">
                   <div className="mobile-kpi-icon-box purple">
                     <CalendarDays size={16} color="#7C3AED" />
                   </div>
-                  <span className="mobile-kpi-label">On Leave</span>
+                  <span className="mobile-kpi-label">Leave Balance</span>
                 </div>
                 <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">{donutLeave}</span>
-                  <span className="mobile-kpi-trend neutral">→ 0%</span>
+                  <span className="mobile-kpi-value">{employeeAttendanceStats.remainingLeaves} Days</span>
+                  <span className="mobile-kpi-trend neutral">{employeeAttendanceStats.adjLeave} Days Taken</span>
                 </div>
               </div>
             </div>
 
-            {/* 3. Today's Attendance Card (Matches Image 3) */}
-            <div className="mobile-attendance-card">
-              <div className="mobile-attendance-header">
+            {/* 3. Today's Attendance Card (Authoritative Status + Check In / Check Out) */}
+            <div className="mobile-attendance-card" data-testid="mobile-today-attendance-card">
+              <div
+                className="mobile-attendance-header"
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
                 <span className="mobile-attendance-title">Today's Attendance</span>
+                <span
+                  data-testid="mobile-today-status"
+                  style={{
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    padding: '3px 10px',
+                    borderRadius: '9999px',
+                    backgroundColor:
+                      employeeAttendanceStats.todayStatus === 'Present' ||
+                      employeeAttendanceStats.todayStatus === 'Work From Home'
+                        ? '#DCFCE7'
+                        : employeeAttendanceStats.todayStatus === 'Late' ||
+                          employeeAttendanceStats.todayStatus === 'Half Day'
+                        ? '#FEF3C7'
+                        : '#F1F5F9',
+                    color:
+                      employeeAttendanceStats.todayStatus === 'Present' ||
+                      employeeAttendanceStats.todayStatus === 'Work From Home'
+                        ? '#15803D'
+                        : employeeAttendanceStats.todayStatus === 'Late' ||
+                          employeeAttendanceStats.todayStatus === 'Half Day'
+                        ? '#B45309'
+                        : '#475569'
+                  }}
+                >
+                  {employeeAttendanceStats.todayStatus}
+                </span>
               </div>
               <div className="mobile-attendance-timing-box">
                 <div className="mobile-timing-cell">
                   <span className="mobile-timing-label">Check In</span>
-                  <div className="mobile-timing-value">
-                    <span className="timing-dot-active" />
+                  <div
+                    className={`mobile-timing-value ${
+                      employeeAttendanceStats.checkInTime === '--:--' ? 'muted' : ''
+                    }`}
+                    data-testid="mobile-checkin-time"
+                  >
+                    {employeeAttendanceStats.checkInTime !== '--:--' ? (
+                      <span className="timing-dot-active" />
+                    ) : (
+                      <Clock size={13} color="#94A3B8" />
+                    )}
                     <span>{employeeAttendanceStats.checkInTime || '--:--'}</span>
                   </div>
                 </div>
                 <div className="mobile-timing-divider" />
                 <div className="mobile-timing-cell">
                   <span className="mobile-timing-label">Check Out</span>
-                  <div className="mobile-timing-value muted">
-                    <Clock size={13} color="#94A3B8" />
+                  <div
+                    className={`mobile-timing-value ${
+                      employeeAttendanceStats.checkOutTime === '--:--' ? 'muted' : ''
+                    }`}
+                    data-testid="mobile-checkout-time"
+                  >
+                    {employeeAttendanceStats.checkOutTime !== '--:--' ? (
+                      <span className="timing-dot-active" />
+                    ) : (
+                      <Clock size={13} color="#94A3B8" />
+                    )}
                     <span>{employeeAttendanceStats.checkOutTime || '--:--'}</span>
                   </div>
                 </div>
@@ -636,7 +870,7 @@ export const Dashboard: React.FC = () => {
               </button>
             </div>
 
-            {/* 4. Quick Actions Grid (Matches Image 3) */}
+            {/* 4. Quick Actions Grid */}
             <div className="mobile-quick-actions-card">
               <div className="mobile-quick-actions-title">Quick Actions</div>
               <div className="mobile-quick-actions-grid">
@@ -683,10 +917,71 @@ export const Dashboard: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* 5. Compact Mobile Summary: My Tasks & Celebrations (Matches Desktop Data) */}
+            <div className="mobile-quick-actions-card" data-testid="mobile-my-tasks-card">
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}
+              >
+                <span className="mobile-quick-actions-title" style={{ margin: 0 }}>
+                  My Tasks ({ownTasks.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveModule('tasks')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#0E7490',
+                    fontSize: '0.76rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  Manage →
+                </button>
+              </div>
+              {ownTasks.length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: '#64748B' }}>No pending tasks assigned to you</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {ownTasks.slice(0, 3).map(t => (
+                    <div
+                      key={t.id}
+                      onClick={() => setActiveModule('tasks')}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '8px 10px',
+                        borderRadius: '10px',
+                        border: '1px solid #E2E8F0',
+                        backgroundColor: '#F8FAFC',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.title}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#D97706', flexShrink: 0, marginLeft: '8px' }}>
+                        {formatDateDDMMYYYY(t.dueDate)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
-          /* CEO & Management Mobile Dashboard (Matches Image 1 rightmost) */
-          <div className="ceo-mobile-dashboard">
+          /* CEO & Management Mobile Dashboard (Authoritative Backend Data) */
+          <div className="ceo-mobile-dashboard" data-testid="ceo-mobile-dashboard">
             {/* 1. Welcome Greeting */}
             <div className="mobile-greeting-card ceo">
               <div className="mobile-greeting-text">
@@ -710,17 +1005,17 @@ export const Dashboard: React.FC = () => {
               <div className="ceo-metric-card" onClick={() => setSelectedCategory('total')}>
                 <span className="ceo-metric-label">Total Staff</span>
                 <div className="ceo-metric-val">{totalStaff}</div>
-                <span className="ceo-metric-trend green">↑ 12.4%</span>
+                <span className="ceo-metric-trend green">{activeDepartmentsCount} Depts</span>
               </div>
               <div className="ceo-metric-card" onClick={() => setSelectedCategory('present')}>
                 <span className="ceo-metric-label">Present Today</span>
                 <div className="ceo-metric-val" style={{ color: '#059669' }}>{presentToday}</div>
-                <span className="ceo-metric-trend green">↑ 3.2%</span>
+                <span className="ceo-metric-trend green">{presentRatePct}% On Duty</span>
               </div>
               <div className="ceo-metric-card" onClick={() => setSelectedCategory('absent')}>
                 <span className="ceo-metric-label">Absent Today</span>
                 <div className="ceo-metric-val" style={{ color: absentToday > 0 ? '#DC2626' : 'inherit' }}>{absentToday}</div>
-                <span className="ceo-metric-trend red">↓ 1.5%</span>
+                <span className="ceo-metric-trend red">{absentRatePct}% Absent</span>
               </div>
               <div className="ceo-metric-card" onClick={() => setActiveModule('leaves')}>
                 <span className="ceo-metric-label">Leave Pending</span>
@@ -783,7 +1078,7 @@ export const Dashboard: React.FC = () => {
                     <span className="ceo-approval-name">Petty Cash</span>
                   </div>
                   <div className="ceo-approval-right">
-                    <span className="ceo-approval-badge">1</span>
+                    <span className="ceo-approval-badge">{pendingPettyCashCount}</span>
                     <ChevronRight size={16} color="#94A3B8" />
                   </div>
                 </div>
@@ -1023,6 +1318,7 @@ export const Dashboard: React.FC = () => {
             {/* 1. Today's Attendance Status */}
             <div 
               className="kpi-card compact"
+              data-testid="desktop-kpi-today-status"
               onClick={() => setActiveModule('face_attendance')}
               style={{ cursor: 'pointer' }}
             >
@@ -1031,12 +1327,20 @@ export const Dashboard: React.FC = () => {
                 <UserCheck size={15} color="#059669" />
               </div>
               <div className="kpi-card-body">
-                <div className="kpi-value" style={{ color: '#059669' }}>
+                <div className="kpi-value" data-testid="desktop-today-status" style={{ color: '#059669' }}>
                   {employeeAttendanceStats.todayStatus}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green">In: {employeeAttendanceStats.checkInTime}</span>
-                  <span>Face Verified</span>
+                  <span className="kpi-trend-badge green" data-testid="desktop-checkin-time">
+                    In: {employeeAttendanceStats.checkInTime}
+                  </span>
+                  <span data-testid="desktop-checkout-time">
+                    {employeeAttendanceStats.checkOutTime !== '--:--'
+                      ? `Out: ${employeeAttendanceStats.checkOutTime}`
+                      : employeeAttendanceStats.checkInTime !== '--:--'
+                      ? 'Face Verified'
+                      : 'Out: --:--'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1044,7 +1348,8 @@ export const Dashboard: React.FC = () => {
             {/* 2. Monthly Attendance Rate */}
             <div 
               className="kpi-card compact"
-              onClick={() => setActiveModule('face_attendance')}
+              data-testid="desktop-kpi-monthly-attendance"
+              onClick={() => setActiveModule('attendance_log')}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">
@@ -1065,7 +1370,8 @@ export const Dashboard: React.FC = () => {
             {/* 3. Present Days */}
             <div 
               className="kpi-card compact"
-              onClick={() => setActiveModule('face_attendance')}
+              data-testid="desktop-kpi-present-days"
+              onClick={() => setActiveModule('attendance_log')}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">
@@ -1086,6 +1392,7 @@ export const Dashboard: React.FC = () => {
             {/* 4. My Rostered Shift */}
             <div 
               className="kpi-card compact"
+              data-testid="desktop-kpi-shift-timings"
               onClick={() => setActiveModule('shifts')}
               style={{ cursor: 'pointer' }}
             >
@@ -1107,6 +1414,7 @@ export const Dashboard: React.FC = () => {
             {/* 5. Available Leave Balance */}
             <div 
               className="kpi-card compact"
+              data-testid="desktop-kpi-leave-balance"
               onClick={() => setActiveModule('leaves')}
               style={{ cursor: 'pointer' }}
               title={employeeAttendanceStats.leaveBalances?.filter(b => b.isPaid).map(b => `${b.name}: ${b.remainingDays} left of ${b.annualQuota}d`).join(' | ') || 'Leave Balance'}
@@ -1140,8 +1448,8 @@ export const Dashboard: React.FC = () => {
               <div className="kpi-card-body">
                 <div className="kpi-value">{totalStaff}</div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green">↗ 12.4%</span>
-                  <span>5 Active Depts</span>
+                  <span className="kpi-trend-badge green">Active</span>
+                  <span>{activeDepartmentsCount} Active Depts</span>
                 </div>
               </div>
             </div>
@@ -1158,7 +1466,7 @@ export const Dashboard: React.FC = () => {
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: '#059669' }}>{presentToday}</div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green">↗ 3.2%</span>
+                  <span className="kpi-trend-badge green">{presentRatePct}%</span>
                   <span>Active On Duty</span>
                 </div>
               </div>
@@ -1178,7 +1486,7 @@ export const Dashboard: React.FC = () => {
                   {absentToday}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge red">↘ 1.5%</span>
+                  <span className="kpi-trend-badge red">{absentRatePct}%</span>
                   <span>Unplanned Leave</span>
                 </div>
               </div>

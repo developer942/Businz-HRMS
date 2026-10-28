@@ -262,7 +262,12 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
 export const updateEmployee = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = String(req.params.id);
-    const validated = updateEmployeeSchema.parse(req.body);
+    const safeBody = { ...(req.body || {}) };
+    delete safeBody.password;
+    delete safeBody.passwordHash;
+    delete safeBody.plainPassword;
+    delete safeBody.mustChangePassword;
+    const validated = updateEmployeeSchema.parse(safeBody);
 
     // Validate email uniqueness if email is being updated
     if (validated.email) {
@@ -307,7 +312,9 @@ export const updateEmployee = async (req: Request, res: Response, next: NextFunc
 export const syncEmployeeProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = String(req.params.id || '').trim();
-    const rawPayload = req.body?.employee;
+    const hasWrappedEmployee = req.body?.employee && typeof req.body.employee === 'object' && !Array.isArray(req.body.employee);
+    const hasDirectPayload = !hasWrappedEmployee && req.body && typeof req.body === 'object' && !Array.isArray(req.body) && Object.keys(req.body).some(k => k !== 'options' && k !== 'employee');
+    const rawPayload = hasWrappedEmployee ? req.body.employee : (hasDirectPayload ? req.body : null);
     const options = req.body?.options || {};
     if (!id || !rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
       res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Employee profile payload is required.', details: [] } });
@@ -318,17 +325,47 @@ export const syncEmployeeProfile = async (req: Request, res: Response, next: Nex
     // Existing reset/change-password endpoints remain the only password writers.
     const safePayload = { ...rawPayload };
     delete safePayload.password;
+    delete safePayload.passwordHash;
+    delete safePayload.plainPassword;
     delete safePayload.mustChangePassword;
-    const payload = updateEmployeeSchema.parse(safePayload);
+    if (safePayload.systemAccess && typeof safePayload.systemAccess === 'object') {
+      safePayload.systemAccess = { ...safePayload.systemAccess };
+      delete safePayload.systemAccess.password;
+    }
+    const validated = updateEmployeeSchema.parse(safePayload);
 
-    const sensitiveChange = payload.salaryDetails !== undefined || payload.basicSalary !== undefined || payload.bankDetails !== undefined;
-    const sensitiveRoles = ['Super Admin', 'CEO', 'Admin', 'ERP Administrator', 'HR Manager', 'HR Admin', 'Finance Manager', 'HR'];
+    if (validated.email) {
+      const cleanEmail = validated.email.toLowerCase().trim();
+      const existing = await employeeRepository.findByEmail(cleanEmail);
+      if (existing && existing.id.toLowerCase() !== id.toLowerCase() && existing.employeeId.toLowerCase() !== id.toLowerCase()) {
+        res.status(409).json({
+          success: false,
+          error: {
+            code: 'DUPLICATE_EMAIL',
+            message: 'Email ID already exists.',
+            details: [],
+          },
+        });
+        return;
+      }
+    }
+
+    const mergedPayload = {
+      ...safePayload,
+      ...(validated.email !== undefined ? { email: validated.email } : {}),
+      ...(validated.firstName !== undefined ? { firstName: validated.firstName } : {}),
+      ...(validated.lastName !== undefined ? { lastName: validated.lastName } : {}),
+      ...(validated.phone !== undefined ? { phone: validated.phone } : {}),
+    };
+
+    const sensitiveChange = mergedPayload.salaryDetails !== undefined || mergedPayload.basicSalary !== undefined || mergedPayload.bankDetails !== undefined;
+    const sensitiveRoles = ['Super Admin', 'CEO', 'Admin', 'ERP Administrator', 'HR Manager', 'HR Admin', 'Finance Manager', 'HR', 'Department Manager'];
     if (sensitiveChange && (!req.user || !sensitiveRoles.includes(req.user.role))) {
       res.status(403).json({ success: false, error: { code: 'SENSITIVE_PROFILE_FORBIDDEN', message: 'Salary and bank changes require an authorized HR, payroll, finance, or administrator role.', details: [] } });
       return;
     }
 
-    const result = await employeeProfileSyncService.save(id, payload, options, req.user || {});
+    const result = await employeeProfileSyncService.save(id, mergedPayload, options, req.user || {});
     res.status(200).json({ success: true, data: result.employee, dependencies: result.dependencies });
   } catch (err) {
     next(err);

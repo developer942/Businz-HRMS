@@ -211,7 +211,10 @@ export class AttendanceRepository {
             if (existing.checkOut && existing.checkOut.trim() !== '' && existing.checkOut !== '--:--') {
                 throw new Error('Already checked out for this shift. Duplicate check-out is not allowed.');
             }
-            // Calculate working hours
+            if (photoToSave && existing.checkInPhoto && photoToSave.trim() === existing.checkInPhoto.trim()) {
+                throw new Error('Punch Out requires a new face photograph. The Punch In photograph cannot be reused.');
+            }
+            // Calculate working hours & enforce 1-hour minimum restriction
             const parseTimeToMinutesLocal = (tStr) => {
                 if (!tStr)
                     return null;
@@ -234,6 +237,9 @@ export class AttendanceRepository {
                 let diff = outMins - inMins;
                 if (diff < 0)
                     diff += 24 * 60; // Overnight shift
+                if (diff < 60) {
+                    throw new Error(`Punch Out available 1 hour after Punch In (${60 - diff} min remaining).`);
+                }
                 worked = Math.round((diff / 60) * 100) / 100;
             }
             existing.checkOut = timeStr;

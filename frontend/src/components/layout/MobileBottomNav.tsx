@@ -13,7 +13,8 @@ import {
   CheckCircle2,
   Receipt,
   CreditCard,
-  Bot
+  Bot,
+  History
 } from 'lucide-react';
 
 interface NavItem {
@@ -237,7 +238,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = () => {
       ];
     }
 
-    // EMPLOYEE (Strictly 4 items): 1. Home, 2. Attendance, 3. Leave, 4. Tasks
+    // EMPLOYEE (Strictly 5 items): 1. Home, 2. Attendance, 3. Leave, 4. Tasks, 5. Attendance Log
     return [
       homeTab,
       {
@@ -258,6 +259,12 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = () => {
         icon: CheckSquare,
         targetModule: 'tasks',
         badge: pendingTasksCount > 0 ? pendingTasksCount : undefined
+      },
+      {
+        key: 'attendance_log',
+        label: 'Attendance Log',
+        icon: History,
+        targetModule: 'attendance_log'
       }
     ];
   };

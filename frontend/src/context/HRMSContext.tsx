@@ -1393,10 +1393,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Supabase Database Employee Entity Mapper
   const resolveEmployeeDepartmentName = (d: any, depts?: DepartmentItem[]): string => {
-    const directDepartment = typeof d.department === 'string' ? d.department : d.department_name || d.deptName;
-    const relatedDepartment = d.departments?.name || d.department?.name;
-    const rawVal = directDepartment || relatedDepartment || d.departmentId || d.department_id;
     const deptList = depts && depts.length > 0 ? depts : (typeof departments !== 'undefined' ? departments : []);
+    const authoritativeName =
+      d.department_name ||
+      d.departments?.name ||
+      d.department?.name ||
+      d.profile_data?.department ||
+      (typeof d.department === 'string' ? d.department : '') ||
+      d.deptName;
+    if (d.department_id && deptList.length > 0) {
+      const idMatch = deptList.find((dep: any) => dep.id === d.department_id);
+      if (idMatch && (!d.profile_data?.department || idMatch.name.toLowerCase() === String(d.profile_data.department).toLowerCase())) {
+        return idMatch.name;
+      }
+    }
+    const rawVal = authoritativeName || d.departmentId || d.department_id;
     if (!rawVal) return deptList[0]?.name || '';
     const match = deptList.find((dep: any) =>
       dep.id === rawVal ||
@@ -1421,7 +1432,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     lastName: d.lastName || d.last_name || '',
     email: d.email || '',
     phone: d.phone || '',
-    dob: d.dob || '',
+    dob: d.dob ? String(d.dob).slice(0, 10) : '',
     gender: (d.gender as any) || 'Male',
     personalEmail: d.personalEmail || d.personal_email || d.email || '',
     maritalStatus: d.maritalStatus || d.marital_status || 'Single',
@@ -1458,7 +1469,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       gradePercentage: d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
     },
     experienceDetails: (() => {
-      const expType = d.experienceDetails?.experienceType || (d.previous_company ? 'Experienced' : 'Fresher');
+      const expType = d.experienceDetails?.experienceType || d.experience_profile || (d.previous_company ? 'Experienced' : 'Fresher');
       const isFresher = expType === 'Fresher';
       return {
         experienceType: expType,
@@ -1476,19 +1487,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     designation: d.designation || 'Staff',
     reportingManagerId: d.reportingManagerId || d.reporting_manager_id || '',
     reportingManagerName: d.reportingManagerName || d.reporting_manager_name || '',
-    joiningDate: d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01',
-    employmentType: (d.employmentType || d.employment_type || 'Full-Time') as any,
-    status: (d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active',
+    joiningDate: (d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01').slice(0, 10),
+    employmentType: (d.profile_data?.employmentType || d.employmentType || d.employment_type || 'Full-Time') as any,
+    status: (d.profile_data?.status || d.status) === 'Inactive' ? 'Inactive' : ((d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active'),
     avatar: d.avatar || d.avatar_url || '',
     workLocation: d.workLocation || d.work_location || d.branch || '',
-    basicSalary: Number(d.basicSalary || d.basic_salary) || 15000,
+    basicSalary: Number(d.basicSalary ?? d.basic_salary) || 15000,
     allowances: {
-      hra: Number(d.hra || d.allowances_hra) || 0,
-      transport: Number(d.conveyance || d.allowances_transport) || 0,
-      medical: Number(d.allowances_medical) || 0,
-      special: Number(d.allowances_special) || 0,
-      da: Number(d.da) || 0,
-      conveyance: Number(d.conveyance) || 0,
+      hra: Number(d.allowances?.hra ?? d.hra ?? d.allowances_hra) || 0,
+      transport: Number(d.allowances?.transport ?? d.conveyance ?? d.allowances_transport) || 0,
+      medical: Number(d.allowances?.medical ?? d.allowances_medical) || 0,
+      special: Number(d.allowances?.special ?? d.allowances_special) || 0,
+      da: Number(d.allowances?.da ?? d.da) || 0,
+      conveyance: Number(d.allowances?.conveyance ?? d.conveyance) || 0,
     },
     salaryDetails: {
       ...(d.salaryDetails || d.salary_details || {}),
@@ -6044,6 +6055,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     if (module === 'profile') return true;
+    if (module === 'face_attendance' && (action === 'view' || action === 'create')) return true;
+    if (module === 'attendance_log' && action === 'view') return true;
     if (module === 'dashboard' && action === 'view') return true;
     if (module === 'leaves' && (action === 'view' || action === 'create')) return true;
     if (module === 'tracking') return true;
@@ -6501,7 +6514,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // 3. Also notify backend API endpoint if authenticated
     try {
-      const token = localStorage.getItem('vrm_hrms_token') || localStorage.getItem('hrms_auth_token');
+      const token =
+        sessionStorage.getItem('vrm_auth_token') ||
+        localStorage.getItem('vrm_auth_token') ||
+        localStorage.getItem('vrm_hrms_token') ||
+        localStorage.getItem('hrms_auth_token') ||
+        localStorage.getItem('token');
       if (token) {
         fetch(`${API_BASE_URL}/employees/${encodeURIComponent(employeeId)}/login-status`, {
           method: 'PUT',
@@ -6582,6 +6600,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     revisionReason?: string;
   } = {}): Promise<{ success: boolean; error?: any; data?: Employee; dependencies?: any }> => {
     const normalizedEmpData = { ...empData };
+    // Phase 6: Never send password fields in profile update payloads
+    delete (normalizedEmpData as any).password;
+    delete (normalizedEmpData as any).mustChangePassword;
+    if (normalizedEmpData.systemAccess && typeof normalizedEmpData.systemAccess === 'object') {
+      normalizedEmpData.systemAccess = { ...normalizedEmpData.systemAccess };
+      delete (normalizedEmpData.systemAccess as any).password;
+    }
     const existingEmployee = employees.find(e =>
       e.id === id ||
       e.employeeId === id ||
@@ -6595,7 +6620,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       normalizedEmpData.personalEmail = normalizedEmpData.personalEmail ? normalizedEmpData.personalEmail.trim().toLowerCase() : '';
     }
     try {
-      const token = localStorage.getItem('vrm_hrms_token') || localStorage.getItem('hrms_auth_token');
+      const token =
+        sessionStorage.getItem('vrm_auth_token') ||
+        localStorage.getItem('vrm_auth_token') ||
+        localStorage.getItem('vrm_hrms_token') ||
+        localStorage.getItem('hrms_auth_token') ||
+        localStorage.getItem('token');
       if (!token) return { success: false, error: 'Your authenticated session is unavailable. Please sign in again.' };
       const response = await fetch(`${API_BASE_URL}/employees/${encodeURIComponent(id)}/profile-sync`, {
         method: 'PUT',
@@ -6607,17 +6637,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.success !== true || !result.data) {
-        return { success: false, error: result.error?.message || `Database update failed (${response.status}).` };
+        return { success: false, error: result.error?.message || result.message || `Database update failed (${response.status}).` };
       }
-      const serverEmployee = mapEmployeeFromDb(result.data, departments);
+      const rawServerEmp = result.data?.employee || result.data;
+      const serverEmployee = mapEmployeeFromDb(rawServerEmp, departments);
       const mergedEmployee: Employee = {
-        ...(existingEmployee || {} as Employee), ...normalizedEmpData, ...serverEmployee,
+        ...(existingEmployee || {} as Employee),
+        ...normalizedEmpData,
+        ...serverEmployee,
         id: serverEmployee.id || existingEmployee?.id || id,
         employeeId: serverEmployee.employeeId || existingEmployee?.employeeId || id,
+        password: existingEmployee?.password ?? serverEmployee.password,
+        mustChangePassword: existingEmployee?.mustChangePassword ?? serverEmployee.mustChangePassword,
       };
       setEmployees(prev => prev.map(e => (
         e.id === mergedEmployee.id || e.employeeId === mergedEmployee.employeeId || e.id === id || e.employeeId === id
       ) ? mergedEmployee : e));
+      persistEmployeeProfileExtension(mergedEmployee).catch(err => console.warn('[HRMSContext] persistEmployeeProfileExtension sync notice:', err));
       if ((currentUser.employeeId && currentUser.employeeId === mergedEmployee.employeeId) || (currentUser.id && currentUser.id === mergedEmployee.id)) {
         updateCurrentUser({ name: `${mergedEmployee.firstName} ${mergedEmployee.lastName}`.trim(), email: mergedEmployee.email,
           department: mergedEmployee.department, designation: mergedEmployee.designation });
@@ -10726,17 +10762,28 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
         const profileExtensions = settings[EMPLOYEE_PROFILES_SETTING_KEY] || {};
         const mapped = rawEmployees.map(e => {
-          const base = mapEmployeeFromDb(e, currentDepts);
-          const extension = profileExtensions[base.employeeId] || profileExtensions[base.id] || {};
+          const empCodeKey = e.employee_id || e.employeeId;
+          const extension = profileExtensions[empCodeKey] || profileExtensions[e.id] || {};
+          const rawProfileData = typeof e.profile_data === 'object' && e.profile_data !== null ? e.profile_data : {};
+          const mergedRaw = {
+            ...extension,
+            ...rawProfileData,
+            ...e,
+            profile_data: {
+              ...extension,
+              ...rawProfileData,
+            },
+          };
+          const base = mapEmployeeFromDb(mergedRaw, currentDepts);
 
           // Authoritative accountStatus resolution:
           // e.account_status from database is authoritative over stale extension
           const resolvedAccountStatus: 'ACTIVE' | 'DEACTIVATED' | 'DISABLED' = 
-            (e.account_status as any) || (e.accountStatus as any) || extension.accountStatus || base.accountStatus || 'ACTIVE';
+            (e.account_status as any) || (e.accountStatus as any) || base.accountStatus || extension.accountStatus || 'ACTIVE';
           const resolvedStatus: Employee['status'] =
             resolvedAccountStatus === 'DEACTIVATED' || resolvedAccountStatus === 'DISABLED'
-              ? 'Inactive'
-              : (e.status || extension.status || base.status || 'Active');
+              ? (rawProfileData.status === 'Terminated' || e.status === 'Terminated' ? 'Terminated' : 'Inactive')
+              : (rawProfileData.status || e.status || base.status || extension.status || 'Active');
 
           // Authoritative password & change flag resolution
           const isDbPasswordChanged = base.mustChangePassword === false;
@@ -10752,13 +10799,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
 
           return {
-            ...base,
             ...extension,
+            ...base,
             id: base.id,
             employeeId: base.employeeId,
             accountStatus: resolvedAccountStatus,
             status: resolvedStatus,
-            department: extension.department || base.department || 'General',
+            department: (base.department && base.department !== 'General') ? base.department : (rawProfileData.department || extension.department || base.department || 'General'),
             mustChangePassword: resolvedMustChange,
             password: resolvedPassword
           };
@@ -10813,9 +10860,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       // Synchronize Attendance (DB table primary, settings fallback)
+      const empPool = mappedEmployees.length > 0 ? mappedEmployees : employees;
       if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
         setAttendanceRecords(rawAttendance.map((a: any) => {
-          const emp = employees.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
+          const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
           const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
           return {
             id: a.id,
@@ -10862,7 +10910,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           : sandwichPolicies;
 
         const mappedLeaves = rawLeaves.map((l: any) => {
-          const emp = employees.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id) || employees[0] || ({
+          const emp = empPool.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id) || empPool[0] || ({
             id: l.employee_id,
             employeeId: l.employee?.employee_id || l.employee_id,
             firstName: l.employee?.first_name || 'Staff',

@@ -27,7 +27,7 @@ const ROLES_MATRIX = [
       department: 'Engineering',
       designation: 'Software Engineer'
     },
-    expectedLabels: ['Home', 'Attendance', 'Leave', 'Tasks']
+    expectedLabels: ['Home', 'Attendance', 'Leave', 'Tasks', 'Attendance Log']
   },
   {
     roleKey: 'HR',
@@ -111,12 +111,17 @@ for (const device of DEVICE_PROFILES) {
         await expect(navButtons.nth(0)).toHaveClass(/active/);
         await expect(navButtons.nth(0)).toHaveAttribute('aria-current', 'page');
 
-        // Verify touch-friendly dimensions and no horizontal overflow
+        // Verify touch-friendly dimensions, no label truncation, and no horizontal overflow
         for (let i = 0; i < roleCfg.expectedLabels.length; i++) {
           const box = await navButtons.nth(i).boundingBox();
           expect(box).not.toBeNull();
           expect(box!.height).toBeGreaterThanOrEqual(44);
           expect(box!.width).toBeGreaterThanOrEqual(55);
+
+          const isTruncated = await navButtons.nth(i).locator('.mobile-bottom-nav-label').evaluate((el) => {
+            return el.scrollWidth > el.clientWidth + 1;
+          });
+          expect(isTruncated).toBe(false);
         }
 
         // Test clicking each navigation item
@@ -129,6 +134,17 @@ for (const device of DEVICE_PROFILES) {
           await expect(bottomNav).toBeVisible();
           await expect(btn).toHaveClass(/active/);
           await expect(btn).toHaveAttribute('aria-current', 'page');
+
+          if (roleCfg.roleKey === 'Employee' && label === 'Attendance') {
+            await expect(page.getByRole('heading', { name: 'Face Attendance' })).toBeVisible();
+            await expect(page.getByTestId('monthly-activity-card')).toHaveCount(0);
+          }
+
+          if (roleCfg.roleKey === 'Employee' && label === 'Attendance Log') {
+            await expect(page.getByRole('heading', { name: 'Attendance Log' })).toBeVisible();
+            await expect(page.getByTestId('attendance-log-card')).toBeVisible();
+            await expect(page.getByTestId('face-camera-preview')).toHaveCount(0);
+          }
 
           if (label === 'Chat Bot') {
             await expect(btn).toHaveAttribute('title', 'BUSINZ Chat Bot');
@@ -185,7 +201,7 @@ test('Desktop viewport (> 1024px) hides mobile bottom navigation', async ({ page
 });
 
 
-test('PagarBook-style Attendance: Click Punch In -> Allow Camera & GPS -> Take Picture & Punch In -> 1-Hour Delay before Punch Out', async ({ page }) => {
+test('Minimal Mobile Face Attendance UI: Live Front Camera, Side-by-Side Punch In & Punch Out, 1-Hour Delay & Fresh Selfie', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const empUser = ROLES_MATRIX[0].user;
 
@@ -206,10 +222,15 @@ test('PagarBook-style Attendance: Click Punch In -> Allow Camera & GPS -> Take P
   });
 
   let checkInPhoto = '';
+  let checkOutPhoto = '';
   await page.route('**/api/v1/attendance/punch', async (route) => {
     const request = route.request().postDataJSON();
     const isIn = request.type === 'IN';
-    if (isIn) checkInPhoto = request.photoBase64;
+    if (isIn) {
+      checkInPhoto = request.photoBase64;
+    } else {
+      checkOutPhoto = request.photoBase64;
+    }
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
@@ -296,36 +317,59 @@ test('PagarBook-style Attendance: Click Punch In -> Allow Camera & GPS -> Take P
 
   await page.goto('/');
 
-  // 1. Verify Mobile Attendance Card is visible on mobile Home
-  const quickBanner = page.locator('.mobile-attendance-card');
-  await expect(quickBanner).toBeVisible({ timeout: 15000 });
-
-  // 2. Navigate to Attendance tab
+  // 1. Navigate to Attendance tab via mobile bottom navigation
   const bottomNav = page.locator('nav.mobile-bottom-nav');
+  await expect(bottomNav).toBeVisible({ timeout: 15000 });
+  await page.screenshot({ path: 'audit_screenshots/phase8-employee-home-5tabs-390.png' });
+
   await bottomNav.locator('button.mobile-bottom-nav-item').nth(1).click();
 
-  await expect(page.getByRole('heading', { name: 'Daily Attendance' })).toBeVisible();
-  await page.screenshot({ path: 'audit_screenshots/after-face-attendance-ready-390.png', fullPage: true });
+  // 2. Verify minimal screen elements: Heading "Face Attendance", Live Camera Preview, Face-Guidance Frame, Side-by-Side Punch In & Punch Out, NO Monthly Activity on mobile
+  await expect(page.getByRole('heading', { name: 'Face Attendance' })).toBeVisible();
+  await expect(page.getByTestId('face-camera-preview')).toBeVisible();
+  await expect(page.getByTestId('face-guidance-frame')).toBeVisible();
+  await expect(page.getByTestId('monthly-activity-card')).toHaveCount(0);
 
-  // 3. Step 1: Click "Punch In" -> asks Camera & GPS permission and opens live camera with "Take Picture & Punch In"
+  const hasHorizontalOverflowDaily = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  expect(hasHorizontalOverflowDaily).toBe(false);
+
   const punchInBtn = page.getByRole('button', { name: /^Punch In$/i });
+  const punchOutBtn = page.getByRole('button', { name: /^Punch Out$/i });
   await expect(punchInBtn).toBeVisible();
+  await expect(punchOutBtn).toBeVisible();
+  await expect(punchInBtn).toBeEnabled();
+  await expect(punchOutBtn).toBeDisabled();
+
+  // Verify Punch In and Punch Out are positioned side by side
+  const inBox = await punchInBtn.boundingBox();
+  const outBox = await punchOutBtn.boundingBox();
+  expect(inBox).not.toBeNull();
+  expect(outBox).not.toBeNull();
+  expect(Math.abs((inBox?.y || 0) - (outBox?.y || 0))).toBeLessThanOrEqual(4);
+
+  await page.screenshot({ path: 'audit_screenshots/phase8-daily-attendance-clean-390.png' });
+
+  // 3. Tap "Punch In" -> captures fresh selfie, verifies face & GPS, saves only Punch In
   await punchInBtn.click();
 
-  await expect(page.getByText('Camera & GPS Ready')).toBeVisible({ timeout: 10000 });
-  const takePicInBtn = page.getByRole('button', { name: 'Take Picture & Punch In' });
-  await expect(takePicInBtn).toBeVisible();
+  const statusText = page.getByTestId('face-attendance-status');
+  await expect(statusText).toContainText(/Punch In successful/i, { timeout: 10000 });
+  await expect(statusText).toContainText(/Punch Out available in \d+ min/i);
+  await expect(page.getByTestId('today-punch-in-summary')).toContainText('Punch In: 09:00 AM');
+  await expect(punchInBtn).toBeDisabled();
+  await expect(punchOutBtn).toBeDisabled();
+  await page.screenshot({ path: 'audit_screenshots/phase8-daily-attendance-punched-in-390.png' });
 
-  // 4. Step 2: Click "Take Picture & Punch In" -> captures photo and enforces 1-Hour Delay before Punch Out
-  await takePicInBtn.click();
+  // Verify shared state: switch to Attendance Log (5th tab) right after Punch In
+  await bottomNav.locator('button.mobile-bottom-nav-item').nth(4).click();
+  await expect(page.getByRole('heading', { name: 'Attendance Log' })).toBeVisible();
+  await expect(page.getByTestId('attendance-log-record').first()).toContainText('09:00 AM');
+  await expect(page.getByTestId('checkin-photo-thumb').first()).toBeVisible();
 
-  await expect(page.getByText(/1-Hour Delay Active/i)).toBeVisible({ timeout: 10000 });
-  const lockedOutBtn = page.getByRole('button', { name: /Punch Out in \d+ min \(1 Hr Delay\)/i });
-  await expect(lockedOutBtn).toBeVisible();
-  await expect(lockedOutBtn).toBeDisabled();
-  await page.screenshot({ path: 'audit_screenshots/after-face-attendance-one-hour-lock-390.png', fullPage: true });
+  // Return to Daily Attendance (2nd tab)
+  await bottomNav.locator('button.mobile-bottom-nav-item').nth(1).click();
 
-  // 5. Simulate 61 minutes passing to unlock Punch Out
+  // 4. Simulate 61 minutes passing to unlock Punch Out
   await page.evaluate(() => {
     const sixtyOneMinsAgo = String(Date.now() - 61 * 60 * 1000);
     for (let i = 0; i < localStorage.length; i++) {
@@ -340,15 +384,92 @@ test('PagarBook-style Attendance: Click Punch In -> Allow Camera & GPS -> Take P
   await bottomNav.locator('button.mobile-bottom-nav-item').nth(0).click();
   await bottomNav.locator('button.mobile-bottom-nav-item').nth(1).click();
 
-  // 6. Now "Punch Out" button is enabled! Click "Punch Out" -> "Take Picture & Punch Out"
-  const punchOutBtn = page.getByRole('button', { name: /^Punch Out$/i });
-  await expect(punchOutBtn).toBeVisible();
+  // 5. After 1 hour, "Punch Out" is enabled! Tap "Punch Out" -> captures a NEW selfie and saves only Punch Out
   await expect(punchOutBtn).toBeEnabled();
   await punchOutBtn.click();
 
-  const takePicOutBtn = page.getByRole('button', { name: 'Take Picture & Punch Out' });
-  await expect(takePicOutBtn).toBeVisible({ timeout: 10000 });
-  await takePicOutBtn.click();
+  await expect(statusText).toContainText(/Punch Out successful/i, { timeout: 10000 });
+  await expect(punchInBtn).toBeDisabled();
+  await expect(punchOutBtn).toBeDisabled();
 
-  await expect(page.getByRole('button', { name: 'Attendance Completed Today' })).toBeVisible({ timeout: 10000 });
+  // Verify "Today's Attendance Completed" banner with Punch In and Punch Out times
+  const completedCard = page.getByTestId('today-attendance-completed');
+  await expect(completedCard).toBeVisible();
+  await expect(completedCard).toContainText("Today's Attendance Completed");
+  await expect(completedCard).toContainText('Punch In: 09:00 AM');
+  await expect(completedCard).toContainText('Punch Out: 10:01 AM');
+  await page.screenshot({ path: 'audit_screenshots/phase8-daily-attendance-completed-390.png' });
+
+  expect(checkInPhoto.length).toBeGreaterThan(50);
+  expect(checkOutPhoto.length).toBeGreaterThan(50);
+  expect(checkOutPhoto).not.toBe(checkInPhoto);
+
+  // 6. Navigate to "Attendance Log" (5th item in Employee bottom navigation)
+  await bottomNav.locator('button.mobile-bottom-nav-item').nth(4).click();
+  await expect(page.getByRole('heading', { name: 'Attendance Log' })).toBeVisible();
+  await expect(page.getByTestId('attendance-log-card')).toBeVisible();
+
+  const hasHorizontalOverflowLog = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  expect(hasHorizontalOverflowLog).toBe(false);
+
+  const firstRecord = page.getByTestId('attendance-log-record').first();
+  await expect(firstRecord).toBeVisible();
+  await expect(firstRecord).toContainText('Present');
+  await expect(firstRecord).toContainText('09:00 AM');
+  await expect(firstRecord).toContainText('10:01 AM');
+  await expect(firstRecord).toContainText('1.02 hrs');
+
+  const inThumb = firstRecord.getByTestId('checkin-photo-thumb');
+  const outThumb = firstRecord.getByTestId('checkout-photo-thumb');
+  await expect(inThumb).toBeVisible();
+  await expect(outThumb).toBeVisible();
+  const inSrc = await inThumb.locator('img').getAttribute('src');
+  const outSrc = await outThumb.locator('img').getAttribute('src');
+  expect(inSrc).toBeTruthy();
+  expect(outSrc).toBeTruthy();
+  expect(inSrc).not.toBe(outSrc);
+
+  await page.screenshot({ path: 'audit_screenshots/phase8-attendance-log-page-390.png' });
+
+  // Tap record to expand full details
+  await firstRecord.click();
+  await expect(firstRecord.getByTestId('attendance-log-expanded-details')).toBeVisible();
+  await page.screenshot({ path: 'audit_screenshots/phase8-attendance-log-expanded-390.png' });
+
+  // Navigate to a previous month with no records and verify empty state
+  await page.getByTestId('month-prev-btn').click();
+  await page.getByTestId('month-prev-btn').click();
+  await expect(page.getByTestId('attendance-log-empty')).toBeVisible();
+  await page.screenshot({ path: 'audit_screenshots/phase8-attendance-log-empty-month-390.png' });
+});
+
+test('Desktop Attendance regression check: Desktop view (> 768px) retains both Face Attendance and Monthly Activity side by side', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const empUser = ROLES_MATRIX[0].user;
+
+  await page.route('**/api/v1/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: empUser })
+    });
+  });
+
+  const token = 'vrm_session_' + Buffer.from(JSON.stringify(empUser)).toString('base64');
+  await page.addInitScript(({ token, user }) => {
+    localStorage.setItem('vrm_auth_token', token);
+    sessionStorage.setItem('vrm_auth_token', token);
+    localStorage.setItem('vrm_hrms_current_user', JSON.stringify(user));
+  }, { token, user: empUser });
+
+  await page.goto('/');
+  const sidebar = page.locator('aside.hrms-sidebar');
+  await expect(sidebar).toBeVisible({ timeout: 15000 });
+  await sidebar.hover();
+  await sidebar.locator('a.nav-item:has-text("Live Face Attendance"), a.nav-item[title="Live Face Attendance"]').first().click();
+
+  await expect(page.getByRole('heading', { name: 'Face Attendance' })).toBeVisible();
+  await expect(page.getByTestId('face-camera-preview')).toBeVisible();
+  await expect(page.getByTestId('monthly-activity-card')).toBeVisible();
+  await page.screenshot({ path: 'audit_screenshots/phase8-desktop-attendance-regression-1280.png' });
 });

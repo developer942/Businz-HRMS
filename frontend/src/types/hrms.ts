@@ -36,6 +36,7 @@ export type ModuleName =
   | 'dashboard'
   | 'employees'
   | 'face_attendance'
+  | 'attendance_log'
   | 'attendance'
   | 'gps_geofence'
   | 'leaves'

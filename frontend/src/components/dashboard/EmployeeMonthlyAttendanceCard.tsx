@@ -11,7 +11,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
   onOpenAttendance,
   onOpenLeaves
 }) => {
-  const { currentUser, attendanceRecords, leaveRequests, masterAttendancePolicies } = useHRMS();
+  const { currentUser, employees, attendanceRecords, leaveRequests, masterAttendancePolicies } = useHRMS();
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
 
   const userLatePolicy = useMemo(() => {
@@ -23,19 +23,59 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
     const month = getMonthInfo();
     const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
     const userName = (currentUser.name || '').trim().toLowerCase();
+    const userEmail = (currentUser.email || '').trim().toLowerCase();
+
+    const currentEmpObj = (employees || []).find(e => {
+      const eCode = (e.employeeId || '').trim().toLowerCase();
+      const eId = (e.id || '').trim().toLowerCase();
+      const eEmail = (e.email || '').trim().toLowerCase();
+      const eName = `${e.firstName} ${e.lastName}`.trim().toLowerCase();
+      return (
+        (userEmpId && (eCode === userEmpId || eId === userEmpId)) ||
+        (userEmail && eEmail === userEmail) ||
+        (userName && eName === userName)
+      );
+    });
+
+    const validIds = new Set(
+      [currentUser.employeeId, currentUser.id, currentEmpObj?.employeeId, currentEmpObj?.id]
+        .filter(Boolean)
+        .map(id => String(id).trim().toLowerCase())
+    );
+    const validNames = new Set(
+      [currentUser.name, currentEmpObj ? `${currentEmpObj.firstName} ${currentEmpObj.lastName}`.trim() : '']
+        .filter(Boolean)
+        .map(n => String(n).trim().toLowerCase())
+    );
+
     const matchesCurrentUser = (employeeId?: string, employeeName?: string) => {
       const recId = (employeeId || '').trim().toLowerCase();
-      if (userEmpId && recId && userEmpId === recId) return true;
+      if (recId && validIds.has(recId)) return true;
 
       const recName = (employeeName || '').trim().toLowerCase();
-      return !!userName && !!recName && recName === userName;
+      return !!recName && validNames.has(recName);
     };
 
-    // Filter attendance records for current user in the current month
-    const userRecords = attendanceRecords.filter(a => {
-      if (!isDateInMonth(a.shiftDate || a.date, month)) return false;
-      return matchesCurrentUser(a.employeeId, a.employeeName);
-    });
+    // Filter and deduplicate attendance records by date for current user in the current month
+    const byDate = new Map<string, typeof attendanceRecords[number]>();
+    for (const a of attendanceRecords) {
+      const dateKey = String(a.shiftDate || a.date || '').slice(0, 10);
+      if (!dateKey || !isDateInMonth(dateKey, month)) continue;
+      if (!matchesCurrentUser(a.employeeId, a.employeeName)) continue;
+      const existing = byDate.get(dateKey);
+      if (!existing) {
+        byDate.set(dateKey, a);
+      } else {
+        const isManual = String(a.method || '') === 'Manual Punch' || String(a.method || '') === 'Manual Override';
+        const existingIsManual = String(existing.method || '') === 'Manual Punch' || String(existing.method || '') === 'Manual Override';
+        if (isManual && !existingIsManual) {
+          byDate.set(dateKey, a);
+        } else if (Boolean(a.checkOut) && !existing.checkOut) {
+          byDate.set(dateKey, a);
+        }
+      }
+    }
+    const userRecords = Array.from(byDate.values());
 
     // Check user's approved leaves
     const userLeaves = leaveRequests.filter(l => {
@@ -66,7 +106,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
       absent: realAbsent,
       attendanceRate
     };
-  }, [currentUser, attendanceRecords, leaveRequests]);
+  }, [currentUser, employees, attendanceRecords, leaveRequests]);
 
   // Donut chart SVG geometry (Big, Bold & Perfectly Proportioned)
   const size = 172;

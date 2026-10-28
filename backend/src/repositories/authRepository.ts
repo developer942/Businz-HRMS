@@ -103,6 +103,7 @@ export class AuthRepository {
     }
     try {
       const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
+      const hasProfileData = await hasDatabaseColumn('employees', 'profile_data');
       const result = await query(
         `SELECT employee.id, employee.auth_id, employee.employee_id, employee.first_name, employee.last_name,
                 employee.email, employee.designation, employee.status, employee.must_change_password,
@@ -110,29 +111,35 @@ export class AuthRepository {
                 employee.last_login_at, employee.password, department.name AS department,
                 role.key AS role_key, role.name AS role_name
                 ${hasCompanyId ? ', employee.company_id' : ''}
+                ${hasProfileData ? ', employee.profile_data' : ''}
          FROM employees employee
          LEFT JOIN departments department ON department.id = employee.department_id
          LEFT JOIN roles role ON role.id = employee.role_id
-         WHERE ${clean.includes('@') ? 'LOWER(employee.email) = LOWER($1)' : 'LOWER(employee.employee_id) = LOWER($1)'}
+         WHERE ${clean.includes('@') ? 'LOWER(employee.email) = LOWER($1)' : '(LOWER(employee.employee_id) = LOWER($1) OR employee.id::text = $1)'}
          LIMIT 1`,
         [clean]
       );
       const data = result.rows[0] as any;
       if (data) {
           let userRole: UserRole = 'Employee';
-          const roleKey = data.role_key || '';
+          const roleKey = (data.role_key || '').toLowerCase();
           const roleName = data.role_name || '';
-          if (roleKey === 'ceo' || roleName === 'CEO') userRole = 'CEO';
-          else if (roleKey === 'super_admin' || roleName === 'Super Admin') userRole = 'Super Admin';
-          else if (roleKey === 'hr_admin' || roleName === 'HR Admin' || roleName === 'HR Manager') userRole = 'HR Manager';
-          else if (roleKey === 'finance_manager' || roleName === 'Finance Manager') userRole = 'Finance Manager';
-          else if (roleKey === 'dept_manager' || roleName === 'Dept Manager' || roleName === 'Department Manager') userRole = 'Department Manager';
+          const profileData = typeof data.profile_data === 'object' && data.profile_data !== null ? data.profile_data : {};
+          const sysAccessRole = String(profileData?.systemAccess?.role || profileData?.role || '').toLowerCase();
+          const deptName = String(data.department || profileData?.department || '').toLowerCase();
+          const dLower = String(data.designation || '').toLowerCase();
+
+          if (roleKey === 'ceo' || roleName === 'CEO' || sysAccessRole === 'ceo') userRole = 'CEO';
+          else if (roleKey === 'super_admin' || roleName === 'Super Admin' || sysAccessRole === 'super admin') userRole = 'Super Admin';
+          else if (roleKey === 'hr_admin' || roleName === 'HR Admin' || roleName === 'HR Manager' || sysAccessRole === 'hr manager' || sysAccessRole === 'hr admin' || sysAccessRole === 'hr') userRole = 'HR Manager';
+          else if (roleKey === 'finance_manager' || roleName === 'Finance Manager' || sysAccessRole === 'finance manager' || sysAccessRole === 'accounts') userRole = 'Finance Manager';
+          else if (roleKey === 'dept_manager' || roleName === 'Dept Manager' || roleName === 'Department Manager' || sysAccessRole === 'department manager') userRole = 'Department Manager';
           else {
-            const dLower = (data.designation || '').toLowerCase();
-            if (dLower.includes('ceo') || dLower.includes('director')) userRole = 'CEO';
+            if (dLower.includes('ceo') || dLower.includes('director') || deptName === 'ceo') userRole = 'CEO';
             else if (dLower.includes('super admin')) userRole = 'Super Admin';
-            else if (dLower.includes('hr manager') || dLower.includes('hr admin')) userRole = 'HR Manager';
-            else if (dLower.includes('finance') || dLower.includes('account')) userRole = 'Finance Manager';
+            else if (dLower.includes('hr manager') || dLower.includes('hr admin') || /\bhr\b/.test(dLower) || dLower.includes('human resource') || deptName === 'hr' || deptName.includes('human resource')) userRole = 'HR Manager';
+            else if (dLower.includes('finance') || dLower.includes('account') || deptName === 'accounts' || deptName === 'finance') userRole = 'Finance Manager';
+            else if (dLower.includes('department manager') || dLower.includes('dept manager')) userRole = 'Department Manager';
           }
 
           const accountStatus: AccountStatus = (data.account_status as AccountStatus) || (data.status === 'Active' ? 'ACTIVE' : 'DEACTIVATED');

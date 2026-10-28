@@ -6,7 +6,7 @@ import { authService, toAppUser } from './services/authService';
 import { initGlobalKeyboardGuard } from './utils/keyboardUtils';
 
 const AuthenticatedApp: React.FC = () => {
-  const { switchRole, updateCurrentUser, setActiveModule, resetToDashboard } = useHRMS();
+  const { switchRole, updateCurrentUser, setActiveModule, resetToDashboard, syncAllWithCloud } = useHRMS();
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'anonymous'>('checking');
 
   useEffect(() => {
@@ -29,6 +29,7 @@ const AuthenticatedApp: React.FC = () => {
         if (!active) return;
         const appUser = toAppUser(authUser);
         updateCurrentUser(appUser);
+        void syncAllWithCloud?.();
         // Primary Rule: Software must ALWAYS start from dashboard
         resetToDashboard?.();
         setActiveModule('dashboard');
@@ -71,7 +72,8 @@ const AuthenticatedApp: React.FC = () => {
     <AppLayout onLogout={logout} />
   ) : (
     <LoginPage onLoginSuccess={() => {
-      // Primary Rule: Software must ALWAYS start from dashboard upon logging in
+      // Primary Rule: Software must ALWAYS start from dashboard upon logging in and refresh authoritative DB state
+      void syncAllWithCloud?.();
       resetToDashboard?.();
       setActiveModule('dashboard');
       setAuthState('authenticated');

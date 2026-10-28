@@ -1013,6 +1013,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       setValidationError('UAN must be exactly 12 digits.');
       return;
     }
+    if (formData.accountNumber && !/^[0-9]{9,18}$/.test(String(formData.accountNumber).trim())) {
+      setValidationError('Account number must be between 9 and 18 digits.');
+      return;
+    }
+    if (formData.ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(formData.ifscCode).trim().toUpperCase())) {
+      setValidationError('Invalid IFSC format (e.g. SBIN0001234).');
+      return;
+    }
 
     const cleanEmail = (formData.personalEmail || '').trim().toLowerCase();
     if (!cleanEmail) {
@@ -1168,8 +1176,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       documents: formData.documents,
       accountStatus: formData.accountStatus,
-      password: formData.password,
-      mustChangePassword: formData.mustChangePassword,
       systemAccess: {
         role: formData.role,
         status: (formData.accountStatus === 'ACTIVE' ? 'Active' : 'Inactive') as 'Active' | 'Inactive',
@@ -3581,133 +3587,100 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </div>
           </div>
 
-          {/* Password (Visible to Super Admin, CEO, HR, and Employee Self) */}
+          {/* Password (Read-Only in Profile Sync — Protected by Phase 6) */}
           <div>
             <label style={labelStyle}>Portal Login Password</label>
             {canViewPassword ? (
-              isEditing ? (
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <input 
-                    type={showPassword ? 'text' : 'password'} 
-                    value={formData.password || ''} 
-                    onChange={(e) => handleChange('password', e.target.value)} 
-                    style={{
-                      ...inputStyle,
-                      paddingRight: '42px',
+              <div>
+                <div style={{
+                  ...viewValueStyle,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                    <Lock size={15} color="#0E7490" style={{ flexShrink: 0 }} />
+                    <span style={{
+                      color: '#0F172A',
+                      fontWeight: 700,
+                      fontSize: '0.86rem',
                       fontFamily: showPassword ? "'JetBrains Mono', 'Fira Code', monospace" : 'inherit',
-                      letterSpacing: showPassword ? '0.04em' : 'normal',
-                      fontWeight: 600
-                    }} 
-                    placeholder="Enter employee portal password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      background: 'none',
-                      border: 'none',
-                      color: '#64748B',
-                      cursor: 'pointer',
-                      padding: '6px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: '6px'
-                    }}
-                    title={showPassword ? 'Hide Password' : 'Show Password'}
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <div style={{
-                    ...viewValueStyle,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    backgroundColor: '#F8FAFC',
-                    border: '1px solid #E2E8F0',
-                    padding: '8px 12px',
-                    borderRadius: '10px',
-                    gap: '8px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                      <Lock size={15} color="#0E7490" style={{ flexShrink: 0 }} />
-                      <span style={{
-                        color: '#0F172A',
+                      letterSpacing: showPassword ? '0.04em' : '0.15em'
+                    }}>
+                      {showPassword ? (
+                        (formData.password && !formData.password.startsWith('$2'))
+                          ? formData.password
+                          : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123'))
+                      ) : '••••••••••••'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    {/* Toggle Visibility */}
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #E2E8F0',
+                        backgroundColor: '#FFFFFF',
+                        color: '#475569',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      title={showPassword ? 'Hide password' : 'View password'}
+                    >
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                      <span>{showPassword ? 'Hide' : 'Show'}</span>
+                    </button>
+
+                    {/* Copy Password */}
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(
+                        (formData.password && !formData.password.startsWith('$2'))
+                          ? formData.password
+                          : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123')),
+                        'portalPassword'
+                      )}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #A5F3FC',
+                        backgroundColor: copiedField === 'portalPassword' ? '#DCFCE7' : '#ECFEFF',
+                        color: copiedField === 'portalPassword' ? '#15803D' : '#0E7490',
+                        fontSize: '0.74rem',
                         fontWeight: 700,
-                        fontSize: '0.86rem',
-                        fontFamily: showPassword ? "'JetBrains Mono', 'Fira Code', monospace" : 'inherit',
-                        letterSpacing: showPassword ? '0.04em' : '0.15em'
-                      }}>
-                        {showPassword ? (
-                          (formData.password && !formData.password.startsWith('$2'))
-                            ? formData.password
-                            : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123'))
-                        ) : '••••••••••••'}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                      {/* Toggle Visibility */}
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid #E2E8F0',
-                          backgroundColor: '#FFFFFF',
-                          color: '#475569',
-                          fontSize: '0.74rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                        title={showPassword ? 'Hide password' : 'View password'}
-                      >
-                        {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                        <span>{showPassword ? 'Hide' : 'Show'}</span>
-                      </button>
-
-                      {/* Copy Password */}
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(
-                          (formData.password && !formData.password.startsWith('$2'))
-                            ? formData.password
-                            : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123')),
-                          'portalPassword'
-                        )}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid #A5F3FC',
-                          backgroundColor: copiedField === 'portalPassword' ? '#DCFCE7' : '#ECFEFF',
-                          color: copiedField === 'portalPassword' ? '#15803D' : '#0E7490',
-                          fontSize: '0.74rem',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                        title="Copy Password"
-                      >
-                        {copiedField === 'portalPassword' ? <Check size={14} /> : <Copy size={14} />}
-                        <span>{copiedField === 'portalPassword' ? 'Copied!' : 'Copy'}</span>
-                      </button>
-                    </div>
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      title="Copy Password"
+                    >
+                      {copiedField === 'portalPassword' ? <Check size={14} /> : <Copy size={14} />}
+                      <span>{copiedField === 'portalPassword' ? 'Copied!' : 'Copy'}</span>
+                    </button>
                   </div>
                 </div>
-              )
+                {isEditing && (
+                  <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px' }}>
+                    Login passwords are protected during profile edits. Use "Reset Credentials" above to issue a new password.
+                  </div>
+                )}
+              </div>
             ) : (
               <div>
                 <div style={{
@@ -4220,19 +4193,42 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
               boxShadow: '0 2px 8px rgba(239, 68, 68, 0.15)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <AlertCircle size={18} color="#EF4444" />
                 <span>{validationError}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setValidationError(null)}
-                style={{ background: 'none', border: 'none', color: '#B91C1C', cursor: 'pointer', fontWeight: 800, fontSize: '1rem' }}
-              >
-                ✕
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {isEditing && (
+                  <button
+                    type="button"
+                    onClick={handleSaveChanges}
+                    disabled={isSaving}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #EF4444',
+                      backgroundColor: '#FFFFFF',
+                      color: '#B91C1C',
+                      cursor: isSaving ? 'wait' : 'pointer',
+                      fontWeight: 700,
+                      fontSize: '0.78rem'
+                    }}
+                  >
+                    {isSaving ? 'Retrying...' : 'Retry Save'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setValidationError(null)}
+                  style={{ background: 'none', border: 'none', color: '#B91C1C', cursor: 'pointer', fontWeight: 800, fontSize: '1rem' }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 

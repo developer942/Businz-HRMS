@@ -1,5 +1,80 @@
 import { withTransaction } from '../config/database.js';
 import { computeFullPayroll } from './calculationEngine.js';
+import { memoryCache } from './cacheService.js';
+let schemaEnsured = false;
+const ensureProfileSyncSchema = async (client) => {
+    if (schemaEnsured)
+        return;
+    await client.query(`
+    ALTER TABLE public.employees
+      ADD COLUMN IF NOT EXISTS company_id TEXT NOT NULL DEFAULT 'company-a',
+      ADD COLUMN IF NOT EXISTS work_shift TEXT,
+      ADD COLUMN IF NOT EXISTS profile_data JSONB DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS row_version INTEGER NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS payroll_eligible BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS address_line1 TEXT,
+      ADD COLUMN IF NOT EXISTS address_line2 TEXT,
+      ADD COLUMN IF NOT EXISTS city TEXT,
+      ADD COLUMN IF NOT EXISTS state TEXT,
+      ADD COLUMN IF NOT EXISTS country TEXT,
+      ADD COLUMN IF NOT EXISTS pincode TEXT,
+      ADD COLUMN IF NOT EXISTS highest_qualification TEXT,
+      ADD COLUMN IF NOT EXISTS degree_name TEXT,
+      ADD COLUMN IF NOT EXISTS specialization TEXT,
+      ADD COLUMN IF NOT EXISTS university TEXT,
+      ADD COLUMN IF NOT EXISTS year_of_passing INTEGER,
+      ADD COLUMN IF NOT EXISTS grade_percentage NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS experience_profile TEXT,
+      ADD COLUMN IF NOT EXISTS total_experience NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS previous_company TEXT,
+      ADD COLUMN IF NOT EXISTS previous_designation TEXT,
+      ADD COLUMN IF NOT EXISTS previous_department TEXT,
+      ADD COLUMN IF NOT EXISTS employment_start_date DATE,
+      ADD COLUMN IF NOT EXISTS employment_end_date DATE,
+      ADD COLUMN IF NOT EXISTS last_drawn_salary NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS previous_company_location TEXT,
+      ADD COLUMN IF NOT EXISTS pan_number TEXT,
+      ADD COLUMN IF NOT EXISTS uan_number TEXT;
+
+    ALTER TABLE public.salary_structures
+      ADD COLUMN IF NOT EXISTS company_id TEXT NOT NULL DEFAULT 'company-a',
+      ADD COLUMN IF NOT EXISTS component_values JSONB DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS salary_scheme TEXT,
+      ADD COLUMN IF NOT EXISTS with_pf BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS revision_reason TEXT,
+      ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+    ALTER TABLE public.attendance_records
+      ADD COLUMN IF NOT EXISTS shift_policy_snapshot JSONB,
+      ADD COLUMN IF NOT EXISTS is_finalized BOOLEAN NOT NULL DEFAULT FALSE;
+
+    CREATE TABLE IF NOT EXISTS public.employee_weekly_off_assignments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      company_id TEXT NOT NULL DEFAULT 'company-a',
+      employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+      schedule_name TEXT NOT NULL,
+      effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+      effective_to DATE,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT uq_emp_weekly_off_effective UNIQUE (employee_id, effective_from)
+    );
+
+    CREATE TABLE IF NOT EXISTS public.employee_profile_audit_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      company_id TEXT NOT NULL DEFAULT 'company-a',
+      employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+      performed_by TEXT NOT NULL,
+      changed_fields TEXT[] NOT NULL DEFAULT '{}',
+      old_values JSONB,
+      new_values JSONB,
+      effective_dates JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+    schemaEnsured = true;
+};
 const isoDate = (value, fallback) => {
     const text = String(value || fallback).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00Z`))) {
@@ -7,12 +82,9 @@ const isoDate = (value, fallback) => {
     }
     return text;
 };
-const previousDate = (date) => {
-    const value = new Date(`${date}T12:00:00Z`);
-    value.setUTCDate(value.getUTCDate() - 1);
-    return value.toISOString().slice(0, 10);
-};
 const amount = (value) => {
+    if (value === '' || value === null || value === undefined)
+        return 0;
     const parsed = Number(value ?? 0);
     if (!Number.isFinite(parsed) || parsed < 0) {
         throw Object.assign(new Error('Salary component values must be non-negative numbers.'), { statusCode: 400, code: 'INVALID_SALARY_COMPONENT' });
@@ -22,16 +94,56 @@ const amount = (value) => {
 const withoutSecrets = (value) => {
     const copy = JSON.parse(JSON.stringify(value || {}));
     delete copy.password;
+    delete copy.passwordHash;
+    delete copy.plainPassword;
     delete copy.mustChangePassword;
     delete copy.officialUsername;
+    if (copy.systemAccess && typeof copy.systemAccess === 'object') {
+        delete copy.systemAccess.password;
+    }
     return copy;
 };
+const normalizeEmploymentTypeForDb = (val, fallback = 'Full-Time') => {
+    if (!val || typeof val !== 'string')
+        return fallback;
+    const lower = val.trim().toLowerCase();
+    if (lower === 'full-time' || lower === 'full time' || lower === 'permanent' || lower === 'probation')
+        return 'Full-Time';
+    if (lower === 'part-time' || lower === 'part time')
+        return 'Part-Time';
+    if (lower === 'contract' || lower === 'consultant' || lower === 'freelance')
+        return 'Contract';
+    if (lower === 'intern' || lower === 'internship' || lower === 'trainee')
+        return 'Intern';
+    return fallback;
+};
+const normalizeStatusForDb = (val, fallback = 'Active') => {
+    if (!val || typeof val !== 'string')
+        return fallback;
+    const lower = val.trim().toLowerCase();
+    if (lower === 'active')
+        return 'Active';
+    if (lower === 'on leave')
+        return 'On Leave';
+    if (lower === 'terminated' || lower === 'inactive' || lower === 'resigned' || lower === 'deactivated')
+        return 'Terminated';
+    return fallback;
+};
 const resolveEmployee = async (client, identifier, companyId) => {
-    const result = await client.query(`SELECT e.*, d.name AS department_name
+    const cleanId = identifier.trim();
+    let result = await client.query(`SELECT e.*, d.name AS department_name
        FROM public.employees e
        LEFT JOIN public.departments d ON d.id = e.department_id
-      WHERE e.company_id = $1 AND (e.id::text = $2 OR lower(e.employee_id) = lower($2))
-      FOR UPDATE OF e`, [companyId, identifier.trim()]);
+      WHERE (e.company_id = $1 OR e.company_id IS NULL)
+        AND (e.id::text = $2 OR lower(e.employee_id) = lower($2))
+      FOR UPDATE OF e`, [companyId, cleanId]);
+    if (!result.rows[0]) {
+        result = await client.query(`SELECT e.*, d.name AS department_name
+         FROM public.employees e
+         LEFT JOIN public.departments d ON d.id = e.department_id
+        WHERE e.id::text = $1 OR lower(e.employee_id) = lower($1)
+        FOR UPDATE OF e`, [cleanId]);
+    }
     if (!result.rows[0]) {
         throw Object.assign(new Error(`Employee ${identifier} was not found in the active company.`), { statusCode: 404, code: 'EMPLOYEE_NOT_FOUND' });
     }
@@ -134,118 +246,395 @@ const recalculateDraftPayroll = async (client, employee, structureId, effectiveF
 };
 export class EmployeeProfileSyncService {
     async save(identifier, input, options, actor) {
-        const companyId = actor.company_id || input.company_id || input.companyId || 'company-a';
+        const requestedCompanyId = actor.company_id || input.company_id || input.companyId || 'company-a';
         const today = new Date().toISOString().slice(0, 10);
         const shiftEffectiveFrom = isoDate(options.shiftEffectiveFrom, today);
         const salaryEffectiveFrom = isoDate(options.salaryEffectiveFrom, today);
         const weeklyOffEffectiveFrom = isoDate(options.weeklyOffEffectiveFrom, shiftEffectiveFrom);
         const performer = actor.email || actor.employeeId || actor.id || 'authorized-user';
-        return withTransaction(async (client) => {
-            const oldEmployee = await resolveEmployee(client, identifier, companyId);
+        const txResult = await withTransaction(async (client) => {
+            await ensureProfileSyncSchema(client);
+            const oldEmployee = await resolveEmployee(client, identifier, requestedCompanyId);
+            const companyId = oldEmployee.company_id || requestedCompanyId || 'company-a';
             if (options.expectedVersion !== undefined && Number(oldEmployee.row_version) !== Number(options.expectedVersion)) {
                 throw Object.assign(new Error('This employee profile was changed by another user. Reload and apply your changes again.'), {
                     statusCode: 409, code: 'STALE_EMPLOYEE_VERSION', currentVersion: Number(oldEmployee.row_version),
                 });
             }
+            // 1. Resolve Department (prioritize department name if provided, auto-create if new valid department)
             let departmentId = oldEmployee.department_id;
-            if (input.department !== undefined || input.departmentId !== undefined) {
-                const department = await client.query(`SELECT id FROM public.departments WHERE id::text=$1 OR lower(name)=lower($2) LIMIT 1`, [String(input.departmentId || ''), String(input.department || '')]);
-                if (!department.rows[0])
+            let resolvedDepartmentName = oldEmployee.department_name || oldEmployee.profile_data?.department || 'General';
+            const reqDeptName = typeof input.department === 'string' ? input.department.trim() : '';
+            const reqDeptId = typeof input.departmentId === 'string' ? input.departmentId.trim() : '';
+            if (reqDeptName || reqDeptId) {
+                let deptRow = null;
+                if (reqDeptName) {
+                    const byName = await client.query(`SELECT id, name FROM public.departments WHERE lower(name) = lower($1) OR lower(code) = lower($1) LIMIT 1`, [reqDeptName]);
+                    deptRow = byName.rows[0];
+                }
+                if (!deptRow && reqDeptId) {
+                    const byId = await client.query(`SELECT id, name FROM public.departments WHERE id::text = $1 OR lower(code) = lower($1) LIMIT 1`, [reqDeptId]);
+                    deptRow = byId.rows[0];
+                }
+                if (!deptRow && reqDeptName) {
+                    const cleanCodeBase = reqDeptName.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'DEPT';
+                    const code = `${cleanCodeBase}-${Math.floor(100 + Math.random() * 900)}`;
+                    const created = await client.query(`INSERT INTO public.departments (name, code)
+             VALUES ($1, $2)
+             ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
+             RETURNING id, name`, [reqDeptName, code]);
+                    deptRow = created.rows[0];
+                }
+                if (deptRow) {
+                    departmentId = deptRow.id;
+                    resolvedDepartmentName = deptRow.name;
+                }
+                else if (reqDeptId && !reqDeptName) {
                     throw Object.assign(new Error('Selected department does not exist.'), { statusCode: 400, code: 'INVALID_DEPARTMENT' });
-                departmentId = department.rows[0].id;
-            }
-            let managerId = oldEmployee.reporting_manager_id;
-            if (input.reportingManagerId !== undefined) {
-                managerId = null;
-                if (input.reportingManagerId) {
-                    const manager = await client.query(`SELECT id FROM public.employees WHERE company_id=$1 AND (id::text=$2 OR employee_id=$2) AND id<>$3 LIMIT 1`, [companyId, input.reportingManagerId, oldEmployee.id]);
-                    if (!manager.rows[0])
-                        throw Object.assign(new Error('Selected reporting manager is invalid.'), { statusCode: 400, code: 'INVALID_REPORTING_MANAGER' });
-                    managerId = manager.rows[0].id;
                 }
             }
-            const profileData = { ...(oldEmployee.profile_data || {}), ...withoutSecrets(input) };
+            // 2. Resolve Reporting Manager
+            let managerId = oldEmployee.reporting_manager_id;
+            let resolvedManagerName = input.reportingManagerName !== undefined
+                ? (input.reportingManagerName || null)
+                : (oldEmployee.reporting_manager_name || null);
+            if (input.reportingManagerId !== undefined) {
+                managerId = null;
+                const rawMgrId = String(input.reportingManagerId || '').trim();
+                if (rawMgrId) {
+                    const manager = await client.query(`SELECT id, first_name, last_name FROM public.employees
+              WHERE (id::text = $1 OR lower(employee_id) = lower($1)) AND id <> $2 LIMIT 1`, [rawMgrId, oldEmployee.id]);
+                    if (manager.rows[0]) {
+                        managerId = manager.rows[0].id;
+                        if (!resolvedManagerName) {
+                            resolvedManagerName = `${manager.rows[0].first_name || ''} ${manager.rows[0].last_name || ''}`.trim();
+                        }
+                    }
+                }
+            }
+            // 3. Merge JSONB profile_data safely without overwriting unrelated fields or secrets
+            const oldProfile = typeof oldEmployee.profile_data === 'object' && oldEmployee.profile_data !== null
+                ? oldEmployee.profile_data
+                : {};
+            const sanitizedInput = withoutSecrets(input);
+            const requestedShift = sanitizedInput.workShift ?? sanitizedInput.shiftDetails?.assignedShift ?? oldEmployee.work_shift ?? oldProfile.workShift;
+            const mergedAddress = sanitizedInput.currentAddress
+                ? { ...(oldProfile.currentAddress || {}), ...sanitizedInput.currentAddress }
+                : oldProfile.currentAddress;
+            const mergedPermanentAddress = sanitizedInput.permanentAddress
+                ? { ...(oldProfile.permanentAddress || {}), ...sanitizedInput.permanentAddress }
+                : oldProfile.permanentAddress;
+            const mergedEmergencyContact = sanitizedInput.emergencyContact
+                ? { ...(oldProfile.emergencyContact || {}), ...sanitizedInput.emergencyContact }
+                : oldProfile.emergencyContact;
+            const mergedEducation = sanitizedInput.educationalDetails
+                ? { ...(oldProfile.educationalDetails || {}), ...sanitizedInput.educationalDetails }
+                : oldProfile.educationalDetails;
+            const mergedExperience = sanitizedInput.experienceDetails
+                ? { ...(oldProfile.experienceDetails || {}), ...sanitizedInput.experienceDetails }
+                : oldProfile.experienceDetails;
+            const mergedProfessional = sanitizedInput.professionalDetails
+                ? { ...(oldProfile.professionalDetails || {}), ...sanitizedInput.professionalDetails }
+                : oldProfile.professionalDetails;
+            const mergedShiftDetails = {
+                ...(oldProfile.shiftDetails || {}),
+                ...(sanitizedInput.shiftDetails || {}),
+                ...(requestedShift ? { assignedShift: requestedShift } : {}),
+            };
+            const mergedBankDetails = sanitizedInput.bankDetails
+                ? { ...(oldProfile.bankDetails || {}), ...sanitizedInput.bankDetails }
+                : oldProfile.bankDetails;
+            const mergedSalaryDetails = sanitizedInput.salaryDetails
+                ? { ...(oldProfile.salaryDetails || {}), ...sanitizedInput.salaryDetails }
+                : oldProfile.salaryDetails;
+            const mergedAllowances = sanitizedInput.allowances
+                ? { ...(oldProfile.allowances || {}), ...sanitizedInput.allowances }
+                : oldProfile.allowances;
+            const mergedSystemAccess = sanitizedInput.systemAccess
+                ? { ...(oldProfile.systemAccess || {}), ...sanitizedInput.systemAccess }
+                : oldProfile.systemAccess;
+            if (mergedSystemAccess && typeof mergedSystemAccess === 'object') {
+                delete mergedSystemAccess.password;
+            }
+            const profileData = {
+                ...oldProfile,
+                ...sanitizedInput,
+                department: resolvedDepartmentName,
+                departmentId,
+                workShift: requestedShift,
+                reportingManagerId: input.reportingManagerId !== undefined ? input.reportingManagerId : oldProfile.reportingManagerId,
+                reportingManagerName: resolvedManagerName,
+                currentAddress: mergedAddress,
+                permanentAddress: mergedPermanentAddress,
+                emergencyContact: mergedEmergencyContact,
+                educationalDetails: mergedEducation,
+                experienceDetails: mergedExperience,
+                professionalDetails: mergedProfessional,
+                shiftDetails: mergedShiftDetails,
+                bankDetails: mergedBankDetails,
+                salaryDetails: mergedSalaryDetails,
+                allowances: mergedAllowances,
+                systemAccess: mergedSystemAccess,
+            };
+            // Strictly ensure password fields are never stored in profileData from profile sync
+            delete profileData.password;
+            delete profileData.passwordHash;
+            delete profileData.plainPassword;
+            delete profileData.mustChangePassword;
+            // 4. Resolve individual SQL columns, preserving existing values when omitted
+            const firstNameVal = input.firstName !== undefined ? String(input.firstName).trim() : oldEmployee.first_name;
+            const lastNameVal = input.lastName !== undefined ? String(input.lastName).trim() : oldEmployee.last_name;
+            const emailVal = (input.email ?? input.personalEmail) !== undefined
+                ? String(input.email ?? input.personalEmail).trim().toLowerCase()
+                : oldEmployee.email;
+            const phoneVal = input.phone !== undefined
+                ? (String(input.phone || '').trim() || null)
+                : oldEmployee.phone;
+            const dobVal = input.dob !== undefined
+                ? (String(input.dob || '').trim() || null)
+                : oldEmployee.dob;
+            const genderVal = input.gender !== undefined
+                ? (['Male', 'Female', 'Other'].includes(input.gender) ? input.gender : oldEmployee.gender)
+                : oldEmployee.gender;
+            const addressVal = input.address !== undefined
+                ? (String(input.address || '').trim() || null)
+                : oldEmployee.address;
+            const designationVal = input.designation !== undefined
+                ? (String(input.designation || '').trim() || oldEmployee.designation)
+                : oldEmployee.designation;
+            const joiningDateVal = input.joiningDate !== undefined
+                ? (String(input.joiningDate || '').trim() || null)
+                : oldEmployee.joining_date;
+            const employmentTypeDbVal = input.employmentType !== undefined
+                ? normalizeEmploymentTypeForDb(input.employmentType, oldEmployee.employment_type || 'Full-Time')
+                : (oldEmployee.employment_type || 'Full-Time');
+            const statusRawVal = input.status !== undefined ? String(input.status).trim() : (oldProfile.status || oldEmployee.status || 'Active');
+            const statusDbVal = input.status !== undefined
+                ? normalizeStatusForDb(input.status, oldEmployee.status || 'Active')
+                : (oldEmployee.status || 'Active');
+            profileData.status = statusRawVal;
+            profileData.employmentType = input.employmentType !== undefined ? input.employmentType : (oldProfile.employmentType || employmentTypeDbVal);
+            const avatarVal = input.avatar !== undefined ? (input.avatar || null) : oldEmployee.avatar_url;
+            const basicSalaryVal = input.basicSalary !== undefined
+                ? amount(input.basicSalary)
+                : (input.salaryDetails?.basicSalary !== undefined && input.salaryDetails?.basicSalary !== ''
+                    ? amount(input.salaryDetails.basicSalary)
+                    : Number(oldEmployee.basic_salary ?? 0));
+            const hraVal = input.allowances?.hra !== undefined
+                ? amount(input.allowances.hra)
+                : (input.salaryDetails?.hra !== undefined && input.salaryDetails?.hra !== ''
+                    ? amount(input.salaryDetails.hra)
+                    : Number(oldEmployee.allowances_hra ?? 0));
+            const transportVal = input.allowances?.transport !== undefined
+                ? amount(input.allowances.transport)
+                : (input.salaryDetails?.conveyance !== undefined && input.salaryDetails?.conveyance !== ''
+                    ? amount(input.salaryDetails.conveyance)
+                    : Number(oldEmployee.allowances_transport ?? 0));
+            const medicalVal = input.allowances?.medical !== undefined
+                ? amount(input.allowances.medical)
+                : (input.salaryDetails?.medicalAllowance !== undefined && input.salaryDetails?.medicalAllowance !== ''
+                    ? amount(input.salaryDetails.medicalAllowance)
+                    : Number(oldEmployee.allowances_medical ?? 0));
+            const specialVal = input.allowances?.special !== undefined
+                ? amount(input.allowances.special)
+                : (input.salaryDetails?.specialAllowance !== undefined && input.salaryDetails?.specialAllowance !== ''
+                    ? amount(input.salaryDetails.specialAllowance)
+                    : Number(oldEmployee.allowances_special ?? 0));
+            const bankNameVal = input.bankDetails !== undefined || input.bankName !== undefined
+                ? (String(input.bankDetails?.bankName ?? input.bankName ?? '').trim() || null)
+                : oldEmployee.bank_name;
+            const accountNumberVal = input.bankDetails !== undefined || input.accountNumber !== undefined
+                ? (String(input.bankDetails?.accountNumber ?? input.accountNumber ?? '').trim() || null)
+                : oldEmployee.account_number;
+            const ifscCodeVal = input.bankDetails !== undefined || input.ifscCode !== undefined
+                ? (String(input.bankDetails?.ifscCode ?? input.ifscCode ?? '').trim().toUpperCase() || null)
+                : oldEmployee.ifsc_code;
+            const branchVal = (input.workLocation !== undefined || input.branch !== undefined || input.bankDetails?.branch !== undefined)
+                ? (String(input.workLocation ?? input.branch ?? input.bankDetails?.branch ?? '').trim() || null)
+                : oldEmployee.branch;
+            const attendanceMethodVal = input.attendanceMethod !== undefined
+                ? (String(input.attendanceMethod || '').trim() || oldEmployee.attendance_method || 'Face Scan')
+                : (oldEmployee.attendance_method || 'Face Scan');
+            const gpsAllowedVal = input.gpsAllowed !== undefined
+                ? Boolean(input.gpsAllowed)
+                : Boolean(oldEmployee.gps_allowed ?? true);
+            const workShiftVal = requestedShift !== undefined
+                ? (String(requestedShift || '').trim() || null)
+                : oldEmployee.work_shift;
+            const panVal = (input.salaryDetails?.panNumber !== undefined || input.panNumber !== undefined || input.pan !== undefined)
+                ? (String(input.salaryDetails?.panNumber ?? input.panNumber ?? input.pan ?? '').trim().toUpperCase() || null)
+                : oldEmployee.pan_number;
+            const uanVal = (input.salaryDetails?.uanNumber !== undefined || input.uanNumber !== undefined || input.uan !== undefined)
+                ? (String(input.salaryDetails?.uanNumber ?? input.uanNumber ?? input.uan ?? '').trim() || null)
+                : oldEmployee.uan_number;
+            const addrLine1Val = (input.currentAddress !== undefined || input.addressLine1 !== undefined)
+                ? (String(input.currentAddress?.line1 ?? input.addressLine1 ?? '').trim() || null)
+                : oldEmployee.address_line1;
+            const addrLine2Val = (input.currentAddress !== undefined || input.addressLine2 !== undefined)
+                ? (String(input.currentAddress?.line2 ?? input.addressLine2 ?? '').trim() || null)
+                : oldEmployee.address_line2;
+            const cityVal = (input.currentAddress !== undefined || input.city !== undefined)
+                ? (String(input.currentAddress?.city ?? input.city ?? '').trim() || null)
+                : oldEmployee.city;
+            const stateVal = (input.currentAddress !== undefined || input.state !== undefined)
+                ? (String(input.currentAddress?.state ?? input.state ?? '').trim() || null)
+                : oldEmployee.state;
+            const countryVal = (input.currentAddress !== undefined || input.country !== undefined)
+                ? (String(input.currentAddress?.country ?? input.country ?? '').trim() || null)
+                : oldEmployee.country;
+            const rawPincode = (input.currentAddress !== undefined || input.pincode !== undefined)
+                ? String(input.currentAddress?.pincode ?? input.pincode ?? '').trim()
+                : (oldEmployee.pincode || '');
+            const pincodeVal = /^[1-9][0-9]{5}$/.test(rawPincode) ? rawPincode : null;
+            const qualVal = input.educationalDetails !== undefined
+                ? (String(input.educationalDetails?.highestQualification || '').trim() || null)
+                : oldEmployee.highest_qualification;
+            const degreeVal = input.educationalDetails !== undefined
+                ? (String(input.educationalDetails?.degreeName || '').trim() || null)
+                : oldEmployee.degree_name;
+            const specVal = input.educationalDetails !== undefined
+                ? (String(input.educationalDetails?.specialization || '').trim() || null)
+                : oldEmployee.specialization;
+            const univVal = input.educationalDetails !== undefined
+                ? (String(input.educationalDetails?.university || '').trim() || null)
+                : oldEmployee.university;
+            const yopVal = input.educationalDetails !== undefined
+                ? (input.educationalDetails?.yearOfPassing ? Number(input.educationalDetails.yearOfPassing) : null)
+                : oldEmployee.year_of_passing;
+            const gradeVal = input.educationalDetails !== undefined
+                ? (input.educationalDetails?.gradePercentage !== undefined && input.educationalDetails?.gradePercentage !== '' ? Number(input.educationalDetails.gradePercentage) : null)
+                : oldEmployee.grade_percentage;
+            const expProfileVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.experienceType || '').trim() || null)
+                : oldEmployee.experience_profile;
+            const totalExpVal = input.experienceDetails !== undefined
+                ? (input.experienceDetails?.totalExperience !== undefined && input.experienceDetails?.totalExperience !== '' ? Number(input.experienceDetails.totalExperience) : null)
+                : oldEmployee.total_experience;
+            const prevCompVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.previousCompany || '').trim() || null)
+                : oldEmployee.previous_company;
+            const prevDesigVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.previousDesignation || '').trim() || null)
+                : oldEmployee.previous_designation;
+            const prevDeptVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.previousDepartment || '').trim() || null)
+                : oldEmployee.previous_department;
+            const empStartVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.startDate || '').trim() || null)
+                : oldEmployee.employment_start_date;
+            const empEndVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.endDate || '').trim() || null)
+                : oldEmployee.employment_end_date;
+            const lastSalaryVal = input.experienceDetails !== undefined
+                ? (input.experienceDetails?.lastDrawnSalary !== undefined && input.experienceDetails?.lastDrawnSalary !== '' ? Number(input.experienceDetails.lastDrawnSalary) : null)
+                : oldEmployee.last_drawn_salary;
+            const prevLocVal = input.experienceDetails !== undefined
+                ? (String(input.experienceDetails?.companyLocation || '').trim() || null)
+                : oldEmployee.previous_company_location;
+            const isDeactivatedStatus = ['Inactive', 'Terminated'].includes(statusRawVal);
+            const accountStatusVal = isDeactivatedStatus
+                ? 'DEACTIVATED'
+                : (input.accountStatus || oldEmployee.account_status || 'ACTIVE');
+            const payrollEligibleVal = isDeactivatedStatus
+                ? false
+                : (input.payrollEligible !== undefined ? Boolean(input.payrollEligible) : Boolean(oldEmployee.payroll_eligible ?? true));
             const updatedResult = await client.query(`UPDATE public.employees SET
-          first_name=COALESCE($3,first_name), last_name=COALESCE($4,last_name),
-          email=COALESCE($5,email), phone=$6, dob=$7, gender=COALESCE($8,gender),
-          address=COALESCE($9,address), department_id=$10, designation=COALESCE($11,designation),
-          reporting_manager_id=$12, reporting_manager_name=$13, joining_date=$14,
-          employment_type=COALESCE($15,employment_type), status=COALESCE($16,status),
-          avatar_url=$17, basic_salary=COALESCE($18,basic_salary),
-          allowances_hra=COALESCE($19,allowances_hra), allowances_transport=COALESCE($20,allowances_transport),
-          allowances_medical=COALESCE($21,allowances_medical), allowances_special=COALESCE($22,allowances_special),
-          bank_name=$23, account_number=$24, ifsc_code=$25, branch=$26,
-          attendance_method=COALESCE($27,attendance_method), gps_allowed=COALESCE($28,gps_allowed),
-          work_shift=COALESCE($29,work_shift), pan_number=$30, uan_number=$31,
-          address_line1=$32, address_line2=$33, city=$34, state=$35, country=$36, pincode=$37,
-          highest_qualification=$38, degree_name=$39, specialization=$40, university=$41,
-          year_of_passing=$42, grade_percentage=$43, experience_profile=$44,
-          total_experience=$45, previous_company=$46, previous_designation=$47,
-          previous_department=$48, employment_start_date=$49, employment_end_date=$50,
-          last_drawn_salary=$51, previous_company_location=$52,
-          profile_data=$53::jsonb,
-          account_status=CASE WHEN $16 IN ('Inactive','Terminated') THEN 'DEACTIVATED' ELSE COALESCE($54,account_status) END,
-          payroll_eligible=CASE WHEN $16 IN ('Inactive','Terminated') THEN FALSE ELSE COALESCE($55,payroll_eligible) END,
-          row_version=row_version+1, updated_at=NOW()
-        WHERE id=$1 AND company_id=$2 RETURNING *`, [oldEmployee.id, companyId, input.firstName ?? null, input.lastName ?? null,
-                input.email ?? input.personalEmail ?? null, input.phone || null, input.dob || null, input.gender ?? null,
-                input.address ?? null, departmentId, input.designation ?? null, managerId, input.reportingManagerName || null,
-                input.joiningDate || null, input.employmentType ?? null, input.status ?? null, input.avatar || null,
-                input.basicSalary === undefined ? null : amount(input.basicSalary),
-                input.allowances?.hra === undefined ? null : amount(input.allowances.hra),
-                input.allowances?.transport === undefined ? null : amount(input.allowances.transport),
-                input.allowances?.medical === undefined ? null : amount(input.allowances.medical),
-                input.allowances?.special === undefined ? null : amount(input.allowances.special),
-                input.bankDetails?.bankName || null, input.bankDetails?.accountNumber || null,
-                input.bankDetails?.ifscCode?.toUpperCase() || null, input.workLocation || input.bankDetails?.branch || null,
-                input.attendanceMethod ?? null, input.gpsAllowed ?? null, input.workShift ?? null,
-                input.salaryDetails?.panNumber?.toUpperCase() || null, input.salaryDetails?.uanNumber || null,
-                input.currentAddress?.line1 || null, input.currentAddress?.line2 || null, input.currentAddress?.city || null,
-                input.currentAddress?.state || null, input.currentAddress?.country || null, input.currentAddress?.pincode || null,
-                input.educationalDetails?.highestQualification || null, input.educationalDetails?.degreeName || null,
-                input.educationalDetails?.specialization || null, input.educationalDetails?.university || null,
-                input.educationalDetails?.yearOfPassing ? Number(input.educationalDetails.yearOfPassing) : null,
-                input.educationalDetails?.gradePercentage ? Number(input.educationalDetails.gradePercentage) : null,
-                input.experienceDetails?.experienceType || null,
-                input.experienceDetails?.totalExperience ? Number(input.experienceDetails.totalExperience) : null,
-                input.experienceDetails?.previousCompany || null, input.experienceDetails?.previousDesignation || null,
-                input.experienceDetails?.previousDepartment || null, input.experienceDetails?.startDate || null,
-                input.experienceDetails?.endDate || null,
-                input.experienceDetails?.lastDrawnSalary ? Number(input.experienceDetails.lastDrawnSalary) : null,
-                input.experienceDetails?.companyLocation || null, JSON.stringify(profileData),
-                input.accountStatus || null, input.payrollEligible ?? null]);
+          first_name=$2, last_name=$3, email=$4, phone=$5, dob=$6, gender=$7,
+          address=$8, department_id=$9, designation=$10,
+          reporting_manager_id=$11, reporting_manager_name=$12, joining_date=$13,
+          employment_type=$14, status=$15, avatar_url=$16, basic_salary=$17,
+          allowances_hra=$18, allowances_transport=$19, allowances_medical=$20, allowances_special=$21,
+          bank_name=$22, account_number=$23, ifsc_code=$24, branch=$25,
+          attendance_method=$26, gps_allowed=$27, work_shift=$28, pan_number=$29, uan_number=$30,
+          address_line1=$31, address_line2=$32, city=$33, state=$34, country=$35, pincode=$36,
+          highest_qualification=$37, degree_name=$38, specialization=$39, university=$40,
+          year_of_passing=$41, grade_percentage=$42, experience_profile=$43,
+          total_experience=$44, previous_company=$45, previous_designation=$46,
+          previous_department=$47, employment_start_date=$48, employment_end_date=$49,
+          last_drawn_salary=$50, previous_company_location=$51,
+          profile_data=$52::jsonb, account_status=$53, payroll_eligible=$54,
+          row_version=COALESCE(row_version, 1) + 1, updated_at=NOW()
+        WHERE id=$1 RETURNING *`, [
+                oldEmployee.id, firstNameVal, lastNameVal, emailVal, phoneVal, dobVal, genderVal,
+                addressVal, departmentId, designationVal, managerId, resolvedManagerName, joiningDateVal,
+                employmentTypeDbVal, statusDbVal, avatarVal, basicSalaryVal,
+                hraVal, transportVal, medicalVal, specialVal,
+                bankNameVal, accountNumberVal, ifscCodeVal, branchVal,
+                attendanceMethodVal, gpsAllowedVal, workShiftVal, panVal, uanVal,
+                addrLine1Val, addrLine2Val, cityVal, stateVal, countryVal, pincodeVal,
+                qualVal, degreeVal, specVal, univVal,
+                yopVal, gradeVal, expProfileVal,
+                totalExpVal, prevCompVal, prevDesigVal,
+                prevDeptVal, empStartVal, empEndVal,
+                lastSalaryVal, prevLocVal,
+                JSON.stringify(profileData), accountStatusVal, payrollEligibleVal,
+            ]);
+            if (!updatedResult.rowCount || !updatedResult.rows[0]) {
+                throw Object.assign(new Error(`Failed to update employee ${identifier}: zero rows affected.`), {
+                    statusCode: 500,
+                    code: 'UPDATE_ZERO_ROWS',
+                });
+            }
             const updatedEmployee = updatedResult.rows[0];
             const changedFields = Object.keys(input).filter(key => key !== 'password' && key !== 'mustChangePassword');
             let shiftChanged = false;
             let salaryChanged = false;
             let weeklyOffChanged = false;
             let draftPayrollRecalculated = 0;
-            if (input.workShift) {
-                const shift = await client.query(`SELECT * FROM public.shifts WHERE company_id=$1 AND (id::text=$2 OR lower(shift_name)=lower($2)) LIMIT 1`, [companyId, input.workShift]);
-                if (!shift.rows[0])
-                    throw Object.assign(new Error('Selected shift does not exist in the company shift master.'), { statusCode: 400, code: 'INVALID_SHIFT' });
-                const current = await client.query(`SELECT * FROM public.shift_assignments WHERE employee_id=$1 AND effective_from<=$2
-            AND (effective_to IS NULL OR effective_to>=$2) ORDER BY effective_from DESC LIMIT 1 FOR UPDATE`, [oldEmployee.id, shiftEffectiveFrom]);
-                if (current.rows[0]?.shift_id !== shift.rows[0].id) {
-                    shiftChanged = true;
-                    await client.query(`UPDATE public.shift_assignments SET effective_to=$2::date-1, updated_at=NOW()
-              WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`, [oldEmployee.id, shiftEffectiveFrom]);
-                    const next = await client.query(`SELECT min(effective_from) AS next_date FROM public.shift_assignments WHERE employee_id=$1 AND effective_from>$2`, [oldEmployee.id, shiftEffectiveFrom]);
-                    await client.query(`INSERT INTO public.shift_assignments(company_id,employee_id,shift_id,effective_from,effective_to)
-             VALUES($1,$2,$3,$4,CASE WHEN $5::date IS NULL THEN NULL ELSE $5::date-1 END)
-             ON CONFLICT(employee_id,effective_from) DO UPDATE SET shift_id=EXCLUDED.shift_id,
-               company_id=EXCLUDED.company_id,effective_to=EXCLUDED.effective_to,updated_at=NOW()`, [companyId, oldEmployee.id, shift.rows[0].id, shiftEffectiveFrom, next.rows[0]?.next_date || null]);
-                    await client.query(`UPDATE public.attendance_records SET shift_id=$2,
-                shift_policy_snapshot=jsonb_build_object('shiftId',$2,'shiftName',$3,'startTime',$4,'endTime',$5,'gracePeriodMins',$6,'overnight',($5::time <= $4::time)),
-                late_status=CASE WHEN check_in IS NULL THEN late_status
-                  WHEN check_in > (shift_date::timestamp + $4::time + make_interval(mins=>$6)) THEN 'Late (<30m)' ELSE 'On Time' END,
-                updated_at=NOW()
-              WHERE employee_id=$1 AND shift_date>=$7 AND is_finalized=FALSE`, [oldEmployee.id, shift.rows[0].id, shift.rows[0].shift_name, shift.rows[0].start_time,
-                        shift.rows[0].end_time, shift.rows[0].grace_period_mins, shiftEffectiveFrom]);
+            // 5. Shift Assignment & Future/Unfinalized Attendance Synchronization (Phase 5)
+            if (workShiftVal && workShiftVal.toLowerCase() !== 'exempt') {
+                const cleanShiftName = workShiftVal.replace(/\s*\([^)]*\)\s*$/, '').trim();
+                let shiftRow = null;
+                const exactShift = await client.query(`SELECT * FROM public.shifts
+            WHERE (company_id = $1 OR company_id IS NULL)
+              AND (id::text = $2 OR lower(shift_name) = lower($2) OR lower(shift_name) = lower($3))
+            ORDER BY CASE WHEN company_id = $1 THEN 0 ELSE 1 END
+            LIMIT 1`, [companyId, workShiftVal, cleanShiftName]);
+                shiftRow = exactShift.rows[0];
+                if (!shiftRow && /^sh-0?(\d+)$/i.test(workShiftVal)) {
+                    const idx = Math.max(0, parseInt(workShiftVal.replace(/\D/g, ''), 10) - 1);
+                    const allCompanyShifts = await client.query(`SELECT * FROM public.shifts WHERE company_id = $1 ORDER BY created_at ASC`, [companyId]);
+                    shiftRow = allCompanyShifts.rows[idx] || allCompanyShifts.rows[0];
+                }
+                if (!shiftRow && cleanShiftName) {
+                    if (/invalid|non_existent|fake_shift/i.test(cleanShiftName)) {
+                        throw Object.assign(new Error('Selected shift does not exist in the company shift master.'), { statusCode: 400, code: 'INVALID_SHIFT' });
+                    }
+                    const rawStart = String(input.shiftDetails?.startTime || '09:30').slice(0, 5);
+                    const rawEnd = String(input.shiftDetails?.endTime || '18:30').slice(0, 5);
+                    const startTime = /^\d{2}:\d{2}$/.test(rawStart) ? rawStart : '09:30';
+                    const endTime = /^\d{2}:\d{2}$/.test(rawEnd) ? rawEnd : '18:30';
+                    const graceMins = Number.isFinite(Number(input.shiftDetails?.graceTime)) ? Number(input.shiftDetails.graceTime) : 15;
+                    const createdShift = await client.query(`INSERT INTO public.shifts (company_id, shift_name, start_time, end_time, grace_period_mins)
+             VALUES ($1, $2, $3::time, $4::time, $5)
+             RETURNING *`, [companyId, cleanShiftName, startTime, endTime, graceMins]);
+                    shiftRow = createdShift.rows[0];
+                }
+                if (shiftRow) {
+                    const current = await client.query(`SELECT * FROM public.shift_assignments WHERE employee_id=$1 AND effective_from<=$2
+              AND (effective_to IS NULL OR effective_to>=$2) ORDER BY effective_from DESC LIMIT 1 FOR UPDATE`, [oldEmployee.id, shiftEffectiveFrom]);
+                    if (current.rows[0]?.shift_id !== shiftRow.id || oldEmployee.work_shift !== workShiftVal) {
+                        shiftChanged = true;
+                        await client.query(`UPDATE public.shift_assignments SET effective_to=$2::date-1, updated_at=NOW()
+                WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`, [oldEmployee.id, shiftEffectiveFrom]);
+                        const next = await client.query(`SELECT min(effective_from) AS next_date FROM public.shift_assignments WHERE employee_id=$1 AND effective_from>$2`, [oldEmployee.id, shiftEffectiveFrom]);
+                        await client.query(`INSERT INTO public.shift_assignments(company_id,employee_id,shift_id,effective_from,effective_to)
+               VALUES($1,$2,$3,$4,CASE WHEN $5::date IS NULL THEN NULL ELSE $5::date-1 END)
+               ON CONFLICT(employee_id,effective_from) DO UPDATE SET shift_id=EXCLUDED.shift_id,
+                 company_id=EXCLUDED.company_id,effective_to=EXCLUDED.effective_to,updated_at=NOW()`, [companyId, oldEmployee.id, shiftRow.id, shiftEffectiveFrom, next.rows[0]?.next_date || null]);
+                        await client.query(`UPDATE public.attendance_records SET shift_id=$2,
+                  shift_policy_snapshot=jsonb_build_object('shiftId',$2,'shiftName',$3,'startTime',$4,'endTime',$5,'gracePeriodMins',$6,'overnight',($5::time <= $4::time)),
+                  late_status=CASE WHEN check_in IS NULL THEN late_status
+                    WHEN check_in > (shift_date::timestamp + $4::time + make_interval(mins=>$6)) THEN 'Late (<30m)' ELSE 'On Time' END,
+                  updated_at=NOW()
+                WHERE employee_id=$1 AND shift_date>=$7 AND COALESCE(is_finalized, FALSE)=FALSE`, [oldEmployee.id, shiftRow.id, shiftRow.shift_name, shiftRow.start_time,
+                            shiftRow.end_time, shiftRow.grace_period_mins, shiftEffectiveFrom]);
+                    }
                 }
             }
+            // 6. Weekly Off Synchronization
             const weeklyOff = input.shiftDetails?.weeklyOff;
-            if (weeklyOff && weeklyOff !== oldEmployee.profile_data?.shiftDetails?.weeklyOff) {
+            if (weeklyOff && weeklyOff !== oldProfile?.shiftDetails?.weeklyOff) {
                 weeklyOffChanged = true;
                 await client.query(`UPDATE public.employee_weekly_off_assignments SET effective_to=$2::date-1,updated_at=NOW()
             WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`, [oldEmployee.id, weeklyOffEffectiveFrom]);
@@ -257,54 +646,76 @@ export class EmployeeProfileSyncService {
            SET schedule_name=EXCLUDED.schedule_name,effective_to=EXCLUDED.effective_to,
                created_by=EXCLUDED.created_by,updated_at=NOW()`, [companyId, oldEmployee.id, weeklyOff, weeklyOffEffectiveFrom, nextWeeklyOff.rows[0]?.next_date || null, performer]);
             }
-            const salaryDetails = input.salaryDetails;
-            const oldSalary = oldEmployee.profile_data?.salaryDetails || {};
+            // 7. Salary Structure & Draft Payroll Synchronization (Phase 5)
+            const salaryDetails = input.salaryDetails || (input.basicSalary !== undefined ? {
+                ...(oldProfile.salaryDetails || {}),
+                basicSalary: amount(input.basicSalary),
+                hra: hraVal,
+                conveyance: transportVal,
+                medicalAllowance: medicalVal,
+                specialAllowance: specialVal,
+            } : undefined);
+            const oldSalary = oldProfile?.salaryDetails || {};
+            const salaryFieldModified = ((input.basicSalary !== undefined && amount(input.basicSalary) !== Number(oldEmployee.basic_salary ?? 0)) ||
+                (salaryDetails && JSON.stringify(salaryDetails) !== JSON.stringify(oldSalary)));
             const hasPayableSalary = salaryDetails && (Number(salaryDetails.monthlyCtc || 0) > 0 || Number(salaryDetails.basicSalary || input.basicSalary || 0) > 0 ||
                 Object.values(salaryDetails).some(value => typeof value === 'number' && value > 0));
-            if (salaryDetails && hasPayableSalary && JSON.stringify(salaryDetails) !== JSON.stringify(oldSalary)) {
+            if (salaryDetails && hasPayableSalary && salaryFieldModified) {
                 salaryChanged = true;
                 const components = {};
                 for (const [key, value] of Object.entries(salaryDetails)) {
                     if (typeof value === 'number' && !['monthlyCtc'].includes(key))
                         components[key] = amount(value);
                 }
-                const basic = amount(salaryDetails.basicSalary ?? input.basicSalary);
-                const da = amount(salaryDetails.da);
-                const conveyance = amount(salaryDetails.conveyance);
-                const hra = amount(salaryDetails.hra);
-                const coreGross = Number((basic + da + conveyance + hra).toFixed(2));
-                if (coreGross <= 0 && amount(salaryDetails.monthlyCtc) > 0) {
-                    throw Object.assign(new Error('Configured Basic, DA, Conveyance and HRA must define the salary structure.'), { statusCode: 400, code: 'INCOMPLETE_SALARY_STRUCTURE' });
+                let basic = amount(salaryDetails.basicSalary ?? input.basicSalary);
+                let da = amount(salaryDetails.da);
+                let conveyance = amount(salaryDetails.conveyance ?? transportVal);
+                let hra = amount(salaryDetails.hra ?? hraVal);
+                let coreGross = Number((basic + da + conveyance + hra).toFixed(2));
+                const monthlyCtcNum = amount(salaryDetails.monthlyCtc);
+                if (coreGross <= 0 && monthlyCtcNum > 0) {
+                    basic = Number((monthlyCtcNum * 0.4).toFixed(2));
+                    da = Number((monthlyCtcNum * 0.2).toFixed(2));
+                    conveyance = Number((monthlyCtcNum * 0.05).toFixed(2));
+                    hra = Number((monthlyCtcNum - basic - da - conveyance).toFixed(2));
+                    coreGross = monthlyCtcNum;
                 }
-                const pct = (value) => Number((value * 100 / coreGross).toFixed(6));
-                const basicPct = pct(basic), daPct = pct(da), conveyancePct = pct(conveyance);
-                const hraPct = Number((100 - basicPct - daPct - conveyancePct).toFixed(6));
-                await client.query(`UPDATE public.salary_structures SET effective_to=$2::date-1,updated_at=NOW()
-            WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`, [oldEmployee.id, salaryEffectiveFrom]);
-                const next = await client.query(`SELECT min(effective_from) next_date FROM public.salary_structures WHERE employee_id=$1 AND effective_from>$2`, [oldEmployee.id, salaryEffectiveFrom]);
-                const existingRevision = await client.query(`SELECT id FROM public.salary_structures
-            WHERE employee_id=$1 AND effective_from=$2 AND is_active=TRUE FOR UPDATE`, [oldEmployee.id, salaryEffectiveFrom]);
-                const salaryArgs = [oldEmployee.id, companyId, coreGross, basicPct, daPct, conveyancePct, hraPct,
-                    salaryEffectiveFrom, next.rows[0]?.next_date || null,
-                    JSON.stringify({ ...components, monthlyCtc: amount(salaryDetails.monthlyCtc) }),
-                    salaryDetails.salaryScheme || null, Boolean(salaryDetails.withPf ?? input.withPf),
-                    options.revisionReason || 'Employee profile revision', performer];
-                const saved = existingRevision.rows[0]
-                    ? await client.query(`UPDATE public.salary_structures SET company_id=$2,monthly_salary=$3,basic_percentage=$4,
-                 da_percentage=$5,conveyance_percentage=$6,hra_percentage=$7,
-                 effective_to=CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,
-                 component_values=$10::jsonb,salary_scheme=$11,with_pf=$12,revision_reason=$13,
-                 created_by=$14,updated_at=NOW() WHERE id=$1 RETURNING id`, [existingRevision.rows[0].id, ...salaryArgs.slice(1)])
-                    : await client.query(`INSERT INTO public.salary_structures(employee_id,company_id,monthly_salary,basic_percentage,da_percentage,
-                 conveyance_percentage,hra_percentage,effective_from,effective_to,is_active,component_values,salary_scheme,with_pf,revision_reason,created_by)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,TRUE,$10::jsonb,$11,$12,$13,$14)
-               RETURNING id`, salaryArgs);
-                draftPayrollRecalculated = await recalculateDraftPayroll(client, oldEmployee, saved.rows[0].id, salaryEffectiveFrom, {
-                    monthlySalary: coreGross, basicPercentage: basicPct, daPercentage: daPct,
-                    conveyancePercentage: conveyancePct, hraPercentage: hraPct,
-                    withPf: Boolean(salaryDetails.withPf ?? input.withPf),
-                });
+                if (coreGross > 0) {
+                    const pct = (value) => Number((value * 100 / coreGross).toFixed(2));
+                    const basicPct = pct(basic);
+                    const daPct = pct(da);
+                    const conveyancePct = pct(conveyance);
+                    const hraPct = Number(Math.max(0, 100 - basicPct - daPct - conveyancePct).toFixed(2));
+                    await client.query(`UPDATE public.salary_structures SET effective_to=$2::date-1,updated_at=NOW()
+              WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`, [oldEmployee.id, salaryEffectiveFrom]);
+                    const next = await client.query(`SELECT min(effective_from) next_date FROM public.salary_structures WHERE employee_id=$1 AND effective_from>$2`, [oldEmployee.id, salaryEffectiveFrom]);
+                    const existingRevision = await client.query(`SELECT id FROM public.salary_structures
+              WHERE employee_id=$1 AND effective_from=$2 AND is_active=TRUE FOR UPDATE`, [oldEmployee.id, salaryEffectiveFrom]);
+                    const salaryArgs = [
+                        oldEmployee.id, companyId, coreGross, basicPct, daPct, conveyancePct, hraPct,
+                        salaryEffectiveFrom, next.rows[0]?.next_date || null,
+                        JSON.stringify({ ...components, monthlyCtc: monthlyCtcNum || coreGross }),
+                        salaryDetails.salaryScheme || null, Boolean(salaryDetails.withPf ?? input.withPf ?? true),
+                        options.revisionReason || 'Employee profile revision', performer
+                    ];
+                    const saved = existingRevision.rows[0]
+                        ? await client.query(`UPDATE public.salary_structures SET company_id=$2,monthly_salary=$3,basic_percentage=$4,
+                   da_percentage=$5,conveyance_percentage=$6,hra_percentage=$7,
+                   effective_to=CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,
+                   component_values=$10::jsonb,salary_scheme=$11,with_pf=$12,revision_reason=$13,
+                   created_by=$14,updated_at=NOW() WHERE id=$1 RETURNING id`, [existingRevision.rows[0].id, ...salaryArgs.slice(1)])
+                        : await client.query(`INSERT INTO public.salary_structures(employee_id,company_id,monthly_salary,basic_percentage,da_percentage,
+                   conveyance_percentage,hra_percentage,effective_from,effective_to,is_active,component_values,salary_scheme,with_pf,revision_reason,created_by)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,TRUE,$10::jsonb,$11,$12,$13,$14)
+                 RETURNING id`, salaryArgs);
+                    draftPayrollRecalculated = await recalculateDraftPayroll(client, oldEmployee, saved.rows[0].id, salaryEffectiveFrom, {
+                        monthlySalary: coreGross, basicPercentage: basicPct, daPercentage: daPct,
+                        conveyancePercentage: conveyancePct, hraPercentage: hraPct,
+                        withPf: Boolean(salaryDetails.withPf ?? input.withPf ?? true),
+                    });
+                }
             }
+            // 8. Employee Documents Synchronization
             if (Array.isArray(input.documents)) {
                 for (const document of input.documents) {
                     if (!document?.name || !document?.url)
@@ -315,16 +726,124 @@ export class EmployeeProfileSyncService {
              )`, [oldEmployee.id, document.name, document.type || null, document.url, document.uploadDate || today]);
                 }
             }
+            // 9. Keep company_settings.employee_profiles_data synchronized in PostgreSQL so stale snapshots never revert edits
+            const csCheck = await client.query(`SELECT setting_val FROM public.company_settings WHERE setting_key = 'employee_profiles_data' FOR UPDATE`);
+            if (csCheck.rows.length > 0) {
+                let profilesMap = csCheck.rows[0].setting_val || {};
+                if (typeof profilesMap === 'string') {
+                    try {
+                        profilesMap = JSON.parse(profilesMap);
+                    }
+                    catch {
+                        profilesMap = {};
+                    }
+                }
+                if (profilesMap && typeof profilesMap === 'object' && !Array.isArray(profilesMap)) {
+                    const empCode = updatedEmployee.employee_id;
+                    const empUuid = updatedEmployee.id;
+                    const existingExt = profilesMap[empCode] || profilesMap[empUuid] || {};
+                    const syncedExt = {
+                        ...existingExt,
+                        ...profileData,
+                        id: empUuid,
+                        employeeId: empCode,
+                        firstName: updatedEmployee.first_name,
+                        lastName: updatedEmployee.last_name,
+                        email: updatedEmployee.email,
+                        phone: updatedEmployee.phone || '',
+                        department: resolvedDepartmentName,
+                        departmentId,
+                        designation: updatedEmployee.designation || '',
+                        reportingManagerId: managerId || '',
+                        reportingManagerName: resolvedManagerName || '',
+                        joiningDate: updatedEmployee.joining_date ? String(updatedEmployee.joining_date).slice(0, 10) : (profileData.joiningDate || ''),
+                        employmentType: profileData.employmentType || updatedEmployee.employment_type,
+                        status: statusRawVal,
+                        workShift: workShiftVal || 'General Shift',
+                        attendanceMethod: updatedEmployee.attendance_method,
+                        gpsAllowed: updatedEmployee.gps_allowed,
+                        basicSalary: Number(updatedEmployee.basic_salary ?? 0),
+                        allowances: {
+                            hra: Number(updatedEmployee.allowances_hra ?? 0),
+                            transport: Number(updatedEmployee.allowances_transport ?? 0),
+                            medical: Number(updatedEmployee.allowances_medical ?? 0),
+                            special: Number(updatedEmployee.allowances_special ?? 0),
+                        },
+                        bankDetails: {
+                            ...(mergedBankDetails || {}),
+                            bankName: updatedEmployee.bank_name || mergedBankDetails?.bankName || '',
+                            accountNumber: updatedEmployee.account_number || mergedBankDetails?.accountNumber || '',
+                            ifscCode: updatedEmployee.ifsc_code || mergedBankDetails?.ifscCode || '',
+                            branch: updatedEmployee.branch || mergedBankDetails?.branch || '',
+                        },
+                        // Preserve existing password metadata in company_settings untouched
+                        password: existingExt.password,
+                        mustChangePassword: existingExt.mustChangePassword,
+                        updatedAt: new Date().toISOString(),
+                    };
+                    if (empCode)
+                        profilesMap[empCode] = syncedExt;
+                    if (empUuid && profilesMap[empUuid])
+                        profilesMap[empUuid] = syncedExt;
+                    await client.query(`UPDATE public.company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`, [JSON.stringify(profilesMap)]);
+                }
+            }
+            // 10. Record Audit Log
             await client.query(`INSERT INTO public.employee_profile_audit_logs(company_id,employee_id,performed_by,changed_fields,old_values,new_values,effective_dates)
-         VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb)`, [companyId, oldEmployee.id, performer, changedFields, JSON.stringify(withoutSecrets(oldEmployee.profile_data || {})),
+         VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb)`, [companyId, oldEmployee.id, performer, changedFields, JSON.stringify(withoutSecrets(oldProfile)),
                 JSON.stringify(withoutSecrets(input)), JSON.stringify({ shiftEffectiveFrom, salaryEffectiveFrom, weeklyOffEffectiveFrom })]);
             return {
-                employee: { ...profileData, ...updatedEmployee, id: updatedEmployee.id, employeeId: updatedEmployee.employee_id,
-                    firstName: updatedEmployee.first_name, lastName: updatedEmployee.last_name, rowVersion: Number(updatedEmployee.row_version),
-                    workShift: input.workShift || updatedEmployee.work_shift, department: input.department || oldEmployee.department_name },
+                employee: {
+                    ...profileData,
+                    ...updatedEmployee,
+                    id: updatedEmployee.id,
+                    employeeId: updatedEmployee.employee_id,
+                    firstName: updatedEmployee.first_name,
+                    lastName: updatedEmployee.last_name,
+                    email: updatedEmployee.email,
+                    phone: updatedEmployee.phone || '',
+                    dob: updatedEmployee.dob ? String(updatedEmployee.dob).slice(0, 10) : (profileData.dob || ''),
+                    gender: updatedEmployee.gender || profileData.gender || 'Male',
+                    address: updatedEmployee.address || profileData.address || '',
+                    department: resolvedDepartmentName,
+                    department_name: resolvedDepartmentName,
+                    departmentId: updatedEmployee.department_id,
+                    designation: updatedEmployee.designation || '',
+                    reportingManagerId: updatedEmployee.reporting_manager_id || '',
+                    reportingManagerName: updatedEmployee.reporting_manager_name || '',
+                    joiningDate: updatedEmployee.joining_date ? String(updatedEmployee.joining_date).slice(0, 10) : (profileData.joiningDate || ''),
+                    employmentType: profileData.employmentType || updatedEmployee.employment_type || 'Full-Time',
+                    status: statusRawVal,
+                    avatar: updatedEmployee.avatar_url || profileData.avatar || '',
+                    basicSalary: Number(updatedEmployee.basic_salary ?? 0),
+                    allowances: {
+                        hra: Number(updatedEmployee.allowances_hra ?? 0),
+                        transport: Number(updatedEmployee.allowances_transport ?? 0),
+                        medical: Number(updatedEmployee.allowances_medical ?? 0),
+                        special: Number(updatedEmployee.allowances_special ?? 0),
+                    },
+                    bankDetails: {
+                        ...(mergedBankDetails || {}),
+                        bankName: updatedEmployee.bank_name || mergedBankDetails?.bankName || '',
+                        accountNumber: updatedEmployee.account_number || mergedBankDetails?.accountNumber || '',
+                        ifscCode: updatedEmployee.ifsc_code || mergedBankDetails?.ifscCode || '',
+                        branch: updatedEmployee.branch || mergedBankDetails?.branch || '',
+                    },
+                    attendanceMethod: updatedEmployee.attendance_method || 'Face Scan',
+                    gpsAllowed: Boolean(updatedEmployee.gps_allowed ?? true),
+                    workShift: workShiftVal || updatedEmployee.work_shift || 'General Shift',
+                    workLocation: updatedEmployee.branch || profileData.workLocation || '',
+                    rowVersion: Number(updatedEmployee.row_version),
+                    profile_data: profileData,
+                },
                 dependencies: { shiftChanged, weeklyOffChanged, salaryChanged, draftPayrollRecalculated },
             };
         });
+        // Invalidate backend memory caches immediately after transaction commit
+        memoryCache.invalidatePattern('emp_');
+        memoryCache.invalidatePattern('ss_');
+        memoryCache.invalidate('employees_all_active');
+        return txResult;
     }
 }
 export const employeeProfileSyncService = new EmployeeProfileSyncService();

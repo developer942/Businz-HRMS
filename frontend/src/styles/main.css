@@ -5920,6 +5920,12 @@ div[style*="overflow-x: auto"] {
   box-sizing: border-box;
 }
 
+.mobile-bottom-nav[data-role="Employee"] .mobile-bottom-nav-inner {
+  grid-template-columns: 0.85fr 1fr 0.85fr 0.85fr 1.25fr;
+  gap: 1px;
+  padding: 0 2px;
+}
+
 .mobile-bottom-nav-item {
   position: relative;
   width: 100%;
@@ -6005,9 +6011,16 @@ div[style*="overflow-x: auto"] {
   text-align: center;
 }
 
+@media (max-width: 420px) {
+  .mobile-bottom-nav[data-role="Employee"] .mobile-bottom-nav-label {
+    font-size: 10.5px;
+    letter-spacing: -0.02em;
+  }
+}
+
 @media (max-width: 359px) {
   .mobile-bottom-nav-label {
-    font-size: 10.5px;
+    font-size: 10px;
   }
 }
 
@@ -7935,17 +7948,27 @@ textarea,
   .face-attendance-grid {
     display: flex !important;
     flex-direction: column !important;
-    gap: 14px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    gap: 10px !important;
   }
 
   .face-attendance-scanner-card {
-    padding: 16px 14px !important;
-    border-radius: 18px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 14px !important;
+    border-radius: 16px !important;
   }
 
   .face-attendance-activity-card {
-    padding: 16px 14px !important;
-    border-radius: 18px !important;
+    display: none !important;
+  }
+
+  .attendance-log-card {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 14px !important;
+    border-radius: 16px !important;
   }
 
   /* Disable heavy hover animations & backdrop blurs on mobile for instant frame rates */

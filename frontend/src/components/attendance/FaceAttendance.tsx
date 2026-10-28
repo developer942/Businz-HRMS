@@ -93,7 +93,11 @@ const normalizeToFullTimestamp = (timeOrTimestamp: string, dateStr: string): str
   return `${dateStr} ${hh}:${mm}:${ss}`;
 };
 
-export const FaceAttendance: React.FC = () => {
+export interface FaceAttendanceProps {
+  mode?: 'daily' | 'log';
+}
+
+export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }) => {
   const { 
     employees, 
     markAttendance,
@@ -135,6 +139,18 @@ export const FaceAttendance: React.FC = () => {
     subtitle: string;
     time?: string;
   } | null>(null);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileViewport(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const formatMonthDisplay = (monthStr: string) => {
     if (!monthStr) return '';
@@ -236,13 +252,18 @@ export const FaceAttendance: React.FC = () => {
       }
     } catch {}
 
-    // If HR manually changed the check-in time, parsedRecordEpochMs will differ from savedEpochMs by more than 2 minutes;
-    // always respect the authoritative attendance record checkIn time when adjusted!
+    const isManualAdjusted = Boolean(
+      todayAttendance &&
+      ((todayAttendance.method as string) === 'Manual Override' ||
+        todayAttendance.method === 'Manual Punch' ||
+        Boolean(todayAttendance.reason))
+    );
+
     let punchInEpochMs: number | null = null;
-    if (parsedRecordEpochMs !== null && savedEpochMs !== null) {
-      punchInEpochMs = Math.abs(savedEpochMs - parsedRecordEpochMs) <= 120000 ? savedEpochMs : parsedRecordEpochMs;
+    if (isManualAdjusted && parsedRecordEpochMs !== null) {
+      punchInEpochMs = parsedRecordEpochMs;
     } else {
-      punchInEpochMs = parsedRecordEpochMs ?? savedEpochMs;
+      punchInEpochMs = savedEpochMs ?? parsedRecordEpochMs;
     }
 
     if (!punchInEpochMs) {
@@ -352,9 +373,52 @@ export const FaceAttendance: React.FC = () => {
     );
   };
 
-  // Prewarm GPS on mount for lightning-fast acquisition
+  // Prewarm GPS and auto-open front camera on mount for instant live preview (only in daily attendance mode)
   useEffect(() => {
+    if (mode === 'log') {
+      stopCamera();
+      return;
+    }
+    let mounted = true;
     prewarmGps();
+
+    startCameraStream().catch(() => {
+      // Browser may require user gesture on Punch In / Punch Out tap
+    });
+
+    if (locationMode === 'real') {
+      acquireHighAccuracyGps({ timeoutMs: 6000, desiredAccuracyMeters: 35 })
+        .then((reading) => {
+          if (!mounted) return;
+          const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
+          const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
+          const radius = Number(geofenceConfig.radiusMeters) || 200;
+          const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
+          const evaluation = evaluateGeofenceBoundary(
+            distance,
+            radius,
+            reading.accuracy,
+            geofenceConfig.officeName || 'HQ Office'
+          );
+          if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
+            setActivePunchGps({
+              latitude: reading.latitude,
+              longitude: reading.longitude,
+              accuracy: reading.accuracy,
+              address: 'GPS verified',
+              distance
+            });
+          }
+        })
+        .catch(() => {
+          // Will verify during punch action
+        });
+    }
+
+    return () => {
+      mounted = false;
+      stopCamera();
+    };
   }, []);
 
   // Strictly stop and release all hardware camera media tracks
@@ -381,11 +445,11 @@ export const FaceAttendance: React.FC = () => {
     setIsCameraActive(false);
   };
 
-  // Start real browser camera and return active stream once playing
+  // Start real browser front-facing camera and return active stream once playing
   const startCameraStream = async (): Promise<MediaStream> => {
     stopCamera();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('Camera access is not supported by your browser or device.');
+      throw new Error('Camera access is not supported on this device.');
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -399,7 +463,7 @@ export const FaceAttendance: React.FC = () => {
     mediaStreamRef.current = stream;
     setIsCameraActive(true);
 
-    // Wait for <video> element to mount and attach stream
+    // Wait for <video> element to attach stream and produce live frames
     const startTime = Date.now();
     while (Date.now() - startTime < 5000) {
       if (videoRef.current) {
@@ -415,14 +479,14 @@ export const FaceAttendance: React.FC = () => {
           break;
         }
       }
-      await new Promise(r => setTimeout(r, 80));
+      await new Promise(r => setTimeout(r, 60));
     }
 
     if (!videoRef.current || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
       stream.getTracks().forEach(track => track.stop());
       mediaStreamRef.current = null;
       setIsCameraActive(false);
-      throw new Error('Camera opened but the live preview was not ready. Please retry and keep this screen visible.');
+      throw new Error('Camera preview not ready. Please retry.');
     }
 
     return stream;
@@ -434,26 +498,18 @@ export const FaceAttendance: React.FC = () => {
     try {
       await startCameraStream();
     } catch (err: any) {
-      console.log('WebCam access error:', err);
       setScanResult({
         status: 'error',
-        message: err.message || 'Could not access camera. Hardware may be in use by another app or permissions denied.'
+        message: err.message || 'Camera permission required.'
       });
       stopCamera();
     }
   };
 
-  // ALWAYS stop camera hardware on component unmount (when leaving Face Attendance tab)
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
   // Helper to capture a FRESH live frame snapshot from video element
   const captureVideoFrame = (): string => {
     if (!videoRef.current || !mediaStreamRef.current || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
-      throw new Error('Live camera frame is not ready. Please look directly into the camera and retry.');
+      throw new Error('Live camera frame not ready. Please retry.');
     }
 
     const width = videoRef.current.videoWidth;
@@ -464,7 +520,7 @@ export const FaceAttendance: React.FC = () => {
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      throw new Error('Could not initialize image processing canvas.');
+      throw new Error('Could not initialize camera capture.');
     }
 
     if (isMirrored) {
@@ -476,24 +532,37 @@ export const FaceAttendance: React.FC = () => {
     return canvas.toDataURL('image/jpeg', 0.85);
   };
 
-  // STEP 1 (PagarBook Style): When user clicks Punch In / Punch Out -> Request Camera & GPS Permission and open live camera
-  const handleRequestCameraAndGps = async (type: 'Check-In' | 'Check-Out') => {
+  // Track last attempted punch type for concise Retry button
+  const [lastAttemptType, setLastAttemptType] = useState<'Check-In' | 'Check-Out'>('Check-In');
+
+  // Minimal One-Tap Face + GPS Verified Punch Handler (Punch In or Punch Out)
+  const handlePunchAction = async (type: 'Check-In' | 'Check-Out') => {
     if (isScanning || isRequestingPermissions || punchInProgressRef.current) {
       return;
     }
+
+    setLastAttemptType(type);
+    setPunchType(type);
 
     // 1. Prevent duplicate punch in current session
     if (type === 'Check-In' && isCheckedIn) {
       setScanResult({
         status: 'error',
-        message: 'Already punched in for today. Duplicate Punch In is not allowed.'
+        message: 'Already punched in today.'
+      });
+      return;
+    }
+    if (type === 'Check-Out' && !isCheckedIn) {
+      setScanResult({
+        status: 'error',
+        message: 'Please Punch In first.'
       });
       return;
     }
     if (type === 'Check-Out' && isCheckedOut) {
       setScanResult({
         status: 'error',
-        message: 'Already punched out for today. Shift is completed.'
+        message: 'Already punched out today.'
       });
       return;
     }
@@ -502,7 +571,7 @@ export const FaceAttendance: React.FC = () => {
     if (type === 'Check-Out' && oneHourCooldown.isCooldownActive) {
       setScanResult({
         status: 'error',
-        message: `Punch In and Punch Out cannot be done at the same time. Please wait ${oneHourCooldown.remainingMinutes} more minute(s) (1-hour delay required).`
+        message: `Punch Out available in ${oneHourCooldown.remainingMinutes} min`
       });
       return;
     }
@@ -512,31 +581,42 @@ export const FaceAttendance: React.FC = () => {
     if (type === 'Check-In' && !currentShiftState.canCheckIn) {
       setScanResult({
         status: 'error',
-        message: `Punch In Not Allowed: ${currentShiftState.message}`
+        message: currentShiftState.message || 'Punch In not allowed right now.'
       });
       return;
     }
     if (type === 'Check-Out' && !currentShiftState.canCheckOut) {
       setScanResult({
         status: 'error',
-        message: `Punch Out Not Allowed: ${currentShiftState.message}`
+        message: currentShiftState.message || 'Punch Out not allowed right now.'
       });
       return;
     }
 
-    setPunchType(type);
+    punchInProgressRef.current = true;
+    setIsScanning(true);
     setIsRequestingPermissions(true);
     setScanResult({
       status: null,
-      message: 'Requesting Camera & GPS permission... Please tap Allow if prompted.'
+      message: ''
     });
 
     try {
-      // Request Camera and GPS permissions concurrently
+      // Ensure live front-facing camera is open and capturing a fresh frame
+      // Always start a fresh stream for Check-Out or when camera is not active so Punch In photo is never reused
+      const needsFreshCamera =
+        type === 'Check-Out' ||
+        !isCameraActive ||
+        !mediaStreamRef.current ||
+        !videoRef.current ||
+        videoRef.current.videoWidth <= 0;
+
       const [, reading] = await Promise.all([
-        startCameraStream(),
+        needsFreshCamera
+          ? startCameraStream().then(() => new Promise(r => setTimeout(r, 180)))
+          : Promise.resolve(),
         locationMode === 'real'
-          ? acquireHighAccuracyGps({ timeoutMs: 6000, desiredAccuracyMeters: 35 })
+          ? acquireHighAccuracyGps({ timeoutMs: 7000, desiredAccuracyMeters: 35 })
           : Promise.resolve({
               latitude: geofenceConfig.centerLat + (locationMode === 'outside' ? 0.006 : 0.00018),
               longitude: geofenceConfig.centerLng + (locationMode === 'outside' ? 0.006 : 0.00015),
@@ -546,67 +626,44 @@ export const FaceAttendance: React.FC = () => {
             })
       ]);
 
+      setIsRequestingPermissions(false);
+
+      // Verify GPS against saved office geofence settings
       const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
       const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
+      const radius = Number(geofenceConfig.radiusMeters) || 200;
       const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
-      const address = locationMode === 'real'
-        ? `Live GPS (${reading.latitude.toFixed(4)}, ${reading.longitude.toFixed(4)}) • ±${reading.accuracy}m`
-        : `${geofenceConfig.officeName || 'Office'} (${distance}m)`;
+      const evaluation = evaluateGeofenceBoundary(
+        distance,
+        radius,
+        reading.accuracy,
+        geofenceConfig.officeName || 'HQ Office'
+      );
 
-      setActivePunchGps({
+      if (geofenceConfig.enabled && !evaluation.canPunch && !isCEO) {
+        throw new Error(`Outside office geofence (${distance}m away, max ${radius}m).`);
+      }
+
+      const gpsInfo = {
         latitude: reading.latitude,
         longitude: reading.longitude,
         accuracy: reading.accuracy,
-        address,
+        address: geofenceConfig.officeName || 'HQ Office',
         distance
-      });
-      setIsRequestingPermissions(false);
-      setScanResult({
-        status: 'success',
-        message: `Camera & GPS Active! Tap "Take Picture & ${type === 'Check-In' ? 'Punch In' : 'Punch Out'}" below.`
-      });
-    } catch (err: any) {
-      stopCamera();
-      setIsRequestingPermissions(false);
-      setActivePunchGps(null);
-      setScanResult({
-        status: 'error',
-        message: err.message || 'Camera & GPS permissions are required. Please allow Camera and Location permissions and try again.'
-      });
-    }
-  };
-
-  // STEP 2 (PagarBook Style): When user clicks "Take Picture & Punch In / Out" -> Snap picture & record attendance
-  const handleTakePictureAndPunch = async (type: 'Check-In' | 'Check-Out') => {
-    if (isScanning || punchInProgressRef.current) {
-      return;
-    }
-
-    if (type === 'Check-Out' && oneHourCooldown.isCooldownActive) {
-      stopCamera();
-      setScanResult({
-        status: 'error',
-        message: `Punch In and Punch Out cannot be done at the same time. Please wait ${oneHourCooldown.remainingMinutes} more minute(s) (1-hour delay required).`
-      });
-      return;
-    }
-
-    punchInProgressRef.current = true;
-    setIsScanning(true);
-    setScanResult({
-      status: null,
-      message: `Capturing photo & recording ${type === 'Check-In' ? 'Punch In' : 'Punch Out'}...`
-    });
-
-    try {
-      const capturedPhotoUrl = captureVideoFrame();
-      const gpsInfo = activePunchGps || {
-        latitude: Number(geofenceConfig.centerLat) || 13.151968,
-        longitude: Number(geofenceConfig.centerLng) || 80.2086053,
-        accuracy: 10,
-        address: `Live GPS Verified (${geofenceConfig.officeName || 'HQ Office'})`,
-        distance: 0
       };
+      setActivePunchGps(gpsInfo);
+
+      // Capture a fresh selfie from live front camera
+      const capturedPhotoUrl = captureVideoFrame();
+
+      // Never reuse the Punch In photograph for Punch Out
+      if (
+        type === 'Check-Out' &&
+        ((myTodayCheckInPhoto && capturedPhotoUrl === myTodayCheckInPhoto) ||
+          (todayAttendance?.checkInPhoto && capturedPhotoUrl === todayAttendance.checkInPhoto))
+      ) {
+        throw new Error('New selfie required for Punch Out. Please retry.');
+      }
 
       const emp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
       const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (currentUser.name || 'Employee');
@@ -622,7 +679,7 @@ export const FaceAttendance: React.FC = () => {
         locationAddress: gpsInfo.address,
       });
 
-      // Reload only after the server transaction succeeds. Never show optimistic success.
+      // Reload only after the server transaction succeeds
       await syncAllWithCloud();
       applyServerAttendanceRecord({
         id: serverRecord.id,
@@ -670,15 +727,11 @@ export const FaceAttendance: React.FC = () => {
         confidenceScore: 99.2
       });
 
-      stopCamera();
-      setActivePunchGps(null);
       setTicker(prev => prev + 1);
 
       setScanResult({
         status: 'success',
-        message: type === 'Check-In'
-          ? `Punch In Successful at ${serverRecord.checkIn || 'server time'}. Punch Out will be available after 1 hour.`
-          : `Punch Out Successful at ${serverRecord.checkOut || 'server time'}. Today's attendance is completed.`
+        message: type === 'Check-In' ? 'Punch In successful' : 'Punch Out successful'
       });
 
       if (type === 'Check-In') {
@@ -686,22 +739,30 @@ export const FaceAttendance: React.FC = () => {
       }
 
       setIsScanning(false);
+      setIsRequestingPermissions(false);
       punchInProgressRef.current = false;
     } catch (err: any) {
-      console.error('Photo capture error:', err);
-      stopCamera();
-      setActivePunchGps(null);
-      setScanResult({
-        status: 'error',
-        message: err.message || 'Could not capture photo. Please look at the camera and try again.'
-      });
+      console.error('Attendance punch error:', err);
+      setIsRequestingPermissions(false);
       setIsScanning(false);
       punchInProgressRef.current = false;
+      setScanResult({
+        status: 'error',
+        message: err.message || 'Verification failed. Please check camera & GPS.'
+      });
     }
   };
 
+  const handleRequestCameraAndGps = (type: 'Check-In' | 'Check-Out') => {
+    void handlePunchAction(type);
+  };
+
+  const handleTakePictureAndPunch = (type: 'Check-In' | 'Check-Out') => {
+    void handlePunchAction(type);
+  };
+
   const triggerFaceScan = (type: 'Check-In' | 'Check-Out') => {
-    handleRequestCameraAndGps(type);
+    void handlePunchAction(type);
   };
 
   const fetchGpsStatus = async () => {
@@ -1318,1119 +1379,980 @@ export const FaceAttendance: React.FC = () => {
     );
   }, [allStaffMonthlyRecords, staffSearchQuery]);
 
-  return (
-    <div>
-      {/* Clean PagarBook / Camu Mobile Header */}
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-        <div className="page-title-group">
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Daily Attendance</h1>
-          <p className="page-subtitle" style={{ color: '#64748b', fontSize: '0.82rem', marginTop: '2px', margin: 0 }}>Allow Camera & GPS, take selfie & punch attendance</p>
+  const renderMonthlyActivityCard = (isDedicatedLogPage: boolean) => (
+    <div
+      data-testid={isDedicatedLogPage ? 'attendance-log-card' : 'monthly-activity-card'}
+      className={isDedicatedLogPage ? 'attendance-log-card' : 'face-attendance-activity-card'}
+      style={{
+        backgroundColor: '#ffffff',
+        borderRadius: '16px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
+        padding: isDedicatedLogPage ? '14px' : undefined,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '14px'
+      }}
+    >
+      {/* Header Strip with Month Navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+        <div>
+          {!isDedicatedLogPage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <Calendar size={18} color="#0e7490" />
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                Monthly Activity
+              </h2>
+            </div>
+          )}
+
+          {/* Month Picker Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              data-testid="month-prev-btn"
+              onClick={handlePrevMonth}
+              title="Previous Month"
+              aria-label="Previous Month"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '30px',
+                height: '30px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                backgroundColor: '#ffffff',
+                color: '#0e7490',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <ChevronLeft size={16} />
+            </button>
+
+            <div
+              data-testid="month-display"
+              style={{
+                padding: '4px 12px',
+                borderRadius: '8px',
+                backgroundColor: '#ecfeff',
+                border: '1px solid #a5f3fc',
+                color: '#0e7490',
+                fontSize: '0.8rem',
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <Calendar size={13} />
+              <span>{formatMonthDisplay(selectedMonth)}</span>
+            </div>
+
+            <button
+              type="button"
+              data-testid="month-next-btn"
+              onClick={handleNextMonth}
+              title="Next Month"
+              aria-label="Next Month"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '30px',
+                height: '30px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                backgroundColor: '#ffffff',
+                color: '#0e7490',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
+
+        {/* If HR / Admin: Toggle between My Monthly and All Staff Monthly */}
+        {isHrOrAdmin ? (
+          <div style={{
+            display: 'inline-flex',
+            backgroundColor: '#f1f5f9',
+            padding: '3px',
+            borderRadius: '10px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <button
+              type="button"
+              onClick={() => setActivityViewTab('my')}
+              style={{
+                padding: '5px 12px',
+                borderRadius: '7px',
+                border: 'none',
+                fontSize: '0.76rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
+                color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
+                boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <User size={13} />
+              <span>My Monthly ({myMonthlyRecords.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivityViewTab('all')}
+              style={{
+                padding: '5px 12px',
+                borderRadius: '7px',
+                border: 'none',
+                fontSize: '0.76rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                backgroundColor: activityViewTab === 'all' ? '#ffffff' : 'transparent',
+                color: activityViewTab === 'all' ? '#0e7490' : '#64748b',
+                boxShadow: activityViewTab === 'all' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Users size={13} />
+              <span>All Staff ({allStaffMonthlyRecords.length})</span>
+            </button>
+          </div>
+        ) : (
+          <span
+            data-testid="attendance-log-count-badge"
+            style={{
+              backgroundColor: '#ecfeff',
+              color: '#0e7490',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '0.74rem',
+              fontWeight: 800,
+              letterSpacing: '0.04em'
+            }}
+          >
+            {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'RECORD' : 'RECORDS'}
+          </span>
+        )}
       </div>
 
-      {isCEO && (
-        <div style={{
-          backgroundColor: '#ECFEFF',
-          border: '1.5px solid #A5F3FC',
-          borderRadius: '14px',
-          padding: '14px 16px',
-          marginBottom: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px'
-        }}>
-          <ShieldAlert size={22} color="#0E7490" style={{ flexShrink: 0 }} />
-          <div>
-            <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.88rem' }}>
-              Executive Attendance Exemption
-            </div>
-            <div style={{ fontSize: '0.78rem', color: '#0891B2', marginTop: '2px' }}>
-              As CEO / Managing Director, you have executive exemption from daily face scans and GPS punches. You may test hardware cameras or inspect company-wide logs below.
-            </div>
+      {/* Compact Monthly Summary Bar */}
+      {activityViewTab === 'my' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '8px',
+            backgroundColor: '#f8fafc',
+            padding: '8px 10px',
+            borderRadius: '10px',
+            border: '1px solid #e2e8f0'
+          }}
+        >
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Present</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#15803d' }}>{monthlyStats.presentDays} d</div>
+          </div>
+          <div style={{ textAlign: 'center', borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Late</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#b45309' }}>{monthlyStats.lateDays} d</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Working Hrs</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0e7490' }}>{monthlyStats.totalHours} hrs</div>
           </div>
         </div>
       )}
 
-      {/* Main 2-Column Layout */}
-      <div className="face-attendance-grid">
-        
-        {/* LEFT COLUMN: PAGARBOOK / CAMU STYLE ATTENDANCE CARD */}
-        <div className="face-attendance-scanner-card" style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '18px',
-          border: '1px solid #e2e8f0',
-          borderTop: `4px solid ${isCompletedToday ? '#16a34a' : isCheckedIn ? '#0e7490' : '#10b981'}`,
-          boxShadow: '0 4px 18px rgba(15, 23, 42, 0.04)',
-          textAlign: 'center'
-        }}>
-          {/* Employee Identity & Shift Header */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            maxWidth: '360px',
-            margin: '0 auto 14px',
-            padding: '0 4px',
-            textAlign: 'left'
-          }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: '1.02rem', color: '#0f172a' }}>
-                {selectedEmp ? `${selectedEmp.firstName} ${selectedEmp.lastName}` : (currentUser.name || 'Employee')}
-              </div>
-              <div style={{ fontSize: '0.76rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
-                <Clock size={12} color="#0e7490" />
-                <span>{shiftEval.assignedShift?.shiftName || 'General Shift'} ({shiftEval.assignedShift?.startTime || '09:00 AM'} - {shiftEval.assignedShift?.endTime || '06:00 PM'})</span>
-              </div>
-            </div>
-
-            <div style={{
-              padding: '4px 11px',
-              borderRadius: '9999px',
-              fontSize: '0.73rem',
-              fontWeight: 800,
-              backgroundColor: isCompletedToday ? '#dcfce7' : isCheckedIn ? '#ecfeff' : '#f1f5f9',
-              color: isCompletedToday ? '#15803d' : isCheckedIn ? '#0e7490' : '#475569',
-              border: `1px solid ${isCompletedToday ? '#bbf7d0' : isCheckedIn ? '#a5f3fc' : '#e2e8f0'}`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
-              <span style={{
-                width: '7px',
-                height: '7px',
-                borderRadius: '50%',
-                backgroundColor: isCompletedToday ? '#22c55e' : isCheckedIn ? '#0891b2' : '#94a3b8'
-              }} />
-              <span>{isCompletedToday ? 'Completed' : isCheckedIn ? 'Punched In' : 'Not Punched In'}</span>
-            </div>
+      {/* VIEW 1: MY MONTHLY ACTIVITY */}
+      {activityViewTab === 'my' ? (
+        <div>
+          <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em', marginBottom: '10px' }}>
+            {formatMonthDisplay(selectedMonth).toUpperCase()} PUNCH LOGS ({myMonthlyRecords.length})
           </div>
 
-          {/* Today's Separate Punch In & Punch Out Summary Strip (Pagar Style) */}
-          <div style={{
-            maxWidth: '360px',
-            margin: '0 auto 14px',
-            backgroundColor: '#f8fafc',
-            borderRadius: '14px',
-            border: '1px solid #e2e8f0',
-            padding: '10px 14px',
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '12px',
-            textAlign: 'left'
-          }}>
-            {/* Punch In Photo & Time */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {myTodayCheckInPhoto ? (
-                <div
-                  onClick={() => setPreviewPhoto({
-                    url: myTodayCheckInPhoto,
-                    title: `${selectedEmp?.firstName || 'Staff'} - Punch In Photo`,
-                    subtitle: 'Today (Live Selfie)',
-                    time: myCheckInTime || undefined
-                  })}
-                  style={{
-                    width: '42px',
-                    height: '42px',
-                    borderRadius: '10px',
-                    overflow: 'hidden',
-                    border: '2px solid #16a34a',
-                    flexShrink: 0,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 6px rgba(22, 163, 74, 0.2)'
-                  }}
-                  title="Tap to view Punch In photo"
-                >
-                  <img src={myTodayCheckInPhoto} alt="Punch In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              ) : (
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '10px',
-                  backgroundColor: '#e2e8f0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  color: '#94a3b8'
-                }}>
-                  <User size={18} />
-                </div>
-              )}
-              <div>
-                <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#16a34a', letterSpacing: '0.04em' }}>
-                  PUNCH IN
-                </div>
-                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: myCheckInTime ? '#0f172a' : '#94a3b8' }}>
-                  {myCheckInTime || '--:--'}
-                </div>
+          {myMonthlyRecords.length === 0 ? (
+            <div
+              data-testid="attendance-log-empty"
+              style={{
+                padding: '30px 16px',
+                textAlign: 'center',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px dashed #cbd5e1'
+              }}
+            >
+              <Calendar size={28} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
+              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
+                No records for {formatMonthDisplay(selectedMonth)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                Punch in using Face Attendance to see your daily verified records and photos.
               </div>
             </div>
+          ) : (
+            <div
+              data-testid="attendance-log-records-list"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                maxHeight: isDedicatedLogPage ? 'none' : '480px',
+                overflowY: isDedicatedLogPage ? 'visible' : 'auto',
+                paddingRight: isDedicatedLogPage ? 0 : '4px'
+              }}
+            >
+              {myMonthlyRecords.map(rec => {
+                const recDate = rec.date || rec.shiftDate;
+                const inPhoto = getRecordPhoto(rec, 'Check-In');
+                const outPhoto = getRecordPhoto(rec, 'Check-Out');
+                const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
+                const isExpanded = expandedRecordId === rec.id;
 
-            {/* Punch Out Photo & Time */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderLeft: '1px solid #e2e8f0', paddingLeft: '12px' }}>
-              {myTodayCheckOutPhoto ? (
-                <div
-                  onClick={() => setPreviewPhoto({
-                    url: myTodayCheckOutPhoto,
-                    title: `${selectedEmp?.firstName || 'Staff'} - Punch Out Photo`,
-                    subtitle: 'Today (Live Selfie)',
-                    time: myCheckOutTime || undefined
-                  })}
-                  style={{
-                    width: '42px',
-                    height: '42px',
-                    borderRadius: '10px',
-                    overflow: 'hidden',
-                    border: '2px solid #0891b2',
-                    flexShrink: 0,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 6px rgba(8, 145, 178, 0.2)'
-                  }}
-                  title="Tap to view Punch Out photo"
-                >
-                  <img src={myTodayCheckOutPhoto} alt="Punch Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              ) : (
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '10px',
-                  backgroundColor: '#e2e8f0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  color: '#94a3b8'
-                }}>
-                  <User size={18} />
-                </div>
-              )}
-              <div>
-                <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#0891b2', letterSpacing: '0.04em' }}>
-                  PUNCH OUT
-                </div>
-                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: myCheckOutTime ? '#0f172a' : '#94a3b8' }}>
-                  {myCheckOutTime || '--:--'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* CAMERA VIEWFINDER WITH 4 TEAL CORNER BRACKETS */}
-          <div style={{
-            position: 'relative',
-            width: '100%',
-            maxWidth: '340px',
-            margin: '0 auto 16px'
-          }}>
-            {/* Top-Left Bracket */}
-            <div style={{
-              position: 'absolute',
-              top: '-8px',
-              left: '-8px',
-              width: '32px',
-              height: '32px',
-              borderTop: '3.5px solid #0e7490',
-              borderLeft: '3.5px solid #0e7490',
-              borderTopLeftRadius: '16px',
-              zIndex: 10,
-              pointerEvents: 'none'
-            }} />
-            {/* Top-Right Bracket */}
-            <div style={{
-              position: 'absolute',
-              top: '-8px',
-              right: '-8px',
-              width: '32px',
-              height: '32px',
-              borderTop: '3.5px solid #0e7490',
-              borderRight: '3.5px solid #0e7490',
-              borderTopRightRadius: '16px',
-              zIndex: 10,
-              pointerEvents: 'none'
-            }} />
-            {/* Bottom-Left Bracket */}
-            <div style={{
-              position: 'absolute',
-              bottom: '-8px',
-              left: '-8px',
-              width: '32px',
-              height: '32px',
-              borderBottom: '3.5px solid #0e7490',
-              borderLeft: '3.5px solid #0e7490',
-              borderBottomLeftRadius: '16px',
-              zIndex: 10,
-              pointerEvents: 'none'
-            }} />
-            {/* Bottom-Right Bracket */}
-            <div style={{
-              position: 'absolute',
-              bottom: '-8px',
-              right: '-8px',
-              width: '32px',
-              height: '32px',
-              borderBottom: '3.5px solid #0e7490',
-              borderRight: '3.5px solid #0e7490',
-              borderBottomRightRadius: '16px',
-              zIndex: 10,
-              pointerEvents: 'none'
-            }} />
-
-            {/* Viewfinder Viewport Screen */}
-            <div style={{
-              width: '100%',
-              aspectRatio: '4 / 3',
-              backgroundColor: '#0f172a',
-              borderRadius: '20px',
-              overflow: 'hidden',
-              position: 'relative',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'inset 0 4px 14px rgba(0,0,0,0.6)'
-            }}>
-              {isCameraActive ? (
-                <>
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
+                return (
+                  <div
+                    key={rec.id}
+                    data-testid="attendance-log-record"
+                    onClick={() => setExpandedRecordId(prev => (prev === rec.id ? null : rec.id))}
                     style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)',
-                      transition: 'transform 0.2s ease'
-                    }}
-                  />
-
-                  {/* Live Camera & GPS Ready Pill */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '12px',
-                    left: '12px',
-                    zIndex: 30,
-                    padding: '5px 10px',
-                    borderRadius: '99px',
-                    backgroundColor: 'rgba(22, 163, 74, 0.9)',
-                    color: '#ffffff',
-                    fontSize: '0.7rem',
-                    fontWeight: 800,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.25)'
-                  }}>
-                    <MapPin size={12} />
-                    <span>Camera & GPS Ready</span>
-                  </div>
-                  
-                  {/* Camera Mirror / Flip Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMirrored(prev => {
-                        const next = !prev;
-                        try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch {}
-                        return next;
-                      });
-                    }}
-                    title={isMirrored ? "Click to switch to standard view (Mirror Off)" : "Click to switch to selfie view (Mirror On)"}
-                    style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                      zIndex: 30,
-                      padding: '5px 10px',
-                      borderRadius: '99px',
-                      backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                      backdropFilter: 'blur(8px)',
-                      border: '1px solid rgba(255, 255, 255, 0.25)',
-                      color: '#ffffff',
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
+                      padding: '10px 12px',
+                      borderRadius: '12px',
+                      border: `1px solid ${isTodayRow ? '#a5f3fc' : '#e2e8f0'}`,
+                      backgroundColor: isTodayRow ? '#f0fdfa' : '#f8fafc',
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
+                      flexDirection: 'column',
+                      gap: '6px',
                       cursor: 'pointer'
                     }}
                   >
-                    <FlipHorizontal size={13} />
-                    <span>Flip</span>
-                  </button>
-                </>
-              ) : (
-                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>
-                  <div style={{
-                    width: '58px',
-                    height: '58px',
-                    borderRadius: '50%',
-                    backgroundColor: isCompletedToday ? 'rgba(34, 197, 94, 0.16)' : 'rgba(16, 185, 129, 0.16)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 10px',
-                    color: isCompletedToday ? '#22c55e' : '#10b981'
-                  }}>
-                    {isCompletedToday ? <CheckCircle2 size={30} /> : <Camera size={28} />}
-                  </div>
-                  <div style={{ fontSize: '0.86rem', color: '#f8fafc', fontWeight: 700 }}>
-                    {isCompletedToday
-                      ? 'Today\'s Attendance Completed'
-                      : oneHourCooldown.isCooldownActive
-                        ? `Punch Out unlocks in ${oneHourCooldown.remainingMinutes} min`
-                        : isCheckedIn
-                          ? 'Tap "Punch Out" to open Camera & GPS'
-                          : 'Tap "Punch In" to open Camera & GPS'}
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '4px' }}>
-                    {isCompletedToday
-                      ? `Punch In: ${myCheckInTime} • Punch Out: ${myCheckOutTime}`
-                      : 'Selfie photo & live GPS location will be verified'}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+                    {/* Row Top: Date, TODAY Badge, Status Pill, Working Hours & Expand Chevron */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span data-testid="record-date" style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
+                          {formatDateDDMMYYYY(recDate)}
+                        </span>
+                        {isTodayRow && (
+                          <span style={{
+                            fontSize: '0.62rem',
+                            fontWeight: 800,
+                            backgroundColor: '#0e7490',
+                            color: '#ffffff',
+                            padding: '1px 6px',
+                            borderRadius: '4px'
+                          }}>
+                            TODAY
+                          </span>
+                        )}
+                      </div>
 
-          {/* 1-Hour Mandatory Delay Banner Between Punch In and Punch Out */}
-          {oneHourCooldown.isCooldownActive && !isCameraActive && (
-            <div style={{
-              maxWidth: '360px',
-              margin: '0 auto 14px',
-              padding: '10px 14px',
-              borderRadius: '12px',
-              backgroundColor: '#fffbeb',
-              border: '1px solid #fde68a',
-              color: '#92400e',
-              textAlign: 'left',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <Clock size={18} color="#d97706" style={{ flexShrink: 0 }} />
-              <div style={{ fontSize: '0.76rem', lineHeight: 1.4 }}>
-                <div style={{ fontWeight: 800, color: '#b45309' }}>
-                  1-Hour Delay Active ({oneHourCooldown.remainingMinutes} min remaining)
-                </div>
-                <div>
-                  Punch Out available at <strong>{oneHourCooldown.unlockTimeDisplay || '1 hour after Punch In'}</strong>.
-                </div>
-              </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span
+                          data-testid="record-status"
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.68rem',
+                            fontWeight: 800,
+                            backgroundColor: rec.status === 'Present' ? '#dcfce7' : rec.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
+                            color: rec.status === 'Present' ? '#15803d' : rec.status === 'Half Day' ? '#b45309' : '#b91c1c'
+                          }}
+                        >
+                          {rec.status}
+                        </span>
+                        <span data-testid="record-working-hours" style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b' }}>
+                          {rec.workingHours ?? 0} hrs
+                        </span>
+                        <ChevronRight
+                          size={14}
+                          color="#64748b"
+                          style={{
+                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.15s ease'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row Bottom: Side-by-side Check-In and Check-Out with Photos */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '8px',
+                      backgroundColor: '#ffffff',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0'
+                    }}>
+                      {/* Check-In Side */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                        <div>
+                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
+                            CHECK-IN
+                          </div>
+                          <div data-testid="record-checkin-time" style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkIn ? '#0f172a' : '#94a3b8' }}>
+                            {rec.checkIn ? formatAttendanceTime(rec.checkIn) : '—'}
+                          </div>
+                        </div>
+
+                        {inPhoto ? (
+                          <div
+                            data-testid="checkin-photo-thumb"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewPhoto({
+                                url: inPhoto,
+                                title: `${currentUser.name || 'Staff'} - Check-In Photo`,
+                                subtitle: formatDateDDMMYYYY(recDate),
+                                time: rec.checkIn ? formatAttendanceTime(rec.checkIn) : undefined
+                              });
+                            }}
+                            title="View Check-In Photo"
+                            style={{
+                              cursor: 'pointer',
+                              position: 'relative',
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '6px',
+                              overflow: 'hidden',
+                              border: '1.5px solid #86efac',
+                              flexShrink: 0
+                            }}
+                          >
+                            <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Check-Out Side */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                        <div>
+                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
+                            CHECK-OUT
+                          </div>
+                          <div data-testid="record-checkout-time" style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkOut ? '#0f172a' : rec.checkIn ? '#d97706' : '#94a3b8' }}>
+                            {rec.checkOut ? formatAttendanceTime(rec.checkOut) : (rec.checkIn ? 'In Progress' : '—')}
+                          </div>
+                        </div>
+
+                        {outPhoto ? (
+                          <div
+                            data-testid="checkout-photo-thumb"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewPhoto({
+                                url: outPhoto,
+                                title: `${currentUser.name || 'Staff'} - Check-Out Photo`,
+                                subtitle: formatDateDDMMYYYY(recDate),
+                                time: rec.checkOut ? formatAttendanceTime(rec.checkOut) : undefined
+                              });
+                            }}
+                            title="View Check-Out Photo"
+                            style={{
+                              cursor: 'pointer',
+                              position: 'relative',
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '6px',
+                              overflow: 'hidden',
+                              border: '1.5px solid #67e8f9',
+                              flexShrink: 0
+                            }}
+                          >
+                            <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Expandable Record Details */}
+                    {isExpanded && (
+                      <div
+                        data-testid="attendance-log-expanded-details"
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          backgroundColor: '#ffffff',
+                          border: '1px dashed #cbd5e1',
+                          fontSize: '0.72rem',
+                          color: '#475569',
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '6px'
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontWeight: 700, color: '#0f172a' }}>Method: </span>
+                          <span>{rec.method || 'Face Scan'}</span>
+                        </div>
+                        <div>
+                          <span style={{ fontWeight: 700, color: '#0f172a' }}>Punctuality: </span>
+                          <span>{rec.lateStatus || 'On Time'}</span>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <span style={{ fontWeight: 700, color: '#0f172a' }}>Location: </span>
+                          <span>{rec.location?.address || geofenceConfig.officeName || 'Verified Office Geofence'}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
-
-          {/* Live GPS Status Pill */}
-          <div style={{
-            maxWidth: '360px',
-            margin: '0 auto 14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            fontSize: '0.74rem',
-            color: activePunchGps ? '#15803d' : '#64748b',
-            backgroundColor: activePunchGps ? '#f0fdf4' : '#f1f5f9',
-            border: `1px solid ${activePunchGps ? '#bbf7d0' : '#e2e8f0'}`,
-            padding: '7px 12px',
-            borderRadius: '10px',
-            fontWeight: 700
-          }}>
-            <MapPin size={13} color={activePunchGps ? '#16a34a' : '#0e7490'} />
-            <span>
-              {activePunchGps
-                ? activePunchGps.address
-                : `${geofenceConfig.officeName || 'HQ Office'} • Camera & GPS Required`}
-            </span>
+        </div>
+      ) : (
+        /* VIEW 2: ALL STAFF MONTHLY ATTENDANCE (ACCESSIBLE TO HR/ADMIN) */
+        <>
+          {/* Search Bar for Filtering Staff */}
+          <div style={{ position: 'relative' }}>
+            <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              placeholder="Search staff name, ID or department..."
+              value={staffSearchQuery}
+              onChange={(e) => setStaffSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 32px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                fontSize: '0.78rem',
+                color: '#0f172a',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
           </div>
 
-          {/* PagarBook 2-Step Action Buttons */}
-          <div style={{ maxWidth: '360px', margin: '0 auto' }}>
-            {isCameraActive ? (
-              /* STEP 2 BUTTON: Take Picture & Punch In / Punch Out */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <button
-                  type="button"
-                  disabled={isScanning}
-                  onClick={() => handleTakePictureAndPunch(isCheckedIn ? 'Check-Out' : 'Check-In')}
-                  style={{
-                    width: '100%',
-                    padding: '15px 24px',
-                    borderRadius: '14px',
-                    background: isCheckedIn
-                      ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)'
-                      : 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: '0.98rem',
-                    border: 'none',
-                    cursor: isScanning ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '10px',
-                    boxShadow: isCheckedIn
-                      ? '0 6px 20px rgba(14, 116, 144, 0.35)'
-                      : '0 6px 20px rgba(16, 185, 129, 0.35)'
-                  }}
-                >
-                  {isScanning ? (
-                    <>
-                      <RefreshCw size={19} className="spin" />
-                      <span>Saving Attendance...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Camera size={20} />
-                      <span>{isCheckedIn ? 'Take Picture & Punch Out' : 'Take Picture & Punch In'}</span>
-                    </>
-                  )}
-                </button>
+          <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>
+            COMPANY ATTENDANCE - {formatMonthDisplay(selectedMonth).toUpperCase()} ({filteredAllStaffMonthlyRecords.length} LOGS)
+          </div>
 
+          {filteredAllStaffMonthlyRecords.length === 0 ? (
+            <div style={{
+              padding: '40px 16px',
+              textAlign: 'center',
+              backgroundColor: '#f8fafc',
+              borderRadius: '12px',
+              border: '1px dashed #cbd5e1'
+            }}>
+              <Users size={32} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
+                No staff records found for {formatMonthDisplay(selectedMonth)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                Records punched by employees in this month will appear here with photos.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
+              {filteredAllStaffMonthlyRecords.map(staff => {
+                const recDate = staff.date || staff.shiftDate;
+                const inPhoto = getRecordPhoto(staff, 'Check-In');
+                const outPhoto = getRecordPhoto(staff, 'Check-Out');
+
+                return (
+                  <div
+                    key={staff.id}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #e2e8f0',
+                      backgroundColor: '#f8fafc',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px'
+                    }}
+                  >
+                    {/* Top: Name, Department, Date & Status */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #0e7490, #0891b2)',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '0.7rem'
+                        }}>
+                          {(staff.employeeName || 'EM').substring(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
+                            {staff.employeeName}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                            {formatDateDDMMYYYY(recDate)} • {staff.department || 'General'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                        fontSize: '0.66rem',
+                        fontWeight: 800,
+                        backgroundColor: staff.status === 'Present' ? '#dcfce7' : staff.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
+                        color: staff.status === 'Present' ? '#15803d' : staff.status === 'Half Day' ? '#b45309' : '#b91c1c'
+                      }}>
+                        {staff.status}
+                      </span>
+                    </div>
+
+                    {/* Bottom: Side-by-side Check-In and Check-Out Times with Photos */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '8px',
+                      backgroundColor: '#ffffff',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0'
+                    }}>
+                      {/* Check-In */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
+                            CHECK-IN
+                          </div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkIn ? '#0f172a' : '#94a3b8' }}>
+                            {staff.checkIn ? formatAttendanceTime(staff.checkIn) : '—'}
+                          </div>
+                        </div>
+
+                        {inPhoto ? (
+                          <div
+                            onClick={() => setPreviewPhoto({
+                              url: inPhoto,
+                              title: `${staff.employeeName} - Check-In Photo`,
+                              subtitle: formatDateDDMMYYYY(recDate),
+                              time: staff.checkIn ? formatAttendanceTime(staff.checkIn) : undefined
+                            })}
+                            title="View Check-In Photo"
+                            style={{
+                              cursor: 'pointer',
+                              width: '30px',
+                              height: '30px',
+                              borderRadius: '6px',
+                              overflow: 'hidden',
+                              border: '1.5px solid #86efac',
+                              flexShrink: 0
+                            }}
+                          >
+                            <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Check-Out */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
+                            CHECK-OUT
+                          </div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkOut ? '#0f172a' : staff.checkIn ? '#d97706' : '#94a3b8' }}>
+                            {staff.checkOut ? formatAttendanceTime(staff.checkOut) : (staff.checkIn ? 'In Progress' : '—')}
+                          </div>
+                        </div>
+
+                        {outPhoto ? (
+                          <div
+                            onClick={() => setPreviewPhoto({
+                              url: outPhoto,
+                              title: `${staff.employeeName} - Check-Out Photo`,
+                              subtitle: formatDateDDMMYYYY(recDate),
+                              time: staff.checkOut ? formatAttendanceTime(staff.checkOut) : undefined
+                            })}
+                            title="View Check-Out Photo"
+                            style={{
+                              cursor: 'pointer',
+                              width: '30px',
+                              height: '30px',
+                              borderRadius: '6px',
+                              overflow: 'hidden',
+                              border: '1.5px solid #67e8f9',
+                              flexShrink: 0
+                            }}
+                          >
+                            <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div data-testid={mode === 'log' ? 'attendance-log-page' : 'daily-attendance-page'}>
+      {/* Minimal Header */}
+      <div className="page-header face-attendance-minimal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+        <div className="page-title-group">
+          <h1 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
+            {mode === 'log' ? 'Attendance Log' : 'Face Attendance'}
+          </h1>
+        </div>
+      </div>
+
+      {mode === 'log' ? (
+        /* SEPARATE ATTENDANCE LOG PAGE */
+        renderMonthlyActivityCard(true)
+      ) : (
+        /* DAILY ATTENDANCE PAGE */
+        <div className="face-attendance-grid">
+          {/* LEFT COLUMN: MINIMAL FACE ATTENDANCE SCREEN */}
+          <div className="face-attendance-scanner-card" style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 2px 10px rgba(15, 23, 42, 0.03)',
+            padding: '12px 14px',
+            textAlign: 'center'
+          }}>
+            {/* LIVE FRONT-CAMERA PREVIEW WITH COMPACT FACE-GUIDANCE FRAME */}
+            <div
+              data-testid="face-camera-preview"
+              style={{
+                width: '100%',
+                maxWidth: isMobileViewport ? '260px' : '340px',
+                aspectRatio: '1 / 1',
+                margin: '0 auto',
+                backgroundColor: '#f8fafc',
+                borderRadius: '16px',
+                border: '1.5px solid #cbd5e1',
+                overflow: 'hidden',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  display: isCameraActive ? 'block' : 'none',
+                  transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)'
+                }}
+              />
+
+              {!isCameraActive && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  color: '#0e7490'
+                }}>
+                  <ScanFace size={32} strokeWidth={1.75} />
+                  <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#475569' }}>
+                    Front Camera
+                  </span>
+                </div>
+              )}
+
+              {/* Compact Face-Guidance Frame Inside Camera Preview */}
+              <div
+                data-testid="face-guidance-frame"
+                style={{
+                  position: 'absolute',
+                  width: '58%',
+                  height: '70%',
+                  borderRadius: '9999px',
+                  border: '2px dashed #0e7490',
+                  boxShadow: isCameraActive ? '0 0 0 9999px rgba(15, 23, 42, 0.14)' : 'none',
+                  pointerEvents: 'none',
+                  zIndex: 10
+                }}
+              />
+
+              {/* Subtle Mirror Toggle Icon */}
+              {isCameraActive && (
                 <button
                   type="button"
                   onClick={() => {
-                    stopCamera();
-                    setActivePunchGps(null);
-                    setScanResult({ status: null, message: '' });
+                    setIsMirrored(prev => {
+                      const next = !prev;
+                      try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch {}
+                      return next;
+                    });
                   }}
+                  aria-label="Flip camera preview"
                   style={{
-                    width: '100%',
-                    padding: '10px',
-                    borderRadius: '10px',
-                    background: '#f1f5f9',
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    zIndex: 20,
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(255, 255, 255, 0.88)',
                     border: '1px solid #cbd5e1',
-                    color: '#475569',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
+                    color: '#0e7490',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     cursor: 'pointer'
                   }}
                 >
-                  Cancel Camera
+                  <FlipHorizontal size={15} />
                 </button>
+              )}
+            </div>
+
+            {/* TODAY'S COMPLETED ATTENDANCE SUMMARY OR ACTIVE PUNCH IN TIME */}
+            {isCompletedToday ? (
+              <div
+                data-testid="today-attendance-completed"
+                style={{
+                  maxWidth: isMobileViewport ? '260px' : '340px',
+                  margin: '10px auto 0',
+                  padding: '8px 10px',
+                  borderRadius: '10px',
+                  backgroundColor: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#15803d', fontWeight: 800, fontSize: '0.8rem' }}>
+                  <CheckCircle2 size={14} />
+                  <span>Today&apos;s Attendance Completed</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', flexWrap: 'wrap', fontSize: '0.74rem', fontWeight: 700, color: '#0f172a' }}>
+                  <span>Punch In: {myCheckInTime || '--:--'}</span>
+                  <span>Punch Out: {myCheckOutTime || '--:--'}</span>
+                </div>
               </div>
-            ) : (
-              /* STEP 1 BUTTON: Click Punch In / Punch Out to Request Camera & GPS Permission */
+            ) : (isCheckedIn && myCheckInTime) ? (
+              <div
+                data-testid="today-punch-in-summary"
+                style={{
+                  maxWidth: isMobileViewport ? '260px' : '340px',
+                  margin: '8px auto 0',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
+                  color: '#0e7490'
+                }}
+              >
+                Punch In: {myCheckInTime}
+              </div>
+            ) : null}
+
+            {/* SIDE-BY-SIDE PUNCH IN AND PUNCH OUT BUTTONS */}
+            <div
+              className="face-attendance-actions-row"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '10px',
+                maxWidth: isMobileViewport ? '260px' : '340px',
+                margin: '10px auto 0'
+              }}
+            >
+              {/* PUNCH IN BUTTON */}
               <button
                 type="button"
-                disabled={
-                  isScanning ||
-                  isRequestingPermissions ||
-                  isCompletedToday ||
-                  (isCheckedIn && oneHourCooldown.isCooldownActive) ||
-                  (isCheckedIn ? !shiftEval.canCheckOut : !shiftEval.canCheckIn)
-                }
-                onClick={() => {
-                  if (isCompletedToday || isScanning || isRequestingPermissions) return;
-                  handleRequestCameraAndGps(isCheckedIn ? 'Check-Out' : 'Check-In');
-                }}
+                disabled={isCheckedIn || isScanning || isRequestingPermissions || !shiftEval.canCheckIn}
+                onClick={() => handlePunchAction('Check-In')}
                 style={{
                   width: '100%',
-                  padding: '15px 24px',
-                  borderRadius: '14px',
-                  background: isCompletedToday
-                    ? '#cbd5e1'
-                    : (isScanning || isRequestingPermissions)
-                      ? '#94a3b8'
-                      : (isCheckedIn && oneHourCooldown.isCooldownActive)
-                        ? '#e2e8f0'
-                        : isCheckedIn
-                          ? (shiftEval.canCheckOut ? 'linear-gradient(135deg, #0e7490 0%, #0891b2 100%)' : '#cbd5e1')
-                          : (shiftEval.canCheckIn ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : '#cbd5e1'),
-                  color: (isCheckedIn && oneHourCooldown.isCooldownActive) ? '#64748b' : '#ffffff',
+                  minHeight: '46px',
+                  padding: '10px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
+                    ? '#0e7490'
+                    : '#e2e8f0',
+                  color: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
+                    ? '#ffffff'
+                    : '#94a3b8',
                   fontWeight: 800,
-                  fontSize: '0.98rem',
+                  fontSize: '0.9rem',
                   border: 'none',
-                  cursor: (!isCompletedToday && !isScanning && !isRequestingPermissions && !(isCheckedIn && oneHourCooldown.isCooldownActive) && (isCheckedIn ? shiftEval.canCheckOut : shiftEval.canCheckIn))
+                  cursor: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
                     ? 'pointer'
                     : 'not-allowed',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '10px',
-                  boxShadow: (!isCompletedToday && !isScanning && !isRequestingPermissions && !(isCheckedIn && oneHourCooldown.isCooldownActive) && (isCheckedIn ? shiftEval.canCheckOut : shiftEval.canCheckIn))
-                    ? (isCheckedIn ? '0 6px 20px rgba(14, 116, 144, 0.3)' : '0 6px 20px rgba(16, 185, 129, 0.3)')
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxShadow: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
+                    ? '0 4px 12px rgba(14, 116, 144, 0.22)'
                     : 'none'
                 }}
               >
-                {isRequestingPermissions ? (
-                  <>
-                    <RefreshCw size={18} className="spin" />
-                    <span>Allowing Camera & GPS...</span>
-                  </>
-                ) : isCompletedToday ? (
-                  <>
-                    <CheckCircle2 size={18} />
-                    <span>Attendance Completed Today</span>
-                  </>
-                ) : isCheckedIn && oneHourCooldown.isCooldownActive ? (
-                  <>
-                    <Clock size={18} />
-                    <span>Punch Out in {oneHourCooldown.remainingMinutes} min (1 Hr Delay)</span>
-                  </>
-                ) : isCheckedIn ? (
-                  <>
-                    <Camera size={19} />
-                    <span>Punch Out</span>
-                  </>
-                ) : (
-                  <>
-                    <Camera size={19} />
-                    <span>Punch In</span>
-                  </>
-                )}
+                <span>Punch In</span>
               </button>
-            )}
-          </div>
 
-          {/* Result Alert Message */}
-          {scanResult.message && (
-            <div style={{
-              maxWidth: '360px',
-              margin: '14px auto 0',
-              padding: '10px 14px',
-              borderRadius: '10px',
-              backgroundColor: scanResult.status === 'error' ? '#fff1f2' : scanResult.status === 'success' ? '#f0fdf4' : '#ecfeff',
-              border: `1px solid ${scanResult.status === 'error' ? '#f43f5e' : scanResult.status === 'success' ? '#22c55e' : '#0891b2'}`,
-              color: scanResult.status === 'error' ? '#9f1239' : scanResult.status === 'success' ? '#166534' : '#0e7490',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px'
-            }}>
-              {scanResult.status === 'error' && <ShieldAlert size={16} style={{ flexShrink: 0 }} />}
-              {scanResult.status === 'success' && <CheckCircle2 size={16} color="#22c55e" style={{ flexShrink: 0 }} />}
-              <span>{scanResult.message}</span>
-            </div>
-          )}
-
-        </div>
-
-        {/* RIGHT COLUMN: MONTHLY ACTIVITY CARD (SCOPED TO SELECTED MONTH) */}
-        <div className="face-attendance-activity-card" style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '16px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px'
-        }}>
-          {/* Header Strip with Month Navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Calendar size={18} color="#0e7490" />
-                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                  Monthly Activity
-                </h2>
-              </div>
-              
-              {/* Month Picker Controls */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  onClick={handlePrevMonth}
-                  title="Previous Month"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '26px',
-                    height: '26px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: '#ffffff',
-                    color: '#0e7490',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <ChevronLeft size={15} />
-                </button>
-
-                <div style={{
-                  padding: '3px 10px',
-                  borderRadius: '6px',
-                  backgroundColor: '#ecfeff',
-                  border: '1px solid #a5f3fc',
-                  color: '#0e7490',
-                  fontSize: '0.78rem',
+              {/* PUNCH OUT BUTTON */}
+              <button
+                type="button"
+                disabled={
+                  !isCheckedIn ||
+                  isCheckedOut ||
+                  oneHourCooldown.isCooldownActive ||
+                  isScanning ||
+                  isRequestingPermissions ||
+                  !shiftEval.canCheckOut
+                }
+                onClick={() => handlePunchAction('Check-Out')}
+                style={{
+                  width: '100%',
+                  minHeight: '46px',
+                  padding: '10px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: (
+                    isCheckedIn &&
+                    !isCheckedOut &&
+                    !oneHourCooldown.isCooldownActive &&
+                    !isScanning &&
+                    !isRequestingPermissions &&
+                    shiftEval.canCheckOut
+                  )
+                    ? '#0e7490'
+                    : '#e2e8f0',
+                  color: (
+                    isCheckedIn &&
+                    !isCheckedOut &&
+                    !oneHourCooldown.isCooldownActive &&
+                    !isScanning &&
+                    !isRequestingPermissions &&
+                    shiftEval.canCheckOut
+                  )
+                    ? '#ffffff'
+                    : '#94a3b8',
                   fontWeight: 800,
+                  fontSize: '0.9rem',
+                  border: 'none',
+                  cursor: (
+                    isCheckedIn &&
+                    !isCheckedOut &&
+                    !oneHourCooldown.isCooldownActive &&
+                    !isScanning &&
+                    !isRequestingPermissions &&
+                    shiftEval.canCheckOut
+                  )
+                    ? 'pointer'
+                    : 'not-allowed',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px'
-                }}>
-                  <Calendar size={12} />
-                  <span>{formatMonthDisplay(selectedMonth)}</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleNextMonth}
-                  title="Next Month"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '26px',
-                    height: '26px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: '#ffffff',
-                    color: '#0e7490',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <ChevronRight size={15} />
-                </button>
-              </div>
+                  justifyContent: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxShadow: (
+                    isCheckedIn &&
+                    !isCheckedOut &&
+                    !oneHourCooldown.isCooldownActive &&
+                    !isScanning &&
+                    !isRequestingPermissions &&
+                    shiftEval.canCheckOut
+                  )
+                    ? '0 4px 12px rgba(14, 116, 144, 0.22)'
+                    : 'none'
+                }}
+              >
+                <span>Punch Out</span>
+              </button>
             </div>
 
-            {/* If HR / Admin: Toggle between My Monthly and All Staff Monthly */}
-            {isHrOrAdmin ? (
-              <div style={{
-                display: 'inline-flex',
-                backgroundColor: '#f1f5f9',
-                padding: '3px',
-                borderRadius: '10px',
-                border: '1px solid #e2e8f0'
-              }}>
-                <button
-                  type="button"
-                  onClick={() => setActivityViewTab('my')}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: '7px',
-                    border: 'none',
-                    fontSize: '0.76rem',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
-                    color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
-                    boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <User size={13} />
-                  <span>My Monthly ({myMonthlyRecords.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivityViewTab('all')}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: '7px',
-                    border: 'none',
-                    fontSize: '0.76rem',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    backgroundColor: activityViewTab === 'all' ? '#ffffff' : 'transparent',
-                    color: activityViewTab === 'all' ? '#0e7490' : '#64748b',
-                    boxShadow: activityViewTab === 'all' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Users size={13} />
-                  <span>All Staff ({allStaffMonthlyRecords.length})</span>
-                </button>
-              </div>
-            ) : (
-              <span style={{
-                backgroundColor: '#ecfeff',
-                color: '#0e7490',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                fontSize: '0.74rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em'
-              }}>
-                {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'RECORD' : 'RECORDS'}
-              </span>
-            )}
+            {/* SMALL STATUS TEXT */}
+            <div
+              data-testid="face-attendance-status"
+              style={{
+                maxWidth: isMobileViewport ? '260px' : '340px',
+                margin: '8px auto 0',
+                minHeight: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                gap: '8px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                color: scanResult.status === 'error'
+                  ? '#dc2626'
+                  : scanResult.status === 'success'
+                    ? '#15803d'
+                    : '#0e7490'
+              }}
+            >
+              {isScanning || isRequestingPermissions ? (
+                <span>Verifying face & GPS...</span>
+              ) : scanResult.status === 'error' && scanResult.message ? (
+                <>
+                  <span>{scanResult.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => handlePunchAction(lastAttemptType)}
+                    style={{
+                      padding: '3px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #0e7490',
+                      backgroundColor: '#ecfeff',
+                      color: '#0e7490',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Retry
+                  </button>
+                </>
+              ) : (
+                <span>
+                  {[
+                    scanResult.status === 'success' && scanResult.message
+                      ? scanResult.message
+                      : isCompletedToday
+                        ? 'Punch Out successful'
+                        : activePunchGps
+                          ? 'GPS verified'
+                          : null,
+                    isCheckedIn && !isCheckedOut && oneHourCooldown.isCooldownActive
+                      ? `Punch Out available in ${oneHourCooldown.remainingMinutes} min`
+                      : null
+                  ]
+                    .filter(Boolean)
+                    .join(' • ') || 'Ready'}
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* VIEW 1: MY MONTHLY ACTIVITY */}
-          {activityViewTab === 'my' ? (
-            <>
-              {/* Monthly Attendance Records List with Saved Photos */}
-              <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em', marginBottom: '10px' }}>
-                  {formatMonthDisplay(selectedMonth).toUpperCase()} PUNCH LOGS ({myMonthlyRecords.length})
-                </div>
-
-                {myMonthlyRecords.length === 0 ? (
-                  <div style={{
-                    padding: '30px 16px',
-                    textAlign: 'center',
-                    backgroundColor: '#f8fafc',
-                    borderRadius: '12px',
-                    border: '1px dashed #cbd5e1'
-                  }}>
-                    <Calendar size={28} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
-                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
-                      No records for {formatMonthDisplay(selectedMonth)}
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                      Punch in using Face Attendance or GPS Clock to see your daily verified records and photos.
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '480px', overflowY: 'auto', paddingRight: '4px' }}>
-                    {myMonthlyRecords.map(rec => {
-                      const recDate = rec.date || rec.shiftDate;
-                      const inPhoto = getRecordPhoto(rec, 'Check-In');
-                      const outPhoto = getRecordPhoto(rec, 'Check-Out');
-                      const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
-
-                      return (
-                        <div
-                          key={rec.id}
-                          style={{
-                            padding: '10px 12px',
-                            borderRadius: '10px',
-                            border: `1px solid ${isTodayRow ? '#a5f3fc' : '#e2e8f0'}`,
-                            backgroundColor: isTodayRow ? '#f0fdfa' : '#f8fafc',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '6px'
-                          }}
-                        >
-                          {/* Row Top: Date, Day, Status Pill & Hours */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
-                                {formatDateDDMMYYYY(recDate)}
-                              </span>
-                              {isTodayRow && (
-                                <span style={{
-                                  fontSize: '0.62rem',
-                                  fontWeight: 800,
-                                  backgroundColor: '#0e7490',
-                                  color: '#ffffff',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px'
-                                }}>
-                                  TODAY
-                                </span>
-                              )}
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{
-                                padding: '2px 8px',
-                                borderRadius: '6px',
-                                fontSize: '0.68rem',
-                                fontWeight: 800,
-                                backgroundColor: rec.status === 'Present' ? '#dcfce7' : rec.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
-                                color: rec.status === 'Present' ? '#15803d' : rec.status === 'Half Day' ? '#b45309' : '#b91c1c'
-                              }}>
-                                {rec.status}
-                              </span>
-                              {rec.workingHours ? (
-                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b' }}>
-                                  {rec.workingHours} hrs
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          {/* Row Bottom: Side-by-side Check-In and Check-Out with Photos */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr',
-                            gap: '8px',
-                            backgroundColor: '#ffffff',
-                            padding: '8px 10px',
-                            borderRadius: '8px',
-                            border: '1px solid #e2e8f0'
-                          }}>
-                            {/* Check-In Side */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <div>
-                                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
-                                  CHECK-IN
-                                </div>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkIn ? '#0f172a' : '#94a3b8' }}>
-                                  {rec.checkIn ? formatAttendanceTime(rec.checkIn) : '—'}
-                                </div>
-                              </div>
-
-                              {inPhoto ? (
-                                <div
-                                  onClick={() => setPreviewPhoto({
-                                    url: inPhoto,
-                                    title: `${currentUser.name || 'Staff'} - Check-In Photo`,
-                                    subtitle: formatDateDDMMYYYY(recDate),
-                                    time: rec.checkIn ? formatAttendanceTime(rec.checkIn) : undefined
-                                  })}
-                                  title="View Check-In Photo"
-                                  style={{
-                                    cursor: 'pointer',
-                                    position: 'relative',
-                                    width: '32px',
-                                    height: '32px',
-                                    borderRadius: '6px',
-                                    overflow: 'hidden',
-                                    border: '1.5px solid #86efac',
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Check-Out Side */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <div>
-                                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
-                                  CHECK-OUT
-                                </div>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkOut ? '#0f172a' : rec.checkIn ? '#d97706' : '#94a3b8' }}>
-                                  {rec.checkOut ? formatAttendanceTime(rec.checkOut) : (rec.checkIn ? 'In Progress' : '—')}
-                                </div>
-                              </div>
-
-                              {outPhoto ? (
-                                <div
-                                  onClick={() => setPreviewPhoto({
-                                    url: outPhoto,
-                                    title: `${currentUser.name || 'Staff'} - Check-Out Photo`,
-                                    subtitle: formatDateDDMMYYYY(recDate),
-                                    time: rec.checkOut ? formatAttendanceTime(rec.checkOut) : undefined
-                                  })}
-                                  title="View Check-Out Photo"
-                                  style={{
-                                    cursor: 'pointer',
-                                    position: 'relative',
-                                    width: '32px',
-                                    height: '32px',
-                                    borderRadius: '6px',
-                                    overflow: 'hidden',
-                                    border: '1.5px solid #67e8f9',
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            /* VIEW 2: ALL STAFF MONTHLY ATTENDANCE (ACCESSIBLE TO HR/ADMIN) */
-            <>
-              {/* Search Bar for Filtering Staff */}
-              <div style={{ position: 'relative' }}>
-                <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                <input
-                  type="text"
-                  placeholder="Search staff name, ID or department..."
-                  value={staffSearchQuery}
-                  onChange={(e) => setStaffSearchQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px 8px 32px',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '0.78rem',
-                    color: '#0f172a',
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>
-                COMPANY ATTENDANCE - {formatMonthDisplay(selectedMonth).toUpperCase()} ({filteredAllStaffMonthlyRecords.length} LOGS)
-              </div>
-
-              {filteredAllStaffMonthlyRecords.length === 0 ? (
-                <div style={{
-                  padding: '40px 16px',
-                  textAlign: 'center',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '12px',
-                  border: '1px dashed #cbd5e1'
-                }}>
-                  <Users size={32} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
-                    No staff records found for {formatMonthDisplay(selectedMonth)}
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                    Records punched by employees in this month will appear here with photos.
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
-                  {filteredAllStaffMonthlyRecords.map(staff => {
-                    const recDate = staff.date || staff.shiftDate;
-                    const inPhoto = getRecordPhoto(staff, 'Check-In');
-                    const outPhoto = getRecordPhoto(staff, 'Check-Out');
-
-                    return (
-                      <div
-                        key={staff.id}
-                        style={{
-                          padding: '10px 12px',
-                          borderRadius: '10px',
-                          border: '1px solid #e2e8f0',
-                          backgroundColor: '#f8fafc',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '6px'
-                        }}
-                      >
-                        {/* Top: Name, Department, Date & Status */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '50%',
-                              background: 'linear-gradient(135deg, #0e7490, #0891b2)',
-                              color: '#ffffff',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 800,
-                              fontSize: '0.7rem'
-                            }}>
-                              {(staff.employeeName || 'EM').substring(0, 2).toUpperCase()}
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
-                                {staff.employeeName}
-                              </div>
-                              <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                                {formatDateDDMMYYYY(recDate)} • {staff.department || 'General'}
-                              </div>
-                            </div>
-                          </div>
-
-                          <span style={{
-                            padding: '2px 8px',
-                            borderRadius: '9999px',
-                            fontSize: '0.66rem',
-                            fontWeight: 800,
-                            backgroundColor: staff.status === 'Present' ? '#dcfce7' : staff.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
-                            color: staff.status === 'Present' ? '#15803d' : staff.status === 'Half Day' ? '#b45309' : '#b91c1c'
-                          }}>
-                            {staff.status}
-                          </span>
-                        </div>
-
-                        {/* Bottom: Side-by-side Check-In and Check-Out Times with Photos */}
-                        <div style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr',
-                          gap: '8px',
-                          backgroundColor: '#ffffff',
-                          padding: '8px 10px',
-                          borderRadius: '8px',
-                          border: '1px solid #e2e8f0'
-                        }}>
-                          {/* Check-In */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div>
-                              <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
-                                CHECK-IN
-                              </div>
-                              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkIn ? '#0f172a' : '#94a3b8' }}>
-                                {staff.checkIn ? formatAttendanceTime(staff.checkIn) : '—'}
-                              </div>
-                            </div>
-
-                            {inPhoto ? (
-                              <div
-                                onClick={() => setPreviewPhoto({
-                                  url: inPhoto,
-                                  title: `${staff.employeeName} - Check-In Photo`,
-                                  subtitle: formatDateDDMMYYYY(recDate),
-                                  time: staff.checkIn ? formatAttendanceTime(staff.checkIn) : undefined
-                                })}
-                                title="View Check-In Photo"
-                                style={{
-                                  cursor: 'pointer',
-                                  width: '30px',
-                                  height: '30px',
-                                  borderRadius: '6px',
-                                  overflow: 'hidden',
-                                  border: '1.5px solid #86efac',
-                                  flexShrink: 0
-                                }}
-                              >
-                                <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              </div>
-                            ) : null}
-                          </div>
-
-                          {/* Check-Out */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div>
-                              <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
-                                CHECK-OUT
-                              </div>
-                              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkOut ? '#0f172a' : staff.checkIn ? '#d97706' : '#94a3b8' }}>
-                                {staff.checkOut ? formatAttendanceTime(staff.checkOut) : (staff.checkIn ? 'In Progress' : '—')}
-                              </div>
-                            </div>
-
-                            {outPhoto ? (
-                              <div
-                                onClick={() => setPreviewPhoto({
-                                  url: outPhoto,
-                                  title: `${staff.employeeName} - Check-Out Photo`,
-                                  subtitle: formatDateDDMMYYYY(recDate),
-                                  time: staff.checkOut ? formatAttendanceTime(staff.checkOut) : undefined
-                                })}
-                                title="View Check-Out Photo"
-                                style={{
-                                  cursor: 'pointer',
-                                  width: '30px',
-                                  height: '30px',
-                                  borderRadius: '6px',
-                                  overflow: 'hidden',
-                                  border: '1.5px solid #67e8f9',
-                                  flexShrink: 0
-                                }}
-                              >
-                                <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
-
+          {/* RIGHT COLUMN: MONTHLY ACTIVITY CARD (DESKTOP ONLY IN DAILY MODE) */}
+          {!isMobileViewport && renderMonthlyActivityCard(false)}
         </div>
-
-      </div>
+      )}
 
       {/* GPS CLOCK-IN MODAL DIALOG */}
       {showGpsModal && (
