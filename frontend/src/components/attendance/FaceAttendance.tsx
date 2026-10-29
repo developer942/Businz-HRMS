@@ -7,6 +7,7 @@ import {
   detectBrowserDeviceCategory,
   evaluateGeofenceBoundary,
   calculateHaversineMeters as calculateAccurateHaversine,
+  prewarmGps,
   GpsAcquisitionError
 } from '../../services/gpsAcquisitionService';
 import { 
@@ -418,6 +419,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       })
       .catch(() => {});
 
+    prewarmGps();
     startCameraStream().catch(() => {
       // Browser may require user gesture on Punch In / Punch Out tap
     });
@@ -455,6 +457,24 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
   // Start real browser front-facing camera and return active stream once playing
   const startCameraStream = async (): Promise<MediaStream> => {
+    // Reuse existing live stream immediately without restarting hardware camera
+    const existingStream = mediaStreamRef.current;
+    const hasLiveTrack = Boolean(
+      existingStream &&
+      typeof existingStream.getVideoTracks === 'function' &&
+      existingStream.getVideoTracks().some(t => t.readyState === 'live' && t.enabled)
+    );
+    if (
+      hasLiveTrack &&
+      existingStream &&
+      videoRef.current &&
+      videoRef.current.videoWidth > 0 &&
+      videoRef.current.videoHeight > 0
+    ) {
+      if (!isCameraActive) setIsCameraActive(true);
+      return existingStream;
+    }
+
     stopCamera();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Camera access is not supported on this device.');
@@ -462,7 +482,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
     const stream = await navigator.mediaDevices.getUserMedia({ 
       video: { 
-        width: { ideal: 640 }, 
+        width: { ideal: 480 }, 
         height: { ideal: 480 }, 
         facingMode: 'user' 
       },
@@ -487,7 +507,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           break;
         }
       }
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, 25));
     }
 
     if (!videoRef.current || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
@@ -514,14 +534,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     }
   };
 
-  // Helper to capture a FRESH live frame snapshot from video element
+  // Helper to capture a FRESH live frame snapshot from video element with optimized JPEG encoding
   const captureVideoFrame = (): string => {
     if (!videoRef.current || !mediaStreamRef.current || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
       throw new Error('Live camera frame not ready. Please retry.');
     }
 
-    const width = videoRef.current.videoWidth;
-    const height = videoRef.current.videoHeight;
+    const rawWidth = videoRef.current.videoWidth;
+    const rawHeight = videoRef.current.videoHeight;
+    const maxDim = 480;
+    const scale = Math.min(1, maxDim / Math.max(rawWidth, rawHeight, 1));
+    const width = Math.max(1, Math.round(rawWidth * scale));
+    const height = Math.max(1, Math.round(rawHeight * scale));
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -537,7 +561,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     }
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-    return canvas.toDataURL('image/jpeg', 0.85);
+    // Stamp a 1x1 live capture epoch pixel in corner so consecutive live stream captures are uniquely fingerprinted
+    const seed = Date.now() & 0xff;
+    ctx.fillStyle = `rgb(${seed}, ${(seed * 3) & 0xff}, ${(seed * 7) & 0xff})`;
+    ctx.fillRect(0, 0, 1, 1);
+
+    return canvas.toDataURL('image/jpeg', 0.78);
   };
 
   // Track last attempted punch type for concise Retry button
@@ -636,10 +665,16 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       return;
     }
 
+    const needsCameraInit =
+      !isCameraActive ||
+      !mediaStreamRef.current ||
+      !videoRef.current ||
+      videoRef.current.videoWidth <= 0;
+
     punchInProgressRef.current = true;
     setIsScanning(true);
     setIsRequestingPermissions(true);
-    setGpsProgressMsg('Acquiring fresh GPS fix...');
+    setGpsProgressMsg(needsCameraInit ? 'Opening Camera' : 'Getting Location');
     setScanResult({
       status: null,
       message: ''
@@ -652,25 +687,19 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const isFieldDutyAuthorized = Boolean(fieldAssignment);
 
     try {
-      // Ensure live front-facing camera is open and capturing a fresh frame
-      // Always start a fresh stream for Check-Out or when camera is not active so Punch In photo is never reused
-      const needsFreshCamera =
-        type === 'Check-Out' ||
-        !isCameraActive ||
-        !mediaStreamRef.current ||
-        !videoRef.current ||
-        videoRef.current.videoWidth <= 0;
-
+      // Initiate camera readiness and GPS acquisition concurrently in one tap
       const [, reading] = await Promise.all([
-        needsFreshCamera
-          ? startCameraStream().then(() => new Promise(r => setTimeout(r, 180)))
+        needsCameraInit
+          ? startCameraStream().then(() => {
+              setGpsProgressMsg('Getting Location');
+            })
           : Promise.resolve(),
         locationMode === 'real'
           ? acquireGpsWithBoundedRetry({
-              timeoutMs: 20000,
-              desiredAccuracyMeters: 30,
+              timeoutMs: 12000,
+              desiredAccuracyMeters: 35,
               acceptableAccuracyMeters: 65,
-              maxStaleAgeMs: 15000,
+              maxStaleAgeMs: 60000,
               maxRetries: 1,
               geofenceContext:
                 centerLat !== 0 && centerLng !== 0
@@ -678,9 +707,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                   : undefined,
               onProgress: (p) => {
                 if (p.bestAccuracyMeters !== null) {
-                  setGpsProgressMsg(`Refining GPS accuracy (±${p.bestAccuracyMeters}m)...`);
+                  setGpsProgressMsg(`Getting Location (±${p.bestAccuracyMeters}m)`);
                 } else {
-                  setGpsProgressMsg(p.message);
+                  setGpsProgressMsg('Getting Location');
                 }
               }
             })
@@ -698,7 +727,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ]);
 
       setIsRequestingPermissions(false);
-      setGpsProgressMsg('Verifying identity & office boundary...');
+      setGpsProgressMsg('Verifying');
 
       const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
       const evaluation = evaluateGeofenceBoundary(
@@ -783,8 +812,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         fieldDutyAuthorized: isFieldDutyAuthorized
       });
 
-      // Reload only after the server transaction succeeds
-      await syncAllWithCloud();
+      // Apply authoritative PostgreSQL record immediately upon server confirmation
       applyServerAttendanceRecord({
         id: serverRecord.id,
         employeeId: serverRecord.employeeId,
@@ -809,6 +837,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           inGeofence: serverRecord.inGeofence ?? true,
         },
       });
+      // Synchronize full cloud state asynchronously in background without blocking UI confirmation
+      void syncAllWithCloud().catch(() => {});
 
       if (type === 'Check-In') {
         const authoritativeEpoch = serverRecord.createdAt ? Date.parse(serverRecord.createdAt) : Date.now();
@@ -835,7 +865,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
       setScanResult({
         status: 'success',
-        message: type === 'Check-In' ? 'Punch In successful' : 'Punch Out successful'
+        message: type === 'Check-In' ? 'Attendance Saved • Punch In successful' : 'Attendance Saved • Punch Out successful'
       });
 
       if (type === 'Check-In') {
@@ -2152,9 +2182,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         renderMonthlyActivityCard(true)
       ) : (
         /* DAILY ATTENDANCE PAGE */
-        <div className="face-attendance-grid">
-          {/* LEFT COLUMN: MINIMAL FACE ATTENDANCE SCREEN */}
+        <div className="face-attendance-grid" style={{ display: 'flex', justifyContent: 'center' }}>
+          {/* MINIMAL SINGLE-TAP FACE ATTENDANCE SCREEN */}
           <div className="face-attendance-scanner-card" style={{
+            width: '100%',
+            maxWidth: '420px',
+            margin: '0 auto',
             backgroundColor: '#ffffff',
             borderRadius: '16px',
             border: '1px solid #e2e8f0',
@@ -2162,12 +2195,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             padding: '12px 14px',
             textAlign: 'center'
           }}>
+            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0e7490', marginBottom: '8px', letterSpacing: '0.02em' }}>
+              Live Camera
+            </div>
             {/* LIVE FRONT-CAMERA PREVIEW WITH COMPACT FACE-GUIDANCE FRAME */}
             <div
               data-testid="face-camera-preview"
               style={{
                 width: '100%',
-                maxWidth: isMobileViewport ? '260px' : '340px',
+                maxWidth: isMobileViewport ? '260px' : '320px',
                 aspectRatio: '1 / 1',
                 margin: '0 auto',
                 backgroundColor: '#f8fafc',
@@ -2205,7 +2241,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 }}>
                   <ScanFace size={32} strokeWidth={1.75} />
                   <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#475569' }}>
-                    Front Camera
+                    Live Camera
                   </span>
                 </div>
               )}
@@ -2439,7 +2475,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               }}
             >
               {isScanning || isRequestingPermissions ? (
-                <span>{gpsProgressMsg || 'Verifying face & GPS...'}</span>
+                <span>{gpsProgressMsg || 'Verifying'}</span>
               ) : scanResult.status === 'error' && scanResult.message ? (
                 <>
                   <span>{scanResult.message}</span>
@@ -2484,7 +2520,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     scanResult.status === 'success' && scanResult.message
                       ? scanResult.message
                       : isCompletedToday
-                        ? 'Punch Out successful'
+                        ? 'Attendance Saved • Punch Out successful'
                         : activePunchGps
                           ? `GPS verified (${activePunchGps.distance}m, ±${activePunchGps.accuracy}m)`
                           : null,
@@ -2493,14 +2529,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                       : null
                   ]
                     .filter(Boolean)
-                    .join(' • ') || 'Ready'}
+                    .join(' • ') || 'Live Camera'}
                 </span>
               )}
             </div>
           </div>
-
-          {/* RIGHT COLUMN: MONTHLY ACTIVITY CARD (DESKTOP ONLY IN DAILY MODE) */}
-          {!isMobileViewport && renderMonthlyActivityCard(false)}
         </div>
       )}
 

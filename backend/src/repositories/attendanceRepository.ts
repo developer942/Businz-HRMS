@@ -43,8 +43,11 @@ const formatIsoToIst12Hour = (value?: string | null): string | undefined => {
 export class AttendanceRepository {
   async getAttendanceLogs(filters?: {
     date?: string;
+    sinceDate?: string;
     employeeId?: string;
+    employeeUuid?: string;
     status?: string;
+    excludePhotos?: boolean;
   }): Promise<AttendanceLogRecord[]> {
     if (!isRealSupabaseConfigured()) {
       return [];
@@ -53,13 +56,21 @@ export class AttendanceRepository {
     try {
       const supabase = getSupabaseAdmin();
 
+      const selectColumns = filters?.excludePhotos
+        ? 'id, employee_id, date, shift_id, shift_date, check_in, check_out, working_hours, status, late_status, method, in_geofence, location_lat, location_lng, location_address, employees(id, employee_id, first_name, last_name)'
+        : '*, employees(id, employee_id, first_name, last_name)';
+
       // 1. Query real attendance_records table first (single source of truth)
       let query = supabase
         .from('attendance_records')
-        .select('*, employees(id, employee_id, first_name, last_name)')
+        .select(selectColumns)
         .order('date', { ascending: false });
 
       if (filters?.date) query = query.eq('date', filters.date);
+      if (filters?.sinceDate) query = query.gte('date', filters.sinceDate);
+      if (filters?.employeeUuid && filters.employeeUuid.length === 36) {
+        query = query.eq('employee_id', filters.employeeUuid);
+      }
 
       const { data, error } = await query;
       let logs: AttendanceLogRecord[] = [];
@@ -85,7 +96,7 @@ export class AttendanceRepository {
           checkInPhoto: d.check_in_photo || undefined,
           checkOutPhoto: d.check_out_photo || undefined,
         }));
-      } else {
+      } else if (!filters?.employeeUuid) {
         // Fallback to company_settings only if table is clean and setting exists
         const { data: csData } = await supabase
           .from('company_settings')
@@ -134,9 +145,17 @@ export class AttendanceRepository {
     }
   }
 
-  async getShiftAttendanceStatus(employeeId: string, now?: Date): Promise<ShiftWindowEvaluation> {
-    const emp = await employeeRepository.getEmployeeById(employeeId);
-    const shifts = await shiftRepository.getShifts();
+  async getShiftAttendanceStatus(
+    employeeId: string,
+    now?: Date,
+    preloadedEmployee?: any
+  ): Promise<ShiftWindowEvaluation> {
+    const [emp, shifts] = await Promise.all([
+      preloadedEmployee !== undefined
+        ? Promise.resolve(preloadedEmployee)
+        : employeeRepository.getEmployeeById(employeeId),
+      shiftRepository.getShifts(),
+    ]);
 
     let assigned = shifts.find((s) => s.assignments?.includes(employeeId));
     if (!assigned && emp?.workShift) {
@@ -162,7 +181,14 @@ export class AttendanceRepository {
       };
     }
 
-    const allLogs = await this.getAttendanceLogs({ employeeId });
+    const refNow = now || new Date();
+    const recentSinceIso = new Date(refNow.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const allLogs = await this.getAttendanceLogs({
+      employeeId,
+      employeeUuid: emp?.id,
+      sinceDate: recentSinceIso,
+      excludePhotos: true,
+    });
     return evaluateBackendShiftAttendance({
       employeeId,
       assignedShift: assigned,
@@ -189,6 +215,7 @@ export class AttendanceRepository {
     photoUrl?: string;
     photoBase64?: string;
     idempotencyKey?: string;
+    preloadedEmployee?: any;
   }): Promise<AttendanceLogRecord> {
     const lockKey = `${punch.employeeId}_${punch.type}`;
     const nowMs = Date.now();
@@ -212,7 +239,12 @@ export class AttendanceRepository {
       hour12: true
     });
 
-    const evalResult = await this.getShiftAttendanceStatus(punch.employeeId, punchNow);
+    const emp =
+      punch.preloadedEmployee !== undefined
+        ? punch.preloadedEmployee
+        : await employeeRepository.getEmployeeById(punch.employeeId);
+
+    const evalResult = await this.getShiftAttendanceStatus(punch.employeeId, punchNow, emp);
 
     if (punch.type === 'IN') {
       if (!evalResult.canCheckIn) {
@@ -226,8 +258,6 @@ export class AttendanceRepository {
 
     const assignedShiftId = punch.shiftId || evalResult.assignedShift.id;
     const targetShiftDate = punch.shiftDate || evalResult.shiftDate;
-
-    const emp = await employeeRepository.getEmployeeById(punch.employeeId);
     const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : punch.employeeId;
 
     if (isRealSupabaseConfigured() && emp?.id && emp.id.length === 36) {
@@ -571,8 +601,15 @@ export class AttendanceRepository {
     });
   }
 
-  async verifyFace(employeeId: string, facePhotoBase64?: string): Promise<{ verified: boolean; confidence: number; message?: string }> {
-    const emp = await employeeRepository.getEmployeeById(employeeId);
+  async verifyFace(
+    employeeId: string,
+    facePhotoBase64?: string,
+    preloadedEmployee?: any
+  ): Promise<{ verified: boolean; confidence: number; message?: string }> {
+    const emp =
+      preloadedEmployee !== undefined
+        ? preloadedEmployee
+        : await employeeRepository.getEmployeeById(employeeId);
     if (!emp) {
       return { verified: false, confidence: 0, message: `Employee ID ${employeeId} not found.` };
     }

@@ -773,11 +773,23 @@ interface HRMSContextType {
   addEmployee: (emp: Omit<Employee, 'id'>, options?: { persistToCloud?: boolean }) => void;
   updateEmployee: (id: string, empData: Partial<Employee>, options?: {
     expectedVersion?: number;
+    forceReapplyVersion?: number;
+    changedFields?: string[];
+    baseValues?: Record<string, any>;
     shiftEffectiveFrom?: string;
     salaryEffectiveFrom?: string;
     weeklyOffEffectiveFrom?: string;
     revisionReason?: string;
-  }) => Promise<{ success: boolean; error?: any; data?: Employee; dependencies?: any }> | void;
+  }) => Promise<{
+    success: boolean;
+    code?: string;
+    error?: any;
+    data?: Employee;
+    dependencies?: any;
+    currentVersion?: number;
+    conflictingFields?: Array<{ field: string; baseValue?: unknown; serverValue: unknown; incomingValue: unknown }>;
+    latestEmployee?: any;
+  }> | void;
   deleteEmployee: (id: string) => Promise<{ success: boolean; message?: string }> | any;
   deleteMultipleEmployees: (ids: string[]) => Promise<{ success: boolean; deletedCount: number; message?: string }>;
   refreshEmployees: () => Promise<void>;
@@ -6648,14 +6660,28 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateEmployee = async (id: string, empData: Partial<Employee>, options: {
     expectedVersion?: number;
+    forceReapplyVersion?: number;
+    changedFields?: string[];
+    baseValues?: Record<string, any>;
     shiftEffectiveFrom?: string;
     salaryEffectiveFrom?: string;
     weeklyOffEffectiveFrom?: string;
     revisionReason?: string;
-  } = {}): Promise<{ success: boolean; error?: any; data?: Employee; dependencies?: any }> => {
+  } = {}): Promise<{
+    success: boolean;
+    code?: string;
+    error?: any;
+    data?: Employee;
+    dependencies?: any;
+    currentVersion?: number;
+    conflictingFields?: Array<{ field: string; baseValue?: unknown; serverValue: unknown; incomingValue: unknown }>;
+    latestEmployee?: any;
+  }> => {
     const normalizedEmpData = { ...empData };
-    // Phase 6: Never send password fields in profile update payloads
+    // Phase 6 & 7: Never send password fields in profile update payloads
     delete (normalizedEmpData as any).password;
+    delete (normalizedEmpData as any).passwordHash;
+    delete (normalizedEmpData as any).plainPassword;
     delete (normalizedEmpData as any).mustChangePassword;
     if (normalizedEmpData.systemAccess && typeof normalizedEmpData.systemAccess === 'object') {
       normalizedEmpData.systemAccess = { ...normalizedEmpData.systemAccess };
@@ -6697,20 +6723,34 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { res, body };
       };
 
-      let { res: response, body: result } = await sendSyncRequest(
+      const { res: response, body: result } = await sendSyncRequest(
         options.expectedVersion ?? existingEmployee?.rowVersion
       );
 
-      // If optimistic version drifted due to background sync or extension mismatch, rebase once to authoritative DB version
+      // Phase 2: Genuine concurrent field conflict — do not blindly overwrite or retry with stale version.
+      // Return conflict details and latest server snapshot so the user can safely review and reapply.
       if (response.status === 409 && result?.error?.code === 'STALE_EMPLOYEE_VERSION') {
         const latestDbVersion =
           result?.error?.currentVersion ??
           result?.error?.details?.[0]?.currentVersion;
-        const retryOutcome = await sendSyncRequest(
-          typeof latestDbVersion === 'number' ? latestDbVersion : undefined
-        );
-        response = retryOutcome.res;
-        result = retryOutcome.body;
+        const conflictingFields =
+          result?.error?.conflictingFields ??
+          result?.error?.details?.[0]?.conflictingFields ??
+          [];
+        const latestEmployee = result?.error?.latestEmployee;
+        if (typeof latestDbVersion === 'number' && existingEmployee) {
+          setEmployees(prev => prev.map(e => (
+            e.id === existingEmployee.id || e.employeeId === existingEmployee.employeeId || e.id === id || e.employeeId === id
+          ) ? { ...e, rowVersion: latestDbVersion } : e));
+        }
+        return {
+          success: false,
+          code: 'STALE_EMPLOYEE_VERSION',
+          error: result?.error?.message || 'This employee profile was changed by another user. Reload and apply your changes again.',
+          currentVersion: typeof latestDbVersion === 'number' ? latestDbVersion : undefined,
+          conflictingFields,
+          latestEmployee,
+        };
       }
 
       if (!response.ok || result.success !== true || !result.data) {

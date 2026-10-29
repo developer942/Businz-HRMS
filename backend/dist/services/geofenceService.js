@@ -120,11 +120,44 @@ export function getRecentGpsDiagnostics(limit = 50) {
     return recentGpsDiagnostics.slice(0, Math.max(1, Math.min(limit, MAX_DIAGNOSTIC_ENTRIES)));
 }
 /**
+ * Normalizes a timestamp (ISO string, Date, epoch ms, or epoch seconds) into Unix epoch milliseconds.
+ */
+export function normalizeLocationTimestampMs(rawTimestamp, referenceNowMs = Date.now()) {
+    if (rawTimestamp === undefined || rawTimestamp === null || rawTimestamp === '') {
+        return null;
+    }
+    if (rawTimestamp instanceof Date) {
+        const ms = rawTimestamp.getTime();
+        return Number.isFinite(ms) && ms > 0 ? Math.min(ms, referenceNowMs) : null;
+    }
+    if (typeof rawTimestamp === 'number') {
+        if (!Number.isFinite(rawTimestamp) || rawTimestamp <= 0)
+            return null;
+        if (rawTimestamp >= 1e12)
+            return Math.min(Math.round(rawTimestamp), referenceNowMs);
+        if (rawTimestamp >= 1e9 && rawTimestamp < 1e12)
+            return Math.min(Math.round(rawTimestamp * 1000), referenceNowMs);
+        return referenceNowMs;
+    }
+    if (typeof rawTimestamp === 'string') {
+        const trimmed = rawTimestamp.trim();
+        const numeric = Number(trimmed);
+        if (Number.isFinite(numeric) && numeric > 0) {
+            return normalizeLocationTimestampMs(numeric, referenceNowMs);
+        }
+        const parsed = Date.parse(trimmed);
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return Math.min(parsed, referenceNowMs);
+        }
+    }
+    return null;
+}
+/**
  * Comprehensive Geofence verification for attendance punch.
  * Checks coordinate validity, staleness, distance, and boundary classification.
  */
 export function verifyPunchGeofence(opts) {
-    const { userLat, userLng, officeLat, officeLng, radiusMeters, accuracyMeters = 15, locationTimestamp, officeName = 'Office', maxStaleSeconds = 90, } = opts;
+    const { userLat, userLng, officeLat, officeLng, radiusMeters, accuracyMeters = 15, locationTimestamp, officeName = 'Office', maxStaleSeconds = 120, } = opts;
     // 1. Verify user coordinates
     if (!isValidCoordinate(userLat, userLng)) {
         return {
@@ -142,15 +175,15 @@ export function verifyPunchGeofence(opts) {
         };
     }
     // 3. Verify freshness of location reading if timestamp is provided
-    if (locationTimestamp) {
-        const readingTime = new Date(locationTimestamp).getTime();
-        if (!isNaN(readingTime)) {
-            const now = Date.now();
-            const ageSeconds = (now - readingTime) / 1000;
+    if (locationTimestamp !== undefined && locationTimestamp !== null) {
+        const now = Date.now();
+        const readingTime = normalizeLocationTimestampMs(locationTimestamp, now);
+        if (readingTime !== null) {
+            const ageSeconds = Math.max(0, (now - readingTime) / 1000);
             if (ageSeconds > maxStaleSeconds) {
                 return {
                     valid: false,
-                    error: `Stale GPS coordinates detected (${Math.round(ageSeconds)}s old). Please refresh your GPS location to acquire a current reading.`,
+                    error: 'Location reading was stale. Please retry to obtain a fresh GPS fix.',
                     statusCode: 422,
                 };
             }

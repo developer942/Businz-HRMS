@@ -36,7 +36,13 @@ export const errorHandler = (
   }
 
   if (err instanceof Error) {
-    const typed = err as Error & { statusCode?: number; code?: string; currentVersion?: number };
+    const typed = err as Error & {
+      statusCode?: number;
+      code?: string;
+      currentVersion?: number;
+      conflictingFields?: unknown[];
+      latestEmployee?: Record<string, unknown>;
+    };
     const isNotFound = err.message.toLowerCase().includes('not found');
     const isConflict = err.message.toLowerCase().includes('already exists');
     const statusCode = typed.statusCode || (isNotFound ? 404 : isConflict ? 409 : 400);
@@ -47,7 +53,17 @@ export const errorHandler = (
         code: typed.code || (isNotFound ? 'NOT_FOUND' : isConflict ? 'CONFLICT' : 'BAD_REQUEST'),
         message: err.message,
         ...(typed.currentVersion !== undefined ? { currentVersion: typed.currentVersion } : {}),
-        details: typed.currentVersion === undefined ? [] : [{ currentVersion: typed.currentVersion }],
+        ...(typed.conflictingFields !== undefined ? { conflictingFields: typed.conflictingFields } : {}),
+        ...(typed.latestEmployee !== undefined ? { latestEmployee: typed.latestEmployee } : {}),
+        details:
+          typed.currentVersion === undefined && typed.conflictingFields === undefined
+            ? []
+            : [
+                {
+                  ...(typed.currentVersion !== undefined ? { currentVersion: typed.currentVersion } : {}),
+                  ...(typed.conflictingFields !== undefined ? { conflictingFields: typed.conflictingFields } : {}),
+                },
+              ],
       },
     });
     return;

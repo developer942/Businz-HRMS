@@ -215,7 +215,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const [currentEmp, setCurrentEmp] = useState<Employee>(employee);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const savingRef = useRef<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [conflictDetails, setConflictDetails] = useState<{
+    currentVersion?: number;
+    conflictingFields?: Array<{ field: string; baseValue?: unknown; serverValue: unknown; incomingValue: unknown }>;
+    latestEmployee?: any;
+  } | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [showOfferLetterModal, setShowOfferLetterModal] = useState<boolean>(false);
   const [imgError, setImgError] = useState<boolean>(false);
@@ -298,7 +304,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
     if (isNewEmployee) {
       setCurrentEmp(employee);
-      setFormData(getInitialFormData(employee));
+      const initial = getInitialFormData(employee);
+      setFormData(initial);
+      baselineFormRef.current = initial;
+      setConflictDetails(null);
       const d = employee.educationalDetails?.degreeName;
       setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
     } else if (!isEditing) {
@@ -310,9 +319,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         dob: employee.dob || currentEmp.dob,
         gender: employee.gender || currentEmp.gender,
         maritalStatus: employee.maritalStatus || currentEmp.maritalStatus,
+        rowVersion: employee.rowVersion ?? currentEmp.rowVersion,
       };
       setCurrentEmp(merged);
-      setFormData(getInitialFormData(merged));
+      const initial = getInitialFormData(merged);
+      setFormData(initial);
+      baselineFormRef.current = initial;
       const d = merged.educationalDetails?.degreeName;
       setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
     }
@@ -483,6 +495,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   };
 
   const [formData, setFormData] = useState(getInitialFormData(currentEmp));
+  const baselineFormRef = useRef(getInitialFormData(currentEmp));
   const [salaryInputDrafts, setSalaryInputDrafts] = useState<Record<string, string>>({});
   const [isCustomDegree, setIsCustomDegree] = useState<boolean>(() => {
     const d = currentEmp.educationalDetails?.degreeName;
@@ -917,7 +930,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   };
 
   // Save changes
-  const handleSaveChanges = async () => {
+  const handleSaveChanges = async (forceReapplyVersion?: number) => {
+    if (savingRef.current || isSaving) return;
     setValidationError(null);
 
     // Validate First Name
@@ -1078,7 +1092,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       workLocation: formData.workLocation,
       status: (formData.status === 'Active' || formData.status === 'Terminated' || formData.status === 'On Leave' || formData.status === 'Inactive') ? formData.status : 'Active',
 
-      address: `${formData.currentLine1}, ${formData.currentCity}, ${formData.currentState} - ${formData.currentPincode}`,
+      address: (formData.currentLine1 || formData.currentCity || formData.currentState || formData.currentPincode)
+        ? `${[formData.currentLine1, formData.currentCity, formData.currentState].filter(Boolean).join(', ')}${formData.currentPincode ? ` - ${formData.currentPincode}` : ''}`
+        : (currentEmp.address || ''),
       currentAddress: {
         line1: formData.currentLine1,
         line2: formData.currentLine2,
@@ -1186,18 +1202,135 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       }
     };
 
+    const baseForm = baselineFormRef.current || getInitialFormData(currentEmp);
+    const changedFields: string[] = [];
+    const markIfChanged = (canonical: string, curVal: unknown, baseVal: unknown) => {
+      const a = typeof curVal === 'object' ? JSON.stringify(curVal ?? '') : String(curVal ?? '').trim();
+      const b = typeof baseVal === 'object' ? JSON.stringify(baseVal ?? '') : String(baseVal ?? '').trim();
+      if (a !== b && !changedFields.includes(canonical)) {
+        changedFields.push(canonical);
+      }
+    };
+    markIfChanged('firstName', cleanFname, (baseForm.firstName || '').trim());
+    markIfChanged('lastName', cleanLname, (baseForm.lastName || '').trim());
+    markIfChanged('phone', updatedData.phone, baseForm.phone);
+    markIfChanged('email', cleanEmail, (baseForm.personalEmail || '').trim().toLowerCase());
+    markIfChanged('gender', updatedData.gender, normalizeGender(baseForm.gender));
+    markIfChanged('dob', updatedData.dob, normalizeToYYYYMMDD(baseForm.dob));
+    markIfChanged('maritalStatus', formData.maritalStatus, baseForm.maritalStatus);
+    markIfChanged('joiningDate', updatedData.joiningDate, normalizeToYYYYMMDD(baseForm.joiningDate));
+    markIfChanged('department', formData.department, baseForm.department);
+    markIfChanged('designation', formData.designation, baseForm.designation);
+    markIfChanged('employmentType', updatedData.employmentType, normalizeEmploymentType(baseForm.employmentType));
+    markIfChanged('reportingManagerId', formData.reportingManagerId, baseForm.reportingManagerId);
+    markIfChanged('workLocation', formData.workLocation, baseForm.workLocation);
+    markIfChanged('status', updatedData.status, baseForm.status);
+    markIfChanged('address', formData.currentLine1 || formData.currentCity || formData.currentPincode, baseForm.currentLine1 || baseForm.currentCity || baseForm.currentPincode);
+    markIfChanged('permanentAddress', updatedData.permanentAddress, {
+      sameAsCurrent: baseForm.sameAsCurrent,
+      line1: baseForm.sameAsCurrent ? baseForm.currentLine1 : baseForm.permanentLine1,
+      line2: baseForm.sameAsCurrent ? baseForm.currentLine2 : baseForm.permanentLine2,
+      city: baseForm.sameAsCurrent ? baseForm.currentCity : baseForm.permanentCity,
+      state: baseForm.sameAsCurrent ? baseForm.currentState : baseForm.permanentState,
+      country: baseForm.sameAsCurrent ? baseForm.currentCountry : baseForm.permanentCountry,
+      pincode: baseForm.sameAsCurrent ? baseForm.currentPincode : baseForm.permanentPincode,
+    });
+    markIfChanged('emergencyContact', formData.emergencyName || formData.emergencyMobile, baseForm.emergencyName || baseForm.emergencyMobile);
+    markIfChanged('educationalDetails', updatedData.educationalDetails, {
+      highestQualification: baseForm.qualification,
+      degreeName: baseForm.degreeName,
+      specialization: baseForm.specialization,
+      university: baseForm.university,
+      yearOfPassing: baseForm.yearOfPassing,
+      gradePercentage: baseForm.gradePercentage,
+    });
+    markIfChanged('experienceDetails', formData.experienceType || formData.totalExperience || formData.previousCompany, baseForm.experienceType || baseForm.totalExperience || baseForm.previousCompany);
+    markIfChanged('basicSalary', Number(salaryComponentValues.basicSalary), Number(baseForm.basicSalary));
+    markIfChanged('basicSalary', Number(formData.monthlyCtc), Number(baseForm.monthlyCtc));
+    markIfChanged('panNumber', formData.panNumber, baseForm.panNumber);
+    markIfChanged('uanNumber', formData.uanNumber, baseForm.uanNumber);
+    markIfChanged('bankDetails', updatedData.bankDetails, {
+      bankName: baseForm.bankName,
+      accountNumber: baseForm.accountNumber,
+      ifscCode: baseForm.ifscCode,
+      branch: baseForm.branch,
+    });
+    markIfChanged('attendanceMethod', formData.attendanceMethod, baseForm.attendanceMethod);
+    markIfChanged('workShift', formData.shift, baseForm.shift);
+    markIfChanged('workShift', formData.weeklyOff, baseForm.weeklyOff);
+    markIfChanged('gpsAllowed', Boolean(formData.gpsAllowed), Boolean(baseForm.gpsAllowed));
+    markIfChanged('systemAccess', formData.role, baseForm.role);
+
+    const baseValuesSnapshot: Record<string, any> = {
+      firstName: (baseForm.firstName || '').trim(),
+      lastName: (baseForm.lastName || '').trim(),
+      phone: baseForm.phone || '',
+      email: (baseForm.personalEmail || '').trim().toLowerCase(),
+      gender: normalizeGender(baseForm.gender),
+      dob: normalizeToYYYYMMDD(baseForm.dob),
+      maritalStatus: baseForm.maritalStatus,
+      joiningDate: normalizeToYYYYMMDD(baseForm.joiningDate),
+      department: baseForm.department,
+      designation: baseForm.designation,
+      employmentType: normalizeEmploymentType(baseForm.employmentType),
+      reportingManagerId: baseForm.reportingManagerId,
+      workLocation: baseForm.workLocation,
+      status: baseForm.status,
+      attendanceMethod: baseForm.attendanceMethod,
+      workShift: baseForm.shift,
+      gpsAllowed: Boolean(baseForm.gpsAllowed),
+      basicSalary: Number(baseForm.basicSalary || 0),
+      panNumber: baseForm.panNumber || '',
+      uanNumber: baseForm.uanNumber || '',
+      bankDetails: {
+        bankName: baseForm.bankName || '',
+        accountNumber: baseForm.accountNumber || '',
+        ifscCode: baseForm.ifscCode || '',
+        branch: baseForm.branch || '',
+      },
+    };
+
+    const resolvedExpectedVersion =
+      typeof forceReapplyVersion === 'number'
+        ? forceReapplyVersion
+        : (currentEmp.rowVersion ?? employee.rowVersion ?? 1);
+
+    savingRef.current = true;
     setIsSaving(true);
     try {
       const res = await updateEmployee(currentEmp.id || currentEmp.employeeId, updatedData, {
-        expectedVersion: employee.rowVersion ?? currentEmp.rowVersion,
+        expectedVersion: resolvedExpectedVersion,
+        ...(typeof forceReapplyVersion === 'number' ? { forceReapplyVersion } : {}),
+        changedFields,
+        baseValues: baseValuesSnapshot,
         shiftEffectiveFrom: normalizeToYYYYMMDD(formData.shiftEffectiveFrom) || new Date().toISOString().slice(0, 10),
         weeklyOffEffectiveFrom: normalizeToYYYYMMDD(formData.shiftEffectiveFrom) || new Date().toISOString().slice(0, 10),
         salaryEffectiveFrom: normalizeToYYYYMMDD(formData.salaryEffectiveFrom) || new Date().toISOString().slice(0, 10),
         revisionReason: formData.salaryRevisionReason || 'Employee profile revision',
       });
       if (res && (res as any).success === false) {
-        setValidationError(`Failed to update profile in database: ${(res as any).error || 'Unknown error'}`);
-        setIsSaving(false);
+        if ((res as any).code === 'STALE_EMPLOYEE_VERSION') {
+          const latestVer = (res as any).currentVersion;
+          const conflicts = Array.isArray((res as any).conflictingFields) ? (res as any).conflictingFields : [];
+          const latestEmp = (res as any).latestEmployee;
+          setConflictDetails({
+            currentVersion: latestVer,
+            conflictingFields: conflicts,
+            latestEmployee: latestEmp,
+          });
+          if (typeof latestVer === 'number') {
+            setCurrentEmp(prev => ({ ...prev, rowVersion: latestVer }));
+          }
+          const conflictSummary = conflicts.length > 0
+            ? ` Conflicting field(s): ${conflicts.map((c: any) => `${c.field} (Server: ${String(c.serverValue ?? '—')} | Your edit: ${String(c.incomingValue ?? '—')})`).join(', ')}.`
+            : '';
+          setValidationError(
+            `Failed to update profile in database: ${(res as any).error || 'This employee profile was changed by another user.'}${conflictSummary}`
+          );
+        } else {
+          setConflictDetails(null);
+          setValidationError(`Failed to update profile in database: ${(res as any).error || 'Unknown error'}`);
+        }
         return;
       }
 
@@ -1213,7 +1346,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       } as Employee;
 
       setCurrentEmp(savedEmployee);
-      setFormData(getInitialFormData(savedEmployee));
+      const nextInitial = getInitialFormData(savedEmployee);
+      setFormData(nextInitial);
+      baselineFormRef.current = nextInitial;
+      setConflictDetails(null);
       if (onUpdate) {
         onUpdate(savedEmployee);
       }
@@ -1224,13 +1360,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     } catch (err: any) {
       setValidationError(`Failed to save changes: ${err?.message || err}`);
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   };
 
   const handleCancelEditing = () => {
     setValidationError(null);
-    setFormData(getInitialFormData(currentEmp));
+    setConflictDetails(null);
+    const resetForm = getInitialFormData(currentEmp);
+    setFormData(resetForm);
+    baselineFormRef.current = resetForm;
     setSalaryInputDrafts({});
     const d = currentEmp.educationalDetails?.degreeName;
     setIsCustomDegree(Boolean(d && !ALL_DEGREE_OPTIONS.includes(d)));
@@ -4058,7 +4198,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={handleSaveChanges}
+                      onClick={() => handleSaveChanges()}
                       disabled={isSaving}
                       title="Save Profile Changes"
                       style={{
@@ -4084,7 +4224,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setIsEditing(true)}
+                    onClick={() => {
+                      baselineFormRef.current = getInitialFormData(currentEmp);
+                      setConflictDetails(null);
+                      setIsEditing(true);
+                    }}
                     title="Edit Employee Profile"
                     style={{
                       padding: '8px 16px',
@@ -4226,7 +4370,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 {isEditing && (
                   <button
                     type="button"
-                    onClick={handleSaveChanges}
+                    onClick={() => handleSaveChanges(conflictDetails?.currentVersion)}
                     disabled={isSaving}
                     style={{
                       padding: '5px 12px',
@@ -4239,7 +4383,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       fontSize: '0.78rem'
                     }}
                   >
-                    {isSaving ? 'Retrying...' : 'Retry Save'}
+                    {isSaving ? 'Retrying...' : conflictDetails?.currentVersion ? 'Review & Apply My Changes' : 'Retry Save'}
                   </button>
                 )}
                 <button
@@ -4500,7 +4644,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </button>
             <button
               type="button"
-              onClick={handleSaveChanges}
+              onClick={() => handleSaveChanges()}
               disabled={isSaving}
               style={{
                 padding: '9px 24px',

@@ -47,6 +47,7 @@ export const getAttendanceLogs = async (req: Request, res: Response, next: NextF
 };
 
 import { settingsRepository } from '../repositories/settingsRepository.js';
+import { employeeRepository } from '../repositories/employeeRepository.js';
 import {
   verifyPunchGeofence,
   recordGpsDiagnostic,
@@ -117,8 +118,14 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
     const normalizedType: 'IN' | 'OUT' = (validated.type === 'OUT' || validated.type === 'Check-Out') ? 'OUT' : 'IN';
     const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized);
 
+    const [geofence, preloadedEmployee] = await Promise.all([
+      isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty
+        ? settingsRepository.getGeofenceSettings()
+        : Promise.resolve(null),
+      employeeRepository.getEmployeeById(targetEmpId),
+    ]);
+
     if (isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty) {
-      const geofence = await settingsRepository.getGeofenceSettings();
       if (geofence && (geofence.isEnabled || geofence.enabled)) {
         const configuredRadius = Number(geofence.radiusMeters || 250);
         if (typeof validated.locationLat !== 'number' || typeof validated.locationLng !== 'number') {
@@ -219,7 +226,7 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
         });
         return;
       }
-      const faceResult = await attendanceRepository.verifyFace(targetEmpId, facePhoto);
+      const faceResult = await attendanceRepository.verifyFace(targetEmpId, facePhoto, preloadedEmployee);
       if (!faceResult.verified) {
         res.status(422).json({
           success: false,
@@ -236,6 +243,7 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       type: normalizedType,
       employeeId: targetEmpId,
       inGeofence: isInsideGeofence,
+      preloadedEmployee,
     });
 
     res.status(201).json({

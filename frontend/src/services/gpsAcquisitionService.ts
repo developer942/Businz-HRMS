@@ -249,7 +249,71 @@ export function evaluateGeofenceBoundary(
 let cachedReading: { reading: GpsLocationReading; acquiredAt: number } | null = null;
 let activeCleanupFn: (() => void) | null = null;
 let activeAcquisitionPromise: Promise<GpsLocationReading> | null = null;
+let activeRequestSequence = 0;
 let lastDiagnosticSummary: GpsDiagnosticSummary | null = null;
+
+/**
+ * Normalizes a browser GeolocationPosition.timestamp into a valid Unix epoch millisecond timestamp.
+ *
+ * Handles:
+ * 1. Standard EpochTimeStamp in milliseconds (>= 1e12)
+ * 2. Seconds-based Unix epoch timestamps (1e9 <= ts < 1e12, e.g., iOS Safari / native bridges)
+ * 3. Relative DOMHighResTimeStamp in milliseconds since performance.timeOrigin (0 < ts < 1e9)
+ * 4. Minor forward GNSS/system clock skew relative to Date.now()
+ */
+export function normalizeLocationTimestampMs(rawTimestamp: unknown, referenceNowMs: number = Date.now()): number {
+  if (rawTimestamp instanceof Date) {
+    const ms = rawTimestamp.getTime();
+    return Number.isFinite(ms) && ms > 0 ? Math.min(ms, referenceNowMs) : referenceNowMs;
+  }
+
+  const num = typeof rawTimestamp === 'string' ? Number(rawTimestamp) : (rawTimestamp as number);
+  if (typeof num !== 'number' || !Number.isFinite(num) || num <= 0) {
+    if (typeof rawTimestamp === 'string') {
+      const parsed = Date.parse(rawTimestamp);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.min(parsed, referenceNowMs);
+      }
+    }
+    return referenceNowMs;
+  }
+
+  let epochMs: number;
+  if (num >= 1e12) {
+    // Already Unix epoch milliseconds
+    epochMs = Math.round(num);
+  } else if (num >= 1e9 && num < 1e12) {
+    // Unix epoch seconds -> convert to milliseconds
+    epochMs = Math.round(num * 1000);
+  } else {
+    // Relative DOMHighResTimeStamp (ms since performance.timeOrigin)
+    const timeOrigin =
+      typeof performance !== 'undefined' &&
+      typeof performance.timeOrigin === 'number' &&
+      performance.timeOrigin >= 1e12
+        ? performance.timeOrigin
+        : 0;
+    epochMs = timeOrigin > 0 ? Math.round(timeOrigin + num) : referenceNowMs;
+  }
+
+  // Clamp minor forward GNSS/device clock drift so a live reading never has a negative or invalid age
+  if (epochMs > referenceNowMs) {
+    return referenceNowMs;
+  }
+  return epochMs;
+}
+
+/**
+ * Computes the age in milliseconds of a geolocation reading relative to referenceNowMs.
+ */
+export function calculateLocationAgeMs(rawTimestamp: unknown, referenceNowMs: number = Date.now()): {
+  normalizedTimestampMs: number;
+  ageMs: number;
+} {
+  const normalizedTimestampMs = normalizeLocationTimestampMs(rawTimestamp, referenceNowMs);
+  const ageMs = Math.max(0, referenceNowMs - normalizedTimestampMs);
+  return { normalizedTimestampMs, ageMs };
+}
 
 export function getLastGpsDiagnosticSummary(): GpsDiagnosticSummary | null {
   return lastDiagnosticSummary;
@@ -259,6 +323,7 @@ export function getLastGpsDiagnosticSummary(): GpsDiagnosticSummary | null {
  * Cancels any active GPS watchPosition / acquisition request and cleans up timers.
  */
 export function cancelActiveGpsAcquisition(): void {
+  activeRequestSequence += 1;
   activeAcquisitionPromise = null;
   if (activeCleanupFn) {
     try {
@@ -307,17 +372,15 @@ export function prewarmGps(): void {
         const lng = pos.coords.longitude;
         const acc = pos.coords.accuracy || 999;
         const now = Date.now();
-        const rawTs = pos.timestamp || now;
-        const normalizedTs = rawTs < 1e12 ? rawTs * 1000 : rawTs;
-        const ageMs = normalizedTs <= now ? Math.max(0, now - normalizedTs) : 0;
+        const { normalizedTimestampMs, ageMs } = calculateLocationAgeMs(pos.timestamp, now);
         const devCat = detectBrowserDeviceCategory();
-        if (isValidGpsCoordinate(lat, lng) && acc <= 60 && ageMs <= 12000) {
+        if (isValidGpsCoordinate(lat, lng) && acc <= 60 && ageMs <= 30000) {
           cachedReading = {
             reading: {
               latitude: Number(lat.toFixed(6)),
               longitude: Number(lng.toFixed(6)),
               accuracy: Math.round(acc * 10) / 10,
-              timestamp: normalizedTs <= now ? normalizedTs : now,
+              timestamp: normalizedTimestampMs,
               readingAgeMs: ageMs,
               sampleCount: 1,
               durationMs: 0,
@@ -359,11 +422,10 @@ export interface AcquireGpsOptions {
  *
  * Key Reliability Guarantees (Phases 3, 4, 6, 7):
  * - Enforces enableHighAccuracy: true and maximumAge: 0 for fresh hardware readings.
- * - Uses a bounded acquisition window (default 20,000ms) so mobile GNSS cold starts do not prematurely time out.
- * - Collects progressive watchPosition samples and NEVER aborts early after 3 coarse Wi-Fi samples
- *   while accuracy is still insufficient or geofence classification is UNCERTAIN.
+ * - Normalizes EpochTimeStamp, seconds-based timestamps, and relative DOMHighResTimeStamp safely.
+ * - Uses a bounded acquisition window and settles quickly once inside the office boundary.
  * - Deduplicates concurrent calls so simultaneous requests share a single watchPosition listener.
- * - Guarantees clearWatch() cleanup on completion, error, or cancellation.
+ * - Guarantees clearWatch() cleanup on completion, error, or cancellation, and ignores obsolete callbacks.
  */
 export async function acquireHighAccuracyGps(
   options: AcquireGpsOptions = {}
@@ -372,9 +434,11 @@ export async function acquireHighAccuracyGps(
     return activeAcquisitionPromise;
   }
 
-  const timeoutMs = Math.max(50, Math.min(options.timeoutMs ?? 20000, 45000));
+  const requestSeq = ++activeRequestSequence;
+  const timeoutMs = Math.max(50, Math.min(options.timeoutMs ?? 12000, 45000));
   const desiredAccuracyMeters = options.desiredAccuracyMeters ?? 35;
-  const maxAcceptableAgeMs = options.maxStaleAgeMs ?? options.maxAcceptableAgeMs ?? 15000;
+  const acceptableAccuracyMeters = options.acceptableAccuracyMeters ?? 65;
+  const maxAcceptableAgeMs = options.maxStaleAgeMs ?? options.maxAcceptableAgeMs ?? 60000;
   const forceFresh = options.forceFresh ?? true;
   const attemptNumber = options.attemptNumber ?? 1;
   const maxAttempts = options.maxAttempts ?? 1;
@@ -422,9 +486,14 @@ export async function acquireHighAccuracyGps(
     let staleCount = 0;
     let finished = false;
     let watchId: number | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
       finished = true;
+      if (settleTimer !== null) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
       if (watchId !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
         try {
           navigator.geolocation.clearWatch(watchId);
@@ -473,7 +542,7 @@ export async function acquireHighAccuracyGps(
     };
 
     const finishSuccess = (reading: GpsLocationReading) => {
-      if (finished) return;
+      if (finished || requestSeq !== activeRequestSequence) return;
       cleanup();
       const finalReading: GpsLocationReading = {
         ...reading,
@@ -489,14 +558,14 @@ export async function acquireHighAccuracyGps(
     };
 
     const finishError = (err: GpsAcquisitionError, status: GpsDiagnosticSummary['gpsAcquisitionStatus']) => {
-      if (finished) return;
+      if (finished || requestSeq !== activeRequestSequence) return;
       cleanup();
       recordDiagnosticFromReading(bestReading, status, err.code);
       reject(err);
     };
 
     const deadlineTimer = setTimeout(() => {
-      if (finished) return;
+      if (finished || requestSeq !== activeRequestSequence) return;
       if (bestReading) {
         finishSuccess(bestReading);
         return;
@@ -526,7 +595,7 @@ export async function acquireHighAccuracyGps(
       );
     }, timeoutMs);
 
-    const isReadingGoodEnoughToFinishEarly = (reading: GpsLocationReading): boolean => {
+    const evaluateReadingBoundary = (reading: GpsLocationReading): GeofenceClassification | null => {
       const ctx = options.geofenceContext;
       if (ctx && isValidGpsCoordinate(ctx.centerLat, ctx.centerLng)) {
         const dist = calculateHaversineMeters(
@@ -535,11 +604,18 @@ export async function acquireHighAccuracyGps(
           ctx.centerLat,
           ctx.centerLng
         );
-        const evalResult = evaluateGeofenceBoundary(dist, ctx.radiusMeters, reading.accuracy);
-        if (evalResult.classification === 'INSIDE' && reading.accuracy <= desiredAccuracyMeters) {
+        return evaluateGeofenceBoundary(dist, ctx.radiusMeters, reading.accuracy).classification;
+      }
+      return null;
+    };
+
+    const isReadingGoodEnoughToFinishEarly = (reading: GpsLocationReading): boolean => {
+      const classification = evaluateReadingBoundary(reading);
+      if (classification !== null) {
+        if (classification === 'INSIDE' && reading.accuracy <= desiredAccuracyMeters) {
           return true;
         }
-        if (evalResult.classification === 'OUTSIDE' && reading.accuracy <= desiredAccuracyMeters) {
+        if (classification === 'OUTSIDE' && reading.accuracy <= desiredAccuracyMeters) {
           return true;
         }
         return reading.accuracy <= 12;
@@ -549,17 +625,14 @@ export async function acquireHighAccuracyGps(
     };
 
     const handlePosition = (pos: GeolocationPosition) => {
-      if (finished) return;
+      if (finished || requestSeq !== activeRequestSequence) return;
 
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       const acc = typeof pos.coords.accuracy === 'number' && pos.coords.accuracy > 0 ? pos.coords.accuracy : 999;
       const now = Date.now();
-      const rawTs = typeof pos.timestamp === 'number' && pos.timestamp > 0 ? pos.timestamp : now;
-      const normalizedTs = rawTs < 1e12 ? rawTs * 1000 : rawTs;
+      const { normalizedTimestampMs, ageMs } = calculateLocationAgeMs(pos.timestamp, now);
 
-      // Calculate reading age safely across Android Chrome and iOS Safari timestamp conventions
-      const ageMs = normalizedTs <= now + 2000 ? Math.max(0, now - normalizedTs) : 0;
       if (ageMs > maxAcceptableAgeMs) {
         staleCount++;
         return; // Discard stale reading and wait for fresh hardware fix
@@ -574,7 +647,7 @@ export async function acquireHighAccuracyGps(
         latitude: Number(lat.toFixed(6)),
         longitude: Number(lng.toFixed(6)),
         accuracy: Math.round(acc * 10) / 10,
-        timestamp: normalizedTs <= now + 2000 ? normalizedTs : now,
+        timestamp: normalizedTimestampMs,
         readingAgeMs: ageMs,
         sampleCount,
         durationMs: now - startTime,
@@ -583,20 +656,47 @@ export async function acquireHighAccuracyGps(
         browserDeviceCategory: deviceCategory,
       };
 
-      if (!bestReading || currentReading.accuracy <= bestReading.accuracy) {
+      // Prevent an older, less accurate callback from overwriting a newer or sharper reading
+      if (
+        !bestReading ||
+        currentReading.accuracy < bestReading.accuracy ||
+        (currentReading.accuracy === bestReading.accuracy && currentReading.timestamp >= bestReading.timestamp)
+      ) {
         bestReading = currentReading;
+      } else {
+        bestReading = {
+          ...bestReading,
+          sampleCount,
+        };
       }
 
-      if (isReadingGoodEnoughToFinishEarly(bestReading)) {
-        finishSuccess(bestReading);
+      const activeBest: GpsLocationReading = bestReading;
+
+      if (isReadingGoodEnoughToFinishEarly(activeBest)) {
+        finishSuccess(activeBest);
         return;
+      }
+
+      // Fast-settle optimization for indoor employees: if the reading is already mathematically INSIDE
+      // the configured office boundary (D + A <= R) with acceptable indoor accuracy (<= 95m),
+      // wait briefly (350ms–750ms) for a sharper satellite tick and then resolve without waiting 20s.
+      if (settleTimer === null) {
+        const classification = evaluateReadingBoundary(activeBest);
+        if (classification === 'INSIDE' && activeBest.accuracy <= Math.max(acceptableAccuracyMeters, 95)) {
+          const settleWindowMs = activeBest.accuracy <= acceptableAccuracyMeters ? 350 : 750;
+          settleTimer = setTimeout(() => {
+            if (!finished && requestSeq === activeRequestSequence && bestReading) {
+              finishSuccess(bestReading);
+            }
+          }, settleWindowMs);
+        }
       }
 
       options.onProgress?.({
         phase: 'IMPROVING_ACCURACY',
-        message: `Improving GPS accuracy (±${Math.round(bestReading.accuracy)}m)...`,
-        currentAccuracyMeters: Math.round(bestReading.accuracy),
-        bestAccuracyMeters: Math.round(bestReading.accuracy),
+        message: `Getting Location (±${Math.round(activeBest.accuracy)}m)...`,
+        currentAccuracyMeters: Math.round(currentReading.accuracy),
+        bestAccuracyMeters: Math.round(activeBest.accuracy),
         sampleCount,
         attempt: attemptNumber,
         maxAttempts,
@@ -604,7 +704,7 @@ export async function acquireHighAccuracyGps(
     };
 
     const handleError = (error: GeolocationPositionError) => {
-      if (finished) return;
+      if (finished || requestSeq !== activeRequestSequence) return;
 
       // Permission denied is fatal — never mask or retry automatically
       if (error.code === 1 /* PERMISSION_DENIED */) {
@@ -688,10 +788,7 @@ export async function acquireHighAccuracyGps(
 
     options.onProgress?.({
       phase: attemptNumber > 1 ? 'RETRYING' : 'ACQUIRING',
-      message:
-        attemptNumber > 1
-          ? `Retrying for a more accurate GPS fix (attempt ${attemptNumber}/${maxAttempts})...`
-          : 'Acquiring high-accuracy GPS location...',
+      message: 'Getting Location',
       bestAccuracyMeters: null,
       sampleCount: 0,
       attempt: attemptNumber,
@@ -732,7 +829,7 @@ export async function acquireGpsWithBoundedRetry(
 ): Promise<GpsLocationReading> {
   const maxRetries = Math.max(0, Math.min(options.maxRetries ?? 1, 3));
   const maxAttempts = maxRetries + 1;
-  const retryDelayMs = options.retryDelayMs ?? 600;
+  const retryDelayMs = options.retryDelayMs ?? 250;
   let lastError: unknown = null;
   let bestOverallReading: GpsLocationReading | null = null;
 
@@ -769,7 +866,7 @@ export async function acquireGpsWithBoundedRetry(
         if (evaluation.classification === 'UNCERTAIN' && attempt < maxAttempts) {
           options.onProgress?.({
             phase: 'RETRYING',
-            message: `Location accuracy is ±${Math.round(reading.accuracy)}m. Requesting a sharper GPS fix (${attempt + 1}/${maxAttempts})...`,
+            message: 'Getting Location',
             currentAccuracyMeters: Math.round(reading.accuracy),
             bestAccuracyMeters: Math.round(reading.accuracy),
             sampleCount: reading.sampleCount,
@@ -795,7 +892,7 @@ export async function acquireGpsWithBoundedRetry(
       if (attempt < maxAttempts) {
         options.onProgress?.({
           phase: 'RETRYING',
-          message: `GPS fix timed out. Retrying location acquisition (${attempt + 1}/${maxAttempts})...`,
+          message: 'Getting Location',
           bestAccuracyMeters: null,
           sampleCount: 0,
           attempt: attempt + 1,
@@ -816,6 +913,6 @@ export async function acquireGpsWithBoundedRetry(
     : new GpsAcquisitionError({
         code: 'TIMEOUT',
         message: 'Unable to obtain your location. Please retry with location services enabled.',
-        durationMs: options.timeoutMs ?? 20000,
+        durationMs: options.timeoutMs ?? 12000,
       });
 }

@@ -37,7 +37,16 @@ export const errorHandler = (err, _req, res, _next) => {
                 code: typed.code || (isNotFound ? 'NOT_FOUND' : isConflict ? 'CONFLICT' : 'BAD_REQUEST'),
                 message: err.message,
                 ...(typed.currentVersion !== undefined ? { currentVersion: typed.currentVersion } : {}),
-                details: typed.currentVersion === undefined ? [] : [{ currentVersion: typed.currentVersion }],
+                ...(typed.conflictingFields !== undefined ? { conflictingFields: typed.conflictingFields } : {}),
+                ...(typed.latestEmployee !== undefined ? { latestEmployee: typed.latestEmployee } : {}),
+                details: typed.currentVersion === undefined && typed.conflictingFields === undefined
+                    ? []
+                    : [
+                        {
+                            ...(typed.currentVersion !== undefined ? { currentVersion: typed.currentVersion } : {}),
+                            ...(typed.conflictingFields !== undefined ? { conflictingFields: typed.conflictingFields } : {}),
+                        },
+                    ],
             },
         });
         return;

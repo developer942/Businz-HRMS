@@ -803,4 +803,185 @@ describe('BUSINZ HRMS — Employee Profile Save & PostgreSQL Persistence Suite',
       server.close();
     }
   });
+
+  it('Scenario 7: Two administrators editing DIFFERENT fields concurrently with same initial expectedVersion both succeed and merge cleanly', async () => {
+    const server = app.listen(0);
+    const port = (server.address() as any).port;
+    try {
+      // Admin 1 and Admin 2 both loaded EMP-004 at rowVersion = 1.
+      // Admin 1 edits phone and saves with expectedVersion: 1
+      const resAdmin1 = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            phone: '9876500001',
+          },
+          options: {
+            expectedVersion: 1,
+            changedFields: ['phone'],
+            baseValues: { phone: '9876543210', designation: 'Site Engineer' },
+          },
+        }),
+      });
+      const bodyAdmin1 = await resAdmin1.json();
+      expect(resAdmin1.status).toBe(200);
+      expect(bodyAdmin1.data.phone).toBe('9876500001');
+      expect(bodyAdmin1.data.rowVersion).toBe(2);
+
+      // Admin 2 still has expectedVersion: 1, and edits designation (a different field)
+      const resAdmin2 = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            phone: '9876543210', // Admin 2's form still had the old phone
+            designation: 'Principal Structural Engineer',
+          },
+          options: {
+            expectedVersion: 1,
+            changedFields: ['designation'],
+            baseValues: { phone: '9876543210', designation: 'Site Engineer' },
+          },
+        }),
+      });
+      const bodyAdmin2 = await resAdmin2.json();
+      expect(resAdmin2.status).toBe(200);
+      expect(bodyAdmin2.success).toBe(true);
+      // Both Admin 1's phone edit AND Admin 2's designation edit are preserved!
+      expect(bodyAdmin2.data.phone).toBe('9876500001');
+      expect(bodyAdmin2.data.designation).toBe('Principal Structural Engineer');
+      expect(bodyAdmin2.data.rowVersion).toBe(3);
+      expect(dbEmployeeRow.phone).toBe('9876500001');
+      expect(dbEmployeeRow.designation).toBe('Principal Structural Engineer');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('Scenario 8 & 10: Two administrators editing the SAME field concurrently triggers 409 STALE_EMPLOYEE_VERSION with conflict details, then allows safe review & reapplication', async () => {
+    const server = app.listen(0);
+    const port = (server.address() as any).port;
+    try {
+      // Admin 1 updates designation from Site Engineer -> Lead Engineer (rowVersion 1 -> 2)
+      const resAdmin1 = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            designation: 'Lead Engineer',
+          },
+          options: {
+            expectedVersion: 1,
+            changedFields: ['designation'],
+            baseValues: { designation: 'Site Engineer' },
+          },
+        }),
+      });
+      expect(resAdmin1.status).toBe(200);
+      expect(dbEmployeeRow.row_version).toBe(2);
+
+      // Admin 2 concurrently tries to update the SAME field (designation -> Chief Engineer) from stale expectedVersion: 1
+      const resAdmin2Conflict = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            designation: 'Chief Engineer',
+          },
+          options: {
+            expectedVersion: 1,
+            changedFields: ['designation'],
+            baseValues: { designation: 'Site Engineer' },
+          },
+        }),
+      });
+      const conflictBody = await resAdmin2Conflict.json();
+      expect(resAdmin2Conflict.status).toBe(409);
+      expect(conflictBody.error.code).toBe('STALE_EMPLOYEE_VERSION');
+      expect(conflictBody.error.currentVersion).toBe(2);
+      expect(Array.isArray(conflictBody.error.conflictingFields)).toBe(true);
+      expect(conflictBody.error.conflictingFields[0].field).toBe('designation');
+      expect(conflictBody.error.conflictingFields[0].serverValue).toBe('Lead Engineer');
+      expect(conflictBody.error.conflictingFields[0].incomingValue).toBe('Chief Engineer');
+      // Admin 1's value is protected and not overwritten
+      expect(dbEmployeeRow.designation).toBe('Lead Engineer');
+
+      // Admin 2 reviews the conflict and explicitly reapplies against currentVersion: 2
+      const resAdmin2Reapply = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            designation: 'Chief Engineer',
+          },
+          options: {
+            expectedVersion: 2,
+            forceReapplyVersion: 2,
+            changedFields: ['designation'],
+            baseValues: { designation: 'Site Engineer' },
+          },
+        }),
+      });
+      const reapplyBody = await resAdmin2Reapply.json();
+      expect(resAdmin2Reapply.status).toBe(200);
+      expect(reapplyBody.data.designation).toBe('Chief Engineer');
+      expect(reapplyBody.data.rowVersion).toBe(3);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('Scenario 9 & 12: Prevents false-concurrency conflict when row_version was undefined/null after a rolled-back transaction (VRM-042 / VRM-044 root cause regression)', async () => {
+    // Simulate a database row where row_version was missing/undefined after a prior transaction rollback
+    delete dbEmployeeRow.row_version;
+
+    const server = app.listen(0);
+    const port = (server.address() as any).port;
+    try {
+      const res = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            designation: 'SENIOR',
+            employmentType: 'FULL TIME',
+            address: ', ,  - ', // Blank address template must not wipe existing address
+          },
+          options: {
+            expectedVersion: 1,
+          },
+        }),
+      });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.designation).toBe('SENIOR');
+      expect(body.data.rowVersion).toBe(2);
+      // Existing address was preserved instead of being overwritten by ', ,  - '
+      expect(dbEmployeeRow.address).toBe('No. 10, Anna Salai, Chennai');
+      // Password remains completely untouched
+      expect(dbEmployeeRow.password).toBe('$2b$10$originalHashedPasswordValueDoNotChange123456');
+    } finally {
+      server.close();
+    }
+  });
 });

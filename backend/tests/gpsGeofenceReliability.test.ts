@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   calculateHaversineMeters as backendHaversine,
   evaluateGeofenceBoundary as backendEvaluateBoundary,
+  normalizeLocationTimestampMs as backendNormalizeTimestampMs,
   verifyPunchGeofence,
   recordGpsDiagnostic,
   getRecentGpsDiagnostics
@@ -21,6 +22,8 @@ import {
 import {
   calculateHaversineMeters as frontendHaversine,
   evaluateGeofenceBoundary as frontendEvaluateBoundary,
+  normalizeLocationTimestampMs as frontendNormalizeTimestampMs,
+  calculateLocationAgeMs,
   acquireHighAccuracyGps,
   acquireGpsWithBoundedRetry,
   cancelActiveGpsAcquisition,
@@ -422,5 +425,84 @@ describe('BUSINZ HRMS – Phase 1 to Phase 10 GPS, Geofence & Face Attendance Re
     expect(diag).not.toHaveProperty('latitude');
     expect(diag).not.toHaveProperty('longitude');
     expect(getRecentGpsDiagnostics(5)[0].id).toBe(diag.id);
+  });
+
+  // Phase 3 & Phase 4: Stale GPS Location Timestamp Normalization & Fast Indoor Settle
+  it('Phase 3 & Phase 4: normalizes DOMHighResTimeStamp, seconds epoch, and GNSS clock skew without false stale errors, and settles indoor fixes in <500ms', async () => {
+    const now = Date.now();
+
+    // 1. Relative DOMHighResTimeStamp (e.g. 42,500ms since performance.timeOrigin) must NOT be multiplied by 1000 into 1970
+    const relativeAge = calculateLocationAgeMs(42_500, now);
+    expect(relativeAge.ageMs).toBeLessThan(60_000);
+    expect(relativeAge.normalizedTimestampMs).toBeGreaterThan(1e12);
+
+    // 2. Unix epoch seconds (e.g. iOS Safari) normalized to milliseconds
+    const secEpoch = Math.floor((now - 4000) / 1000);
+    const secAge = calculateLocationAgeMs(secEpoch, now);
+    expect(secAge.ageMs).toBeGreaterThanOrEqual(3000);
+    expect(secAge.ageMs).toBeLessThanOrEqual(5500);
+    expect(backendNormalizeTimestampMs(secEpoch, now)).toBe(secEpoch * 1000);
+
+    // 3. Forward GNSS clock skew clamped to 0ms age
+    const skewedAge = calculateLocationAgeMs(now + 5000, now);
+    expect(skewedAge.ageMs).toBe(0);
+    expect(skewedAge.normalizedTimestampMs).toBe(now);
+
+    // 4. Stationary indoor OS fused reading (28s old) succeeds under default 60s policy, while indoor 48m accuracy settles in ~350ms
+    const clearWatchMock = vi.fn();
+    const indoorCoords = offsetNorthMeters(GMAPS_LINK_OFFICE.lat, GMAPS_LINK_OFFICE.lng, 40);
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/129.0.0.0 Mobile Safari/537.36',
+      geolocation: {
+        watchPosition: (success: any) => {
+          setTimeout(() => {
+            success({
+              coords: { latitude: indoorCoords.lat, longitude: indoorCoords.lng, accuracy: 48 },
+              timestamp: Date.now() - 28_000
+            });
+          }, 15);
+          return 401;
+        },
+        clearWatch: clearWatchMock
+      }
+    });
+
+    const startMs = Date.now();
+    const indoorFix = await acquireHighAccuracyGps({
+      timeoutMs: 12000,
+      desiredAccuracyMeters: 30,
+      acceptableAccuracyMeters: 65,
+      geofenceContext: { centerLat: GMAPS_LINK_OFFICE.lat, centerLng: GMAPS_LINK_OFFICE.lng, radiusMeters: 250 }
+    });
+    const elapsedMs = Date.now() - startMs;
+
+    expect(indoorFix.accuracy).toBe(48);
+    expect(elapsedMs).toBeLessThan(900); // Settled in ~350ms instead of waiting 12,000ms!
+    expect(clearWatchMock).toHaveBeenCalledWith(401);
+
+    // 5. Backend verifyPunchGeofence accepts fresh reading and rejects genuinely stale reading (>120s)
+    const validServerVerify = verifyPunchGeofence({
+      userLat: indoorCoords.lat,
+      userLng: indoorCoords.lng,
+      officeLat: GMAPS_LINK_OFFICE.lat,
+      officeLng: GMAPS_LINK_OFFICE.lng,
+      radiusMeters: 250,
+      accuracyMeters: 48,
+      locationTimestamp: new Date(Date.now() - 28_000).toISOString()
+    });
+    expect(validServerVerify.valid).toBe(true);
+    expect(validServerVerify.evaluation?.classification).toBe('INSIDE');
+
+    const staleServerVerify = verifyPunchGeofence({
+      userLat: indoorCoords.lat,
+      userLng: indoorCoords.lng,
+      officeLat: GMAPS_LINK_OFFICE.lat,
+      officeLng: GMAPS_LINK_OFFICE.lng,
+      radiusMeters: 250,
+      accuracyMeters: 15,
+      locationTimestamp: new Date(Date.now() - 180_000).toISOString()
+    });
+    expect(staleServerVerify.valid).toBe(false);
+    expect(staleServerVerify.error).toContain('Location reading was stale');
   });
 });

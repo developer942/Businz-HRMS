@@ -41,6 +41,7 @@ export const getAttendanceLogs = async (req, res, next) => {
     }
 };
 import { settingsRepository } from '../repositories/settingsRepository.js';
+import { employeeRepository } from '../repositories/employeeRepository.js';
 import { verifyPunchGeofence, recordGpsDiagnostic, getRecentGpsDiagnostics, } from '../services/geofenceService.js';
 export const recordPunch = async (req, res, next) => {
     try {
@@ -99,8 +100,13 @@ export const recordPunch = async (req, res, next) => {
             validated.method.toLowerCase().includes('geofence');
         const normalizedType = (validated.type === 'OUT' || validated.type === 'Check-Out') ? 'OUT' : 'IN';
         const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized);
+        const [geofence, preloadedEmployee] = await Promise.all([
+            isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty
+                ? settingsRepository.getGeofenceSettings()
+                : Promise.resolve(null),
+            employeeRepository.getEmployeeById(targetEmpId),
+        ]);
         if (isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty) {
-            const geofence = await settingsRepository.getGeofenceSettings();
             if (geofence && (geofence.isEnabled || geofence.enabled)) {
                 const configuredRadius = Number(geofence.radiusMeters || 250);
                 if (typeof validated.locationLat !== 'number' || typeof validated.locationLng !== 'number') {
@@ -195,7 +201,7 @@ export const recordPunch = async (req, res, next) => {
                 });
                 return;
             }
-            const faceResult = await attendanceRepository.verifyFace(targetEmpId, facePhoto);
+            const faceResult = await attendanceRepository.verifyFace(targetEmpId, facePhoto, preloadedEmployee);
             if (!faceResult.verified) {
                 res.status(422).json({
                     success: false,
@@ -211,6 +217,7 @@ export const recordPunch = async (req, res, next) => {
             type: normalizedType,
             employeeId: targetEmpId,
             inGeofence: isInsideGeofence,
+            preloadedEmployee,
         });
         res.status(201).json({
             success: true,
