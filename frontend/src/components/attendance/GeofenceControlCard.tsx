@@ -27,15 +27,15 @@ export const GeofenceControlCard: React.FC<GeofenceControlCardProps> = ({ onLoca
   const { geofenceConfig, updateGeofenceConfig, isGeofenceAdmin, currentUser } = useHRMS();
 
   // Local state for editing form
-  const [radiusMeters, setRadiusMeters] = useState<number>(Number(geofenceConfig.radiusMeters) || 200);
+  const [radiusMeters, setRadiusMeters] = useState<number>(Number(geofenceConfig.radiusMeters) || 250);
   const [officeName, setOfficeName] = useState<string>(() => {
     return geofenceConfig.officeName || 'VRM Structures India Pvt Ltd';
   });
   const [centerLat, setCenterLat] = useState<number>(() => {
-    return Number(geofenceConfig.centerLat) || 13.151968;
+    return Number(geofenceConfig.centerLat) || 13.151660;
   });
   const [centerLng, setCenterLng] = useState<number>(() => {
-    return Number(geofenceConfig.centerLng) || 80.2086053;
+    return Number(geofenceConfig.centerLng) || 80.208618;
   });
   const [enabled, setEnabled] = useState<boolean>(geofenceConfig.enabled ?? true);
 
@@ -259,7 +259,8 @@ export const GeofenceControlCard: React.FC<GeofenceControlCardProps> = ({ onLoca
       centerLat,
       centerLng,
       radiusMeters,
-      enforceStrictly: enabled
+      enforceStrictly: enabled,
+      googleMapsLink: `https://www.google.com/maps?q=${centerLat},${centerLng}`
     });
 
     setSaveToast(true);

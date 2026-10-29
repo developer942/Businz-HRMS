@@ -75,8 +75,31 @@ const ensureProfileSyncSchema = async (client) => {
   `);
     schemaEnsured = true;
 };
+const normalizeDateText = (value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw)
+        return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw))
+        return raw;
+    if (/^\d{4}-\d{2}-\d{2}T/.test(raw))
+        return raw.slice(0, 10);
+    const dmyMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (dmyMatch) {
+        const day = Number(dmyMatch[1]);
+        const month = Number(dmyMatch[2]);
+        const year = Number(dmyMatch[3]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2200) {
+            const candidate = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const dt = new Date(`${candidate}T00:00:00Z`);
+            if (!Number.isNaN(dt.getTime()) && dt.getUTCFullYear() === year && dt.getUTCMonth() + 1 === month && dt.getUTCDate() === day) {
+                return candidate;
+            }
+        }
+    }
+    return raw.slice(0, 10);
+};
 const isoDate = (value, fallback) => {
-    const text = String(value || fallback).slice(0, 10);
+    const text = normalizeDateText(value || fallback);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00Z`))) {
         throw Object.assign(new Error('Effective date must be a valid YYYY-MM-DD date.'), { statusCode: 400, code: 'INVALID_EFFECTIVE_DATE' });
     }
@@ -317,7 +340,19 @@ export class EmployeeProfileSyncService {
                 ? oldEmployee.profile_data
                 : {};
             const sanitizedInput = withoutSecrets(input);
-            const requestedShift = sanitizedInput.workShift ?? sanitizedInput.shiftDetails?.assignedShift ?? oldEmployee.work_shift ?? oldProfile.workShift;
+            const currentActiveShift = String(oldEmployee.work_shift || oldProfile.workShift || oldProfile.shiftDetails?.assignedShift || 'General Shift').trim();
+            const rawRequestedShift = sanitizedInput.workShift ?? sanitizedInput.shiftDetails?.assignedShift ?? sanitizedInput.shiftDetails?.shiftType;
+            const hasExplicitShiftRequest = rawRequestedShift !== undefined && String(rawRequestedShift || '').trim() !== '';
+            const targetShiftToAssign = hasExplicitShiftRequest
+                ? String(rawRequestedShift).trim()
+                : (oldEmployee.work_shift || oldProfile.workShift || '');
+            const isFutureShift = Boolean(hasExplicitShiftRequest && shiftEffectiveFrom > today);
+            const effectiveActiveShift = isFutureShift
+                ? currentActiveShift
+                : (hasExplicitShiftRequest ? targetShiftToAssign : (oldEmployee.work_shift || oldProfile.workShift || null));
+            const upcomingShiftVal = isFutureShift ? targetShiftToAssign : null;
+            const upcomingShiftEffectiveFromVal = isFutureShift ? shiftEffectiveFrom : null;
+            const nextRowVersion = Number(oldEmployee.row_version || 1) + 1;
             const mergedAddress = sanitizedInput.currentAddress
                 ? { ...(oldProfile.currentAddress || {}), ...sanitizedInput.currentAddress }
                 : oldProfile.currentAddress;
@@ -339,7 +374,10 @@ export class EmployeeProfileSyncService {
             const mergedShiftDetails = {
                 ...(oldProfile.shiftDetails || {}),
                 ...(sanitizedInput.shiftDetails || {}),
-                ...(requestedShift ? { assignedShift: requestedShift } : {}),
+                ...(effectiveActiveShift ? { assignedShift: effectiveActiveShift, shiftType: effectiveActiveShift } : {}),
+                effectiveFrom: shiftEffectiveFrom,
+                upcomingShift: upcomingShiftVal,
+                upcomingShiftEffectiveFrom: upcomingShiftEffectiveFromVal,
             };
             const mergedBankDetails = sanitizedInput.bankDetails
                 ? { ...(oldProfile.bankDetails || {}), ...sanitizedInput.bankDetails }
@@ -361,7 +399,12 @@ export class EmployeeProfileSyncService {
                 ...sanitizedInput,
                 department: resolvedDepartmentName,
                 departmentId,
-                workShift: requestedShift,
+                workShift: effectiveActiveShift,
+                upcomingShift: upcomingShiftVal,
+                upcomingShiftEffectiveFrom: upcomingShiftEffectiveFromVal,
+                shiftEffectiveFrom,
+                salaryEffectiveFrom,
+                rowVersion: nextRowVersion,
                 reportingManagerId: input.reportingManagerId !== undefined ? input.reportingManagerId : oldProfile.reportingManagerId,
                 reportingManagerName: resolvedManagerName,
                 currentAddress: mergedAddress,
@@ -391,7 +434,7 @@ export class EmployeeProfileSyncService {
                 ? (String(input.phone || '').trim() || null)
                 : oldEmployee.phone;
             const dobVal = input.dob !== undefined
-                ? (String(input.dob || '').trim() || null)
+                ? (normalizeDateText(input.dob) || null)
                 : oldEmployee.dob;
             const genderVal = input.gender !== undefined
                 ? (['Male', 'Female', 'Other'].includes(input.gender) ? input.gender : oldEmployee.gender)
@@ -403,7 +446,7 @@ export class EmployeeProfileSyncService {
                 ? (String(input.designation || '').trim() || oldEmployee.designation)
                 : oldEmployee.designation;
             const joiningDateVal = input.joiningDate !== undefined
-                ? (String(input.joiningDate || '').trim() || null)
+                ? (normalizeDateText(input.joiningDate) || null)
                 : oldEmployee.joining_date;
             const employmentTypeDbVal = input.employmentType !== undefined
                 ? normalizeEmploymentTypeForDb(input.employmentType, oldEmployee.employment_type || 'Full-Time')
@@ -414,6 +457,10 @@ export class EmployeeProfileSyncService {
                 : (oldEmployee.status || 'Active');
             profileData.status = statusRawVal;
             profileData.employmentType = input.employmentType !== undefined ? input.employmentType : (oldProfile.employmentType || employmentTypeDbVal);
+            if (dobVal)
+                profileData.dob = String(dobVal).slice(0, 10);
+            if (joiningDateVal)
+                profileData.joiningDate = String(joiningDateVal).slice(0, 10);
             const avatarVal = input.avatar !== undefined ? (input.avatar || null) : oldEmployee.avatar_url;
             const basicSalaryVal = input.basicSalary !== undefined
                 ? amount(input.basicSalary)
@@ -458,8 +505,8 @@ export class EmployeeProfileSyncService {
             const gpsAllowedVal = input.gpsAllowed !== undefined
                 ? Boolean(input.gpsAllowed)
                 : Boolean(oldEmployee.gps_allowed ?? true);
-            const workShiftVal = requestedShift !== undefined
-                ? (String(requestedShift || '').trim() || null)
+            const workShiftVal = effectiveActiveShift !== undefined && effectiveActiveShift !== null
+                ? (String(effectiveActiveShift || '').trim() || null)
                 : oldEmployee.work_shift;
             const panVal = (input.salaryDetails?.panNumber !== undefined || input.panNumber !== undefined || input.pan !== undefined)
                 ? (String(input.salaryDetails?.panNumber ?? input.panNumber ?? input.pan ?? '').trim().toUpperCase() || null)
@@ -520,10 +567,10 @@ export class EmployeeProfileSyncService {
                 ? (String(input.experienceDetails?.previousDepartment || '').trim() || null)
                 : oldEmployee.previous_department;
             const empStartVal = input.experienceDetails !== undefined
-                ? (String(input.experienceDetails?.startDate || '').trim() || null)
+                ? (normalizeDateText(input.experienceDetails?.startDate) || null)
                 : oldEmployee.employment_start_date;
             const empEndVal = input.experienceDetails !== undefined
-                ? (String(input.experienceDetails?.endDate || '').trim() || null)
+                ? (normalizeDateText(input.experienceDetails?.endDate) || null)
                 : oldEmployee.employment_end_date;
             const lastSalaryVal = input.experienceDetails !== undefined
                 ? (input.experienceDetails?.lastDrawnSalary !== undefined && input.experienceDetails?.lastDrawnSalary !== '' ? Number(input.experienceDetails.lastDrawnSalary) : null)
@@ -582,17 +629,17 @@ export class EmployeeProfileSyncService {
             let weeklyOffChanged = false;
             let draftPayrollRecalculated = 0;
             // 5. Shift Assignment & Future/Unfinalized Attendance Synchronization (Phase 5)
-            if (workShiftVal && workShiftVal.toLowerCase() !== 'exempt') {
-                const cleanShiftName = workShiftVal.replace(/\s*\([^)]*\)\s*$/, '').trim();
+            if (targetShiftToAssign && targetShiftToAssign.toLowerCase() !== 'exempt') {
+                const cleanShiftName = targetShiftToAssign.replace(/\s*\([^)]*\)\s*$/, '').trim();
                 let shiftRow = null;
                 const exactShift = await client.query(`SELECT * FROM public.shifts
             WHERE (company_id = $1 OR company_id IS NULL)
               AND (id::text = $2 OR lower(shift_name) = lower($2) OR lower(shift_name) = lower($3))
             ORDER BY CASE WHEN company_id = $1 THEN 0 ELSE 1 END
-            LIMIT 1`, [companyId, workShiftVal, cleanShiftName]);
+            LIMIT 1`, [companyId, targetShiftToAssign, cleanShiftName]);
                 shiftRow = exactShift.rows[0];
-                if (!shiftRow && /^sh-0?(\d+)$/i.test(workShiftVal)) {
-                    const idx = Math.max(0, parseInt(workShiftVal.replace(/\D/g, ''), 10) - 1);
+                if (!shiftRow && /^sh-0?(\d+)$/i.test(targetShiftToAssign)) {
+                    const idx = Math.max(0, parseInt(targetShiftToAssign.replace(/\D/g, ''), 10) - 1);
                     const allCompanyShifts = await client.query(`SELECT * FROM public.shifts WHERE company_id = $1 ORDER BY created_at ASC`, [companyId]);
                     shiftRow = allCompanyShifts.rows[idx] || allCompanyShifts.rows[0];
                 }
@@ -613,7 +660,7 @@ export class EmployeeProfileSyncService {
                 if (shiftRow) {
                     const current = await client.query(`SELECT * FROM public.shift_assignments WHERE employee_id=$1 AND effective_from<=$2
               AND (effective_to IS NULL OR effective_to>=$2) ORDER BY effective_from DESC LIMIT 1 FOR UPDATE`, [oldEmployee.id, shiftEffectiveFrom]);
-                    if (current.rows[0]?.shift_id !== shiftRow.id || oldEmployee.work_shift !== workShiftVal) {
+                    if (current.rows[0]?.shift_id !== shiftRow.id || oldEmployee.work_shift !== targetShiftToAssign || isFutureShift) {
                         shiftChanged = true;
                         await client.query(`UPDATE public.shift_assignments SET effective_to=$2::date-1, updated_at=NOW()
                 WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`, [oldEmployee.id, shiftEffectiveFrom]);
@@ -760,6 +807,11 @@ export class EmployeeProfileSyncService {
                         employmentType: profileData.employmentType || updatedEmployee.employment_type,
                         status: statusRawVal,
                         workShift: workShiftVal || 'General Shift',
+                        upcomingShift: upcomingShiftVal,
+                        upcomingShiftEffectiveFrom: upcomingShiftEffectiveFromVal,
+                        shiftEffectiveFrom,
+                        salaryEffectiveFrom,
+                        rowVersion: Number(updatedEmployee.row_version || nextRowVersion),
                         attendanceMethod: updatedEmployee.attendance_method,
                         gpsAllowed: updatedEmployee.gps_allowed,
                         basicSalary: Number(updatedEmployee.basic_salary ?? 0),
@@ -832,8 +884,12 @@ export class EmployeeProfileSyncService {
                     attendanceMethod: updatedEmployee.attendance_method || 'Face Scan',
                     gpsAllowed: Boolean(updatedEmployee.gps_allowed ?? true),
                     workShift: workShiftVal || updatedEmployee.work_shift || 'General Shift',
+                    upcomingShift: upcomingShiftVal,
+                    upcomingShiftEffectiveFrom: upcomingShiftEffectiveFromVal,
+                    shiftEffectiveFrom,
+                    salaryEffectiveFrom,
                     workLocation: updatedEmployee.branch || profileData.workLocation || '',
-                    rowVersion: Number(updatedEmployee.row_version),
+                    rowVersion: Number(updatedEmployee.row_version || nextRowVersion),
                     profile_data: profileData,
                 },
                 dependencies: { shiftChanged, weeklyOffChanged, salaryChanged, draftPayrollRecalculated },

@@ -199,13 +199,38 @@ export const previousDepartmentSchema = z.string({
     .min(1, 'Previous department is required')
     .regex(/^(?=.*[A-Za-z])[A-Za-z\s&.\-()]+$/, 'Previous department must be a valid department.');
 /**
- * Date validator helper: Valid date format YYYY-MM-DD or parseable ISO date.
+ * Normalize date strings (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, or ISO timestamps) to YYYY-MM-DD.
+ */
+export const normalizeDateString = (raw) => {
+    const trimmed = raw.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed))
+        return trimmed;
+    if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed))
+        return trimmed.slice(0, 10);
+    const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (dmyMatch) {
+        const day = Number(dmyMatch[1]);
+        const month = Number(dmyMatch[2]);
+        const year = Number(dmyMatch[3]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2200) {
+            const candidate = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const dt = new Date(`${candidate}T00:00:00Z`);
+            if (!Number.isNaN(dt.getTime()) && dt.getUTCFullYear() === year && dt.getUTCMonth() + 1 === month && dt.getUTCDate() === day) {
+                return candidate;
+            }
+        }
+    }
+    return trimmed;
+};
+/**
+ * Date validator helper: Valid date format YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, or parseable ISO date.
  */
 export const dateSchema = z.string({
     required_error: 'Date is required',
     invalid_type_error: 'Invalid date format',
 })
     .trim()
+    .transform((val) => normalizeDateString(val))
     .refine((val) => !isNaN(Date.parse(val)), 'Date must be a valid date.');
 /**
  * Last Drawn Salary: Decimal/Number, positive only.

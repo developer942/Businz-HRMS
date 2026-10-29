@@ -5,6 +5,17 @@
 
 export type GeofenceClassification = 'INSIDE' | 'OUTSIDE' | 'UNCERTAIN';
 
+export type GpsErrorCode =
+  | 'NONE'
+  | 'PERMISSION_DENIED'
+  | 'POSITION_UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'STALE_READING'
+  | 'LOW_GPS_ACCURACY'
+  | 'OUTSIDE_GEOFENCE'
+  | 'GEOFENCE_UNCERTAIN'
+  | 'INVALID_COORDINATES';
+
 export interface GeofenceEvaluation {
   classification: GeofenceClassification;
   distanceMeters: number;
@@ -13,7 +24,28 @@ export interface GeofenceEvaluation {
   isInside: boolean;
   canPunch: boolean;
   reason: string;
+  userMessage: string;
+  errorCode: GpsErrorCode;
+  canRequestCorrection: boolean;
   officeName?: string;
+}
+
+export interface GpsDiagnosticEntry {
+  id: string;
+  timestamp: string;
+  employeeCode?: string;
+  punchType?: 'IN' | 'OUT' | 'PRECHECK';
+  gpsRequestDurationMs: number;
+  gpsAcquisitionStatus: 'SUCCESS' | 'PERMISSION_DENIED' | 'TIMEOUT' | 'POSITION_UNAVAILABLE' | 'LOW_ACCURACY' | 'STALE';
+  reportedAccuracyMeters: number | null;
+  locationReadingAgeMs: number | null;
+  calculatedDistanceMeters: number | null;
+  configuredRadiusMeters: number;
+  errorCode: GpsErrorCode;
+  browserDeviceCategory: string;
+  classification: GeofenceClassification | 'N/A';
+  sampleCount?: number;
+  retryCount?: number;
 }
 
 export interface GeofenceValidationOptions {
@@ -82,10 +114,11 @@ export function evaluateGeofenceBoundary(
 ): GeofenceEvaluation {
   const D = Math.round(distanceMeters * 10) / 10;
   const R = Math.round(radiusMeters);
-  const A = Math.max(0, Math.round((accuracyMeters || 15) * 10) / 10);
+  const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
 
   // Clearly inside: D + A <= R
   if (D + A <= R) {
+    const msg = `Within approved office geofence (${Math.round(D)}m from ${officeName}, allowed: ${R}m, GPS accuracy: ±${Math.round(A)}m).`;
     return {
       classification: 'INSIDE',
       distanceMeters: D,
@@ -93,13 +126,17 @@ export function evaluateGeofenceBoundary(
       accuracyMeters: A,
       isInside: true,
       canPunch: true,
-      reason: `Within approved office geofence (${D}m from ${officeName}, allowed: ${R}m, GPS accuracy: ±${A}m).`,
+      reason: msg,
+      userMessage: msg,
+      errorCode: 'NONE',
+      canRequestCorrection: false,
       officeName,
     };
   }
 
   // Clearly outside: D - A > R
   if (D - A > R) {
+    const userMessage = `Your verified location is outside the configured ${R}-metre office boundary.`;
     return {
       classification: 'OUTSIDE',
       distanceMeters: D,
@@ -107,12 +144,20 @@ export function evaluateGeofenceBoundary(
       accuracyMeters: A,
       isInside: false,
       canPunch: false,
-      reason: `Outside Office Geofence! You are ${D}m away from ${officeName} (Allowed radius: ${R}m). Attendance cannot be punched outside the designated office boundary.`,
+      reason: `${userMessage} (${D}m away from ${officeName}, GPS accuracy ±${A}m, allowed radius ${R}m).`,
+      userMessage,
+      errorCode: 'OUTSIDE_GEOFENCE',
+      canRequestCorrection: false,
       officeName,
     };
   }
 
-  // Uncertain: Neither condition satisfied
+  // Uncertain: Neither condition satisfied (conservative uncertainty-aware classification)
+  const isLowAccuracy = A >= 100 || A > R * 0.45;
+  const userMessage = isLowAccuracy
+    ? `Your location accuracy is currently ${Math.round(A)} metres. Please retry.`
+    : `We cannot confirm your position accurately enough yet. Please retry.`;
+
   return {
     classification: 'UNCERTAIN',
     distanceMeters: D,
@@ -120,9 +165,35 @@ export function evaluateGeofenceBoundary(
     accuracyMeters: A,
     isInside: false,
     canPunch: false,
-    reason: `GPS accuracy insufficient to confirm boundary. Your estimated distance from ${officeName} is ${D}m with ±${A}m GPS uncertainty (Allowed radius: ${R}m). Please move to an open area with a clear sky view and retry.`,
+    reason: `${userMessage} Estimated distance from ${officeName} is ${D}m with ±${A}m GPS accuracy (configured ${R}m boundary).`,
+    userMessage,
+    errorCode: isLowAccuracy ? 'LOW_GPS_ACCURACY' : 'GEOFENCE_UNCERTAIN',
+    canRequestCorrection: true,
     officeName,
   };
+}
+
+// Privacy-conscious in-memory ring buffer of recent GPS diagnostics (no raw employee lat/lng stored)
+const MAX_DIAGNOSTIC_ENTRIES = 150;
+const recentGpsDiagnostics: GpsDiagnosticEntry[] = [];
+
+export function recordGpsDiagnostic(
+  entry: Omit<GpsDiagnosticEntry, 'id' | 'timestamp'> & { timestamp?: string }
+): GpsDiagnosticEntry {
+  const fullEntry: GpsDiagnosticEntry = {
+    ...entry,
+    id: `GPS-DIAG-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: entry.timestamp || new Date().toISOString(),
+  };
+  recentGpsDiagnostics.unshift(fullEntry);
+  if (recentGpsDiagnostics.length > MAX_DIAGNOSTIC_ENTRIES) {
+    recentGpsDiagnostics.length = MAX_DIAGNOSTIC_ENTRIES;
+  }
+  return fullEntry;
+}
+
+export function getRecentGpsDiagnostics(limit: number = 50): GpsDiagnosticEntry[] {
+  return recentGpsDiagnostics.slice(0, Math.max(1, Math.min(limit, MAX_DIAGNOSTIC_ENTRIES)));
 }
 
 /**

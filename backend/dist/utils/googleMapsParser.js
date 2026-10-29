@@ -130,7 +130,7 @@ export function parseGoogleMapsLink(input) {
         }
     }
     // 6. Raw coordinate pair string (e.g. "13.151968, 80.208605" or "13.151968 80.208605")
-    const rawCoordsMatch = clean.match(/^[-+]?(\d{1,2}\.\d+)[,\s]+[-+]?(\d{1,3}\.\d+)$/);
+    const rawCoordsMatch = clean.match(/^([-+]?\d{1,2}\.\d+)[,\s]+([-+]?\d{1,3}\.\d+)$/);
     if (rawCoordsMatch) {
         const lat = parseFloat(rawCoordsMatch[1]);
         const lng = parseFloat(rawCoordsMatch[2]);
@@ -175,7 +175,7 @@ export function parseGoogleMapsLink(input) {
         message: 'Could not extract valid geographic coordinates from link or text.',
     };
 }
-function isValidCoord(lat, lng) {
+export function isValidCoord(lat, lng) {
     return (!isNaN(lat) &&
         !isNaN(lng) &&
         lat >= -90 &&
@@ -184,5 +184,61 @@ function isValidCoord(lat, lng) {
         lng <= 180 &&
         !(Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) // Not Null Island
     );
+}
+export function buildCanonicalGoogleMapsUrl(lat, lng) {
+    if (!isValidCoord(lat, lng))
+        return '';
+    return `https://www.google.com/maps?q=${Number(lat.toFixed(6))},${Number(lng.toFixed(6))}`;
+}
+/**
+ * Compares the saved office centre coordinates against the coordinates encoded
+ * inside a Google Maps URL (e.g., https://www.google.com/maps?q=13.152218,80.209216
+ * vs saved 13.151660, 80.208618) so administrators can detect and resolve mismatches
+ * without silently overwriting unconfirmed coordinates.
+ */
+export function compareOfficeCoordinates(savedLat, savedLng, googleMapsLink) {
+    const validSaved = isValidCoord(savedLat, savedLng)
+        ? { lat: Number(savedLat.toFixed(6)), lng: Number(savedLng.toFixed(6)) }
+        : null;
+    const parsed = googleMapsLink ? parseGoogleMapsLink(googleMapsLink) : null;
+    const validParsed = parsed && parsed.success && parsed.lat !== null && parsed.lng !== null && isValidCoord(parsed.lat, parsed.lng)
+        ? { lat: Number(parsed.lat.toFixed(6)), lng: Number(parsed.lng.toFixed(6)), source: parsed.source }
+        : null;
+    const parsedLink = validParsed
+        ? { success: true, lat: validParsed.lat, lng: validParsed.lng, source: validParsed.source }
+        : { success: false, lat: 0, lng: 0, source: 'none' };
+    if (!validSaved || !validParsed) {
+        return {
+            parsedCoordinates: validParsed,
+            parsedLink,
+            savedCoordinates: validSaved,
+            discrepancyMeters: 0,
+            hasDiscrepancy: false,
+            canonicalGoogleMapsLink: validSaved
+                ? buildCanonicalGoogleMapsUrl(validSaved.lat, validSaved.lng)
+                : validParsed
+                    ? buildCanonicalGoogleMapsUrl(validParsed.lat, validParsed.lng)
+                    : '',
+        };
+    }
+    const R = 6371000;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(validParsed.lat - validSaved.lat);
+    const dLng = toRad(validParsed.lng - validSaved.lng);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(validSaved.lat)) *
+            Math.cos(toRad(validParsed.lat)) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const discrepancyMeters = Math.round(R * c);
+    return {
+        parsedCoordinates: validParsed,
+        parsedLink,
+        savedCoordinates: validSaved,
+        discrepancyMeters,
+        hasDiscrepancy: discrepancyMeters > 2,
+        canonicalGoogleMapsLink: buildCanonicalGoogleMapsUrl(validSaved.lat, validSaved.lng),
+    };
 }
 //# sourceMappingURL=googleMapsParser.js.map

@@ -1,7 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { API_BASE_URL } from '../../config/api';
-import { parseGoogleMapsLink } from '../../utils/googleMapsParser';
+import {
+  parseGoogleMapsLink,
+  compareOfficeCoordinates,
+  buildCanonicalGoogleMapsUrl
+} from '../../utils/googleMapsParser';
+import {
+  getStoredAuthToken,
+  fetchCanonicalGeofenceSettings
+} from '../../services/attendanceApi';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { 
@@ -68,11 +76,54 @@ export const GPSGeofenceSettings: React.FC = () => {
       }
       if (!googleMapsLink) {
         setGoogleMapsLink(
-          geofenceConfig.googleMapsLink || `https://www.google.com/maps?q=${numLat},${numLng}`
+          geofenceConfig.googleMapsLink || buildCanonicalGoogleMapsUrl(numLat, numLng)
         );
       }
     }
   }, [geofenceConfig]);
+
+  // Verify persisted canonical coordinates from PostgreSQL on mount/refresh
+  useEffect(() => {
+    let active = true;
+    fetchCanonicalGeofenceSettings()
+      .then((canonical) => {
+        if (!active || !canonical) return;
+        const cLat = Number(canonical.centerLat ?? canonical.latitude ?? 0);
+        const cLng = Number(canonical.centerLng ?? canonical.longitude ?? 0);
+        if (cLat !== 0 && cLng !== 0) {
+          setLat(cLat);
+          setLng(cLng);
+          if (canonical.officeName && canonical.officeName !== 'Businz HQ') {
+            setName(canonical.officeName);
+          }
+          if (canonical.address) {
+            setAddress(canonical.address);
+          }
+          if (canonical.radiusMeters) {
+            setRadius(Number(canonical.radiusMeters));
+          }
+          if (canonical.googleMapsLink) {
+            setGoogleMapsLink(canonical.googleMapsLink);
+          }
+          updateGeofenceConfig({
+            officeName: canonical.officeName || geofenceConfig.officeName,
+            centerLat: cLat,
+            centerLng: cLng,
+            radiusMeters: Number(canonical.radiusMeters) || 250,
+            enabled: canonical.enabled !== false,
+            enforceStrictly: canonical.enforceStrictly !== false,
+            googleMapsLink: canonical.googleMapsLink || buildCanonicalGoogleMapsUrl(cLat, cLng),
+            address: canonical.address || canonical.officeName
+          });
+        }
+      })
+      .catch(() => {
+        // Non-blocking fallback to context state
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -80,14 +131,22 @@ export const GPSGeofenceSettings: React.FC = () => {
   const [linkExtractMsg, setLinkExtractMsg] = useState<string | null>(null);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
 
+  // Compare Google Maps URL coordinates with active/saved Latitude & Longitude (Phase 2)
+  const coordinateComparison = useMemo(() => {
+    const currentLat = typeof lat === 'number' ? lat : parseFloat(String(lat)) || 0;
+    const currentLng = typeof lng === 'number' ? lng : parseFloat(String(lng)) || 0;
+    return compareOfficeCoordinates(currentLat, currentLng, googleMapsLink);
+  }, [lat, lng, googleMapsLink]);
+
   // Leaflet Map Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const comparisonMarkerRef = useRef<L.Marker | null>(null);
   const circleRef = useRef<L.Circle | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
-  // SVG Red Pin Icon matching Google Maps Pin exactly
+  // SVG Red Pin Icon matching Google Maps Pin exactly (Authoritative Office Centre)
   const getPinIcon = () => {
     return L.divIcon({
       className: 'google-style-pin',
@@ -102,6 +161,24 @@ export const GPSGeofenceSettings: React.FC = () => {
       `,
       iconSize: [34, 44],
       iconAnchor: [17, 44]
+    });
+  };
+
+  // Secondary Comparison Pin Icon for Unconfirmed Google Maps URL Coordinates
+  const getComparisonPinIcon = () => {
+    return L.divIcon({
+      className: 'google-maps-link-comparison-pin',
+      html: `
+        <div style="position: relative; width: 30px; height: 40px; transform: translate(-15px, -40px); cursor: pointer;">
+          <svg viewBox="0 0 384 512" width="30" height="40" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.32));">
+            <path fill="#F59E0B" d="M172.268 501.67C26.97 291.031 0 269.413 0 192 0 85.961 85.961 0 192 0s192 85.961 192 192c0 77.413-26.97 99.031-172.268 309.67-9.535 13.774-29.93 13.773-39.464 0z"/>
+            <circle cx="192" cy="192" r="74" fill="#FFFFFF" />
+            <circle cx="192" cy="192" r="46" fill="#B45309" />
+          </svg>
+        </div>
+      `,
+      iconSize: [30, 40],
+      iconAnchor: [15, 40]
     });
   };
 
@@ -128,6 +205,7 @@ export const GPSGeofenceSettings: React.FC = () => {
       const newLng = Number(pos.lng.toFixed(6));
       setLat(newLat);
       setLng(newLng);
+      setGoogleMapsLink(buildCanonicalGoogleMapsUrl(newLat, newLng));
       if (circleRef.current) {
         circleRef.current.setLatLng([newLat, newLng]);
       }
@@ -171,22 +249,25 @@ export const GPSGeofenceSettings: React.FC = () => {
           icon: getPinIcon(),
           draggable: true
         }).addTo(map);
+        marker.bindTooltip('Saved Office Centre', { direction: 'top', offset: [0, -40] });
         attachMarkerDrag(marker);
         markerRef.current = marker;
       }
 
-      // On map click: set pin & circle, update lat/lng
+      // On map click: set pin & circle, update lat/lng and synchronize Google Maps URL
       map.on('click', (e: L.LeafletMouseEvent) => {
         const newLat = Number(e.latlng.lat.toFixed(6));
         const newLng = Number(e.latlng.lng.toFixed(6));
         setLat(newLat);
         setLng(newLng);
+        setGoogleMapsLink(buildCanonicalGoogleMapsUrl(newLat, newLng));
 
         if (!markerRef.current) {
           const marker = L.marker([newLat, newLng], {
             icon: getPinIcon(),
             draggable: true
           }).addTo(map);
+          marker.bindTooltip('Saved Office Centre', { direction: 'top', offset: [0, -40] });
           attachMarkerDrag(marker);
           markerRef.current = marker;
         } else {
@@ -225,7 +306,7 @@ export const GPSGeofenceSettings: React.FC = () => {
     tileLayerRef.current = newTile;
   }, [mapType]);
 
-  // Update marker and circle position when lat/lng change
+  // Update marker, comparison marker, and circle position when lat/lng or Google Maps link change
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const hasCoords = typeof lat === 'number' && typeof lng === 'number' && lat !== 0 && lng !== 0;
@@ -238,6 +319,7 @@ export const GPSGeofenceSettings: React.FC = () => {
           icon: getPinIcon(),
           draggable: true
         }).addTo(mapInstanceRef.current);
+        marker.bindTooltip('Saved Office Centre', { direction: 'top', offset: [0, -40] });
         attachMarkerDrag(marker);
         markerRef.current = marker;
       } else {
@@ -269,7 +351,30 @@ export const GPSGeofenceSettings: React.FC = () => {
         circleRef.current = null;
       }
     }
-  }, [lat, lng, radius]);
+
+    // Render or remove secondary comparison pin for Google Maps URL coordinate discrepancy
+    if (coordinateComparison.hasDiscrepancy && coordinateComparison.parsedLink.success) {
+      const linkPair: [number, number] = [
+        coordinateComparison.parsedLink.lat,
+        coordinateComparison.parsedLink.lng
+      ];
+      const tooltipText = `Google Maps URL Pin (${linkPair[0].toFixed(6)}, ${linkPair[1].toFixed(6)}) — ${coordinateComparison.discrepancyMeters}m from saved centre`;
+      if (!comparisonMarkerRef.current) {
+        const compMarker = L.marker(linkPair, {
+          icon: getComparisonPinIcon(),
+          draggable: false
+        }).addTo(mapInstanceRef.current);
+        compMarker.bindTooltip(tooltipText, { direction: 'top', offset: [0, -36] });
+        comparisonMarkerRef.current = compMarker;
+      } else {
+        comparisonMarkerRef.current.setLatLng(linkPair);
+        comparisonMarkerRef.current.setTooltipContent(tooltipText);
+      }
+    } else if (comparisonMarkerRef.current) {
+      mapInstanceRef.current.removeLayer(comparisonMarkerRef.current);
+      comparisonMarkerRef.current = null;
+    }
+  }, [lat, lng, radius, coordinateComparison]);
 
   // Invalidate map size when fullscreen toggles
   useEffect(() => {
@@ -410,33 +515,45 @@ export const GPSGeofenceSettings: React.FC = () => {
     );
   };
 
-  // Save / Confirm Action (Persist to Backend PostgreSQL & Context)
-  const handleConfirmSave = async () => {
-    const numLat = typeof lat === 'number' ? lat : parseFloat(String(lat)) || 0;
-    const numLng = typeof lng === 'number' ? lng : parseFloat(String(lng)) || 0;
+  // Save / Confirm Action (Persist to Backend PostgreSQL & Context and verify persistence)
+  const persistConfirmedOfficeLocation = async (
+    targetLat: number,
+    targetLng: number,
+    confirmCoordinateSource: 'google_maps_link' | 'saved_coordinates' | 'manual_pin'
+  ) => {
+    const fixedLat = Number(targetLat.toFixed(6));
+    const fixedLng = Number(targetLng.toFixed(6));
     const finalName = name.trim() || address.trim() || 'VRM Structures India Pvt Ltd';
-    const finalLink = googleMapsLink.trim() || (numLat !== 0 && numLng !== 0 ? `https://www.google.com/maps?q=${numLat},${numLng}` : '');
+    const canonicalLink =
+      fixedLat !== 0 && fixedLng !== 0
+        ? buildCanonicalGoogleMapsUrl(fixedLat, fixedLng)
+        : googleMapsLink.trim();
+
+    setLat(fixedLat);
+    setLng(fixedLng);
+    setGoogleMapsLink(canonicalLink);
 
     const geofencePayload = {
       officeName: finalName,
-      centerLat: numLat,
-      centerLng: numLng,
-      latitude: numLat,
-      longitude: numLng,
+      centerLat: fixedLat,
+      centerLng: fixedLng,
+      latitude: fixedLat,
+      longitude: fixedLng,
       radiusMeters: radius,
-      googleMapsLink: finalLink,
+      googleMapsLink: canonicalLink,
       address: address.trim() || finalName,
-      enabled: Boolean(numLat !== 0 && numLng !== 0),
-      enforceStrictly: Boolean(numLat !== 0 && numLng !== 0)
+      enabled: Boolean(fixedLat !== 0 && fixedLng !== 0),
+      enforceStrictly: Boolean(fixedLat !== 0 && fixedLng !== 0),
+      confirmCoordinateSource
     };
 
     // Update Context & local storage
     updateGeofenceConfig(geofencePayload);
 
-    // Persist to Backend API / PostgreSQL directly
+    // Persist to Backend API / PostgreSQL directly with authenticated token
     try {
-      const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-      await fetch(`${API_BASE_URL}/settings/geofence`, {
+      const token = getStoredAuthToken();
+      const resp = await fetch(`${API_BASE_URL}/settings/geofence`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -444,12 +561,46 @@ export const GPSGeofenceSettings: React.FC = () => {
         },
         body: JSON.stringify(geofencePayload)
       });
+
+      if (resp.ok) {
+        const verified = await fetchCanonicalGeofenceSettings();
+        if (verified && Number(verified.centerLat) !== 0 && Number(verified.centerLng) !== 0) {
+          const vLat = Number(Number(verified.centerLat).toFixed(6));
+          const vLng = Number(Number(verified.centerLng).toFixed(6));
+          setLat(vLat);
+          setLng(vLng);
+          setGoogleMapsLink(verified.googleMapsLink || buildCanonicalGoogleMapsUrl(vLat, vLng));
+        }
+      }
     } catch (apiErr) {
       console.warn('Backend geofence save warning:', apiErr);
     }
 
-    setSaveSuccessMsg(`✓ Geofence "${finalName}" saved with ${radius}M perimeter boundary!`);
-    setTimeout(() => setSaveSuccessMsg(null), 4000);
+    setSaveSuccessMsg(
+      `✓ Authoritative office centre (${fixedLat.toFixed(6)}, ${fixedLng.toFixed(6)}) synchronized and saved with ${radius}M perimeter boundary!`
+    );
+    setTimeout(() => setSaveSuccessMsg(null), 5000);
+  };
+
+  const handleConfirmSave = async () => {
+    const numLat = typeof lat === 'number' ? lat : parseFloat(String(lat)) || 0;
+    const numLng = typeof lng === 'number' ? lng : parseFloat(String(lng)) || 0;
+    await persistConfirmedOfficeLocation(numLat, numLng, 'saved_coordinates');
+  };
+
+  const handleConfirmGoogleMapsCoordinates = async () => {
+    if (!coordinateComparison.parsedLink.success) return;
+    const linkLat = coordinateComparison.parsedLink.lat;
+    const linkLng = coordinateComparison.parsedLink.lng;
+    fetchAddress(linkLat, linkLng);
+    await persistConfirmedOfficeLocation(linkLat, linkLng, 'google_maps_link');
+  };
+
+  const handleConfirmSavedCoordinates = async () => {
+    const numLat = typeof lat === 'number' ? lat : parseFloat(String(lat)) || 0;
+    const numLng = typeof lng === 'number' ? lng : parseFloat(String(lng)) || 0;
+    if (numLat === 0 && numLng === 0) return;
+    await persistConfirmedOfficeLocation(numLat, numLng, 'saved_coordinates');
   };
 
   // Reset to saved values
@@ -573,6 +724,68 @@ export const GPSGeofenceSettings: React.FC = () => {
           fontWeight: 600
         }}>
           <AlertCircle size={16} /> {linkExtractMsg}
+        </div>
+      )}
+
+      {/* Phase 2: Coordinate Discrepancy Comparison & Admin Confirmation Banner */}
+      {coordinateComparison.hasDiscrepancy && coordinateComparison.parsedLink.success && (
+        <div style={{
+          backgroundColor: '#FFFBEB',
+          border: '1px solid #FCD34D',
+          borderRadius: '14px',
+          padding: '16px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+            <AlertCircle size={20} style={{ color: '#D97706', flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#92400E' }}>
+                Office Coordinate Discrepancy Detected ({coordinateComparison.discrepancyMeters}m offset)
+              </div>
+              <div style={{ fontSize: '0.82rem', color: '#78350F', marginTop: '4px', lineHeight: 1.5 }}>
+                The coordinates in the <strong>Google Maps link</strong> ({coordinateComparison.parsedLink.lat.toFixed(6)}, {coordinateComparison.parsedLink.lng.toFixed(6)}) differ from the <strong>Saved Office Centre</strong> ({Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}) by <strong>{coordinateComparison.discrepancyMeters} metres</strong>. Both pins are displayed on the map below (Red = Saved Centre, Amber = Google Maps URL Pin). Please confirm which coordinate pair is the authoritative office centre.
+              </div>
+            </div>
+          </div>
+
+          {isPrivileged && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', paddingLeft: '30px' }}>
+              <button
+                type="button"
+                onClick={handleConfirmGoogleMapsCoordinates}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#0E7490',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Confirm Google Maps Coordinates ({coordinateComparison.parsedLink.lat.toFixed(6)}, {coordinateComparison.parsedLink.lng.toFixed(6)})
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSavedCoordinates}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#1E293B',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Keep & Synchronize Saved Coordinates ({Number(lat).toFixed(6)}, {Number(lng).toFixed(6)})
+              </button>
+            </div>
+          )}
         </div>
       )}
 

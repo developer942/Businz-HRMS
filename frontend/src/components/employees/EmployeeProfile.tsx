@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Employee, Role } from '../../types/hrms';
 import { SalaryComponentConfig } from '../../types/settings';
-import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, normalizeToYYYYMMDD } from '../../utils/dateUtils';
 import { DateInput } from '../common/DateInput';
-import { 
-  X, 
-  User, 
-  Briefcase, 
-  CreditCard, 
+import {
+  X,
+  User,
+  Briefcase,
+  CreditCard,
   FileText,
   Mail,
   MapPin,
@@ -36,9 +36,9 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { OfferLetterModal } from './OfferLetterModal';
-import { 
-  buildPayrollFormulaContext, 
-  calculateConfiguredDeductionLines, 
+import {
+  buildPayrollFormulaContext,
+  calculateConfiguredDeductionLines,
   calculateSalaryBreakdown,
   isComponentEligible,
   getEligibilityBadgeLabel,
@@ -48,11 +48,11 @@ import { formatCurrency } from '../../utils/numbers';
 import { rbacService } from '../../services/rbacService';
 import { getInitialRBACState } from '../../services/rbacService';
 import { dispatchCredentialEmail } from '../../services/emailDispatchService';
-import { 
-  HIGHEST_QUALIFICATION_OPTIONS, 
-  DEGREE_OPTIONS_BY_QUALIFICATION, 
-  ALL_DEGREE_OPTIONS, 
-  normalizeQualification 
+import {
+  HIGHEST_QUALIFICATION_OPTIONS,
+  DEGREE_OPTIONS_BY_QUALIFICATION,
+  ALL_DEGREE_OPTIONS,
+  normalizeQualification
 } from './AddEmployeeModal';
 import { CountryCodeDropdown } from '../common/CountryCodeDropdown';
 import { COUNTRY_CODES } from '../../data/countryCodes';
@@ -142,15 +142,15 @@ const extractLocalDigits = (raw: string | undefined | null, dialCode: string = '
   return digits;
 };
 
-export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({ 
-  employee, 
-  onClose, 
+export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
+  employee,
+  onClose,
   initialTab = 'all',
   onUpdate
 }) => {
-  const { 
-    currentUser, 
-    hasPermission, 
+  const {
+    currentUser,
+    hasPermission,
     updateEmployee,
     resetEmployeeLogin,
     updateEmployeeLoginStatus,
@@ -236,17 +236,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   // Permission strictly restricted to CEO and HR administrators only (no other roles allowed)
   const canActivateOrDeactivate = Boolean(
-    currentUser?.role === 'CEO' || 
+    currentUser?.role === 'CEO' ||
     currentUser?.designation === 'CEO' ||
     (currentUser?.designation && currentUser.designation.toLowerCase().includes('ceo')) ||
-    currentUser?.role === 'Super Admin' || 
+    currentUser?.role === 'Super Admin' ||
     currentUser?.role === 'Admin' ||
     currentUser?.role === 'ERP Administrator' ||
     (currentUser?.role && currentUser.role.toLowerCase().includes('admin')) ||
     (currentUser?.role && currentUser.role.toLowerCase().includes('ceo')) ||
     currentUser?.employeeId === 'EMP-000' ||
     currentUser?.employeeId === 'OWNER-001' ||
-    currentUser?.role === 'HR Admin' || 
+    currentUser?.role === 'HR Admin' ||
     currentUser?.role === 'HR Manager' ||
     (currentUser?.role && currentUser.role.toLowerCase().includes('hr')) ||
     (currentUser?.email && currentUser.email.toLowerCase().trim() === 'developer@businz.com')
@@ -254,8 +254,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   // Check if current user is CEO or authorized HR administrator
   const isCEOorHR = Boolean(
-    canActivateOrDeactivate || 
-    currentUser?.role === 'ERP Administrator' || 
+    canActivateOrDeactivate ||
+    currentUser?.role === 'ERP Administrator' ||
     currentUser?.role === 'Admin' ||
     currentUser?.role === 'Super Admin' ||
     (currentUser?.role && currentUser.role.toLowerCase().includes('admin')) ||
@@ -265,15 +265,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   );
 
   const isSuperAdminOrCEO = Boolean(
-    currentUser?.role === 'CEO' || 
+    currentUser?.role === 'CEO' ||
     currentUser?.designation === 'CEO' ||
     currentUser?.role === 'Super Admin' ||
     currentUser?.role === 'ERP Administrator'
   );
 
   const isHR = Boolean(
-    currentUser?.role === 'HR Admin' || 
-    currentUser?.role === 'HR Manager' || 
+    currentUser?.role === 'HR Admin' ||
+    currentUser?.role === 'HR Manager' ||
     currentUser?.designation?.toLowerCase().includes('hr') ||
     currentUser?.department?.toLowerCase() === 'hr' ||
     currentUser?.department?.toLowerCase() === 'human resources'
@@ -360,7 +360,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const getInitialFormData = (emp: Employee) => {
     const isEmpCEO = emp.role === 'CEO' || emp.department === 'CEO' || emp.designation === 'CEO';
     const isEmpFresher = (emp.experienceDetails?.experienceType || (emp as any).experienceType || 'Fresher') === 'Fresher' && !isEmpCEO;
-    const initialPhoneCode = emp.phone?.startsWith('+') 
+    const initialPhoneCode = emp.phone?.startsWith('+')
       ? (COUNTRY_CODES.find(c => emp.phone?.startsWith(c.dialCode))?.dialCode || '+91')
       : '+91';
     const initialEmCode = emp.emergencyContact?.mobile?.startsWith('+')
@@ -376,14 +376,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       lastName: emp.lastName || '',
       employeeId: emp.employeeId || emp.id || '',
       gender: (emp.gender || 'Male') as 'Male' | 'Female' | 'Other',
-      dob: emp.dob || '',
+      dob: normalizeToYYYYMMDD(emp.dob || ''),
       phone: extractLocalDigits(emp.phone, initialPhoneCode),
       personalEmail: emp.personalEmail || emp.email || '',
       maritalStatus: (emp.maritalStatus || 'Single') as 'Single' | 'Married' | 'Divorced' | 'Widowed',
       avatar: emp.avatar || '',
 
       // 2. Employment & Organization
-      joiningDate: emp.joiningDate || new Date().toISOString().split('T')[0],
+      joiningDate: normalizeToYYYYMMDD(emp.joiningDate || '') || new Date().toISOString().split('T')[0],
       department: emp.department || (isEmpCEO ? 'CEO' : (departments[0]?.name || 'HR')),
       designation: emp.designation || (isEmpCEO ? 'CEO' : (designations[0]?.title || 'Staff')),
       employmentType: emp.employmentType || defaultEmploymentType,
@@ -426,17 +426,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       previousCompany: isEmpCEO ? (emp.experienceDetails?.previousCompany || 'N/A') : (isEmpFresher ? '' : (emp.experienceDetails?.previousCompany || emp.professionalDetails?.previousCompany || '')),
       previousDesignation: isEmpCEO ? (emp.experienceDetails?.previousDesignation || 'Director / Executive') : (isEmpFresher ? '' : (emp.experienceDetails?.previousDesignation || '')),
       previousDepartment: isEmpCEO ? (emp.experienceDetails?.previousDepartment || 'Executive') : (isEmpFresher ? '' : (emp.experienceDetails?.previousDepartment || '')),
-      expStartDate: (isEmpCEO || isEmpFresher) ? '' : (emp.experienceDetails?.startDate || ''),
-      expEndDate: (isEmpCEO || isEmpFresher) ? '' : (emp.experienceDetails?.endDate || ''),
+      expStartDate: (isEmpCEO || isEmpFresher) ? '' : normalizeToYYYYMMDD(emp.experienceDetails?.startDate || ''),
+      expEndDate: (isEmpCEO || isEmpFresher) ? '' : normalizeToYYYYMMDD(emp.experienceDetails?.endDate || ''),
       lastDrawnSalary: isEmpCEO ? 'Exempt' : (isEmpFresher ? '' : (emp.experienceDetails?.lastDrawnSalary || '')),
       previousCompanyLocation: isEmpCEO ? 'N/A' : (isEmpFresher ? '' : (emp.experienceDetails?.companyLocation || '')),
-      skills: Array.isArray(emp.professionalDetails?.skills) 
-        ? emp.professionalDetails.skills.join(', ') 
+      skills: Array.isArray(emp.professionalDetails?.skills)
+        ? emp.professionalDetails.skills.join(', ')
         : (emp.skills ? emp.skills.join(', ') : (isEmpCEO ? 'Enterprise Strategy, Executive Leadership, Corporate Governance' : '')),
 
       // 6. Salary & Bank Details
       salaryStructure: isEmpCEO ? 'Exempt (CEO)' : (emp.salaryDetails?.salaryStructure || 'Standard Industrial CTC'),
-      salaryEffectiveFrom: (emp as any).salaryEffectiveFrom || new Date().toISOString().slice(0, 10),
+      salaryEffectiveFrom: normalizeToYYYYMMDD((emp as any).salaryEffectiveFrom || '') || new Date().toISOString().slice(0, 10),
       salaryRevisionReason: '',
       salaryScheme: (emp.salaryDetails?.salaryScheme || (emp.withPf ? 'WITH_PF' : 'WITHOUT_PF')) as 'WITH_PF' | 'WITHOUT_PF',
       withPf: isEmpCEO ? false : Boolean(emp.withPf ?? emp.salaryDetails?.withPf),
@@ -459,8 +459,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       // 7. Shift & Attendance Policies
       attendanceMethod: (isEmpCEO ? 'Exempt' : (emp.attendanceMethod || 'Face Scan')) as Employee['attendanceMethod'],
-      shift: isEmpCEO ? 'Exempt' : (emp.workShift || emp.shiftDetails?.shiftType || shifts[0]?.shiftName || ''),
-      shiftEffectiveFrom: (emp as any).shiftEffectiveFrom || new Date().toISOString().slice(0, 10),
+      shift: isEmpCEO ? 'Exempt' : (emp.upcomingShift || emp.workShift || emp.shiftDetails?.shiftType || shifts[0]?.shiftName || ''),
+      shiftEffectiveFrom: normalizeToYYYYMMDD(emp.upcomingShiftEffectiveFrom || (emp as any).shiftEffectiveFrom || '') || new Date().toISOString().slice(0, 10),
       weeklyOff: isEmpCEO ? 'Flexible' : (emp.shiftDetails?.weeklyOff || 'Sunday'),
       holidayCalendar: emp.shiftDetails?.holidayCalendar || 'Tamil Nadu Industrial Calendar (14 Days)',
       leavePolicy: isEmpCEO ? 'Exempt' : (emp.shiftDetails?.leavePolicy || 'Standard 18 Casual + 12 Medical + 10 Earned'),
@@ -561,7 +561,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
     // Names (Letters, spaces, '.', "'", '-' allowed)
     if (['firstName', 'lastName'].includes(field)) {
-      sanitizedValue = typeof value === 'string' ? value.replace(/[^a-zA-Z\s.'-]/g, '').slice(0, 15) : value;
+      sanitizedValue = typeof value === 'string' ? value.replace(/[^a-zA-Z\s.'-]/g, '').slice(0, 50) : value;
     }
     if (field === 'emergencyName') {
       sanitizedValue = typeof value === 'string' ? value.replace(/[^a-zA-Z\s.'-]/g, '').slice(0, 100) : value;
@@ -991,7 +991,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     }
 
     if (formData.dob) {
-      const birthDate = new Date(formData.dob);
+      const birthDate = new Date(normalizeToYYYYMMDD(formData.dob));
       const today = new Date();
       const ageInYears = (today.getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
       if (ageInYears < 18) {
@@ -1064,11 +1064,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       personalEmail: cleanEmail,
       email: cleanEmail,
       gender: normalizeGender(formData.gender),
-      dob: formData.dob,
+      dob: normalizeToYYYYMMDD(formData.dob),
       maritalStatus: formData.maritalStatus,
       avatar: formData.avatar,
 
-      joiningDate: formData.joiningDate,
+      joiningDate: normalizeToYYYYMMDD(formData.joiningDate),
       department: formData.department,
       departmentId: departments.find(d => d.name?.toLowerCase() === formData.department?.toLowerCase() || d.id === formData.department)?.id,
       designation: formData.designation,
@@ -1118,8 +1118,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         previousCompany: isSavingFresher ? '' : formData.previousCompany,
         previousDesignation: isSavingFresher ? '' : formData.previousDesignation,
         previousDepartment: isSavingFresher ? '' : formData.previousDepartment,
-        startDate: isSavingFresher ? '' : formData.expStartDate,
-        endDate: isSavingFresher ? '' : formData.expEndDate,
+        startDate: isSavingFresher ? '' : normalizeToYYYYMMDD(formData.expStartDate),
+        endDate: isSavingFresher ? '' : normalizeToYYYYMMDD(formData.expEndDate),
         lastDrawnSalary: isSavingFresher ? '' : formData.lastDrawnSalary,
         companyLocation: isSavingFresher ? '' : formData.previousCompanyLocation
       },
@@ -1189,10 +1189,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     setIsSaving(true);
     try {
       const res = await updateEmployee(currentEmp.id || currentEmp.employeeId, updatedData, {
-        expectedVersion: currentEmp.rowVersion,
-        shiftEffectiveFrom: formData.shiftEffectiveFrom,
-        weeklyOffEffectiveFrom: formData.shiftEffectiveFrom,
-        salaryEffectiveFrom: formData.salaryEffectiveFrom,
+        expectedVersion: employee.rowVersion ?? currentEmp.rowVersion,
+        shiftEffectiveFrom: normalizeToYYYYMMDD(formData.shiftEffectiveFrom) || new Date().toISOString().slice(0, 10),
+        weeklyOffEffectiveFrom: normalizeToYYYYMMDD(formData.shiftEffectiveFrom) || new Date().toISOString().slice(0, 10),
+        salaryEffectiveFrom: normalizeToYYYYMMDD(formData.salaryEffectiveFrom) || new Date().toISOString().slice(0, 10),
         revisionReason: formData.salaryRevisionReason || 'Employee profile revision',
       });
       if (res && (res as any).success === false) {
@@ -1245,7 +1245,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       if (res && res.success) {
         const tempPass = res.temporaryPassword || currentEmp.password || '';
         const destEmail = (currentEmp.personalEmail || currentEmp.email).toLowerCase();
-        
+
         await dispatchCredentialEmail({
           to: destEmail,
           employeeName: `${currentEmp.firstName} ${currentEmp.lastName}`.trim(),
@@ -1319,16 +1319,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const renderAvatar = () => {
     const avatarSrc = formData.avatar || currentEmp.avatar;
     const isValidUrl = Boolean(
-      avatarSrc && 
+      avatarSrc &&
       (avatarSrc.startsWith('http') || avatarSrc.startsWith('/') || avatarSrc.startsWith('data:image'))
     );
     const initials = `${formData.firstName?.[0] || ''}${formData.lastName?.[0] || ''}`.toUpperCase() || 'EM';
 
     return (
-      <div 
-        style={{ 
-          position: 'relative', 
-          display: 'inline-block', 
+      <div
+        style={{
+          position: 'relative',
+          display: 'inline-block',
           flexShrink: 0,
           cursor: isCEOorHR ? 'pointer' : 'default'
         }}
@@ -1338,19 +1338,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         title={isCEOorHR ? "Click to change profile photo" : undefined}
       >
         {isValidUrl && !imgError ? (
-          <img 
-            src={avatarSrc} 
-            alt={`${formData.firstName} ${formData.lastName}`} 
+          <img
+            src={avatarSrc}
+            alt={`${formData.firstName} ${formData.lastName}`}
             onError={() => setImgError(true)}
-            style={{ 
-              width: '52px', 
-              height: '52px', 
-              borderRadius: '14px', 
-              border: '2px solid rgba(14, 116, 144, 0.8)', 
+            style={{
+              width: '52px',
+              height: '52px',
+              borderRadius: '14px',
+              border: '2px solid rgba(14, 116, 144, 0.8)',
               objectFit: 'cover',
               boxShadow: '0 4px 14px rgba(0, 0, 0, 0.25), 0 0 0 2px rgba(14, 116, 144, 0.2)',
               display: 'block'
-            }} 
+            }}
           />
         ) : (
           <div style={{
@@ -1403,12 +1403,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <Camera size={11} />
           </button>
         )}
-        <input 
-          type="file" 
-          ref={avatarInputRef} 
-          onChange={handleAvatarUpload} 
-          accept="image/*" 
-          style={{ display: 'none' }} 
+        <input
+          type="file"
+          ref={avatarInputRef}
+          onChange={handleAvatarUpload}
+          accept="image/*"
+          style={{ display: 'none' }}
         />
       </div>
     );
@@ -1513,17 +1513,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>First Name</label>
           {isEditing ? (
-            <input 
-              type="text" 
-              maxLength={15}
-              value={formData.firstName} 
-              onChange={(e) => handleChange('firstName', e.target.value)} 
+            <input
+              type="text"
+              maxLength={50}
+              value={formData.firstName}
+              onChange={(e) => handleChange('firstName', e.target.value)}
               onKeyDown={(e) => {
                 if (e.key.length === 1 && !/^[a-zA-Z\s.'-]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
                   e.preventDefault();
                 }
               }}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="First name"
             />
           ) : (
@@ -1535,17 +1535,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Last Name</label>
           {isEditing ? (
-            <input 
-              type="text" 
-              maxLength={15}
-              value={formData.lastName} 
-              onChange={(e) => handleChange('lastName', e.target.value)} 
+            <input
+              type="text"
+              maxLength={50}
+              value={formData.lastName}
+              onChange={(e) => handleChange('lastName', e.target.value)}
               onKeyDown={(e) => {
                 if (e.key.length === 1 && !/^[a-zA-Z\s.'-]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
                   e.preventDefault();
                 }
               }}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="Last name"
             />
           ) : (
@@ -1573,9 +1573,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Gender</label>
           {isEditing ? (
-            <select 
-              value={formData.gender} 
-              onChange={(e) => handleChange('gender', e.target.value)} 
+            <select
+              value={formData.gender}
+              onChange={(e) => handleChange('gender', e.target.value)}
               style={selectStyle}
             >
               <option value="Male">Male</option>
@@ -1593,10 +1593,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           {isEditing ? (
             <div>
               <DateInput
-                value={formData.dob} 
-                onChange={(e) => handleChange('dob', e.target.value)} 
+                value={formData.dob}
+                onChange={(e) => handleChange('dob', e.target.value)}
                 max={maxDobDate}
-                style={inputStyle} 
+                style={inputStyle}
               />
             </div>
           ) : (
@@ -1610,9 +1610,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Marital Status</label>
           {isEditing ? (
-            <select 
-              value={formData.maritalStatus} 
-              onChange={(e) => handleChange('maritalStatus', e.target.value)} 
+            <select
+              value={formData.maritalStatus}
+              onChange={(e) => handleChange('maritalStatus', e.target.value)}
               style={selectStyle}
             >
               <option value="Single">Single</option>
@@ -1634,12 +1634,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 value={profilePhoneCountryCode}
                 onChange={(dialCode) => setProfilePhoneCountryCode(dialCode)}
               />
-              <input 
-                type="tel" 
+              <input
+                type="tel"
                 inputMode="numeric"
                 autoComplete="tel"
                 maxLength={profilePhoneCountryCode === '+91' ? 10 : 15}
-                value={extractLocalDigits(formData.phone, profilePhoneCountryCode).slice(0, profilePhoneCountryCode === '+91' ? 10 : 15)} 
+                value={extractLocalDigits(formData.phone, profilePhoneCountryCode).slice(0, profilePhoneCountryCode === '+91' ? 10 : 15)}
                 onKeyDown={(e) => {
                   if (
                     !/^[0-9]$/.test(e.key) &&
@@ -1661,13 +1661,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   const limit = profilePhoneCountryCode === '+91' ? 10 : 15;
                   const val = extractLocalDigits(e.target.value, profilePhoneCountryCode).slice(0, limit);
                   handleChange('phone', val);
-                }} 
+                }}
                 style={{
                   ...inputStyle,
                   borderTopLeftRadius: 0,
                   borderBottomLeftRadius: 0,
                   flex: 1
-                }} 
+                }}
                 placeholder={profilePhoneCountryCode === '+91' ? "9876543210" : "Enter mobile number"}
               />
             </div>
@@ -1682,9 +1682,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Email ID <span style={{ color: '#EF4444' }}>*</span></label>
           {isEditing ? (
-            <input 
-              type="email" 
-              value={formData.personalEmail} 
+            <input
+              type="email"
+              value={formData.personalEmail}
               onChange={(e) => {
                 const cleanEmail = e.target.value.toLowerCase().replace(/\s/g, '');
                 handleChange('personalEmail', cleanEmail);
@@ -1697,7 +1697,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               onBlur={() => {
                 handleChange('personalEmail', (formData.personalEmail || '').trim().toLowerCase());
               }}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="e.g. employee@gmail.com"
               required
             />
@@ -1732,9 +1732,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Department</label>
           {isEditing ? (
-            <select 
-              value={formData.department} 
-              onChange={(e) => handleChange('department', e.target.value)} 
+            <select
+              value={formData.department}
+              onChange={(e) => handleChange('department', e.target.value)}
               style={selectStyle}
             >
               {!departments.some(d => d.name?.toLowerCase() === formData.department?.toLowerCase()) && formData.department && (
@@ -1753,9 +1753,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Designation / Role</label>
           {isEditing ? (
-            <select 
-              value={formData.designation} 
-              onChange={(e) => handleChange('designation', e.target.value)} 
+            <select
+              value={formData.designation}
+              onChange={(e) => handleChange('designation', e.target.value)}
               style={selectStyle}
             >
               {!profileDesignationOptions.some(des => des.toLowerCase() === formData.designation?.toLowerCase()) && formData.designation && (
@@ -1774,9 +1774,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Employment Type</label>
           {isEditing ? (
-            <select 
-              value={formData.employmentType} 
-              onChange={(e) => handleChange('employmentType', e.target.value)} 
+            <select
+              value={formData.employmentType}
+              onChange={(e) => handleChange('employmentType', e.target.value)}
               style={selectStyle}
             >
               {employmentTypeOptions.map(type => (
@@ -1804,9 +1804,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <label style={labelStyle}>Date of Joining</label>
           {isEditing ? (
             <DateInput
-              value={formData.joiningDate} 
-              onChange={(e) => handleChange('joiningDate', e.target.value)} 
-              style={inputStyle} 
+              value={formData.joiningDate}
+              onChange={(e) => handleChange('joiningDate', e.target.value)}
+              style={inputStyle}
             />
           ) : (
             <div style={viewValueStyle}>
@@ -1819,8 +1819,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Reporting Manager</label>
           {isEditing ? (
-            <select 
-              value={formData.reportingManagerId} 
+            <select
+              value={formData.reportingManagerId}
               onChange={(e) => {
                 const selId = e.target.value;
                 const m = employees.find(emp => emp.employeeId === selId || emp.id === selId);
@@ -1829,7 +1829,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   reportingManagerId: selId,
                   reportingManagerName: m ? `${m.firstName} ${m.lastName}`.trim() : (selId ? prev.reportingManagerName : '')
                 }));
-              }} 
+              }}
               style={selectStyle}
             >
               <option value="">None / Self (No Reporting Manager)</option>
@@ -1843,7 +1843,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </select>
           ) : (
             <div style={viewValueStyle}>
-              {formData.reportingManagerName || currentEmp.reportingManagerName || (formData.reportingManagerId || currentEmp.reportingManagerId ? 'Reporting Manager' : 'None / Self')} 
+              {formData.reportingManagerName || currentEmp.reportingManagerName || (formData.reportingManagerId || currentEmp.reportingManagerId ? 'Reporting Manager' : 'None / Self')}
               {(formData.reportingManagerId || currentEmp.reportingManagerId) && (
                 <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>
                   ({formData.reportingManagerId || currentEmp.reportingManagerId})
@@ -1857,9 +1857,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Work Location / Branch</label>
           {isEditing ? (
-            <select 
-              value={formData.workLocation} 
-              onChange={(e) => handleChange('workLocation', e.target.value)} 
+            <select
+              value={formData.workLocation}
+              onChange={(e) => handleChange('workLocation', e.target.value)}
               style={selectStyle}
               disabled={workLocationOptions.length === 0}
             >
@@ -1882,9 +1882,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Employment Status</label>
           {isEditing ? (
-            <select 
-              value={formData.status} 
-              onChange={(e) => handleChange('status', e.target.value)} 
+            <select
+              value={formData.status}
+              onChange={(e) => handleChange('status', e.target.value)}
               style={selectStyle}
             >
               <option value="Active">Active</option>
@@ -1943,17 +1943,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <h4 style={{ margin: '0 0 14px 0', fontSize: '0.88rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <MapPin size={16} color="#0E7490" /> Current Residential Address
           </h4>
-          
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div>
               <label style={labelStyle}>Address Line 1</label>
               {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.currentLine1} 
-                  onChange={(e) => handleChange('currentLine1', e.target.value)} 
+                <input
+                  type="text"
+                  value={formData.currentLine1}
+                  onChange={(e) => handleChange('currentLine1', e.target.value)}
                   onKeyDown={handleAddressLineKeyDown}
-                  style={inputStyle} 
+                  style={inputStyle}
                   placeholder="Door No, Street Name"
                 />
               ) : (
@@ -1964,12 +1964,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Address Line 2 (Optional)</label>
               {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.currentLine2} 
-                  onChange={(e) => handleChange('currentLine2', e.target.value)} 
+                <input
+                  type="text"
+                  value={formData.currentLine2}
+                  onChange={(e) => handleChange('currentLine2', e.target.value)}
                   onKeyDown={handleAddressLineKeyDown}
-                  style={inputStyle} 
+                  style={inputStyle}
                   placeholder="Area / Landmark"
                 />
               ) : (
@@ -1981,12 +1981,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>City</label>
                 {isEditing ? (
-                  <input 
-                    type="text" 
-                    value={formData.currentCity} 
-                    onChange={(e) => handleChange('currentCity', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.currentCity}
+                    onChange={(e) => handleChange('currentCity', e.target.value)}
                     onKeyDown={handleLettersOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="City (Letters only)"
                   />
                 ) : (
@@ -1996,12 +1996,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>State</label>
                 {isEditing ? (
-                  <input 
-                    type="text" 
-                    value={formData.currentState} 
-                    onChange={(e) => handleChange('currentState', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.currentState}
+                    onChange={(e) => handleChange('currentState', e.target.value)}
                     onKeyDown={handleLettersOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="State (Letters only)"
                   />
                 ) : (
@@ -2014,12 +2014,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Country</label>
                 {isEditing ? (
-                  <input 
-                    type="text" 
-                    value={formData.currentCountry} 
-                    onChange={(e) => handleChange('currentCountry', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.currentCountry}
+                    onChange={(e) => handleChange('currentCountry', e.target.value)}
                     onKeyDown={handleLettersOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="Country (Letters only)"
                   />
                 ) : (
@@ -2029,14 +2029,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Pincode</label>
                 {isEditing ? (
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     inputMode="numeric"
                     maxLength={6}
-                    value={formData.currentPincode} 
-                    onChange={(e) => handleChange('currentPincode', e.target.value)} 
+                    value={formData.currentPincode}
+                    onChange={(e) => handleChange('currentPincode', e.target.value)}
                     onKeyDown={handleDigitsOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="6-digit Pincode"
                   />
                 ) : (
@@ -2055,10 +2055,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </h4>
             {isEditing && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#64748B', cursor: 'pointer', fontWeight: 600 }}>
-                <input 
-                  type="checkbox" 
-                  checked={formData.sameAsCurrent} 
-                  onChange={(e) => handleChange('sameAsCurrent', e.target.checked)} 
+                <input
+                  type="checkbox"
+                  checked={formData.sameAsCurrent}
+                  onChange={(e) => handleChange('sameAsCurrent', e.target.checked)}
                   style={{ accentColor: '#0E7490' }}
                 />
                 Same as Current
@@ -2070,12 +2070,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Address Line 1</label>
               {isEditing && !formData.sameAsCurrent ? (
-                <input 
-                  type="text" 
-                  value={formData.permanentLine1} 
-                  onChange={(e) => handleChange('permanentLine1', e.target.value)} 
+                <input
+                  type="text"
+                  value={formData.permanentLine1}
+                  onChange={(e) => handleChange('permanentLine1', e.target.value)}
                   onKeyDown={handleAddressLineKeyDown}
-                  style={inputStyle} 
+                  style={inputStyle}
                   placeholder="House / Flat No, Street Name"
                 />
               ) : (
@@ -2088,12 +2088,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Address Line 2 (Optional)</label>
               {isEditing && !formData.sameAsCurrent ? (
-                <input 
-                  type="text" 
-                  value={formData.permanentLine2} 
-                  onChange={(e) => handleChange('permanentLine2', e.target.value)} 
+                <input
+                  type="text"
+                  value={formData.permanentLine2}
+                  onChange={(e) => handleChange('permanentLine2', e.target.value)}
                   onKeyDown={handleAddressLineKeyDown}
-                  style={inputStyle} 
+                  style={inputStyle}
                   placeholder="Apartment, Landmark, Area"
                 />
               ) : (
@@ -2107,12 +2107,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>City</label>
                 {isEditing && !formData.sameAsCurrent ? (
-                  <input 
-                    type="text" 
-                    value={formData.permanentCity} 
-                    onChange={(e) => handleChange('permanentCity', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.permanentCity}
+                    onChange={(e) => handleChange('permanentCity', e.target.value)}
                     onKeyDown={handleLettersOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="City (Letters only)"
                   />
                 ) : (
@@ -2124,12 +2124,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>State</label>
                 {isEditing && !formData.sameAsCurrent ? (
-                  <input 
-                    type="text" 
-                    value={formData.permanentState} 
-                    onChange={(e) => handleChange('permanentState', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.permanentState}
+                    onChange={(e) => handleChange('permanentState', e.target.value)}
                     onKeyDown={handleLettersOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="State (Letters only)"
                   />
                 ) : (
@@ -2144,12 +2144,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Country</label>
                 {isEditing && !formData.sameAsCurrent ? (
-                  <input 
-                    type="text" 
-                    value={formData.permanentCountry} 
-                    onChange={(e) => handleChange('permanentCountry', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.permanentCountry}
+                    onChange={(e) => handleChange('permanentCountry', e.target.value)}
                     onKeyDown={handleLettersOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="Country (Letters only)"
                   />
                 ) : (
@@ -2161,14 +2161,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Pincode</label>
                 {isEditing && !formData.sameAsCurrent ? (
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     inputMode="numeric"
                     maxLength={6}
-                    value={formData.permanentPincode} 
-                    onChange={(e) => handleChange('permanentPincode', e.target.value)} 
+                    value={formData.permanentPincode}
+                    onChange={(e) => handleChange('permanentPincode', e.target.value)}
                     onKeyDown={handleDigitsOnlyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="6-digit Pincode"
                   />
                 ) : (
@@ -2183,12 +2183,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       </div>
 
       {/* Emergency Contact Information Bar */}
-      <div style={{ 
-        marginTop: '20px', 
-        backgroundColor: '#ECFEFF', 
-        borderRadius: '14px', 
-        border: '1px solid #CFFAFE', 
-        padding: '18px 20px' 
+      <div style={{
+        marginTop: '20px',
+        backgroundColor: '#ECFEFF',
+        borderRadius: '14px',
+        border: '1px solid #CFFAFE',
+        padding: '18px 20px'
       }}>
         <h4 style={{ margin: '0 0 14px 0', fontSize: '0.88rem', fontWeight: 800, color: '#0E7490' }}>
           Immediate Emergency Contact Person
@@ -2198,12 +2198,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <div>
             <label style={labelStyle}>Contact Person Name</label>
             {isEditing ? (
-              <input 
-                type="text" 
-                value={formData.emergencyName} 
-                onChange={(e) => handleChange('emergencyName', e.target.value)} 
+              <input
+                type="text"
+                value={formData.emergencyName}
+                onChange={(e) => handleChange('emergencyName', e.target.value)}
                 onKeyDown={handleLettersOnlyKeyDown}
-                style={inputStyle} 
+                style={inputStyle}
                 placeholder="Name (Letters only)"
               />
             ) : (
@@ -2214,9 +2214,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <div>
             <label style={labelStyle}>Relationship</label>
             {isEditing ? (
-              <select 
-                value={formData.emergencyRelationship} 
-                onChange={(e) => handleChange('emergencyRelationship', e.target.value)} 
+              <select
+                value={formData.emergencyRelationship}
+                onChange={(e) => handleChange('emergencyRelationship', e.target.value)}
                 style={selectStyle}
               >
                 <option value="Parent">Parent</option>
@@ -2239,20 +2239,20 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   value={profileEmergencyCountryCode}
                   onChange={(dialCode) => setProfileEmergencyCountryCode(dialCode)}
                 />
-                <input 
-                  type="tel" 
-                  value={extractLocalDigits(formData.emergencyMobile, profileEmergencyCountryCode)} 
+                <input
+                  type="tel"
+                  value={extractLocalDigits(formData.emergencyMobile, profileEmergencyCountryCode)}
                   onChange={(e) => {
                     const limit = profileEmergencyCountryCode === '+91' ? 10 : 15;
                     const val = extractLocalDigits(e.target.value, profileEmergencyCountryCode).slice(0, limit);
                     handleChange('emergencyMobile', val);
-                  }} 
+                  }}
                   style={{
                     ...inputStyle,
                     borderTopLeftRadius: 0,
                     borderBottomLeftRadius: 0,
                     flex: 1
-                  }} 
+                  }}
                   placeholder={profileEmergencyCountryCode === '+91' ? "9876543210" : "Enter emergency number"}
                 />
               </div>
@@ -2269,20 +2269,20 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   value={profileAltEmergencyCountryCode}
                   onChange={(dialCode) => setProfileAltEmergencyCountryCode(dialCode)}
                 />
-                <input 
-                  type="tel" 
-                  value={extractLocalDigits(formData.emergencyAltMobile, profileAltEmergencyCountryCode)} 
+                <input
+                  type="tel"
+                  value={extractLocalDigits(formData.emergencyAltMobile, profileAltEmergencyCountryCode)}
                   onChange={(e) => {
                     const limit = profileAltEmergencyCountryCode === '+91' ? 10 : 15;
                     const val = extractLocalDigits(e.target.value, profileAltEmergencyCountryCode).slice(0, limit);
                     handleChange('emergencyAltMobile', val);
-                  }} 
+                  }}
                   style={{
                     ...inputStyle,
                     borderTopLeftRadius: 0,
                     borderBottomLeftRadius: 0,
                     flex: 1
-                  }} 
+                  }}
                   placeholder={profileAltEmergencyCountryCode === '+91' ? "9876543210" : "Enter alternate number"}
                 />
               </div>
@@ -2316,9 +2316,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Highest Qualification</label>
           {isEditing ? (
-            <select 
-              value={formData.qualification} 
-              onChange={(e) => handleQualificationChange(e.target.value)} 
+            <select
+              value={formData.qualification}
+              onChange={(e) => handleQualificationChange(e.target.value)}
               style={selectStyle}
             >
               <option value="UG">UG</option>
@@ -2359,12 +2359,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           </div>
           {isEditing ? (
             isCustomDegree ? (
-              <input 
-                type="text" 
-                value={formData.degreeName} 
-                onChange={(e) => handleChange('degreeName', e.target.value.replace(/[^a-zA-Z0-9\s&.\-()/]/g, ''))} 
+              <input
+                type="text"
+                value={formData.degreeName}
+                onChange={(e) => handleChange('degreeName', e.target.value.replace(/[^a-zA-Z0-9\s&.\-()/]/g, ''))}
                 onKeyDown={handleCompanyKeyDown}
-                style={inputStyle} 
+                style={inputStyle}
                 placeholder="Enter Degree / Course Name"
                 autoFocus
               />
@@ -2403,12 +2403,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Specialization / Stream <span style={{ color: '#EF4444' }}>*</span></label>
           {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.specialization} 
-              onChange={(e) => handleChange('specialization', e.target.value.replace(/[^a-zA-Z\s&.\-]/g, ''))} 
+            <input
+              type="text"
+              value={formData.specialization}
+              onChange={(e) => handleChange('specialization', e.target.value.replace(/[^a-zA-Z\s&.\-]/g, ''))}
               onKeyDown={handleUniversityKeyDown}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="e.g. Mechanical / CSE (Letters only)"
               required
             />
@@ -2420,12 +2420,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>University / Institution</label>
           {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.university} 
-              onChange={(e) => handleChange('university', e.target.value)} 
+            <input
+              type="text"
+              value={formData.university}
+              onChange={(e) => handleChange('university', e.target.value)}
               onKeyDown={handleUniversityKeyDown}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="e.g. Anna University (Letters only)"
             />
           ) : (
@@ -2436,9 +2436,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Year of Passing</label>
           {isEditing ? (
-            <select 
-              value={formData.yearOfPassing} 
-              onChange={(e) => handleChange('yearOfPassing', e.target.value)} 
+            <select
+              value={formData.yearOfPassing}
+              onChange={(e) => handleChange('yearOfPassing', e.target.value)}
               style={selectStyle}
             >
               <option value="">Select Passing Year</option>
@@ -2456,14 +2456,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Grade / CGPA / Score</label>
           {isEditing ? (
-            <input 
-              type="text" 
+            <input
+              type="text"
               inputMode="decimal"
               maxLength={6}
-              value={formData.gradePercentage} 
-              onChange={(e) => handleChange('gradePercentage', e.target.value)} 
+              value={formData.gradePercentage}
+              onChange={(e) => handleChange('gradePercentage', e.target.value)}
               onKeyDown={handleDecimalKeyDown(formData.gradePercentage)}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="e.g. 84.50 (0 to 100)"
             />
           ) : (
@@ -2507,9 +2507,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Profile Classification</label>
           {isEditing ? (
-            <select 
-              value={formData.experienceType} 
-              onChange={(e) => handleChange('experienceType', e.target.value)} 
+            <select
+              value={formData.experienceType}
+              onChange={(e) => handleChange('experienceType', e.target.value)}
               style={selectStyle}
             >
               <option value="Experienced">Experienced</option>
@@ -2566,14 +2566,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <label style={labelStyle}>Total Experience (Years)</label>
               {isEditing ? (
                 <div>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     inputMode="decimal"
                     maxLength={5}
-                    value={formData.totalExperience ? formData.totalExperience.toString() : ''} 
-                    onChange={(e) => handleChange('totalExperience', e.target.value)} 
+                    value={formData.totalExperience ? formData.totalExperience.toString() : ''}
+                    onChange={(e) => handleChange('totalExperience', e.target.value)}
                     onKeyDown={handleDecimalKeyDown(formData.totalExperience)}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="e.g. 2.5 (Years)"
                   />
                 </div>
@@ -2590,12 +2590,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Previous Company / Employer</label>
               {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.previousCompany} 
-                  onChange={(e) => handleChange('previousCompany', e.target.value)} 
+                <input
+                  type="text"
+                  value={formData.previousCompany}
+                  onChange={(e) => handleChange('previousCompany', e.target.value)}
                   onKeyDown={handleCompanyKeyDown}
-                  style={inputStyle} 
+                  style={inputStyle}
                   placeholder="Company name"
                 />
               ) : (
@@ -2607,12 +2607,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <label style={labelStyle}>Previous Designation</label>
               {isEditing ? (
                 <div>
-                  <input 
-                    type="text" 
-                    value={formData.previousDesignation} 
-                    onChange={(e) => handleChange('previousDesignation', e.target.value)} 
+                  <input
+                    type="text"
+                    value={formData.previousDesignation}
+                    onChange={(e) => handleChange('previousDesignation', e.target.value)}
                     onKeyDown={handleCompanyKeyDown}
-                    style={inputStyle} 
+                    style={inputStyle}
                     placeholder="e.g. Site Engineer"
                   />
                 </div>
@@ -2624,11 +2624,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Previous Department</label>
               {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.previousDepartment} 
-                  onChange={(e) => handleChange('previousDepartment', e.target.value)} 
-                  style={inputStyle} 
+                <input
+                  type="text"
+                  value={formData.previousDepartment}
+                  onChange={(e) => handleChange('previousDepartment', e.target.value)}
+                  style={inputStyle}
                   placeholder="Department"
                 />
               ) : (
@@ -2639,14 +2639,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Last Drawn Monthly Salary</label>
               {isEditing ? (
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   inputMode="decimal"
                   maxLength={12}
-                  value={formData.lastDrawnSalary} 
-                  onChange={(e) => handleChange('lastDrawnSalary', e.target.value)} 
+                  value={formData.lastDrawnSalary}
+                  onChange={(e) => handleChange('lastDrawnSalary', e.target.value)}
                   onKeyDown={handleDecimalKeyDown(formData.lastDrawnSalary)}
-                  style={inputStyle} 
+                  style={inputStyle}
                   placeholder="e.g. 35000"
                 />
               ) : (
@@ -2664,11 +2664,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <div>
               <label style={labelStyle}>Previous Company Location</label>
               {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.previousCompanyLocation} 
-                  onChange={(e) => handleChange('previousCompanyLocation', e.target.value)} 
-                  style={inputStyle} 
+                <input
+                  type="text"
+                  value={formData.previousCompanyLocation}
+                  onChange={(e) => handleChange('previousCompanyLocation', e.target.value)}
+                  style={inputStyle}
                   placeholder="City, State"
                 />
               ) : (
@@ -2683,11 +2683,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #F1F5F9' }}>
         <label style={labelStyle}>Core Skills & Competencies (Comma Separated)</label>
         {isEditing ? (
-          <input 
-            type="text" 
-            value={formData.skills} 
-            onChange={(e) => handleChange('skills', e.target.value)} 
-            style={inputStyle} 
+          <input
+            type="text"
+            value={formData.skills}
+            onChange={(e) => handleChange('skills', e.target.value)}
+            style={inputStyle}
             placeholder="AutoCAD, Structural Design, Site Supervision, Quality Audits"
           />
         ) : (
@@ -2696,7 +2696,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               const clean = sk.trim();
               if (!clean) return null;
               return (
-                <span 
+                <span
                   key={idx}
                   style={{
                     backgroundColor: '#F1F5F9',
@@ -2793,10 +2793,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           </div>
           {isEditing ? (
             <div style={{ marginTop: '6px' }}>
-              <input 
-                type="number" 
-                value={salaryInputValue('monthlyCtc', formData.monthlyCtc)} 
-                onChange={(e) => handleCtcChange(e.target.value)} 
+              <input
+                type="number"
+                value={salaryInputValue('monthlyCtc', formData.monthlyCtc)}
+                onChange={(e) => handleCtcChange(e.target.value)}
                 style={{ ...inputStyle, fontSize: '1.2rem', fontWeight: 800, color: '#0E7490' }}
                 placeholder="Monthly CTC"
               />
@@ -2841,8 +2841,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             STATUTORY SCHEME SELECTION
           </div>
           {isEditing ? (
-            <select 
-              value={formData.salaryScheme} 
+            <select
+              value={formData.salaryScheme}
               onChange={(e) => {
                 const scheme = e.target.value as 'WITH_PF' | 'WITHOUT_PF';
                 setFormData(prev => ({
@@ -2850,7 +2850,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   salaryScheme: scheme,
                   withPf: scheme === 'WITH_PF'
                 }));
-              }} 
+              }}
               style={{ ...selectStyle, marginTop: '4px' }}
             >
               <option value="WITHOUT_PF">WITHOUT PF (Gross CTC Direct)</option>
@@ -2909,19 +2909,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             const badge = comp.calculationMethod === 'PERCENTAGE'
               ? `(${comp.defaultValue}% of ${comp.percentageBase || 'CTC'})`
               : comp.calculationMethod === 'FIXED_AMOUNT'
-              ? `(Fixed ${formatCurrency(comp.defaultValue || 0)})`
-              : `(fx: ${comp.formula || 'Formula'})`;
+                ? `(Fixed ${formatCurrency(comp.defaultValue || 0)})`
+                : `(fx: ${comp.formula || 'Formula'})`;
 
             return (
               <div key={comp.id} style={{ backgroundColor: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '14px' }}>
                 <label style={labelStyle}>{comp.name} {badge}</label>
                 {isEditing ? (
-                  <input 
-                    type="number" 
-                    value={salaryInputValue(`component:${comp.code}`, compVal)} 
+                  <input
+                    type="number"
+                    value={salaryInputValue(`component:${comp.code}`, compVal)}
                     readOnly
                     title="Calculated from Payroll Settings. Change Monthly CTC or Payroll Settings to update this component."
-                    style={{ ...inputStyle, backgroundColor: '#F1F5F9', cursor: 'not-allowed' }} 
+                    style={{ ...inputStyle, backgroundColor: '#F1F5F9', cursor: 'not-allowed' }}
                   />
                 ) : (
                   <div style={viewValueStyle}>{formatCurrency(compVal)}</div>
@@ -3098,12 +3098,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Bank Name</label>
           {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.bankName} 
-              onChange={(e) => handleChange('bankName', e.target.value)} 
+            <input
+              type="text"
+              value={formData.bankName}
+              onChange={(e) => handleChange('bankName', e.target.value)}
               onKeyDown={handleLettersOnlyKeyDown}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="e.g. HDFC Bank (Letters only)"
             />
           ) : (
@@ -3114,14 +3114,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Account Number</label>
           {isEditing ? (
-            <input 
-              type="text" 
+            <input
+              type="text"
               inputMode="numeric"
               maxLength={18}
-              value={formData.accountNumber} 
-              onChange={(e) => handleChange('accountNumber', e.target.value)} 
+              value={formData.accountNumber}
+              onChange={(e) => handleChange('accountNumber', e.target.value)}
               onKeyDown={handleDigitsOnlyKeyDown}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="9 to 18 digit Account Number"
             />
           ) : (
@@ -3142,13 +3142,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>IFSC Code</label>
           {isEditing ? (
-            <input 
-              type="text" 
+            <input
+              type="text"
               maxLength={11}
-              value={formData.ifscCode} 
-              onChange={(e) => handleChange('ifscCode', e.target.value.toUpperCase())} 
+              value={formData.ifscCode}
+              onChange={(e) => handleChange('ifscCode', e.target.value.toUpperCase())}
               onKeyDown={handleAlphanumericKeyDown}
-              style={{ ...inputStyle, textTransform: 'uppercase' }} 
+              style={{ ...inputStyle, textTransform: 'uppercase' }}
               placeholder="11-character IFSC (e.g. SBIN0001234)"
             />
           ) : (
@@ -3161,11 +3161,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Bank Branch</label>
           {isEditing ? (
-            <input 
-              type="text" 
-              value={formData.branch} 
-              onChange={(e) => handleChange('branch', e.target.value)} 
-              style={inputStyle} 
+            <input
+              type="text"
+              value={formData.branch}
+              onChange={(e) => handleChange('branch', e.target.value)}
+              style={inputStyle}
               placeholder="Branch name"
             />
           ) : (
@@ -3176,13 +3176,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>PAN Card Number</label>
           {isEditing ? (
-            <input 
-              type="text" 
+            <input
+              type="text"
               maxLength={10}
-              value={formData.panNumber} 
-              onChange={(e) => handleChange('panNumber', e.target.value.toUpperCase())} 
+              value={formData.panNumber}
+              onChange={(e) => handleChange('panNumber', e.target.value.toUpperCase())}
               onKeyDown={handleAlphanumericKeyDown}
-              style={{ ...inputStyle, textTransform: 'uppercase' }} 
+              style={{ ...inputStyle, textTransform: 'uppercase' }}
               placeholder="10-character PAN (e.g. ABCDE1234F)"
             />
           ) : (
@@ -3195,14 +3195,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>UAN / PF Number</label>
           {isEditing ? (
-            <input 
-              type="text" 
+            <input
+              type="text"
               inputMode="numeric"
               maxLength={12}
-              value={formData.uanNumber} 
-              onChange={(e) => handleChange('uanNumber', e.target.value)} 
+              value={formData.uanNumber}
+              onChange={(e) => handleChange('uanNumber', e.target.value)}
               onKeyDown={handleDigitsOnlyKeyDown}
-              style={inputStyle} 
+              style={inputStyle}
               placeholder="12-digit UAN (e.g. 101234567890)"
             />
           ) : (
@@ -3236,9 +3236,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Attendance Verification Method</label>
           {isEditing ? (
-            <select 
-              value={formData.attendanceMethod} 
-              onChange={(e) => handleChange('attendanceMethod', e.target.value)} 
+            <select
+              value={formData.attendanceMethod}
+              onChange={(e) => handleChange('attendanceMethod', e.target.value)}
               style={selectStyle}
             >
               <option value="Face Scan">Face Scan</option>
@@ -3267,21 +3267,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Work Shift Assigned</label>
           {isEditing ? (
-            <select 
-              value={formData.shift} 
-              onChange={(e) => handleChange('shift', e.target.value)} 
+            <select
+              value={formData.shift}
+              onChange={(e) => handleChange('shift', e.target.value)}
               style={selectStyle}
             >
               {shifts.length === 0 ? (
                 <option value="">No Shifts Configured</option>
               ) : (
-                shifts.map(s => (
+                [...(formData.shift && !shifts.some(s => s.shiftName === formData.shift) ? [{ id: 'current-shift', shiftName: formData.shift }] : []), ...shifts].map(s => (
                   <option key={s.id} value={s.shiftName}>{s.shiftName}</option>
                 ))
               )}
             </select>
           ) : (
-            <div style={viewValueStyle}>{formData.shift || 'No Shift Assigned'}</div>
+            <div style={{ ...viewValueStyle, flexWrap: 'wrap' }}>
+              <span>{currentEmp.workShift || formData.shift || 'No Shift Assigned'}</span>
+              {(currentEmp.upcomingShift || currentEmp.shiftDetails?.upcomingShift) && (
+                <span style={{ backgroundColor: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 700 }}>
+                  Upcoming: {currentEmp.upcomingShift || currentEmp.shiftDetails?.upcomingShift} (from {formatDateDDMMYYYY(currentEmp.upcomingShiftEffectiveFrom || currentEmp.shiftDetails?.upcomingShiftEffectiveFrom || formData.shiftEffectiveFrom)})
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -3297,9 +3304,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         <div>
           <label style={labelStyle}>Weekly Off Schedule</label>
           {isEditing ? (
-            <select 
-              value={formData.weeklyOff} 
-              onChange={(e) => handleChange('weeklyOff', e.target.value)} 
+            <select
+              value={formData.weeklyOff}
+              onChange={(e) => handleChange('weeklyOff', e.target.value)}
               style={selectStyle}
             >
               {weeklySchedules.map(w => (
@@ -3315,10 +3322,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <label style={labelStyle}>GPS Remote Punch Permission</label>
           {isEditing ? (
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
-              <input 
-                type="checkbox" 
-                checked={formData.gpsAllowed} 
-                onChange={(e) => handleChange('gpsAllowed', e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={formData.gpsAllowed}
+                onChange={(e) => handleChange('gpsAllowed', e.target.checked)}
                 style={{ accentColor: '#0E7490' }}
               />
               Allow Mobile App GPS Check-in
@@ -3379,11 +3386,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             >
               <Upload size={14} /> Upload Document
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleAddDocument} 
-              style={{ display: 'none' }} 
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleAddDocument}
+              style={{ display: 'none' }}
             />
           </div>
         )}
@@ -3391,7 +3398,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
         {formData.documents.map((doc, idx) => (
-          <div 
+          <div
             key={idx}
             style={{
               backgroundColor: '#F8FAFC',
@@ -3420,13 +3427,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 <FileText size={18} />
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ 
-                  fontSize: '0.86rem', 
-                  fontWeight: 700, 
-                  color: '#0F172A', 
-                  whiteSpace: 'nowrap', 
-                  overflow: 'hidden', 
-                  textOverflow: 'ellipsis' 
+                <div style={{
+                  fontSize: '0.86rem',
+                  fontWeight: 700,
+                  color: '#0F172A',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
                 }}>
                   {doc.name}
                 </div>
@@ -3558,11 +3565,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <div>
             <label style={labelStyle}>Official Username</label>
             {isEditing ? (
-              <input 
-                type="text" 
-                value={formData.officialUsername} 
-                onChange={(e) => handleChange('officialUsername', e.target.value)} 
-                style={inputStyle} 
+              <input
+                type="text"
+                value={formData.officialUsername}
+                onChange={(e) => handleChange('officialUsername', e.target.value)}
+                style={inputStyle}
               />
             ) : (
               <div style={viewValueStyle}>{formData.officialUsername}</div>
@@ -3713,10 +3720,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <label style={labelStyle}>Force Password Reset on Next Login</label>
             {isEditing ? (
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
-                <input 
-                  type="checkbox" 
-                  checked={formData.mustChangePassword} 
-                  onChange={(e) => handleChange('mustChangePassword', e.target.checked)} 
+                <input
+                  type="checkbox"
+                  checked={formData.mustChangePassword}
+                  onChange={(e) => handleChange('mustChangePassword', e.target.checked)}
                   style={{ accentColor: '#0E7490' }}
                 />
                 Require Password Change
@@ -3749,9 +3756,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Role <span style={{ color: '#EF4444' }}>*</span></label>
                 {isEditing ? (
-                  <select 
-                    value={formData.role} 
-                    onChange={(e) => handleChange('role', e.target.value as Role)} 
+                  <select
+                    value={formData.role}
+                    onChange={(e) => handleChange('role', e.target.value as Role)}
                     style={selectStyle}
                   >
                     <option value="CEO">CEO</option>
@@ -3789,9 +3796,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Department <span style={{ color: '#EF4444' }}>*</span></label>
                 {isEditing ? (
-                  <select 
-                    value={formData.department} 
-                    onChange={(e) => handleChange('department', e.target.value)} 
+                  <select
+                    value={formData.department}
+                    onChange={(e) => handleChange('department', e.target.value)}
                     style={selectStyle}
                   >
                     {departments.map(d => (
@@ -3807,8 +3814,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <div>
                 <label style={labelStyle}>Reporting Manager <span style={{ color: '#EF4444' }}>*</span></label>
                 {isEditing ? (
-                  <select 
-                    value={formData.reportingManagerId} 
+                  <select
+                    value={formData.reportingManagerId}
                     onChange={(e) => {
                       const selId = e.target.value;
                       const m = employees.find(emp => emp.employeeId === selId || emp.id === selId);
@@ -3817,7 +3824,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         reportingManagerId: selId,
                         reportingManagerName: m ? `${m.firstName} ${m.lastName}`.trim() : prev.reportingManagerName
                       }));
-                    }} 
+                    }}
                     style={selectStyle}
                   >
                     {employees.map(emp => (
@@ -3864,15 +3871,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 overflow-hidden flex flex-col employee-profile-overlay"
-      style={{ 
-        position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        bottom: 0, 
-        zIndex: 20000, 
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 20000,
         backgroundColor: 'rgba(15, 23, 42, 0.75)',
         backdropFilter: 'blur(8px)',
         display: 'flex',
@@ -3882,9 +3889,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       {/* =========================================================================
           1. ENTERPRISE HEADER BANNER
           ========================================================================= */}
-      <div 
+      <div
         className="employee-profile-banner"
-        style={{ 
+        style={{
           background: 'linear-gradient(135deg, #0F172A 0%, #082F49 50%, #0E7490 100%)',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
           padding: '18px 36px',
@@ -3892,12 +3899,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
         }}
       >
-        <div style={{ 
-          maxWidth: '1440px', 
-          width: '100%', 
-          margin: '0 auto', 
-          display: 'flex', 
-          alignItems: 'center', 
+        <div style={{
+          maxWidth: '1440px',
+          width: '100%',
+          margin: '0 auto',
+          display: 'flex',
+          alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
           gap: '16px'
@@ -3908,22 +3915,22 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <h2 style={{ 
-                  fontSize: '1.45rem', 
-                  fontWeight: 800, 
-                  color: '#FFFFFF', 
-                  margin: 0, 
+                <h2 style={{
+                  fontSize: '1.45rem',
+                  fontWeight: 800,
+                  color: '#FFFFFF',
+                  margin: 0,
                   letterSpacing: '-0.02em',
                   fontFamily: "'Plus Jakarta Sans', sans-serif"
                 }}>
                   {formData.firstName} {formData.lastName}
                 </h2>
-                <span style={{ 
-                  backgroundColor: 'rgba(14, 116, 144, 0.4)', 
-                  border: '1px solid rgba(56, 189, 248, 0.35)', 
-                  color: '#BAE6FD', 
-                  fontSize: '0.76rem', 
-                  padding: '2px 10px', 
+                <span style={{
+                  backgroundColor: 'rgba(14, 116, 144, 0.4)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  color: '#BAE6FD',
+                  fontSize: '0.76rem',
+                  padding: '2px 10px',
                   borderRadius: '6px',
                   fontWeight: 700,
                   fontFamily: 'monospace'
@@ -3933,19 +3940,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               </div>
 
               {/* Subtitle / Metadata row */}
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '12px', 
-                marginTop: '6px', 
-                marginBottom: '8px', 
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginTop: '6px',
+                marginBottom: '8px',
                 flexWrap: 'wrap',
                 fontSize: '0.82rem',
                 color: '#CBD5E1',
                 fontWeight: 500
               }}>
-                <span style={{ 
-                  color: '#F8FAFC', 
+                <span style={{
+                  color: '#F8FAFC',
                   fontWeight: 700,
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -3954,7 +3961,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   <Briefcase size={14} color="#38BDF8" /> {formData.designation}
                 </span>
                 <span style={{ color: 'rgba(255, 255, 255, 0.2)' }}>•</span>
-                <span style={{ 
+                <span style={{
                   color: '#CBD5E1',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -3963,19 +3970,33 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   <Building size={14} color="#A78BFA" /> {formData.department}
                 </span>
                 <span style={{ color: 'rgba(255, 255, 255, 0.2)' }}>•</span>
-                <span style={{ 
+                <span style={{
                   color: '#94A3B8',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '5px'
                 }}>
-                  <Clock size={14} color="#FBBF24" /> {formData.shift}
+                  <Clock size={14} color="#FBBF24" /> {currentEmp.workShift || formData.shift}
+                  {(currentEmp.upcomingShift || currentEmp.shiftDetails?.upcomingShift) && (
+                    <span style={{
+                      marginLeft: '6px',
+                      backgroundColor: 'rgba(245, 158, 11, 0.18)',
+                      color: '#FCD34D',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700
+                    }}>
+                      Upcoming: {currentEmp.upcomingShift || currentEmp.shiftDetails?.upcomingShift} ({formatDateDDMMYYYY(currentEmp.upcomingShiftEffectiveFrom || currentEmp.shiftDetails?.upcomingShiftEffectiveFrom || formData.shiftEffectiveFrom)})
+                    </span>
+                  )}
                 </span>
               </div>
 
               {/* Status Badges Row */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ 
+                <span style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
@@ -3996,12 +4017,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   {formData.status}
                 </span>
 
-                <span style={{ 
-                  fontSize: '0.74rem', 
-                  background: 'rgba(255, 255, 255, 0.09)', 
-                  border: '1px solid rgba(255, 255, 255, 0.18)', 
-                  padding: '3px 10px', 
-                  borderRadius: '9999px', 
+                <span style={{
+                  fontSize: '0.74rem',
+                  background: 'rgba(255, 255, 255, 0.09)',
+                  border: '1px solid rgba(255, 255, 255, 0.18)',
+                  padding: '3px 10px',
+                  borderRadius: '9999px',
                   color: '#F1F5F9',
                   fontWeight: 650
                 }}>
@@ -4126,12 +4147,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </button>
 
             {/* Close / Back Button (Icon Only) */}
-            <button 
+            <button
               type="button"
-              onClick={onClose} 
+              onClick={onClose}
               title="Close Full Page (Esc)"
               aria-label="Close"
-              style={{ 
+              style={{
                 width: '40px',
                 height: '40px',
                 borderRadius: '12px',
@@ -4169,13 +4190,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       {/* =========================================================================
           3. MAIN SCROLLABLE DOSSIER (ONE BY ONE SEQUENTIAL CARDS)
           ========================================================================= */}
-      <div 
-        className="modal-body" 
-        style={{ 
-          padding: '28px 36px 64px 36px', 
-          overflowY: 'auto', 
-          flex: 1, 
-          backgroundColor: '#F7F9FC' 
+      <div
+        className="modal-body"
+        style={{
+          padding: '28px 36px 64px 36px',
+          overflowY: 'auto',
+          flex: 1,
+          backgroundColor: '#F7F9FC'
         }}
       >
         <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto' }}>
@@ -4429,7 +4450,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
       {/* Floating Bottom Action Bar when Editing */}
       {isEditing && (
-        <div 
+        <div
           className="employee-profile-save-bar"
           style={{
             position: 'sticky',

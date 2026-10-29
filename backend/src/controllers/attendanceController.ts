@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { attendanceRepository } from '../repositories/attendanceRepository.js';
 import { auditRepository } from '../repositories/auditRepository.js';
-import { punchSchema, verifyFaceSchema } from '../validators/attendanceValidators.js';
+import { punchSchema, verifyFaceSchema, gpsDiagnosticSchema } from '../validators/attendanceValidators.js';
 
 export const getAttendanceLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -47,7 +47,11 @@ export const getAttendanceLogs = async (req: Request, res: Response, next: NextF
 };
 
 import { settingsRepository } from '../repositories/settingsRepository.js';
-import { verifyPunchGeofence } from '../services/geofenceService.js';
+import {
+  verifyPunchGeofence,
+  recordGpsDiagnostic,
+  getRecentGpsDiagnostics,
+} from '../services/geofenceService.js';
 
 export const recordPunch = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -102,7 +106,7 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    // Server-side Geofence & GPS Accuracy Verification (Phase 3, 5, 7, 9)
+    // Server-side Geofence & GPS Accuracy Verification (Phase 3, 5, 6, 7, 8, 9)
     let isInsideGeofence = validated.inGeofence ?? true;
     const isGpsOrFacePunch = !validated.method ||
       validated.method.toLowerCase().includes('gps') ||
@@ -110,38 +114,85 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       validated.method.toLowerCase().includes('mobile') ||
       validated.method.toLowerCase().includes('geofence');
 
-    if (isGpsOrFacePunch && !isCeo) {
+    const normalizedType: 'IN' | 'OUT' = (validated.type === 'OUT' || validated.type === 'Check-Out') ? 'OUT' : 'IN';
+    const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized);
+
+    if (isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty) {
       const geofence = await settingsRepository.getGeofenceSettings();
       if (geofence && (geofence.isEnabled || geofence.enabled)) {
+        const configuredRadius = Number(geofence.radiusMeters || 250);
         if (typeof validated.locationLat !== 'number' || typeof validated.locationLng !== 'number') {
+          recordGpsDiagnostic({
+            employeeCode: targetEmpId,
+            punchType: normalizedType,
+            gpsRequestDurationMs: validated.gpsDurationMs ?? 0,
+            gpsAcquisitionStatus: 'POSITION_UNAVAILABLE',
+            reportedAccuracyMeters: null,
+            locationReadingAgeMs: null,
+            calculatedDistanceMeters: null,
+            configuredRadiusMeters: configuredRadius,
+            errorCode: 'INVALID_COORDINATES',
+            browserDeviceCategory: validated.browserDeviceCategory || String(req.headers['user-agent'] || 'Unknown').slice(0, 80),
+            classification: 'N/A',
+            sampleCount: validated.gpsSampleCount,
+            retryCount: validated.gpsRetryCount,
+          });
           res.status(422).json({
             success: false,
             error: {
               code: 'GEOFENCE_LOCATION_REQUIRED',
-              message: 'GPS location is required to punch attendance. Please enable location access in browser settings.',
+              message: 'Unable to obtain your location. Please retry with location services enabled.',
               details: [],
             },
           });
           return;
         }
 
+        const readingAgeMs = validated.locationTimestamp
+          ? Math.max(0, Date.now() - new Date(validated.locationTimestamp).getTime())
+          : (validated.gpsReadingAgeMs ?? 0);
+
         const geoResult = verifyPunchGeofence({
           userLat: validated.locationLat,
           userLng: validated.locationLng,
           officeLat: Number(geofence.latitude ?? geofence.centerLat),
           officeLng: Number(geofence.longitude ?? geofence.centerLng),
-          radiusMeters: Number(geofence.radiusMeters || 200),
+          radiusMeters: configuredRadius,
           accuracyMeters: validated.accuracyMeters,
           locationTimestamp: validated.locationTimestamp,
           officeName: geofence.officeName || 'VRM Structures India Pvt Ltd',
         });
 
+        recordGpsDiagnostic({
+          employeeCode: targetEmpId,
+          punchType: normalizedType,
+          gpsRequestDurationMs: validated.gpsDurationMs ?? 0,
+          gpsAcquisitionStatus: geoResult.valid
+            ? 'SUCCESS'
+            : geoResult.evaluation?.errorCode === 'LOW_GPS_ACCURACY'
+              ? 'LOW_ACCURACY'
+              : 'SUCCESS',
+          reportedAccuracyMeters: validated.accuracyMeters ?? geoResult.evaluation?.accuracyMeters ?? null,
+          locationReadingAgeMs: Number.isFinite(readingAgeMs) ? Math.round(readingAgeMs) : null,
+          calculatedDistanceMeters: geoResult.evaluation?.distanceMeters ?? null,
+          configuredRadiusMeters: configuredRadius,
+          errorCode: geoResult.evaluation?.errorCode || (geoResult.valid ? 'NONE' : 'INVALID_COORDINATES'),
+          browserDeviceCategory: validated.browserDeviceCategory || String(req.headers['user-agent'] || 'Unknown').slice(0, 80),
+          classification: geoResult.evaluation?.classification || 'N/A',
+          sampleCount: validated.gpsSampleCount,
+          retryCount: validated.gpsRetryCount,
+        });
+
         if (!geoResult.valid) {
+          const isUncertain = geoResult.evaluation?.classification === 'UNCERTAIN';
           res.status(geoResult.statusCode || 422).json({
             success: false,
             error: {
-              code: geoResult.evaluation?.classification === 'UNCERTAIN' ? 'GPS_ACCURACY_INSUFFICIENT' : 'GEOFENCE_BREACH',
-              message: geoResult.error || 'Geofence boundary verification failed',
+              code: isUncertain ? 'GPS_ACCURACY_INSUFFICIENT' : 'GEOFENCE_BREACH',
+              message: geoResult.evaluation?.userMessage || geoResult.error || 'Geofence boundary verification failed',
+              reason: geoResult.error,
+              evaluation: geoResult.evaluation,
+              canRequestCorrection: Boolean(geoResult.evaluation?.canRequestCorrection),
               details: geoResult.evaluation ? [
                 `Distance: ${geoResult.evaluation.distanceMeters}m`,
                 `Radius: ${geoResult.evaluation.radiusMeters}m`,
@@ -156,8 +207,6 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
         isInsideGeofence = true;
       }
     }
-
-    const normalizedType: 'IN' | 'OUT' = (validated.type === 'OUT' || validated.type === 'Check-Out') ? 'OUT' : 'IN';
 
     const normalizedMethod = String(validated.method || 'Face Scan').toLowerCase();
     const isFacePunch = normalizedMethod.includes('face');
@@ -285,6 +334,48 @@ export const getShiftStatus = async (req: Request, res: Response, next: NextFunc
     res.status(200).json({
       success: true,
       data: status,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const reportGpsDiagnostic = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const parsed = gpsDiagnosticSchema.parse(req.body);
+    const entry = recordGpsDiagnostic({
+      ...parsed,
+      employeeCode: parsed.employeeCode || req.user?.employeeId || 'EMP',
+    });
+    res.status(201).json({
+      success: true,
+      data: entry,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getGpsDiagnostics = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = req.user;
+    const isAuthorized =
+      user &&
+      ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR', 'ERP Administrator'].includes(user.role);
+    if (!isAuthorized) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Only authorized HR administrators and developers can access GPS diagnostics.',
+        },
+      });
+      return;
+    }
+    const limit = Number(req.query.limit || 50);
+    res.status(200).json({
+      success: true,
+      data: getRecentGpsDiagnostics(limit),
     });
   } catch (err) {
     next(err);

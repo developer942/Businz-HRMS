@@ -119,6 +119,10 @@ export interface Employee {
   faceRegistered: boolean;
   facePhotoUrl?: string;
   workShift?: string;
+  upcomingShift?: string | null;
+  upcomingShiftEffectiveFrom?: string | null;
+  shiftEffectiveFrom?: string;
+  salaryEffectiveFrom?: string;
   documents: {
     name: string;
     type: string;
@@ -224,6 +228,19 @@ export interface Employee {
     weeklyOff?: string;
     holidayCalendar?: string;
     leavePolicy?: string;
+    assignedShift?: string;
+    effectiveFrom?: string;
+    upcomingShift?: string | null;
+    upcomingShiftEffectiveFrom?: string | null;
+    startTime?: string;
+    endTime?: string;
+    graceTime?: string;
+    halfDayHours?: string;
+    fullDayHours?: string;
+    overtimeEligible?: string;
+    geoFenceRadius?: string;
+    allowRemotePunch?: string;
+    autoCheckoutTime?: string;
   };
   systemAccess?: {
     role?: Role;

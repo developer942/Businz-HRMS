@@ -36,6 +36,7 @@ export const errorHandler = (err, _req, res, _next) => {
             error: {
                 code: typed.code || (isNotFound ? 'NOT_FOUND' : isConflict ? 'CONFLICT' : 'BAD_REQUEST'),
                 message: err.message,
+                ...(typed.currentVersion !== undefined ? { currentVersion: typed.currentVersion } : {}),
                 details: typed.currentVersion === undefined ? [] : [{ currentVersion: typed.currentVersion }],
             },
         });

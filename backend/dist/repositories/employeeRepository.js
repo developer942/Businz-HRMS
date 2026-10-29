@@ -4,6 +4,15 @@ function mapDbRowToEmployee(data) {
     const profile = typeof data.profile_data === 'object' && data.profile_data !== null ? data.profile_data : {};
     const basic = Number(data.basic_salary ?? profile.basicSalary) || 0;
     const gross = Number(data.gross_salary ?? profile.grossSalary) || basic || 0;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const rawUpcomingShift = profile.upcomingShift || profile.shiftDetails?.upcomingShift || null;
+    const rawUpcomingEffectiveFrom = profile.upcomingShiftEffectiveFrom || profile.shiftDetails?.upcomingShiftEffectiveFrom || null;
+    const isUpcomingDue = Boolean(rawUpcomingShift && rawUpcomingEffectiveFrom && String(rawUpcomingEffectiveFrom).slice(0, 10) <= todayIso);
+    const resolvedWorkShift = isUpcomingDue
+        ? rawUpcomingShift
+        : (data.work_shift || profile.workShift || profile.shiftDetails?.assignedShift || undefined);
+    const resolvedUpcomingShift = isUpcomingDue ? null : rawUpcomingShift;
+    const resolvedUpcomingEffectiveFrom = isUpcomingDue ? null : rawUpcomingEffectiveFrom;
     return {
         ...profile,
         id: data.id,
@@ -17,6 +26,8 @@ function mapDbRowToEmployee(data) {
         reportingManagerId: data.reporting_manager_id || profile.reportingManagerId || undefined,
         reportingManagerName: data.reporting_manager_name || profile.reportingManagerName || undefined,
         employmentType: profile.employmentType || data.employment_type || 'Full-Time',
+        dob: data.dob ? String(data.dob).slice(0, 10) : (profile.dob || undefined),
+        gender: data.gender || profile.gender || undefined,
         basicSalary: basic,
         grossSalary: gross,
         allowances: {
@@ -47,7 +58,18 @@ function mapDbRowToEmployee(data) {
         joiningDate: data.joining_date ? String(data.joining_date).slice(0, 10) : (profile.joiningDate || undefined),
         attendanceMethod: data.attendance_method || profile.attendanceMethod || 'Face Scan',
         gpsAllowed: data.gps_allowed ?? profile.gpsAllowed ?? true,
-        workShift: data.work_shift || profile.workShift || undefined,
+        workShift: resolvedWorkShift,
+        upcomingShift: resolvedUpcomingShift,
+        upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
+        shiftEffectiveFrom: profile.shiftEffectiveFrom || profile.shiftDetails?.effectiveFrom || undefined,
+        salaryEffectiveFrom: profile.salaryEffectiveFrom || profile.salaryDetails?.effectiveFrom || undefined,
+        shiftDetails: {
+            ...(profile.shiftDetails || {}),
+            assignedShift: resolvedWorkShift || profile.shiftDetails?.assignedShift || 'General Shift',
+            shiftType: resolvedWorkShift || profile.shiftDetails?.shiftType || 'General Shift',
+            upcomingShift: resolvedUpcomingShift,
+            upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
+        },
         shiftId: data.shift_id || undefined,
         panNumber: data.pan_number || profile.salaryDetails?.panNumber || undefined,
         uanNumber: data.uan_number || profile.salaryDetails?.uanNumber || undefined,
@@ -81,7 +103,7 @@ function mapDbRowToEmployee(data) {
         employmentEndDate: data.employment_end_date || profile.experienceDetails?.endDate || undefined,
         lastDrawnSalary: data.last_drawn_salary != null ? Number(data.last_drawn_salary) : (profile.experienceDetails?.lastDrawnSalary || undefined),
         previousCompanyLocation: data.previous_company_location || profile.experienceDetails?.companyLocation || undefined,
-        rowVersion: data.row_version != null ? Number(data.row_version) : undefined,
+        rowVersion: Number(data.row_version ?? profile.rowVersion ?? 1),
         profile_data: profile,
     };
 }
@@ -482,10 +504,12 @@ export class EmployeeRepository {
                     payload.phone = updates.phone;
                 if (updates.branch !== undefined)
                     payload.branch = updates.branch;
-                if (updates.password !== undefined)
-                    payload.password = updates.password;
-                if (updates.mustChangePassword !== undefined)
-                    payload.must_change_password = updates.mustChangePassword;
+                if (updates.workShift !== undefined)
+                    payload.work_shift = updates.workShift;
+                if (updates.attendanceMethod !== undefined)
+                    payload.attendance_method = updates.attendanceMethod;
+                if (updates.gpsAllowed !== undefined)
+                    payload.gps_allowed = updates.gpsAllowed;
                 if (updates.accountStatus !== undefined)
                     payload.account_status = updates.accountStatus;
                 // Banking & Statutory

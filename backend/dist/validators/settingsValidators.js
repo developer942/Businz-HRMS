@@ -44,5 +44,9 @@ export const updateGeofenceSettingsSchema = z.object({
     strictMode: z.boolean().optional(),
     enforceStrictly: z.boolean().optional(),
     googleMapsLink: z.string().optional().or(z.literal('')),
+    confirmCoordinateSource: z.enum(['google_maps_link', 'saved_coordinates', 'manual_pin']).optional(),
+    synchronizeCoordinates: z.boolean().optional(),
+    updatedBy: z.string().optional(),
+    confirmedBy: z.string().optional(),
 });
 //# sourceMappingURL=settingsValidators.js.map

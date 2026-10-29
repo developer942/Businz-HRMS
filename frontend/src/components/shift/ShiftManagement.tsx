@@ -103,7 +103,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
 
   useEffect(() => {
     loadAssignmentSummary();
-  }, [loadAssignmentSummary, shifts.length, employees.length, shiftRequests]);
+  }, [loadAssignmentSummary, shifts, employees, shiftRequests]);
 
   useEffect(() => {
     window.addEventListener('hrms:shift-assignments-changed', loadAssignmentSummary);

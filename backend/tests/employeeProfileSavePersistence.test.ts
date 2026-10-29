@@ -688,6 +688,117 @@ describe('BUSINZ HRMS — Employee Profile Save & PostgreSQL Persistence Suite',
       const body = await res.json();
       expect(res.status).toBe(409);
       expect(body.error.code).toBe('STALE_EMPLOYEE_VERSION');
+      expect(body.error.currentVersion).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('VRM-044 Scenario: saves shift change from Morning 2 to NORMAL SHIFT with DD/MM/YYYY dates and synchronizes rowVersion', async () => {
+    dbEmployeeRow.work_shift = 'Morning 2';
+    dbEmployeeRow.profile_data = { workShift: 'Morning 2', rowVersion: 1 };
+    dbShifts.push({
+      id: 'shift-normal-03',
+      company_id: 'company-a',
+      shift_name: 'NORMAL SHIFT',
+      start_time: '09:30',
+      end_time: '18:30',
+      grace_period_mins: 15,
+    });
+
+    const server = app.listen(0);
+    const port = (server.address() as any).port;
+    try {
+      const res = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            firstName: 'Shinodh G',
+            lastName: 'kurup',
+            dob: '30/01/2004',
+            joiningDate: '27/10/2026',
+            department: 'DESIGN',
+            designation: 'JUNIOR',
+            employmentType: 'Full-Time',
+            workShift: 'NORMAL SHIFT',
+            shiftDetails: {
+              shiftType: 'NORMAL SHIFT',
+              weeklyOff: 'Sunday',
+            },
+          },
+          options: {
+            expectedVersion: 1,
+            shiftEffectiveFrom: '27/10/2026',
+          },
+        }),
+      });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.workShift).toBe('NORMAL SHIFT');
+      expect(body.data.upcomingShift).toBeNull();
+      expect(body.data.dob).toBe('2004-01-30');
+      expect(body.data.joiningDate).toBe('2026-10-27');
+      expect(body.data.rowVersion).toBe(2);
+      expect(dbEmployeeRow.work_shift).toBe('NORMAL SHIFT');
+      expect(dbCompanySettings['EMP-004'].workShift).toBe('NORMAL SHIFT');
+      expect(dbCompanySettings['EMP-004'].rowVersion).toBe(2);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('Phase 2 Future Shift Scenario: preserves current active shift today while scheduling upcomingShift for future effective date', async () => {
+    dbEmployeeRow.work_shift = 'Morning 2';
+    dbEmployeeRow.profile_data = { workShift: 'Morning 2', rowVersion: 1 };
+    dbShifts.push({
+      id: 'shift-normal-03',
+      company_id: 'company-a',
+      shift_name: 'NORMAL SHIFT',
+      start_time: '09:30',
+      end_time: '18:30',
+      grace_period_mins: 15,
+    });
+
+    const server = app.listen(0);
+    const port = (server.address() as any).port;
+    try {
+      const res = await fetch(`http://localhost:${port}/api/v1/employees/EMP-004/profile-sync`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${hrToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employee: {
+            workShift: 'NORMAL SHIFT',
+            shiftDetails: {
+              shiftType: 'NORMAL SHIFT',
+              weeklyOff: 'Sunday',
+            },
+          },
+          options: {
+            expectedVersion: 1,
+            shiftEffectiveFrom: '2099-12-01',
+          },
+        }),
+      });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      // Active shift today remains Morning 2, while upcomingShift is scheduled for 2099-12-01
+      expect(body.data.workShift).toBe('Morning 2');
+      expect(body.data.upcomingShift).toBe('NORMAL SHIFT');
+      expect(body.data.upcomingShiftEffectiveFrom).toBe('2099-12-01');
+      expect(dbEmployeeRow.work_shift).toBe('Morning 2');
+      expect(dbEmployeeRow.profile_data.upcomingShift).toBe('NORMAL SHIFT');
+      expect(dbEmployeeRow.profile_data.upcomingShiftEffectiveFrom).toBe('2099-12-01');
+      expect(body.dependencies.shiftChanged).toBe(true);
+      expect(dbShiftAssignments.some(a => a.shift_id === 'shift-normal-03' && a.effective_from === '2099-12-01')).toBe(true);
     } finally {
       server.close();
     }

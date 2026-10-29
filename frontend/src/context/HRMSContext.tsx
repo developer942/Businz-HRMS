@@ -136,6 +136,7 @@ import { payrollApi } from '../services/payrollApi';
 import { getMonthInfo } from '../utils/monthUtils';
 import { API_BASE_URL } from '../config/api';
 import { supabaseDirect } from '../services/supabaseDirectService';
+import { fetchCanonicalGeofenceSettings } from '../services/attendanceApi';
 import {
   INITIAL_ENHANCED_TASKS,
   INITIAL_MOM_MEETINGS,
@@ -1362,8 +1363,37 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [geofenceConfig, setGeofenceConfig] = useState<GeofenceConfig>(INITIAL_GEOFENCE_CONFIG);
 
   useEffect(() => {
+    let active = true;
+    fetchCanonicalGeofenceSettings().then(canonical => {
+      if (!active || !canonical) return;
+      const lat = Number(canonical.centerLat ?? canonical.latitude ?? 0);
+      const lng = Number(canonical.centerLng ?? canonical.longitude ?? 0);
+      if (Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001) {
+        setGeofenceConfig(prev => ({
+          ...prev,
+          enabled: canonical.enabled ?? canonical.isEnabled ?? true,
+          officeName: canonical.officeName || prev.officeName || 'VRM Structures India Pvt Ltd',
+          address: canonical.address || canonical.officeName || prev.address || '',
+          centerLat: lat,
+          centerLng: lng,
+          radiusMeters: Number(canonical.radiusMeters) || 250,
+          enforceStrictly: canonical.enforceStrictly ?? canonical.strictMode ?? true,
+          googleMapsLink: canonical.googleMapsLink || `https://www.google.com/maps?q=${lat},${lng}`,
+        }));
+      }
+    }).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
+      if (
+        isCloudInitialized.current &&
+        !isSyncingFromCloud.current &&
+        (Math.abs(geofenceConfig.centerLat) > 0.0001 || Math.abs(geofenceConfig.centerLng) > 0.0001)
+      ) {
         supabaseDirect.saveCompanySetting('geofence_config', geofenceConfig);
       }
     } catch (e) {
@@ -1422,28 +1452,42 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const mapEmployeeFromDb = (raw: any, depts?: DepartmentItem[]): Employee => {
     const d = { ...(raw?.profile_data || {}), ...(raw || {}) };
+    const todayIso = getTodayKolkata();
+    const rawUpcomingShift = d.upcomingShift ?? d.shiftDetails?.upcomingShift ?? null;
+    const rawUpcomingEffectiveFrom = d.upcomingShiftEffectiveFrom ?? d.shiftDetails?.upcomingShiftEffectiveFrom ?? null;
+    const isUpcomingDue = Boolean(
+      rawUpcomingShift &&
+      rawUpcomingEffectiveFrom &&
+      String(rawUpcomingEffectiveFrom).slice(0, 10) <= todayIso
+    );
+    const resolvedWorkShift = isUpcomingDue
+      ? String(rawUpcomingShift)
+      : (raw?.work_shift || d.work_shift || d.workShift || d.shiftDetails?.assignedShift || 'SH-01');
+    const resolvedUpcomingShift = isUpcomingDue ? null : (rawUpcomingShift || null);
+    const resolvedUpcomingEffectiveFrom = isUpcomingDue ? null : (rawUpcomingEffectiveFrom || null);
+
     return ({
     id: d.id,
     company_id: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
     companyId: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
-    employeeId: d.employeeId || d.employee_id,
-    rowVersion: Number(d.rowVersion ?? d.row_version ?? 1),
-    firstName: d.firstName || d.first_name || '',
-    lastName: d.lastName || d.last_name || '',
-    email: d.email || '',
-    phone: d.phone || '',
-    dob: d.dob ? String(d.dob).slice(0, 10) : '',
-    gender: (d.gender as any) || 'Male',
-    personalEmail: d.personalEmail || d.personal_email || d.email || '',
+    employeeId: raw?.employee_id || d.employeeId || d.employee_id,
+    rowVersion: Number(raw?.row_version ?? raw?.rowVersion ?? d.row_version ?? d.rowVersion ?? 1),
+    firstName: raw?.first_name || d.firstName || d.first_name || '',
+    lastName: raw?.last_name || d.lastName || d.last_name || '',
+    email: raw?.email || d.email || '',
+    phone: raw?.phone || d.phone || '',
+    dob: (raw?.dob || d.dob) ? String(raw?.dob || d.dob).slice(0, 10) : '',
+    gender: ((raw?.gender || d.gender) as any) || 'Male',
+    personalEmail: d.personalEmail || d.personal_email || raw?.email || d.email || '',
     maritalStatus: d.maritalStatus || d.marital_status || 'Single',
-    address: d.address || '',
+    address: raw?.address || d.address || '',
     currentAddress: {
-      line1: d.currentAddress?.line1 || d.address_line1 || '',
-      line2: d.currentAddress?.line2 || d.address_line2 || '',
-      city: d.currentAddress?.city || d.city || '',
-      state: d.currentAddress?.state || d.state || '',
-      country: d.currentAddress?.country || d.country || '',
-      pincode: d.currentAddress?.pincode || d.pincode || '',
+      line1: raw?.address_line1 || d.currentAddress?.line1 || d.address_line1 || '',
+      line2: raw?.address_line2 || d.currentAddress?.line2 || d.address_line2 || '',
+      city: raw?.city || d.currentAddress?.city || d.city || '',
+      state: raw?.state || d.currentAddress?.state || d.state || '',
+      country: raw?.country || d.currentAddress?.country || d.country || '',
+      pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
     },
     permanentAddress: d.permanentAddress || {
       sameAsCurrent: true,
@@ -1461,57 +1505,57 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       alternateMobile: ''
     },
     educationalDetails: {
-      highestQualification: d.educationalDetails?.highestQualification || d.highest_qualification || '',
-      degreeName: d.educationalDetails?.degreeName || d.degree_name || '',
-      specialization: d.educationalDetails?.specialization || d.specialization || '',
-      university: d.educationalDetails?.university || d.university || '',
-      yearOfPassing: d.educationalDetails?.yearOfPassing || (d.year_of_passing != null ? String(d.year_of_passing) : ''),
-      gradePercentage: d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
+      highestQualification: raw?.highest_qualification || d.educationalDetails?.highestQualification || d.highest_qualification || '',
+      degreeName: raw?.degree_name || d.educationalDetails?.degreeName || d.degree_name || '',
+      specialization: raw?.specialization || d.educationalDetails?.specialization || d.specialization || '',
+      university: raw?.university || d.educationalDetails?.university || d.university || '',
+      yearOfPassing: (raw?.year_of_passing != null ? String(raw.year_of_passing) : '') || d.educationalDetails?.yearOfPassing || (d.year_of_passing != null ? String(d.year_of_passing) : ''),
+      gradePercentage: (raw?.grade_percentage != null ? String(raw.grade_percentage) : '') || d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
     },
     experienceDetails: (() => {
-      const expType = d.experienceDetails?.experienceType || d.experience_profile || (d.previous_company ? 'Experienced' : 'Fresher');
+      const expType = raw?.experience_profile || d.experienceDetails?.experienceType || d.experience_profile || (d.previous_company ? 'Experienced' : 'Fresher');
       const isFresher = expType === 'Fresher';
       return {
         experienceType: expType,
-        totalExperience: isFresher ? '0' : (d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : '')),
-        previousCompany: isFresher ? '' : (d.experienceDetails?.previousCompany || d.previous_company || ''),
-        previousDesignation: isFresher ? '' : (d.experienceDetails?.previousDesignation || d.previous_designation || ''),
-        previousDepartment: isFresher ? '' : (d.experienceDetails?.previousDepartment || d.previous_department || ''),
-        startDate: isFresher ? '' : (d.experienceDetails?.startDate || d.employment_start_date || ''),
-        endDate: isFresher ? '' : (d.experienceDetails?.endDate || d.employment_end_date || ''),
-        lastDrawnSalary: isFresher ? '' : (d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : '')),
-        companyLocation: isFresher ? '' : (d.experienceDetails?.companyLocation || d.previous_company_location || ''),
+        totalExperience: isFresher ? '0' : ((raw?.total_experience != null ? String(raw.total_experience) : '') || d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : '')),
+        previousCompany: isFresher ? '' : (raw?.previous_company || d.experienceDetails?.previousCompany || d.previous_company || ''),
+        previousDesignation: isFresher ? '' : (raw?.previous_designation || d.experienceDetails?.previousDesignation || d.previous_designation || ''),
+        previousDepartment: isFresher ? '' : (raw?.previous_department || d.experienceDetails?.previousDepartment || d.previous_department || ''),
+        startDate: isFresher ? '' : (raw?.employment_start_date || d.experienceDetails?.startDate || d.employment_start_date || ''),
+        endDate: isFresher ? '' : (raw?.employment_end_date || d.experienceDetails?.endDate || d.employment_end_date || ''),
+        lastDrawnSalary: isFresher ? '' : ((raw?.last_drawn_salary != null ? String(raw.last_drawn_salary) : '') || d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : '')),
+        companyLocation: isFresher ? '' : (raw?.previous_company_location || d.experienceDetails?.companyLocation || d.previous_company_location || ''),
       };
     })(),
     department: resolveEmployeeDepartmentName(d, depts),
-    designation: d.designation || 'Staff',
-    reportingManagerId: d.reportingManagerId || d.reporting_manager_id || '',
-    reportingManagerName: d.reportingManagerName || d.reporting_manager_name || '',
-    joiningDate: (d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01').slice(0, 10),
-    employmentType: (d.profile_data?.employmentType || d.employmentType || d.employment_type || 'Full-Time') as any,
-    status: (d.profile_data?.status || d.status) === 'Inactive' ? 'Inactive' : ((d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active'),
-    avatar: d.avatar || d.avatar_url || '',
-    workLocation: d.workLocation || d.work_location || d.branch || '',
-    basicSalary: Number(d.basicSalary ?? d.basic_salary) || 15000,
+    designation: raw?.designation || d.designation || 'Staff',
+    reportingManagerId: raw?.reporting_manager_id || d.reportingManagerId || d.reporting_manager_id || '',
+    reportingManagerName: raw?.reporting_manager_name || d.reportingManagerName || d.reporting_manager_name || '',
+    joiningDate: String(raw?.joining_date || d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01').slice(0, 10),
+    employmentType: (d.profile_data?.employmentType || raw?.employment_type || d.employmentType || d.employment_type || 'Full-Time') as any,
+    status: (d.profile_data?.status || raw?.status || d.status) === 'Inactive' ? 'Inactive' : ((d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active'),
+    avatar: raw?.avatar_url || d.avatar || d.avatar_url || '',
+    workLocation: raw?.branch || d.workLocation || d.work_location || d.branch || '',
+    basicSalary: Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 15000,
     allowances: {
-      hra: Number(d.allowances?.hra ?? d.hra ?? d.allowances_hra) || 0,
-      transport: Number(d.allowances?.transport ?? d.conveyance ?? d.allowances_transport) || 0,
-      medical: Number(d.allowances?.medical ?? d.allowances_medical) || 0,
-      special: Number(d.allowances?.special ?? d.allowances_special) || 0,
+      hra: Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra) || 0,
+      transport: Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport) || 0,
+      medical: Number(raw?.allowances_medical ?? d.allowances?.medical ?? d.allowances_medical) || 0,
+      special: Number(raw?.allowances_special ?? d.allowances?.special ?? d.allowances_special) || 0,
       da: Number(d.allowances?.da ?? d.da) || 0,
       conveyance: Number(d.allowances?.conveyance ?? d.conveyance) || 0,
     },
     salaryDetails: {
       ...(d.salaryDetails || d.salary_details || {}),
       monthlyCtc: d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc,
-      basicSalary: d.salaryDetails?.basicSalary ?? d.salary_details?.basicSalary ?? d.salary_details?.basic_salary ?? d.basicSalary ?? d.basic_salary,
+      basicSalary: d.salaryDetails?.basicSalary ?? d.salary_details?.basicSalary ?? d.salary_details?.basic_salary ?? raw?.basic_salary ?? d.basicSalary ?? d.basic_salary,
       hra: d.salaryDetails?.hra ?? d.salary_details?.hra ?? (Number(d.hra) > 0 ? Number(d.hra) : (Number(d.allowances_hra) > 0 ? Number(d.allowances_hra) : undefined)),
       da: d.salaryDetails?.da ?? d.salary_details?.da ?? d.da,
       conveyance: d.salaryDetails?.conveyance ?? d.salary_details?.conveyance ?? d.conveyance,
       withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf,
       salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme,
-      panNumber: d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
-      uanNumber: d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
+      panNumber: raw?.pan_number || d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
+      uanNumber: raw?.uan_number || d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
     },
     withPf: resolveEmployeeWithPf({
       withPf: d.withPf,
@@ -1521,34 +1565,44 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme
       }
     } as Employee),
-    payrollEligible: d.payrollEligible ?? d.payroll_eligible ?? true,
+    payrollEligible: raw?.payroll_eligible ?? d.payrollEligible ?? d.payroll_eligible ?? true,
     bankDetails: {
-      bankName: d.bankDetails?.bankName || d.bankName || d.bank_name || '',
-      accountNumber: d.bankDetails?.accountNumber || d.accountNumber || d.account_number || '',
-      ifscCode: d.bankDetails?.ifscCode || d.ifscCode || d.ifsc_code || '',
-      branch: d.bankDetails?.branch || d.branch || '',
+      bankName: raw?.bank_name || d.bankDetails?.bankName || d.bankName || d.bank_name || '',
+      accountNumber: raw?.account_number || d.bankDetails?.accountNumber || d.accountNumber || d.account_number || '',
+      ifscCode: raw?.ifsc_code || d.bankDetails?.ifscCode || d.ifscCode || d.ifsc_code || '',
+      branch: raw?.branch || d.bankDetails?.branch || d.branch || '',
     },
-    attendanceMethod: (d.attendanceMethod || d.attendance_method || (d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan')) as any,
-    gpsAllowed: d.gpsAllowed ?? d.gps_allowed ?? (d.designation === 'CEO' ? false : true),
+    attendanceMethod: (raw?.attendance_method || d.attendanceMethod || d.attendance_method || (d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan')) as any,
+    gpsAllowed: raw?.gps_allowed ?? d.gpsAllowed ?? d.gps_allowed ?? (d.designation === 'CEO' ? false : true),
     faceRegistered: d.faceRegistered ?? false,
     facePhotoUrl: d.facePhotoUrl || d.face_photo_url || '',
-    workShift: d.workShift || d.work_shift || 'SH-01',
+    workShift: resolvedWorkShift,
+    upcomingShift: resolvedUpcomingShift,
+    upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
+    shiftEffectiveFrom: d.shiftEffectiveFrom || d.shiftDetails?.effectiveFrom || undefined,
+    salaryEffectiveFrom: d.salaryEffectiveFrom || d.salaryDetails?.effectiveFrom || undefined,
     documents: Array.isArray(d.documents) ? d.documents : [],
-    departmentId: d.departmentId || d.department_id,
+    departmentId: raw?.department_id || d.departmentId || d.department_id,
     designationId: d.designationId || d.designation_id,
     branchId: d.branchId || d.branch_id,
     role: (d.role === 'CEO' || d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) || d.role_id === '42a8b0c3-22e5-40a0-bf78-2dd14475c6d6')
       ? 'CEO'
       : (d.role || (d.designation === 'HR Manager' ? 'HR Manager' : 'Employee')),
     mustChangePassword: d.mustChangePassword ?? d.must_change_password ?? false,
-    accountStatus: d.accountStatus || d.account_status || 'ACTIVE',
+    accountStatus: raw?.account_status || d.accountStatus || d.account_status || 'ACTIVE',
     credentialEmailStatus: d.credentialEmailStatus || d.credential_email_status || 'SENT',
     credentialEmailSentAt: d.credentialEmailSentAt || d.credential_email_sent_at || '',
     authUserId: d.authUserId || d.auth_id || d.id,
     password: d.password,
     skills: Array.isArray(d.skills) ? d.skills : (typeof d.skills === 'string' ? d.skills.split(',').map((s: string) => s.trim()) : []),
     professionalDetails: d.professionalDetails,
-    shiftDetails: d.shiftDetails,
+    shiftDetails: {
+      ...(d.shiftDetails || {}),
+      assignedShift: resolvedWorkShift,
+      shiftType: resolvedWorkShift,
+      upcomingShift: resolvedUpcomingShift,
+      upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
+    },
     systemAccess: d.systemAccess,
     });
   };
@@ -6627,15 +6681,38 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.getItem('hrms_auth_token') ||
         localStorage.getItem('token');
       if (!token) return { success: false, error: 'Your authenticated session is unavailable. Please sign in again.' };
-      const response = await fetch(`${API_BASE_URL}/employees/${encodeURIComponent(id)}/profile-sync`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          employee: normalizedEmpData,
-          options: { ...options, expectedVersion: options.expectedVersion ?? existingEmployee?.rowVersion },
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
+      const sendSyncRequest = async (expectedVersion?: number) => {
+        const res = await fetch(`${API_BASE_URL}/employees/${encodeURIComponent(id)}/profile-sync`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            employee: normalizedEmpData,
+            options: {
+              ...options,
+              ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+            },
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        return { res, body };
+      };
+
+      let { res: response, body: result } = await sendSyncRequest(
+        options.expectedVersion ?? existingEmployee?.rowVersion
+      );
+
+      // If optimistic version drifted due to background sync or extension mismatch, rebase once to authoritative DB version
+      if (response.status === 409 && result?.error?.code === 'STALE_EMPLOYEE_VERSION') {
+        const latestDbVersion =
+          result?.error?.currentVersion ??
+          result?.error?.details?.[0]?.currentVersion;
+        const retryOutcome = await sendSyncRequest(
+          typeof latestDbVersion === 'number' ? latestDbVersion : undefined
+        );
+        response = retryOutcome.res;
+        result = retryOutcome.body;
+      }
+
       if (!response.ok || result.success !== true || !result.data) {
         return { success: false, error: result.error?.message || result.message || `Database update failed (${response.status}).` };
       }
@@ -6647,18 +6724,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...serverEmployee,
         id: serverEmployee.id || existingEmployee?.id || id,
         employeeId: serverEmployee.employeeId || existingEmployee?.employeeId || id,
+        workShift: serverEmployee.workShift,
+        upcomingShift: serverEmployee.upcomingShift,
+        upcomingShiftEffectiveFrom: serverEmployee.upcomingShiftEffectiveFrom,
+        shiftDetails: serverEmployee.shiftDetails,
+        rowVersion: serverEmployee.rowVersion,
         password: existingEmployee?.password ?? serverEmployee.password,
         mustChangePassword: existingEmployee?.mustChangePassword ?? serverEmployee.mustChangePassword,
       };
       setEmployees(prev => prev.map(e => (
         e.id === mergedEmployee.id || e.employeeId === mergedEmployee.employeeId || e.id === id || e.employeeId === id
       ) ? mergedEmployee : e));
-      persistEmployeeProfileExtension(mergedEmployee).catch(err => console.warn('[HRMSContext] persistEmployeeProfileExtension sync notice:', err));
       if ((currentUser.employeeId && currentUser.employeeId === mergedEmployee.employeeId) || (currentUser.id && currentUser.id === mergedEmployee.id)) {
         updateCurrentUser({ name: `${mergedEmployee.firstName} ${mergedEmployee.lastName}`.trim(), email: mergedEmployee.email,
           department: mergedEmployee.department, designation: mergedEmployee.designation });
       }
-      if (result.dependencies?.shiftChanged && typeof window !== 'undefined') {
+      if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('hrms:shift-assignments-changed'));
       }
       return { success: true, data: mergedEmployee, dependencies: result.dependencies };
@@ -6831,6 +6912,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   emp?.designation?.toLowerCase().includes('ceo') || 
                   emp?.designation?.toLowerCase().includes('chief executive');
 
+    const activeFieldDuty = getTodayFieldAssignment(empId);
+    const isFieldDutyExempt = Boolean(
+      activeFieldDuty &&
+      activeFieldDuty.status !== 'Cancelled' &&
+      (activeFieldDuty.attendanceType === 'Flexible Field Check-in' || activeFieldDuty.attendanceType === 'Site Geofence')
+    );
+
     const isGpsOrFacePunch =
       methodText.includes('gps') ||
       methodText.includes('face') ||
@@ -6840,12 +6928,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       geofenceConfig.enabled &&
       (geofenceConfig.enforceStrictly !== false) &&
       isGpsOrFacePunch &&
-      !isCeo
+      !isCeo &&
+      !isFieldDutyExempt
     );
 
     if (shouldEnforceGeofence) {
       if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number' || (location.lat === 0 && location.lng === 0)) {
-        const message = 'GPS location is required to punch attendance. Please enable location/GPS services on your device and browser.';
+        const message = 'Unable to obtain your location. Please retry with location services enabled.';
         addNotification({
           title: `${punchType} Blocked`,
           message,
@@ -6863,17 +6952,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       );
 
       const D = actualDistance;
-      const R = Number(geofenceConfig.radiusMeters) || 200;
+      const R = Number(geofenceConfig.radiusMeters) || 250;
       const A = Math.max(0, Number((location as any).accuracyMeters ?? (location as any).accuracy ?? 15));
 
       const isVerifiedFaceWithGps = methodText.includes('face') && Boolean(photoUrl) && location.inGeofence === true;
 
-      // Phase 5 Mathematical Classification:
+      // Phase 6 Conservative Uncertainty-Aware Classification:
       // Clearly inside: D + A <= R
       // Clearly outside: D - A > R
       // Uncertain: Neither condition satisfied
       if (!isVerifiedFaceWithGps && (location.inGeofence === false || D - A > R)) {
-        const message = `Outside Office Geofence! You are ${D}m away (Allowed radius: ${R}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'the office'}.`;
+        const message = `Your verified location is outside the configured ${R}-metre office boundary.`;
         addNotification({
           title: `${punchType} Blocked`,
           message,
@@ -6882,7 +6971,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
         return { success: false, message };
       } else if (!isVerifiedFaceWithGps && D + A > R) {
-        const message = `GPS accuracy insufficient to confirm boundary. Your estimated distance from ${geofenceConfig.officeName || 'the office'} is ${D}m with ±${A}m uncertainty (Allowed radius: ${R}m). Please move to an open area and retry.`;
+        const message =
+          A >= 100
+            ? `Your location accuracy is currently ${Math.round(A)} metres. Please retry.`
+            : `We cannot confirm your position accurately enough yet. Please retry.`;
         addNotification({
           title: `${punchType} Uncertainty`,
           message,
@@ -8027,7 +8119,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
-  /** Re-apply the latest approved shift change per employee (employees table has no work_shift column). */
+  /** Fallback for legacy shift swap requests only when employee has no authoritative workShift saved in PostgreSQL. */
   const applyApprovedShiftsToEmployees = (requests: ShiftRequest[]) => {
     const latestByKey = new Map<string, ShiftRequest>();
     requests
@@ -8044,6 +8136,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setEmployees(empList => {
       let changed = false;
       const next = empList.map(emp => {
+        // Never overwrite an authoritative workShift saved in PostgreSQL
+        if (emp.workShift && emp.workShift !== 'SH-01') {
+          return emp;
+        }
         const r = latestByKey.get((emp.employeeId || '').trim().toLowerCase())
           || latestByKey.get((emp.id || '').trim().toLowerCase())
           || latestByKey.get(`${emp.firstName} ${emp.lastName}`.trim().toLowerCase());
@@ -10769,6 +10865,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             ...extension,
             ...rawProfileData,
             ...e,
+            row_version: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
+            rowVersion: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
+            work_shift: e.work_shift || rawProfileData.workShift || extension.workShift,
+            workShift: e.work_shift || rawProfileData.workShift || extension.workShift,
             profile_data: {
               ...extension,
               ...rawProfileData,
@@ -10832,27 +10932,39 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 3. Synchronize All Company Settings & Core Modules
       // Synchronize Shifts (DB table primary, settings fallback)
       if (Array.isArray(rawShifts) && rawShifts.length > 0) {
-        setShifts(rawShifts.map((s: any) => ({
-          id: s.id,
-          shiftName: s.shift_name,
-          startTime: (s.start_time || '').slice(0, 5) || '09:00',
-          endTime: (s.end_time || '').slice(0, 5) || '18:00',
-          breakDurationMins: s.break_duration_mins ?? 60,
-          workingHours: s.working_hours ?? 8,
-          gracePeriodMins: s.grace_period_mins ?? 15,
-          color: s.color || '#0E7490',
-          assignments: (s.assignments || []).map((assignment: any) => ({
+        const todayIso = getTodayKolkata();
+        setShifts(rawShifts.map((s: any) => {
+          const activeAssignments = (s.assignments || []).map((assignment: any) => ({
             id: assignment.id,
             shiftId: assignment.shift_id || assignment.shiftId || s.id,
             employeeId: assignment.employee?.employee_id || assignment.employee_id || assignment.employeeId,
             effectiveFrom: assignment.effective_from || assignment.effectiveFrom || '',
+            effectiveTo: assignment.effective_to || assignment.effectiveTo || null,
             status: assignment.status || 'ACTIVE',
             assignedById: assignment.assigned_by_id || '',
             createdAt: assignment.created_at || '',
             updatedAt: assignment.updated_at || ''
-          })).filter((assignment: any) => assignment.employeeId),
-          assignedEmployeeCount: (s.assignments || []).length
-        })));
+          })).filter((assignment: any) => {
+            if (!assignment.employeeId) return false;
+            const effFrom = assignment.effectiveFrom ? String(assignment.effectiveFrom).slice(0, 10) : '';
+            const effTo = assignment.effectiveTo ? String(assignment.effectiveTo).slice(0, 10) : '';
+            if (effFrom && effFrom > todayIso) return false;
+            if (effTo && effTo < todayIso) return false;
+            return true;
+          });
+          return {
+            id: s.id,
+            shiftName: s.shift_name,
+            startTime: (s.start_time || '').slice(0, 5) || '09:00',
+            endTime: (s.end_time || '').slice(0, 5) || '18:00',
+            breakDurationMins: s.break_duration_mins ?? 60,
+            workingHours: s.working_hours ?? 8,
+            gracePeriodMins: s.grace_period_mins ?? 15,
+            color: s.color || '#0E7490',
+            assignments: activeAssignments,
+            assignedEmployeeCount: activeAssignments.length
+          };
+        }));
       } else if (Array.isArray(settings?.shifts_data)) {
         setShifts(settings.shifts_data.filter((s: Shift) => s && s.id !== 'SH-01' && s.id !== 'SH-02' && s.id !== 'SH-03'));
       } else {
@@ -11470,9 +11582,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setLoanRecords([]);
         }
 
-        // Geofence Config
+        // Geofence Config: Only apply if coordinates are valid (non-zero)
         if (hasSetting('geofence_config') && settings.geofence_config && typeof settings.geofence_config === 'object') {
-          setGeofenceConfig(settings.geofence_config);
+          const gf = settings.geofence_config;
+          const lat = Number(gf.centerLat ?? gf.latitude ?? 0);
+          const lng = Number(gf.centerLng ?? gf.longitude ?? 0);
+          if (Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001) {
+            setGeofenceConfig({
+              ...gf,
+              centerLat: lat,
+              centerLng: lng,
+              radiusMeters: Number(gf.radiusMeters) || 250,
+            });
+          }
         }
 
         // Field Duty & Tracking: Load from real PostgreSQL database tables first

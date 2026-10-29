@@ -860,7 +860,7 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getShifts(companyId = 'company-a'): Promise<any[]> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?company_id=eq.${encodeURIComponent(companyId)}&select=*,assignments:shift_assignments(id,shift_id,employee_id,employee:employees(employee_id))&order=created_at.desc`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/shifts?company_id=eq.${encodeURIComponent(companyId)}&select=*,assignments:shift_assignments(id,shift_id,employee_id,effective_from,effective_to,employee:employees(employee_id))&order=created_at.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];

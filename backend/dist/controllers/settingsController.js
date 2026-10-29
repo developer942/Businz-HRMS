@@ -44,7 +44,17 @@ export const getGeofenceSettings = async (_req, res, next) => {
 export const updateGeofenceSettings = async (req, res, next) => {
     try {
         const validated = updateGeofenceSettingsSchema.parse(req.body);
-        const updated = await settingsRepository.updateGeofenceSettings(validated);
+        const actorName = validated.confirmedBy ||
+            validated.updatedBy ||
+            req.user?.name ||
+            req.user?.email ||
+            req.user?.role ||
+            'Authorized Admin';
+        const updated = await settingsRepository.updateGeofenceSettings({
+            ...validated,
+            updatedBy: actorName,
+            confirmedBy: actorName,
+        });
         res.status(200).json({
             success: true,
             data: updated,

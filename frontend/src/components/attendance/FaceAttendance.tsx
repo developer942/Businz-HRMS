@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useHRMS, calculateDistanceMeters } from '../../context/HRMSContext';
+import { useHRMS } from '../../context/HRMSContext';
 import {
   acquireHighAccuracyGps,
+  acquireGpsWithBoundedRetry,
+  cancelActiveGpsAcquisition,
+  detectBrowserDeviceCategory,
   evaluateGeofenceBoundary,
   calculateHaversineMeters as calculateAccurateHaversine,
-  prewarmGps
+  GpsAcquisitionError
 } from '../../services/gpsAcquisitionService';
 import { 
   ScanFace, 
@@ -31,7 +34,11 @@ import {
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import type { FaceLog } from '../../types/hrms';
-import { submitVerifiedFacePunch } from '../../services/attendanceApi';
+import {
+  submitVerifiedFacePunch,
+  fetchCanonicalGeofenceSettings,
+  reportClientGpsDiagnostic
+} from '../../services/attendanceApi';
 
 const getLocalDateString = (d = new Date()) => {
   const year = d.getFullYear();
@@ -111,6 +118,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     setActiveModule, 
     getTodayFieldAssignment,
     getEmployeeShiftAttendanceState,
+    submitMissedPunchRequest,
     syncAllWithCloud
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
@@ -373,51 +381,51 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     );
   };
 
-  // Prewarm GPS and auto-open front camera on mount for instant live preview (only in daily attendance mode)
+  const [gpsProgressMsg, setGpsProgressMsg] = useState<string>('');
+  const [uncertainContext, setUncertainContext] = useState<{
+    type: 'Check-In' | 'Check-Out';
+    distance: number;
+    radius: number;
+    accuracy: number;
+  } | null>(null);
+
+  // Sync canonical geofence configuration and auto-open front camera on mount (only in daily attendance mode)
   useEffect(() => {
     if (mode === 'log') {
       stopCamera();
+      cancelActiveGpsAcquisition();
       return;
     }
     let mounted = true;
-    prewarmGps();
+
+    fetchCanonicalGeofenceSettings()
+      .then((canonical) => {
+        if (!mounted || !canonical) return;
+        const cLat = Number(canonical.centerLat ?? canonical.latitude ?? 0);
+        const cLng = Number(canonical.centerLng ?? canonical.longitude ?? 0);
+        if (cLat !== 0 && cLng !== 0) {
+          updateGeofenceConfig({
+            officeName: canonical.officeName || geofenceConfig.officeName,
+            centerLat: cLat,
+            centerLng: cLng,
+            radiusMeters: Number(canonical.radiusMeters) || 250,
+            enabled: canonical.enabled !== false,
+            enforceStrictly: canonical.enforceStrictly !== false,
+            googleMapsLink: canonical.googleMapsLink || geofenceConfig.googleMapsLink,
+            address: canonical.address || canonical.officeName
+          });
+        }
+      })
+      .catch(() => {});
 
     startCameraStream().catch(() => {
       // Browser may require user gesture on Punch In / Punch Out tap
     });
 
-    if (locationMode === 'real') {
-      acquireHighAccuracyGps({ timeoutMs: 6000, desiredAccuracyMeters: 35 })
-        .then((reading) => {
-          if (!mounted) return;
-          const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
-          const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
-          const radius = Number(geofenceConfig.radiusMeters) || 200;
-          const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
-          const evaluation = evaluateGeofenceBoundary(
-            distance,
-            radius,
-            reading.accuracy,
-            geofenceConfig.officeName || 'HQ Office'
-          );
-          if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
-            setActivePunchGps({
-              latitude: reading.latitude,
-              longitude: reading.longitude,
-              accuracy: reading.accuracy,
-              address: 'GPS verified',
-              distance
-            });
-          }
-        })
-        .catch(() => {
-          // Will verify during punch action
-        });
-    }
-
     return () => {
       mounted = false;
       stopCamera();
+      cancelActiveGpsAcquisition();
     };
   }, []);
 
@@ -535,6 +543,40 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   // Track last attempted punch type for concise Retry button
   const [lastAttemptType, setLastAttemptType] = useState<'Check-In' | 'Check-Out'>('Check-In');
 
+  // Secure HR-reviewed attendance correction path when GPS accuracy remains uncertain (Phase 6)
+  const handleRequestHrCorrection = () => {
+    if (!uncertainContext) return;
+    const emp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
+    const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (currentUser.name || 'Employee');
+    const nowTime = new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    const res = submitMissedPunchRequest({
+      employeeId: selectedEmpId,
+      employeeName: empName,
+      department: emp?.department || 'General',
+      date: todayStr,
+      requestType: uncertainContext.type === 'Check-In' ? 'Missed Check-In' : 'Missed Check-Out',
+      existingCheckIn: todayAttendance?.checkIn || null,
+      existingCheckOut: todayAttendance?.checkOut || null,
+      requestedCheckIn: uncertainContext.type === 'Check-In' ? nowTime : (todayAttendance?.checkIn || nowTime),
+      requestedCheckOut: uncertainContext.type === 'Check-Out' ? nowTime : undefined,
+      reason: `GPS boundary uncertain during ${uncertainContext.type} (${uncertainContext.distance}m from office, ±${uncertainContext.accuracy}m GPS accuracy, ${uncertainContext.radius}m radius). Requested HR attendance verification.`,
+      description: `Submitted from Face Attendance after GPS accuracy remained ±${uncertainContext.accuracy}m.`
+    });
+
+    setUncertainContext(null);
+    setScanResult({
+      status: res.success ? 'success' : 'error',
+      message: res.success
+        ? 'HR review request submitted for attendance verification.'
+        : (res.message || 'Could not submit HR review request.')
+    });
+  };
+
   // Minimal One-Tap Face + GPS Verified Punch Handler (Punch In or Punch Out)
   const handlePunchAction = async (type: 'Check-In' | 'Check-Out') => {
     if (isScanning || isRequestingPermissions || punchInProgressRef.current) {
@@ -543,6 +585,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
     setLastAttemptType(type);
     setPunchType(type);
+    setUncertainContext(null);
 
     // 1. Prevent duplicate punch in current session
     if (type === 'Check-In' && isCheckedIn) {
@@ -596,10 +639,17 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     punchInProgressRef.current = true;
     setIsScanning(true);
     setIsRequestingPermissions(true);
+    setGpsProgressMsg('Acquiring fresh GPS fix...');
     setScanResult({
       status: null,
       message: ''
     });
+
+    const centerLat = Number(geofenceConfig.centerLat) || 13.151660;
+    const centerLng = Number(geofenceConfig.centerLng) || 80.208618;
+    const radius = Number(geofenceConfig.radiusMeters) || 250;
+    const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
+    const isFieldDutyAuthorized = Boolean(fieldAssignment);
 
     try {
       // Ensure live front-facing camera is open and capturing a fresh frame
@@ -616,22 +666,40 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           ? startCameraStream().then(() => new Promise(r => setTimeout(r, 180)))
           : Promise.resolve(),
         locationMode === 'real'
-          ? acquireHighAccuracyGps({ timeoutMs: 7000, desiredAccuracyMeters: 35 })
+          ? acquireGpsWithBoundedRetry({
+              timeoutMs: 20000,
+              desiredAccuracyMeters: 30,
+              acceptableAccuracyMeters: 65,
+              maxStaleAgeMs: 15000,
+              maxRetries: 1,
+              geofenceContext:
+                centerLat !== 0 && centerLng !== 0
+                  ? { centerLat, centerLng, radiusMeters: radius }
+                  : undefined,
+              onProgress: (p) => {
+                if (p.bestAccuracyMeters !== null) {
+                  setGpsProgressMsg(`Refining GPS accuracy (±${p.bestAccuracyMeters}m)...`);
+                } else {
+                  setGpsProgressMsg(p.message);
+                }
+              }
+            })
           : Promise.resolve({
-              latitude: geofenceConfig.centerLat + (locationMode === 'outside' ? 0.006 : 0.00018),
-              longitude: geofenceConfig.centerLng + (locationMode === 'outside' ? 0.006 : 0.00015),
+              latitude: centerLat + (locationMode === 'outside' ? 0.006 : 0.00018),
+              longitude: centerLng + (locationMode === 'outside' ? 0.006 : 0.00015),
               accuracy: 10,
               timestamp: Date.now(),
-              sampleCount: 1
+              readingAgeMs: 0,
+              sampleCount: 1,
+              durationMs: 50,
+              retryCount: 0,
+              browserDeviceCategory: detectBrowserDeviceCategory()
             })
       ]);
 
       setIsRequestingPermissions(false);
+      setGpsProgressMsg('Verifying identity & office boundary...');
 
-      // Verify GPS against saved office geofence settings
-      const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
-      const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
-      const radius = Number(geofenceConfig.radiusMeters) || 200;
       const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
       const evaluation = evaluateGeofenceBoundary(
         distance,
@@ -640,15 +708,45 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         geofenceConfig.officeName || 'HQ Office'
       );
 
-      if (geofenceConfig.enabled && !evaluation.canPunch && !isCEO) {
-        throw new Error(`Outside office geofence (${distance}m away, max ${radius}m).`);
+      if (geofenceConfig.enabled && !evaluation.canPunch && !isCEO && !isFieldDutyAuthorized) {
+        reportClientGpsDiagnostic({
+          employeeId: selectedEmpId,
+          punchType: type === 'Check-In' ? 'IN' : 'OUT',
+          acquisitionStatus: evaluation.classification === 'UNCERTAIN' ? 'LOW_ACCURACY' : 'SUCCESS',
+          durationMs: reading.durationMs,
+          accuracyMeters: reading.accuracy,
+          readingAgeMs: reading.readingAgeMs,
+          distanceMeters: distance,
+          radiusMeters: radius,
+          classification: evaluation.classification,
+          errorCode: evaluation.errorCode,
+          browserDeviceCategory: reading.browserDeviceCategory,
+          sampleCount: reading.sampleCount,
+          retryCount: reading.retryCount
+        });
+
+        if (evaluation.classification === 'UNCERTAIN') {
+          setUncertainContext({
+            type,
+            distance,
+            radius,
+            accuracy: reading.accuracy
+          });
+          throw new Error(`${evaluation.userMessage} (${distance}m from office, ±${reading.accuracy}m accuracy)`);
+        }
+
+        throw new Error(
+          `Your verified location is outside the configured ${radius}-metre office boundary. (${distance}m from office, ±${reading.accuracy}m accuracy)`
+        );
       }
 
       const gpsInfo = {
         latitude: reading.latitude,
         longitude: reading.longitude,
         accuracy: reading.accuracy,
-        address: geofenceConfig.officeName || 'HQ Office',
+        address: isFieldDutyAuthorized
+          ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+          : (geofenceConfig.officeName || 'HQ Office'),
         distance
       };
       setActivePunchGps(gpsInfo);
@@ -675,8 +773,14 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         latitude: gpsInfo.latitude,
         longitude: gpsInfo.longitude,
         accuracyMeters: gpsInfo.accuracy,
-        locationTimestamp: new Date().toISOString(),
+        locationTimestamp: new Date(reading.timestamp).toISOString(),
         locationAddress: gpsInfo.address,
+        gpsDurationMs: reading.durationMs,
+        gpsReadingAgeMs: reading.readingAgeMs,
+        gpsSampleCount: reading.sampleCount,
+        gpsRetryCount: reading.retryCount,
+        browserDeviceCategory: reading.browserDeviceCategory,
+        fieldDutyAuthorized: isFieldDutyAuthorized
       });
 
       // Reload only after the server transaction succeeds
@@ -738,11 +842,34 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         setPunchType('Check-Out');
       }
 
+      setGpsProgressMsg('');
       setIsScanning(false);
       setIsRequestingPermissions(false);
       punchInProgressRef.current = false;
     } catch (err: any) {
       console.error('Attendance punch error:', err);
+      if (err instanceof GpsAcquisitionError) {
+        reportClientGpsDiagnostic({
+          employeeId: selectedEmpId,
+          punchType: type === 'Check-In' ? 'IN' : 'OUT',
+          acquisitionStatus:
+            err.code === 'PERMISSION_DENIED'
+              ? 'PERMISSION_DENIED'
+              : err.code === 'TIMEOUT'
+                ? 'TIMEOUT'
+                : err.code === 'STALE_READING'
+                  ? 'STALE_REJECTED'
+                  : 'POSITION_UNAVAILABLE',
+          durationMs: err.durationMs,
+          accuracyMeters: err.accuracyMeters,
+          radiusMeters: radius,
+          classification: 'N/A',
+          errorCode: err.code,
+          browserDeviceCategory: detectBrowserDeviceCategory(),
+          sampleCount: err.sampleCount
+        });
+      }
+      setGpsProgressMsg('');
       setIsRequestingPermissions(false);
       setIsScanning(false);
       punchInProgressRef.current = false;
@@ -769,10 +896,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     setGpsLoading(true);
     setGpsError(null);
     try {
-      const reading = await acquireHighAccuracyGps({ timeoutMs: 9000, desiredAccuracyMeters: 20 });
-      const centerLat = Number(geofenceConfig.centerLat) || 13.151968;
-      const centerLng = Number(geofenceConfig.centerLng) || 80.2086053;
-      const radius = Number(geofenceConfig.radiusMeters) || 200;
+      const centerLat = Number(geofenceConfig.centerLat) || 13.151660;
+      const centerLng = Number(geofenceConfig.centerLng) || 80.208618;
+      const radius = Number(geofenceConfig.radiusMeters) || 250;
+      const reading = await acquireHighAccuracyGps({
+        timeoutMs: 20000,
+        desiredAccuracyMeters: 30,
+        acceptableAccuracyMeters: 65,
+        geofenceContext: { centerLat, centerLng, radiusMeters: radius }
+      });
       const dist = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
       const evaluation = evaluateGeofenceBoundary(
         dist,
@@ -789,7 +921,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         classification: evaluation.classification,
         isInside: evaluation.isInside,
         canPunch: !geofenceConfig.enabled || evaluation.canPunch,
-        reason: evaluation.message,
+        reason: evaluation.userMessage,
         address: `Live GPS (${reading.latitude.toFixed(4)}, ${reading.longitude.toFixed(4)})`,
         timestamp: reading.timestamp,
       });
@@ -797,7 +929,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     } catch (err: any) {
       console.error('GPS status acquisition error:', err);
       setGpsData(null);
-      setGpsError(err.message || 'GPS location request failed. Please enable location permissions and retry in an open area.');
+      setGpsError(err.message || 'Unable to obtain your location. Please retry with location services enabled.');
       setGpsLoading(false);
     }
   };
@@ -2307,7 +2439,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               }}
             >
               {isScanning || isRequestingPermissions ? (
-                <span>Verifying face & GPS...</span>
+                <span>{gpsProgressMsg || 'Verifying face & GPS...'}</span>
               ) : scanResult.status === 'error' && scanResult.message ? (
                 <>
                   <span>{scanResult.message}</span>
@@ -2327,6 +2459,24 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                   >
                     Retry
                   </button>
+                  {uncertainContext && (
+                    <button
+                      type="button"
+                      onClick={handleRequestHrCorrection}
+                      style={{
+                        padding: '3px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #d97706',
+                        backgroundColor: '#fffbeb',
+                        color: '#b45309',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Request HR Review
+                    </button>
+                  )}
                 </>
               ) : (
                 <span>
@@ -2336,7 +2486,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                       : isCompletedToday
                         ? 'Punch Out successful'
                         : activePunchGps
-                          ? 'GPS verified'
+                          ? `GPS verified (${activePunchGps.distance}m, ±${activePunchGps.accuracy}m)`
                           : null,
                     isCheckedIn && !isCheckedOut && oneHourCooldown.isCooldownActive
                       ? `Punch Out available in ${oneHourCooldown.remainingMinutes} min`

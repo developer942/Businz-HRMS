@@ -141,15 +141,22 @@ settingsRouter.post('/resolve-map-link', async (req, res) => {
   }
 });
 
+// Public read access for canonical office geofence boundaries so Face Attendance and HRMSContext
+// always validate against the authoritative PostgreSQL office coordinates.
+settingsRouter.get('/geofence', getGeofenceSettings);
+
 settingsRouter.use(authenticateToken);
 
 // Company Profile Settings
 settingsRouter.get('/company', getCompanySettings);
-settingsRouter.put('/company', requireRoles(['Super Admin', 'CEO', 'HR Manager']), updateCompanySettings);
+settingsRouter.put('/company', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'HR', 'Admin']), updateCompanySettings);
 
-// Geofence Attendance Settings
-settingsRouter.get('/geofence', getGeofenceSettings);
-settingsRouter.put('/geofence', requireRoles(['Super Admin', 'CEO', 'HR Manager']), updateGeofenceSettings);
+// Geofence Attendance Settings (Write restricted strictly to authorized HR / CEO / Admin roles)
+settingsRouter.put(
+  '/geofence',
+  requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'HR', 'Admin', 'ERP Administrator']),
+  updateGeofenceSettings
+);
 
 // Company SMTP Relay Configuration (Google Workspace / Gmail / Custom SMTP)
 settingsRouter.get('/smtp/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getCompanySmtpConfig);

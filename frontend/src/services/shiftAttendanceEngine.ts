@@ -131,26 +131,52 @@ export function resolveEmployeeAssignedShift(
     return defaultShift;
   }
 
-  const empShiftName = (employee.workShift || '').trim().toLowerCase();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const upcomingShift = (employee as any).upcomingShift || (employee as any).shiftDetails?.upcomingShift;
+  const upcomingEffectiveFrom = (employee as any).upcomingShiftEffectiveFrom || (employee as any).shiftDetails?.upcomingShiftEffectiveFrom;
+  const activeShiftLabel = (upcomingShift && upcomingEffectiveFrom && String(upcomingEffectiveFrom).slice(0, 10) <= todayStr)
+    ? String(upcomingShift)
+    : (employee.workShift || (employee as any).shiftDetails?.assignedShift || '');
+  const empShiftName = activeShiftNameClean(activeShiftLabel);
   const empId = employee.employeeId || employee.id;
 
-  // 1. Direct assignment in shift.assignments
-  const assigned = shifts.find(s => 
-    s.assignments?.some(a => (typeof a === 'string' ? a === empId : a.employeeId === empId))
+  // 1. Prioritize authoritative employee.workShift / activeShiftLabel match
+  if (empShiftName) {
+    const exactMatch = shifts.find(s =>
+      s.id.toLowerCase() === empShiftName ||
+      activeShiftNameClean(s.shiftName) === empShiftName ||
+      s.shiftName.trim().toLowerCase() === activeShiftLabel.trim().toLowerCase()
+    );
+    if (exactMatch) return exactMatch;
+
+    const partialMatch = shifts.find(s => {
+      const sClean = activeShiftNameClean(s.shiftName);
+      return sClean.includes(empShiftName) || empShiftName.includes(sClean);
+    });
+    if (partialMatch) return partialMatch;
+  }
+
+  // 2. Fallback to active assignment in shift.assignments for today
+  const assigned = shifts.find(s =>
+    s.assignments?.some((a: any) => {
+      const aEmpId = typeof a === 'string' ? a : a?.employeeId;
+      if (aEmpId !== empId && aEmpId !== employee.id) return false;
+      if (typeof a === 'object' && a !== null) {
+        const effFrom = a.effectiveFrom || a.effective_from;
+        const effTo = a.effectiveTo || a.effective_to;
+        if (effFrom && String(effFrom).slice(0, 10) > todayStr) return false;
+        if (effTo && String(effTo).slice(0, 10) < todayStr) return false;
+      }
+      return true;
+    })
   );
   if (assigned) return assigned;
 
-  // 2. Name matching with employee.workShift
-  if (empShiftName) {
-    const matched = shifts.find(s => 
-      s.shiftName.toLowerCase() === empShiftName ||
-      s.shiftName.toLowerCase().includes(empShiftName) ||
-      empShiftName.includes(s.shiftName.toLowerCase())
-    );
-    if (matched) return matched;
-  }
-
   return shifts[0] || defaultShift;
+}
+
+function activeShiftNameClean(raw: string): string {
+  return String(raw || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
 }
 
 /**

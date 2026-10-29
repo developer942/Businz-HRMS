@@ -2,6 +2,7 @@ import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.j
 import { query } from '../config/database.js';
 import { memoryCache } from '../services/cacheService.js';
 import { encryptCredential } from '../utils/crypto.js';
+import { parseGoogleMapsLink, compareOfficeCoordinates, buildCanonicalGoogleMapsUrl, isValidCoord, } from '../utils/googleMapsParser.js';
 const inMemorySmtpConfigs = {};
 const SETTINGS_CACHE_KEY = 'payroll_settings_global';
 const SETTINGS_TTL_MS = 60000; // 60 seconds
@@ -344,28 +345,55 @@ export class SettingsRepository {
         }
         return { ...updates, company_id: isCompanyB ? 'company-b' : 'company-a' };
     }
+    inMemoryGeofenceSettings = null;
+    enrichGeofencePayload(raw) {
+        const comparison = compareOfficeCoordinates(raw.lat, raw.lng, raw.googleMapsLink);
+        return {
+            officeName: raw.officeName,
+            address: raw.address,
+            latitude: raw.lat,
+            longitude: raw.lng,
+            centerLat: raw.lat,
+            centerLng: raw.lng,
+            radiusMeters: raw.radiusMeters,
+            isEnabled: raw.isEnabled,
+            enabled: raw.isEnabled,
+            strictMode: raw.strictMode,
+            enforceStrictly: raw.strictMode,
+            googleMapsLink: raw.googleMapsLink,
+            updatedBy: raw.updatedBy || '',
+            updatedAt: raw.updatedAt || '',
+            confirmedBy: raw.confirmedBy || raw.updatedBy || '',
+            confirmedAt: raw.confirmedAt || raw.updatedAt || '',
+            parsedGoogleMapsCoordinates: comparison.parsedCoordinates,
+            coordinateDiscrepancyMeters: comparison.discrepancyMeters,
+            hasCoordinateDiscrepancy: comparison.hasDiscrepancy,
+        };
+    }
     async getGeofenceSettings() {
         // 1. Direct Hostinger VPS PostgreSQL query for company_settings
         try {
-            const res = await query(`SELECT setting_val FROM public.company_settings WHERE setting_key = $1 LIMIT 1`, ['geofence_config']);
+            const res = await query(`SELECT setting_val, updated_at FROM public.company_settings WHERE setting_key = $1 LIMIT 1`, ['geofence_config']);
             if (res.rows && res.rows[0]?.setting_val) {
                 const v = res.rows[0].setting_val;
                 const lat = Number(v.centerLat ?? v.latitude ?? 0);
                 const lng = Number(v.centerLng ?? v.longitude ?? 0);
-                return {
-                    officeName: v.officeName || 'VRM Structures India Pvt Ltd',
-                    address: v.address || v.officeName || '',
-                    latitude: lat,
-                    longitude: lng,
-                    centerLat: lat,
-                    centerLng: lng,
-                    radiusMeters: Number(v.radiusMeters) || 200,
-                    isEnabled: v.enabled ?? v.isEnabled ?? true,
-                    enabled: v.enabled ?? v.isEnabled ?? true,
-                    strictMode: v.enforceStrictly ?? v.strictMode ?? true,
-                    enforceStrictly: v.enforceStrictly ?? v.strictMode ?? true,
-                    googleMapsLink: v.googleMapsLink || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : ''),
-                };
+                if (isValidCoord(lat, lng)) {
+                    return this.enrichGeofencePayload({
+                        officeName: v.officeName || 'VRM Structures India Pvt Ltd',
+                        address: v.address || v.officeName || '',
+                        lat,
+                        lng,
+                        radiusMeters: Number(v.radiusMeters) || 250,
+                        isEnabled: v.enabled ?? v.isEnabled ?? true,
+                        strictMode: v.enforceStrictly ?? v.strictMode ?? true,
+                        googleMapsLink: v.googleMapsLink || buildCanonicalGoogleMapsUrl(lat, lng),
+                        updatedBy: v.updatedBy || v.confirmedBy || '',
+                        updatedAt: v.updatedAt || (res.rows[0].updated_at ? new Date(res.rows[0].updated_at).toISOString() : ''),
+                        confirmedBy: v.confirmedBy || v.updatedBy || '',
+                        confirmedAt: v.confirmedAt || v.updatedAt || '',
+                    });
+                }
             }
         }
         catch (err) {
@@ -378,20 +406,19 @@ export class SettingsRepository {
                 const row = gfRes.rows[0];
                 const lat = Number(row.center_lat || 0);
                 const lng = Number(row.center_lng || 0);
-                return {
-                    officeName: row.office_name || 'VRM Structures India Pvt Ltd',
-                    address: row.office_name || '',
-                    latitude: lat,
-                    longitude: lng,
-                    centerLat: lat,
-                    centerLng: lng,
-                    radiusMeters: Number(row.radius_meters) || 200,
-                    isEnabled: row.enabled ?? true,
-                    enabled: row.enabled ?? true,
-                    strictMode: row.enforce_strictly ?? true,
-                    enforceStrictly: row.enforce_strictly ?? true,
-                    googleMapsLink: lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '',
-                };
+                if (isValidCoord(lat, lng)) {
+                    return this.enrichGeofencePayload({
+                        officeName: row.office_name || 'VRM Structures India Pvt Ltd',
+                        address: row.office_name || '',
+                        lat,
+                        lng,
+                        radiusMeters: Number(row.radius_meters) || 250,
+                        isEnabled: row.enabled ?? true,
+                        strictMode: row.enforce_strictly ?? true,
+                        googleMapsLink: buildCanonicalGoogleMapsUrl(lat, lng),
+                        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : '',
+                    });
+                }
             }
         }
         catch (err) {
@@ -402,27 +429,29 @@ export class SettingsRepository {
                 const supabase = getSupabaseAdmin();
                 const { data: csData } = await supabase
                     .from('company_settings')
-                    .select('setting_val')
+                    .select('setting_val, updated_at')
                     .eq('setting_key', 'geofence_config')
                     .maybeSingle();
                 if (csData?.setting_val) {
                     const v = csData.setting_val;
                     const lat = Number(v.centerLat ?? v.latitude ?? 0);
                     const lng = Number(v.centerLng ?? v.longitude ?? 0);
-                    return {
-                        officeName: v.officeName || 'VRM Structures India Pvt Ltd',
-                        address: v.address || v.officeName || '',
-                        latitude: lat,
-                        longitude: lng,
-                        centerLat: lat,
-                        centerLng: lng,
-                        radiusMeters: Number(v.radiusMeters) || 200,
-                        isEnabled: v.enabled ?? v.isEnabled ?? true,
-                        enabled: v.enabled ?? v.isEnabled ?? true,
-                        strictMode: v.enforceStrictly ?? v.strictMode ?? true,
-                        enforceStrictly: v.enforceStrictly ?? v.strictMode ?? true,
-                        googleMapsLink: v.googleMapsLink || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : ''),
-                    };
+                    if (isValidCoord(lat, lng)) {
+                        return this.enrichGeofencePayload({
+                            officeName: v.officeName || 'VRM Structures India Pvt Ltd',
+                            address: v.address || v.officeName || '',
+                            lat,
+                            lng,
+                            radiusMeters: Number(v.radiusMeters) || 250,
+                            isEnabled: v.enabled ?? v.isEnabled ?? true,
+                            strictMode: v.enforceStrictly ?? v.strictMode ?? true,
+                            googleMapsLink: v.googleMapsLink || buildCanonicalGoogleMapsUrl(lat, lng),
+                            updatedBy: v.updatedBy || v.confirmedBy || '',
+                            updatedAt: v.updatedAt || csData.updated_at || '',
+                            confirmedBy: v.confirmedBy || v.updatedBy || '',
+                            confirmedAt: v.confirmedAt || v.updatedAt || '',
+                        });
+                    }
                 }
                 const { data: gfData } = await supabase
                     .from('geofence_config')
@@ -431,74 +460,121 @@ export class SettingsRepository {
                 if (gfData) {
                     const lat = Number(gfData.center_lat || 0);
                     const lng = Number(gfData.center_lng || 0);
-                    return {
-                        officeName: gfData.office_name || 'VRM Structures India Pvt Ltd',
-                        address: gfData.office_name || '',
-                        latitude: lat,
-                        longitude: lng,
-                        centerLat: lat,
-                        centerLng: lng,
-                        radiusMeters: Number(gfData.radius_meters) || 200,
-                        isEnabled: gfData.enabled ?? true,
-                        enabled: gfData.enabled ?? true,
-                        strictMode: gfData.enforce_strictly ?? true,
-                        enforceStrictly: gfData.enforce_strictly ?? true,
-                        googleMapsLink: lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '',
-                    };
+                    if (isValidCoord(lat, lng)) {
+                        return this.enrichGeofencePayload({
+                            officeName: gfData.office_name || 'VRM Structures India Pvt Ltd',
+                            address: gfData.office_name || '',
+                            lat,
+                            lng,
+                            radiusMeters: Number(gfData.radius_meters) || 250,
+                            isEnabled: gfData.enabled ?? true,
+                            strictMode: gfData.enforce_strictly ?? true,
+                            googleMapsLink: buildCanonicalGoogleMapsUrl(lat, lng),
+                            updatedAt: gfData.updated_at || '',
+                        });
+                    }
                 }
             }
             catch (err) {
                 console.warn('Database error in getGeofenceSettings:', err);
             }
         }
-        return {
+        if (this.inMemoryGeofenceSettings) {
+            return this.inMemoryGeofenceSettings;
+        }
+        return this.enrichGeofencePayload({
             officeName: 'VRM Structures India Pvt Ltd',
             address: '',
-            latitude: 13.151968,
-            longitude: 80.2086053,
-            centerLat: 13.151968,
-            centerLng: 80.2086053,
+            lat: 13.151660,
+            lng: 80.208618,
             radiusMeters: 250,
             isEnabled: true,
-            enabled: true,
             strictMode: true,
-            enforceStrictly: true,
-            googleMapsLink: 'https://www.google.com/maps?q=13.151968,80.2086053',
-        };
+            googleMapsLink: 'https://www.google.com/maps?q=13.152218,80.209216',
+        });
     }
     async updateGeofenceSettings(updates) {
         const current = await this.getGeofenceSettings();
-        const lat = updates.latitude !== undefined ? Number(updates.latitude) : (updates.centerLat !== undefined ? Number(updates.centerLat) : current.latitude);
-        const lng = updates.longitude !== undefined ? Number(updates.longitude) : (updates.centerLng !== undefined ? Number(updates.centerLng) : current.longitude);
+        let lat = updates.latitude !== undefined
+            ? Number(updates.latitude)
+            : updates.centerLat !== undefined
+                ? Number(updates.centerLat)
+                : current.latitude;
+        let lng = updates.longitude !== undefined
+            ? Number(updates.longitude)
+            : updates.centerLng !== undefined
+                ? Number(updates.centerLng)
+                : current.longitude;
+        const rawLink = (updates.googleMapsLink !== undefined ? updates.googleMapsLink : current.googleMapsLink || '').trim();
+        const parsedFromLink = rawLink ? parseGoogleMapsLink(rawLink) : null;
+        // If the administrator explicitly confirmed the Google Maps link coordinates, or provided only a Google Maps link
+        // without explicit lat/lng overrides, synchronize lat/lng from the parsed Google Maps URL.
+        const hasExplicitLatLng = updates.latitude !== undefined ||
+            updates.centerLat !== undefined ||
+            updates.longitude !== undefined ||
+            updates.centerLng !== undefined;
+        if (parsedFromLink?.success &&
+            parsedFromLink.lat !== null &&
+            parsedFromLink.lng !== null &&
+            (updates.confirmCoordinateSource === 'google_maps_link' || (!hasExplicitLatLng && updates.googleMapsLink !== undefined))) {
+            lat = Number(parsedFromLink.lat.toFixed(6));
+            lng = Number(parsedFromLink.lng.toFixed(6));
+        }
+        else {
+            lat = Number(lat.toFixed(6));
+            lng = Number(lng.toFixed(6));
+        }
         const radius = Number(updates.radiusMeters ?? current.radiusMeters ?? 250);
-        const isEnabled = updates.isEnabled !== undefined ? Boolean(updates.isEnabled) : (updates.enabled !== undefined ? Boolean(updates.enabled) : current.isEnabled);
-        const strictMode = updates.strictMode !== undefined ? Boolean(updates.strictMode) : (updates.enforceStrictly !== undefined ? Boolean(updates.enforceStrictly) : current.strictMode);
+        const isEnabled = updates.isEnabled !== undefined
+            ? Boolean(updates.isEnabled)
+            : updates.enabled !== undefined
+                ? Boolean(updates.enabled)
+                : current.isEnabled;
+        const strictMode = updates.strictMode !== undefined
+            ? Boolean(updates.strictMode)
+            : updates.enforceStrictly !== undefined
+                ? Boolean(updates.enforceStrictly)
+                : current.strictMode;
         const officeName = (updates.officeName || current.officeName || 'VRM Structures India Pvt Ltd').trim();
         const address = (updates.address || current.address || officeName).trim();
-        const googleMapsLink = (updates.googleMapsLink || current.googleMapsLink || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '')).trim();
-        const merged = {
+        // Synchronize the Google Maps link with the confirmed coordinates unless synchronizeCoordinates is explicitly false
+        const shouldSyncLink = updates.synchronizeCoordinates !== false;
+        const linkComparison = compareOfficeCoordinates(lat, lng, rawLink);
+        const googleMapsLink = shouldSyncLink && (linkComparison.hasDiscrepancy || !rawLink)
+            ? buildCanonicalGoogleMapsUrl(lat, lng)
+            : rawLink || buildCanonicalGoogleMapsUrl(lat, lng);
+        const nowIso = new Date().toISOString();
+        const actor = updates.confirmedBy || updates.updatedBy || current.updatedBy || 'Authorized Admin';
+        const merged = this.enrichGeofencePayload({
             officeName,
             address,
-            latitude: lat,
-            longitude: lng,
-            centerLat: lat,
-            centerLng: lng,
+            lat,
+            lng,
             radiusMeters: radius,
             isEnabled,
-            enabled: isEnabled,
             strictMode,
-            enforceStrictly: strictMode,
             googleMapsLink,
-        };
+            updatedBy: actor,
+            updatedAt: nowIso,
+            confirmedBy: actor,
+            confirmedAt: nowIso,
+        });
+        this.inMemoryGeofenceSettings = merged;
         const settingVal = {
             enabled: isEnabled,
             centerLat: lat,
             centerLng: lng,
+            latitude: lat,
+            longitude: lng,
             officeName,
             address,
             radiusMeters: radius,
             enforceStrictly: strictMode,
             googleMapsLink,
+            updatedBy: actor,
+            updatedAt: nowIso,
+            confirmedBy: actor,
+            confirmedAt: nowIso,
         };
         // 1. Persist to company_settings (PostgreSQL)
         try {
