@@ -1257,7 +1257,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     });
     markIfChanged('attendanceMethod', formData.attendanceMethod, baseForm.attendanceMethod);
     markIfChanged('workShift', formData.shift, baseForm.shift);
-    markIfChanged('workShift', formData.weeklyOff, baseForm.weeklyOff);
+    markIfChanged('weeklyOff', formData.weeklyOff, baseForm.weeklyOff);
     markIfChanged('gpsAllowed', Boolean(formData.gpsAllowed), Boolean(baseForm.gpsAllowed));
     markIfChanged('systemAccess', formData.role, baseForm.role);
 
@@ -1278,6 +1278,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       status: baseForm.status,
       attendanceMethod: baseForm.attendanceMethod,
       workShift: baseForm.shift,
+      weeklyOff: baseForm.weeklyOff,
       gpsAllowed: Boolean(baseForm.gpsAllowed),
       basicSalary: Number(baseForm.basicSalary || 0),
       panNumber: baseForm.panNumber || '',
