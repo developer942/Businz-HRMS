@@ -10351,16 +10351,49 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       assigned_employee_id: assetData.assignedEmployeeId || undefined,
       notes: assetData.notes,
     }).then(res => {
-      if (res.data?.id) {
-        setAssets(curr => curr.map(a => a.id === tempId ? { ...a, id: res.data.id } : a));
-      }
-    });
+      if (res.success && res.data?.id) {
+        const row = res.data;
+        setAssets(curr => curr.map(a => a.id === tempId ? {
+          ...a,
+          id: row.id,
+          assetTag: row.asset_tag || a.assetTag,
+          name: row.name || a.name,
+          category: row.category || a.category,
+          serialNumber: row.serial_number || a.serialNumber || '',
+          purchaseDate: row.purchase_date || a.purchaseDate,
+          purchaseCost: row.purchase_cost !== undefined && row.purchase_cost !== null ? Number(row.purchase_cost) : a.purchaseCost,
+          warrantyExpiry: row.warranty_expiry || a.warrantyExpiry,
+          status: row.status || a.status,
+          condition: row.condition || a.condition,
+          notes: row.notes || a.notes,
+          assignedEmployeeDbId: row.assigned_employee_id || a.assignedEmployeeDbId || '',
+          assignedDate: row.assigned_date || a.assignedDate || '',
+        } : a));
 
-    addNotification({
-      title: 'New Corporate Asset Added',
-      message: `${newAsset.name} (${newAsset.assetTag}) registered into inventory.`,
-      priority: 'Normal',
-      category: 'Announcement'
+        addNotification({
+          title: 'New Corporate Asset Added',
+          message: `${assetData.name} (${assetData.assetTag}) registered into inventory with Serial Number: ${row.serial_number || assetData.serialNumber || 'None'}.`,
+          priority: 'Normal',
+          category: 'Announcement'
+        });
+      } else {
+        // Roll back optimistic addition
+        setAssets(curr => curr.filter(a => a.id !== tempId));
+        addNotification({
+          title: 'Asset Creation Failed',
+          message: `Could not save asset ${assetData.name} (${assetData.assetTag}) to database. ${res?.error || 'Please retry.'}`,
+          priority: 'Important',
+          category: 'Announcement'
+        });
+      }
+    }).catch(err => {
+      setAssets(curr => curr.filter(a => a.id !== tempId));
+      addNotification({
+        title: 'Asset Creation Failed',
+        message: `Network error saving asset ${assetData.name} (${assetData.assetTag}). Please retry.`,
+        priority: 'Important',
+        category: 'Announcement'
+      });
     });
   };
 

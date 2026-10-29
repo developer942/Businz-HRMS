@@ -1,9 +1,9 @@
 -- =============================================================================
--- 45-asset-audit-trail.sql  (BUSINZ HRMS)  -- NOT YET APPLIED TO PRODUCTION
+-- 45-asset-audit-trail.sql  (BUSINZ HRMS)
 -- Records every change to an asset's identity fields (serial number, tag, name)
 -- and its assignment lifecycle (assign / return / reassign) in an append-only log.
--- Implemented as a database trigger so it captures changes regardless of which
--- client path (PostgREST from the browser, backend, psql) performed the write.
+-- Implemented as a database trigger with SECURITY DEFINER so it captures changes
+-- regardless of which client role (web_anon, authenticated, postgres) executed the write.
 -- Idempotent: safe to run more than once.
 -- =============================================================================
 
@@ -25,8 +25,13 @@ CREATE TABLE IF NOT EXISTS public.asset_audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_asset_audit_asset ON public.asset_audit_logs (asset_id, created_at DESC);
 
+-- SECURITY DEFINER ensures the trigger runs with owner (postgres) privileges,
+-- avoiding SQLSTATE 42501 permission denied when PostgREST connects as web_anon.
 CREATE OR REPLACE FUNCTION public.fn_asset_audit() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
   cols    TEXT[] := '{}';
   act     TEXT;
@@ -85,17 +90,19 @@ CREATE TRIGGER trg_asset_audit
   AFTER INSERT OR UPDATE ON public.assets
   FOR EACH ROW EXECUTE FUNCTION public.fn_asset_audit();
 
--- Read access for the app roles; the log is append-only (no UPDATE/DELETE grants).
+-- Grants for application roles
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    REVOKE ALL ON public.asset_audit_logs FROM authenticated;
-    GRANT SELECT ON public.asset_audit_logs TO authenticated;
+    GRANT SELECT, INSERT ON public.asset_audit_logs TO authenticated;
+    GRANT USAGE, SELECT ON SEQUENCE public.asset_audit_logs_id_seq TO authenticated;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-    REVOKE ALL ON public.asset_audit_logs FROM anon;
+    GRANT SELECT, INSERT ON public.asset_audit_logs TO anon;
+    GRANT USAGE, SELECT ON SEQUENCE public.asset_audit_logs_id_seq TO anon;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'web_anon') THEN
-    REVOKE ALL ON public.asset_audit_logs FROM web_anon;
+    GRANT SELECT, INSERT ON public.asset_audit_logs TO web_anon;
+    GRANT USAGE, SELECT ON SEQUENCE public.asset_audit_logs_id_seq TO web_anon;
   END IF;
 END $$;

@@ -210,9 +210,9 @@ export const AssetManagement: React.FC = () => {
 
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q || 
-      a.name.toLowerCase().includes(q) ||
-      a.assetTag.toLowerCase().includes(q) ||
-      a.serialNumber.toLowerCase().includes(q) ||
+      (a.name || '').toLowerCase().includes(q) ||
+      (a.assetTag || '').toLowerCase().includes(q) ||
+      (a.serialNumber || '').toLowerCase().includes(q) ||
       empName.toLowerCase().includes(q) ||
       empCode.toLowerCase().includes(q) ||
       empDept.toLowerCase().includes(q);
@@ -350,16 +350,16 @@ export const AssetManagement: React.FC = () => {
     }
 
     updateAsset(showEditModal.id, {
-      assetTag: editForm.assetTag,
-      name: editForm.name,
+      assetTag: editForm.assetTag.trim(),
+      name: editForm.name.trim(),
       category: editForm.category,
-      serialNumber: editForm.serialNumber,
+      serialNumber: editForm.serialNumber !== undefined ? editForm.serialNumber.trim() : (showEditModal.serialNumber || ''),
       purchaseDate: editForm.purchaseDate,
       purchaseCost: editForm.purchaseCost === '' ? 0 : Number(editForm.purchaseCost) || 0,
       warrantyExpiry: editForm.warrantyExpiry,
       condition: editForm.condition,
       status,
-      notes: editForm.notes,
+      notes: editForm.notes ? editForm.notes.trim() : '',
       assignedEmployeeId,
       assignedEmployeeDbId,
       assignedEmployeeName,
