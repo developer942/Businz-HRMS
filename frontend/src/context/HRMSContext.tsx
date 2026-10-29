@@ -1373,6 +1373,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const lastLocalLeavePolicyUpdate = useRef(0);
 
   const [geofenceConfig, setGeofenceConfig] = useState<GeofenceConfig>(INITIAL_GEOFENCE_CONFIG);
+  // Fingerprint of the geofence most recently LOADED from the server. Used so that simply loading the
+  // authoritative office location in an employee's browser never writes it back to company_settings.
+  // Previously every client (including Face Attendance on mount) echoed the geofence back to the
+  // database, so a stale browser state could overwrite the office centre/radius for all employees.
+  const geofenceKey = (g: Partial<GeofenceConfig>) => JSON.stringify([
+    Number(g.centerLat ?? 0), Number(g.centerLng ?? 0), Number(g.radiusMeters ?? 0),
+    Boolean(g.enabled), g.enforceStrictly !== false,
+  ]);
+  const lastServerGeofenceKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1381,6 +1390,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const lat = Number(canonical.centerLat ?? canonical.latitude ?? 0);
       const lng = Number(canonical.centerLng ?? canonical.longitude ?? 0);
       if (Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001) {
+        lastServerGeofenceKeyRef.current = geofenceKey({
+          centerLat: lat,
+          centerLng: lng,
+          radiusMeters: Number(canonical.radiusMeters) || 250,
+          enabled: canonical.enabled ?? canonical.isEnabled ?? true,
+          enforceStrictly: canonical.enforceStrictly ?? canonical.strictMode ?? true,
+        });
         setGeofenceConfig(prev => ({
           ...prev,
           enabled: canonical.enabled ?? canonical.isEnabled ?? true,
@@ -1404,8 +1420,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (
         isCloudInitialized.current &&
         !isSyncingFromCloud.current &&
-        (Math.abs(geofenceConfig.centerLat) > 0.0001 || Math.abs(geofenceConfig.centerLng) > 0.0001)
+        (Math.abs(geofenceConfig.centerLat) > 0.0001 || Math.abs(geofenceConfig.centerLng) > 0.0001) &&
+        geofenceKey(geofenceConfig) !== lastServerGeofenceKeyRef.current
       ) {
+        lastServerGeofenceKeyRef.current = geofenceKey(geofenceConfig);
         supabaseDirect.saveCompanySetting('geofence_config', geofenceConfig);
       }
     } catch (e) {
@@ -10346,8 +10364,55 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  // Applies the row PostgreSQL actually stored (authoritative) onto local state, preserving the
+  // employee display fields that are resolved client-side. On failure, restores the snapshot so
+  // the UI never shows an assignment/edit that was not persisted.
+  const persistAssetPatch = (
+    assetId: string,
+    dbPayload: Record<string, any>,
+    snapshot: AssetItem | undefined,
+    actionLabel: string
+  ) => {
+    supabaseDirect.updateAssetReturning(assetId, dbPayload).then(row => {
+      if (row) {
+        setAssets(curr => curr.map(a => a.id !== assetId ? a : {
+          ...a,
+          assetTag: row.asset_tag ?? a.assetTag,
+          name: row.name ?? a.name,
+          category: row.category ?? a.category,
+          serialNumber: row.serial_number || '',
+          purchaseCost: row.purchase_cost !== undefined && row.purchase_cost !== null ? Number(row.purchase_cost) : a.purchaseCost,
+          purchaseDate: row.purchase_date || a.purchaseDate,
+          warrantyExpiry: row.warranty_expiry || '',
+          status: row.status || a.status,
+          condition: row.condition || a.condition,
+          notes: row.notes || '',
+          assignedEmployeeDbId: row.assigned_employee_id || '',
+          assignedDate: row.assigned_date || '',
+          ...(row.assigned_employee_id ? {} : {
+            assignedEmployeeId: '',
+            assignedEmployeeName: '',
+            assignedDepartment: '',
+            assignedEmployeeAvatar: undefined,
+          }),
+        }));
+        return;
+      }
+      if (snapshot) {
+        setAssets(curr => curr.map(a => (a.id === assetId ? snapshot : a)));
+      }
+      addNotification({
+        title: 'Asset change not saved',
+        message: `${actionLabel} for ${snapshot?.name || 'asset'} (${snapshot?.assetTag || assetId}) could not be saved to the database. Please retry.`,
+        priority: 'Important',
+        category: 'Announcement'
+      });
+    });
+  };
+
   const assignAsset = (assetId: string, employeeId: string, employeeName: string, department: string) => {
     if (!employeeId) {
+      const unassignSnapshot = assets.find(a => a.id === assetId);
       setAssets(prev => prev.map(a => {
         if (a.id === assetId) {
           return {
@@ -10364,11 +10429,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return a;
       }));
       if (assetId.length === 36) {
-        supabaseDirect.updateAsset(assetId, {
+        // Only assignment columns are sent; serial number and all other asset details are untouched.
+        persistAssetPatch(assetId, {
           assigned_employee_id: null,
           status: 'Available',
           assigned_date: null,
-        });
+        }, unassignSnapshot, 'Asset return');
       }
       return;
     }
@@ -10379,6 +10445,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const resolvedName = employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : '');
     const resolvedDept = department || emp?.department || '';
     const resolvedAvatar = emp?.avatar;
+    const assignSnapshot = assets.find(a => a.id === assetId);
 
     setAssets(prev => prev.map(a => {
       if (a.id === assetId) {
@@ -10397,15 +10464,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
 
     if (assetId.length === 36) {
-      supabaseDirect.updateAsset(assetId, {
+      // Only assignment columns are sent; serial number and all other asset details are untouched.
+      persistAssetPatch(assetId, {
         assigned_employee_id: empDbId || null,
         status: 'Assigned',
         assigned_date: new Date().toISOString().split('T')[0],
-      });
+      }, assignSnapshot, 'Asset assignment');
     }
   };
 
   const updateAsset = (assetId: string, updates: Partial<AssetItem>) => {
+    const editSnapshot = assets.find(a => a.id === assetId);
     setAssets(prev => prev.map(a => {
       if (a.id === assetId) {
         return { ...a, ...updates };
@@ -10436,9 +10505,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         dbPayload.assigned_date = null;
       }
 
-      supabaseDirect.updateAsset(assetId, dbPayload).catch(err => {
-        console.warn('Failed to update asset in DB:', err);
-      });
+      persistAssetPatch(assetId, dbPayload, editSnapshot, 'Asset update');
     }
   };
 
@@ -11628,6 +11695,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const lat = Number(gf.centerLat ?? gf.latitude ?? 0);
           const lng = Number(gf.centerLng ?? gf.longitude ?? 0);
           if (Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001) {
+            lastServerGeofenceKeyRef.current = geofenceKey({
+              ...gf,
+              centerLat: lat,
+              centerLng: lng,
+              radiusMeters: Number(gf.radiusMeters) || 250,
+            });
             setGeofenceConfig({
               ...gf,
               centerLat: lat,

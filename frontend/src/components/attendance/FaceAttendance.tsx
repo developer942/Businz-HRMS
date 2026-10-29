@@ -805,7 +805,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         locationTimestamp: new Date(reading.timestamp).toISOString(),
         locationAddress: gpsInfo.address,
         gpsDurationMs: reading.durationMs,
-        gpsReadingAgeMs: reading.readingAgeMs,
+        // Age measured at submit time on the device clock (same clock that stamped the fix), so the
+        // server can enforce freshness without depending on the phone's clock matching the server.
+        gpsReadingAgeMs: Math.min(180000, Math.max(0, Date.now() - reading.timestamp)),
         gpsSampleCount: reading.sampleCount,
         gpsRetryCount: reading.retryCount,
         browserDeviceCategory: reading.browserDeviceCategory,

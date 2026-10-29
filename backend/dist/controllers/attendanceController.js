@@ -135,9 +135,22 @@ export const recordPunch = async (req, res, next) => {
                     });
                     return;
                 }
-                const readingAgeMs = validated.locationTimestamp
-                    ? Math.max(0, Date.now() - new Date(validated.locationTimestamp).getTime())
-                    : (validated.gpsReadingAgeMs ?? 0);
+                // Freshness must be measured on ONE clock. `locationTimestamp` is stamped by the phone's clock,
+                // so comparing it with the server clock rejects every punch from a phone whose clock runs more
+                // than maxStaleSeconds (120s) slow ("Location reading was stale"), even for a 1-second-old fix.
+                // When the client supplies its own on-device age (same clock as the fix), derive the effective
+                // reading time from the server clock instead. Freshness is still enforced at 120s.
+                const deviceMeasuredAgeMs = typeof validated.gpsReadingAgeMs === 'number' && Number.isFinite(validated.gpsReadingAgeMs)
+                    ? validated.gpsReadingAgeMs
+                    : null;
+                const freshnessTimestamp = deviceMeasuredAgeMs !== null
+                    ? new Date(Date.now() - deviceMeasuredAgeMs).toISOString()
+                    : validated.locationTimestamp;
+                const readingAgeMs = deviceMeasuredAgeMs !== null
+                    ? deviceMeasuredAgeMs
+                    : validated.locationTimestamp
+                        ? Math.max(0, Date.now() - new Date(validated.locationTimestamp).getTime())
+                        : 0;
                 const geoResult = verifyPunchGeofence({
                     userLat: validated.locationLat,
                     userLng: validated.locationLng,
@@ -145,7 +158,7 @@ export const recordPunch = async (req, res, next) => {
                     officeLng: Number(geofence.longitude ?? geofence.centerLng),
                     radiusMeters: configuredRadius,
                     accuracyMeters: validated.accuracyMeters,
-                    locationTimestamp: validated.locationTimestamp,
+                    locationTimestamp: freshnessTimestamp,
                     officeName: geofence.officeName || 'VRM Structures India Pvt Ltd',
                 });
                 recordGpsDiagnostic({

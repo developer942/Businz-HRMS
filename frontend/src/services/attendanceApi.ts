@@ -126,6 +126,53 @@ export const fetchCanonicalGeofenceSettings = async (): Promise<any | null> => {
   }
 };
 
+const DIAG_STATUSES = ['SUCCESS', 'PERMISSION_DENIED', 'TIMEOUT', 'POSITION_UNAVAILABLE', 'LOW_ACCURACY', 'STALE'] as const;
+const DIAG_ERROR_CODES = [
+  'NONE', 'PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT', 'STALE_READING',
+  'LOW_GPS_ACCURACY', 'OUTSIDE_GEOFENCE', 'GEOFENCE_UNCERTAIN', 'INVALID_COORDINATES',
+] as const;
+const finiteOrNull = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+
+/**
+ * Maps the Face Attendance client diagnostic into the exact shape accepted by the backend
+ * `gpsDiagnosticSchema`. Previously the client sent `acquisitionStatus`, `durationMs`,
+ * `accuracyMeters`, ... while the server requires `gpsAcquisitionStatus`, `gpsRequestDurationMs`,
+ * `reportedAccuracyMeters`, ... so every report was rejected with HTTP 422 and production had
+ * no record of failed GPS punch attempts.
+ */
+export const buildGpsDiagnosticPayload = (d: Partial<GpsDiagnosticSummary> & Record<string, any>) => {
+  const rawStatus = String(d.gpsAcquisitionStatus ?? d.acquisitionStatus ?? 'SUCCESS').toUpperCase();
+  const status = rawStatus.startsWith('STALE')
+    ? 'STALE'
+    : (DIAG_STATUSES as readonly string[]).includes(rawStatus) ? rawStatus : 'POSITION_UNAVAILABLE';
+  const rawCode = String(d.errorCode ?? 'NONE').toUpperCase();
+  const punch = String(d.punchType ?? 'PRECHECK').toUpperCase();
+  const radius = finiteOrNull(d.configuredRadiusMeters ?? d.radiusMeters);
+  const toInt = (v: unknown, max: number) => {
+    const n = finiteOrNull(v);
+    return n === null ? undefined : Math.min(max, Math.round(n));
+  };
+  return {
+    employeeCode: d.employeeCode ?? (d.employeeId ? String(d.employeeId).slice(0, 50) : undefined),
+    punchType: punch === 'IN' || punch === 'OUT' ? punch : 'PRECHECK',
+    gpsRequestDurationMs: Math.min(180_000, finiteOrNull(d.gpsRequestDurationMs ?? d.durationMs) ?? 0),
+    gpsAcquisitionStatus: status,
+    reportedAccuracyMeters: finiteOrNull(d.reportedAccuracyMeters ?? d.accuracyMeters),
+    locationReadingAgeMs: (() => {
+      const age = finiteOrNull(d.locationReadingAgeMs ?? d.readingAgeMs);
+      return age === null ? null : Math.min(600_000, age);
+    })(),
+    calculatedDistanceMeters: finiteOrNull(d.calculatedDistanceMeters ?? d.distanceMeters),
+    configuredRadiusMeters: radius && radius > 0 ? radius : 250,
+    errorCode: (DIAG_ERROR_CODES as readonly string[]).includes(rawCode) ? rawCode : 'NONE',
+    browserDeviceCategory: String(d.browserDeviceCategory || 'Browser').slice(0, 100),
+    classification: ['INSIDE', 'OUTSIDE', 'UNCERTAIN'].includes(String(d.classification)) ? d.classification : 'N/A',
+    sampleCount: toInt(d.sampleCount, 200),
+    retryCount: toInt(d.retryCount, 20),
+  };
+};
+
 export const reportClientGpsDiagnostic = async (
   diagnostic: Partial<GpsDiagnosticSummary> & Record<string, any>
 ): Promise<void> => {
@@ -138,7 +185,7 @@ export const reportClientGpsDiagnostic = async (
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(diagnostic),
+      body: JSON.stringify(buildGpsDiagnosticPayload(diagnostic)),
     });
   } catch {
     // Non-blocking diagnostic telemetry

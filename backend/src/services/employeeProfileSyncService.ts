@@ -341,14 +341,8 @@ const normalizeValueForComparison = (field: string, val: unknown): string => {
   if (field === 'email') {
     return String(val).trim().toLowerCase();
   }
-  if (field === 'phone') {
-    return String(val || '').replace(/\D/g, '').slice(-10);
-  }
-  if (field === 'department' || field === 'designation' || field === 'workShift' || field === 'status') {
-    return String(val || '').trim().toLowerCase();
-  }
   if (field === 'employmentType') {
-    return normalizeEmploymentTypeForDb(String(val), String(val).trim()).toLowerCase();
+    return normalizeEmploymentTypeForDb(String(val), String(val).trim());
   }
   if (field === 'basicSalary') {
     const n = Number(val);
@@ -360,7 +354,7 @@ const normalizeValueForComparison = (field: string, val: unknown): string => {
   if (field === 'bankDetails' && typeof val === 'object') {
     const b = val as Record<string, any>;
     return JSON.stringify({
-      bankName: String(b.bankName ?? '').trim().toLowerCase(),
+      bankName: String(b.bankName ?? '').trim(),
       accountNumber: String(b.accountNumber ?? '').trim(),
       ifscCode: String(b.ifscCode ?? '').trim().toUpperCase(),
     });
@@ -1205,27 +1199,27 @@ export class EmployeeProfileSyncService {
               shiftChanged = true;
               await client.query(
                 `UPDATE public.shift_assignments SET effective_to=$2::date-1, updated_at=NOW()
-                  WHERE employee_id=$1::uuid AND effective_from<$2::date AND (effective_to IS NULL OR effective_to>=$2::date)`,
+                  WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`,
                 [oldEmployee.id, shiftEffectiveFrom]
               );
               const next = await client.query(
-                `SELECT min(effective_from) AS next_date FROM public.shift_assignments WHERE employee_id=$1::uuid AND effective_from>$2::date`,
+                `SELECT min(effective_from) AS next_date FROM public.shift_assignments WHERE employee_id=$1 AND effective_from>$2`,
                 [oldEmployee.id, shiftEffectiveFrom]
               );
               await client.query(
                 `INSERT INTO public.shift_assignments(company_id,employee_id,shift_id,effective_from,effective_to)
-                 VALUES($1,$2::uuid,$3::uuid,$4::date,CASE WHEN $5::date IS NULL THEN NULL ELSE $5::date-1 END)
+                 VALUES($1,$2,$3,$4,CASE WHEN $5::date IS NULL THEN NULL ELSE $5::date-1 END)
                  ON CONFLICT(employee_id,effective_from) DO UPDATE SET shift_id=EXCLUDED.shift_id,
                    company_id=EXCLUDED.company_id,effective_to=EXCLUDED.effective_to,updated_at=NOW()`,
                 [companyId, oldEmployee.id, shiftRow.id, shiftEffectiveFrom, next.rows[0]?.next_date || null]
               );
               await client.query(
-                `UPDATE public.attendance_records SET shift_id=$2::uuid,
-                    shift_policy_snapshot=jsonb_build_object('shiftId',($2::uuid)::text,'shiftName',$3::text,'startTime',$4::text,'endTime',$5::text,'gracePeriodMins',$6::int,'overnight',($5::time <= $4::time)),
+                `UPDATE public.attendance_records SET shift_id=$2,
+                    shift_policy_snapshot=jsonb_build_object('shiftId',$2::text,'shiftName',$3::text,'startTime',$4::text,'endTime',$5::text,'gracePeriodMins',$6::int,'overnight',($5::time <= $4::time)),
                     late_status=CASE WHEN check_in IS NULL THEN late_status
                       WHEN check_in > (shift_date::timestamp + $4::time + make_interval(mins=>$6::int)) THEN 'Late (<30m)' ELSE 'On Time' END,
                     updated_at=NOW()
-                  WHERE employee_id=$1::uuid AND shift_date>=$7::date AND COALESCE(is_finalized, FALSE)=FALSE`,
+                  WHERE employee_id=$1 AND shift_date>=$7::date AND COALESCE(is_finalized, FALSE)=FALSE`,
                 [oldEmployee.id, shiftRow.id, shiftRow.shift_name, shiftRow.start_time,
                  shiftRow.end_time, shiftRow.grace_period_mins, shiftEffectiveFrom]
               );
@@ -1239,17 +1233,17 @@ export class EmployeeProfileSyncService {
           weeklyOffChanged = true;
           await client.query(
             `UPDATE public.employee_weekly_off_assignments SET effective_to=$2::date-1,updated_at=NOW()
-              WHERE employee_id=$1::uuid AND effective_from<$2::date AND (effective_to IS NULL OR effective_to>=$2::date)`,
+              WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`,
             [oldEmployee.id, weeklyOffEffectiveFrom]
           );
           const nextWeeklyOff = await client.query(
             `SELECT min(effective_from) AS next_date FROM public.employee_weekly_off_assignments
-              WHERE employee_id=$1::uuid AND effective_from>$2::date`,
+              WHERE employee_id=$1 AND effective_from>$2`,
             [oldEmployee.id, weeklyOffEffectiveFrom]
           );
           await client.query(
             `INSERT INTO public.employee_weekly_off_assignments(company_id,employee_id,schedule_name,effective_from,effective_to,created_by)
-             VALUES($1,$2::uuid,$3,$4::date,CASE WHEN $5::date IS NULL THEN NULL ELSE $5::date-1 END,$6)
+             VALUES($1,$2,$3,$4,CASE WHEN $5::date IS NULL THEN NULL ELSE $5::date-1 END,$6)
              ON CONFLICT(employee_id,effective_from) DO UPDATE
              SET schedule_name=EXCLUDED.schedule_name,effective_to=EXCLUDED.effective_to,
                  created_by=EXCLUDED.created_by,updated_at=NOW()`,
@@ -1302,16 +1296,16 @@ export class EmployeeProfileSyncService {
             const hraPct = Number(Math.max(0, 100 - basicPct - daPct - conveyancePct).toFixed(2));
             await client.query(
               `UPDATE public.salary_structures SET effective_to=$2::date-1,updated_at=NOW()
-                WHERE employee_id=$1::uuid AND effective_from<$2::date AND (effective_to IS NULL OR effective_to>=$2::date)`,
+                WHERE employee_id=$1 AND effective_from<$2 AND (effective_to IS NULL OR effective_to>=$2)`,
               [oldEmployee.id, salaryEffectiveFrom]
             );
             const next = await client.query(
-              `SELECT min(effective_from) next_date FROM public.salary_structures WHERE employee_id=$1::uuid AND effective_from>$2::date`,
+              `SELECT min(effective_from) next_date FROM public.salary_structures WHERE employee_id=$1 AND effective_from>$2`,
               [oldEmployee.id, salaryEffectiveFrom]
             );
             const existingRevision = await client.query(
               `SELECT id FROM public.salary_structures
-                WHERE employee_id=$1::uuid AND effective_from=$2::date AND is_active=TRUE FOR UPDATE`,
+                WHERE employee_id=$1 AND effective_from=$2 AND is_active=TRUE FOR UPDATE`,
               [oldEmployee.id, salaryEffectiveFrom]
             );
             const salaryArgs = [
@@ -1323,8 +1317,12 @@ export class EmployeeProfileSyncService {
             ];
             const saved = existingRevision.rows[0]
               ? await client.query(
+                  // Every bound parameter must be referenced: $8 (effective_from) was previously passed but unused,
+                  // which makes PostgreSQL fail with "could not determine data type of parameter $8" whenever an
+                  // existing salary revision for the same effective date is re-saved. The row was selected by
+                  // effective_from=$8, so writing it back is a no-op for the value.
                   `UPDATE public.salary_structures SET company_id=$2,monthly_salary=$3,basic_percentage=$4,
-                     da_percentage=$5,conveyance_percentage=$6,hra_percentage=$7,
+                     da_percentage=$5,conveyance_percentage=$6,hra_percentage=$7,effective_from=$8::date,
                      effective_to=CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,
                      component_values=$10::jsonb,salary_scheme=$11,with_pf=$12,revision_reason=$13,
                      created_by=$14,updated_at=NOW() WHERE id=$1 RETURNING id`,

@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { ExportDropdown } from '../common/ExportDropdown';
+import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 
 export const AssetManagement: React.FC = () => {
   const { assets, addAsset, updateAsset, assignAsset, deleteAsset, employees, currentUser, hasPermission } = useHRMS();
@@ -237,7 +239,8 @@ export const AssetManagement: React.FC = () => {
       assetTag: addForm.assetTag,
       name: addForm.name,
       category: addForm.category,
-      serialNumber: addForm.serialNumber || `SN-${Math.floor(Math.random() * 900000 + 100000)}`,
+      // Store exactly what HR entered. Never invent a serial number (previously a random SN-###### was saved).
+      serialNumber: addForm.serialNumber.trim(),
       purchaseDate: addForm.purchaseDate,
       purchaseCost: addForm.purchaseCost === '' ? 0 : Number(addForm.purchaseCost) || 0,
       warrantyExpiry: addForm.warrantyExpiry,
@@ -369,6 +372,60 @@ export const AssetManagement: React.FC = () => {
     setEditFormError(null);
   };
 
+  // Download (Excel / PDF / CSV): exports exactly the rows currently shown (search + filters + role scope).
+  // Values come straight from the stored asset records; empty fields are shown as-is, never invented.
+  const getAssetExportData = () => {
+    const columns: ExportColumn[] = [
+      { key: 'assetTag', label: 'Asset Tag' },
+      { key: 'name', label: 'Asset Name' },
+      { key: 'category', label: 'Category' },
+      { key: 'serialNumber', label: 'Serial Number' },
+      { key: 'status', label: 'Status' },
+      { key: 'condition', label: 'Condition' },
+      ...(!isEmployeeRole ? [
+        { key: 'assignedEmployeeName', label: 'Assigned To' },
+        { key: 'assignedEmployeeId', label: 'Employee ID' },
+        { key: 'assignedDepartment', label: 'Department' },
+      ] : []),
+      { key: 'assignedDate', label: 'Assigned Date' },
+      { key: 'purchaseDate', label: 'Purchase Date' },
+      { key: 'purchaseCost', label: 'Purchase Cost (INR)' },
+      { key: 'warrantyExpiry', label: 'Warranty Expiry' },
+      { key: 'notes', label: 'Notes' },
+    ];
+    const fmtDate = (d?: string) => (d && d.trim() ? formatDateDDMMYYYY(d) : '');
+    const data = filteredAssets.map(a => ({
+      assetTag: a.assetTag || '',
+      name: a.name || '',
+      category: a.category || '',
+      serialNumber: a.serialNumber?.trim() ? a.serialNumber : 'Not Provided',
+      status: a.status || '',
+      condition: a.condition || '',
+      assignedEmployeeName: a.assignedEmployeeName || '',
+      assignedEmployeeId: a.assignedEmployeeId && a.assignedEmployeeId.length < 30 ? a.assignedEmployeeId : '',
+      assignedDepartment: a.assignedDepartment || '',
+      assignedDate: fmtDate(a.assignedDate),
+      purchaseDate: fmtDate(a.purchaseDate),
+      purchaseCost: toNum(a.purchaseCost),
+      warrantyExpiry: fmtDate(a.warrantyExpiry),
+      notes: a.notes || '',
+    }));
+    return { columns, data };
+  };
+  const assetExportFileName = () => `${isEmployeeRole ? 'My_Assets' : 'Asset_Inventory'}_${getTodayDateString()}`;
+  const handleExportAssetsExcel = () => {
+    const { columns, data } = getAssetExportData();
+    downloadExcel(data, assetExportFileName(), columns);
+  };
+  const handleExportAssetsPDF = () => {
+    const { columns, data } = getAssetExportData();
+    downloadPDF(data, isEmployeeRole ? 'My Assigned Assets' : 'Asset Management & Hardware Inventory', assetExportFileName(), columns);
+  };
+  const handleExportAssetsCSV = () => {
+    const { columns, data } = getAssetExportData();
+    downloadCSV(data, assetExportFileName(), columns);
+  };
+
   return (
     <div>
       {/* Page Header */}
@@ -382,8 +439,15 @@ export const AssetManagement: React.FC = () => {
           </p>
         </div>
 
-        {canManageAssets && (
-          <div className="header-actions">
+        <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <ExportDropdown
+            onExportExcel={handleExportAssetsExcel}
+            onExportPDF={handleExportAssetsPDF}
+            onExportCSV={handleExportAssetsCSV}
+            label="Download"
+            disabled={filteredAssets.length === 0}
+          />
+          {canManageAssets && (
             <button 
               className="btn btn-primary btn-sm"
               onClick={() => {
@@ -413,8 +477,8 @@ export const AssetManagement: React.FC = () => {
             >
               <Plus size={16} /> Create Asset
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Mobile Asset Summary Bar & Compact Search + Filter Bar */}
@@ -897,11 +961,8 @@ export const AssetManagement: React.FC = () => {
                         color: '#334155',
                         fontWeight: 600
                       }}>
-                        {asset.serialNumber}
+                        {asset.serialNumber?.trim() ? asset.serialNumber : 'Not Provided'}
                       </code>
-                      <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>
-                        Verified S/N
-                      </div>
                     </td>
 
                     {/* 4. Assigned Employee (for HR/CEO) or Allocation Date (for Employee) */}
@@ -1153,7 +1214,7 @@ export const AssetManagement: React.FC = () => {
                   <div>
                     <div style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 500 }}>Serial Number</div>
                     <div style={{ fontWeight: 600, color: '#1E293B', fontFamily: 'monospace' }}>
-                      {asset.serialNumber || 'N/A'}
+                      {asset.serialNumber?.trim() ? asset.serialNumber : 'Not Provided'}
                     </div>
                   </div>
                   <div>
@@ -1579,7 +1640,7 @@ export const AssetManagement: React.FC = () => {
                       Serial Number
                     </div>
                     <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginTop: '2px', fontFamily: 'monospace' }}>
-                      {showViewModal.serialNumber || '—'}
+                      {showViewModal.serialNumber?.trim() ? showViewModal.serialNumber : 'Not Provided'}
                     </div>
                   </div>
 

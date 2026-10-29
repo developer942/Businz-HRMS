@@ -677,13 +677,16 @@ export async function acquireHighAccuracyGps(
         return;
       }
 
-      // Fast-settle optimization for indoor employees: if the reading is already mathematically INSIDE
-      // the configured office boundary (D + A <= R) with acceptable indoor accuracy (<= 95m),
-      // wait briefly (350ms–750ms) for a sharper satellite tick and then resolve without waiting 20s.
+      // Fast-settle for indoor employees: once a reading is already conclusively INSIDE the office
+      // boundary under the conservative rule (D + A <= R — the whole accuracy circle lies inside the
+      // geofence), wait briefly for a sharper satellite tick and then resolve.
+      // Previously this required accuracy <= 95m, so typical indoor phone fixes of ~100-150m that were
+      // already conclusively INSIDE waited for the full acquisition timeout (12s) before resolving.
+      // Production evidence (29 Oct): successful punches reported ±99m and ±102m accuracy.
       if (settleTimer === null) {
         const classification = evaluateReadingBoundary(activeBest);
-        if (classification === 'INSIDE' && activeBest.accuracy <= Math.max(acceptableAccuracyMeters, 95)) {
-          const settleWindowMs = activeBest.accuracy <= acceptableAccuracyMeters ? 350 : 750;
+        if (classification === 'INSIDE') {
+          const settleWindowMs = activeBest.accuracy <= acceptableAccuracyMeters ? 350 : 1200;
           settleTimer = setTimeout(() => {
             if (!finished && requestSeq === activeRequestSequence && bestReading) {
               finishSuccess(bestReading);
@@ -863,7 +866,11 @@ export async function acquireGpsWithBoundedRetry(
           reading.accuracy
         );
 
-        if (evaluation.classification === 'UNCERTAIN' && attempt < maxAttempts) {
+        // Only spend a second full acquisition window when the first window produced too few samples
+        // to be meaningful. If the device already streamed several fixes for the whole window and the
+        // position is still UNCERTAIN, an immediate second window almost never improves indoor accuracy
+        // and only doubles the employee's wait (previously 12s + 12s).
+        if (evaluation.classification === 'UNCERTAIN' && attempt < maxAttempts && reading.sampleCount < 3) {
           options.onProgress?.({
             phase: 'RETRYING',
             message: 'Getting Location',

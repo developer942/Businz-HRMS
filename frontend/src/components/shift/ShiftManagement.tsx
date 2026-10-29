@@ -1,26 +1,26 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Shift, ShiftRequest } from '../../types/hrms';
-import { 
-  Plus, 
-  CheckCircle2, 
-  ArrowRightLeft, 
-  Trash2, 
-  Edit3, 
-  Clock, 
-  ShieldAlert, 
-  X, 
-  Check, 
-  UserCheck, 
+import {
+  Plus,
+  CheckCircle2,
+  ArrowRightLeft,
+  Trash2,
+  Edit3,
+  Clock,
+  ShieldAlert,
+  X,
+  Check,
+  UserCheck,
   Calendar,
   AlertCircle
 } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
-import { 
-  getTodayKolkata, 
-  validateRequestDate, 
-  checkDuplicateShiftRequest, 
-  PAST_DATE_ERROR_MESSAGE, 
+import {
+  getTodayKolkata,
+  validateRequestDate,
+  checkDuplicateShiftRequest,
+  PAST_DATE_ERROR_MESSAGE,
   DUPLICATE_REQUEST_ERROR_MESSAGE,
   REQUEST_REASON_ERROR_MESSAGE,
   validateRequestReason
@@ -38,37 +38,37 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   openAddModal = false,
   onCloseQuickAdd
 }) => {
-  const { 
-    shifts, 
-    addShift, 
-    updateShift, 
-    deleteShift, 
-    shiftRequests, 
-    requestShiftChange, 
-    approveShiftRequest, 
-    rejectShiftRequest, 
-    employees, 
-    currentUser 
+  const {
+    shifts,
+    addShift,
+    updateShift,
+    deleteShift,
+    shiftRequests,
+    requestShiftChange,
+    approveShiftRequest,
+    rejectShiftRequest,
+    employees,
+    currentUser
   } = useHRMS();
 
   // Role permissions: CEO and HR are managers
   const userRole = (currentUser?.role as string) || '';
-  const isCEO = userRole === 'CEO' || 
-    userRole === 'Super Admin' || 
-    userRole === 'Management' || 
-    currentUser?.designation === 'CEO' || 
+  const isCEO = userRole === 'CEO' ||
+    userRole === 'Super Admin' ||
+    userRole === 'Management' ||
+    currentUser?.designation === 'CEO' ||
     currentUser?.employeeId === 'EMP-000' ||
-    (currentUser?.designation && currentUser.designation.toLowerCase().includes('ceo')) || 
-    (currentUser?.designation && currentUser.designation.toLowerCase().includes('director')) || 
+    (currentUser?.designation && currentUser.designation.toLowerCase().includes('ceo')) ||
+    (currentUser?.designation && currentUser.designation.toLowerCase().includes('director')) ||
     userRole === 'ERP Administrator' ||
     userRole.toLowerCase().includes('ceo');
 
-  const isHR = userRole === 'HR Admin' || 
-    userRole === 'HR Manager' || 
-    userRole === 'HR' || 
+  const isHR = userRole === 'HR Admin' ||
+    userRole === 'HR Manager' ||
+    userRole === 'HR' ||
     userRole.toLowerCase().includes('hr') ||
-    (currentUser?.department && currentUser.department.toLowerCase().includes('hr')) || 
-    (currentUser?.department && currentUser.department.toLowerCase().includes('human resource')) || 
+    (currentUser?.department && currentUser.department.toLowerCase().includes('hr')) ||
+    (currentUser?.department && currentUser.department.toLowerCase().includes('human resource')) ||
     (currentUser?.designation && currentUser.designation.toLowerCase().includes('hr'));
 
   const canManageShifts = isCEO || isHR || userRole === 'Management' || userRole === 'Super Admin' || userRole === 'Admin' || userRole !== 'Employee';
@@ -122,7 +122,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   }, [openAddModal, canManageShifts]);
 
   // Identify current employee record
-  const currentEmp = employees.find(e => 
+  const currentEmp = employees.find(e =>
     (currentUser.employeeId && e.employeeId === currentUser.employeeId) ||
     (currentUser.id && (e.id === currentUser.id || e.employeeId === currentUser.id)) ||
     (currentUser.name && `${e.firstName} ${e.lastName}`.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
@@ -133,7 +133,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   const myAssignedShiftName = currentEmp?.workShift || (shifts[0]?.shiftName || 'Not Assigned');
 
   // Find employee's assigned shift object
-  const myShift = shifts.find(s => 
+  const myShift = shifts.find(s =>
     s.shiftName.toLowerCase() === myAssignedShiftName.toLowerCase() ||
     myAssignedShiftName.toLowerCase().includes(s.shiftName.toLowerCase()) ||
     s.shiftName.toLowerCase().includes(myAssignedShiftName.toLowerCase())
@@ -384,15 +384,15 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
         <div className="page-title-group">
           <h1>{isEmployee ? 'My Shift & Schedule' : 'Shift Management'}</h1>
           <p className="page-subtitle">
-            {isEmployee 
-              ? 'View your assigned shift timetable, working hours, and request a shift swap with HR & CEO approval.' 
+            {isEmployee
+              ? 'View your assigned shift timetable, working hours, and request a shift swap with HR & CEO approval.'
               : 'Configure system shifts, working hours, and review employee shift change requests.'}
           </p>
         </div>
         <div className="header-actions">
           {canManageShifts && (
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => setShowAddShiftModal(true)}
               style={{
                 backgroundColor: '#0E7490',
@@ -492,109 +492,109 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       {!isEmployee && (
         <div style={{ marginBottom: '28px' }}>
           {shifts.length > 0 ? (
-          <div className="shift-cards-grid">
-            {shifts.map(s => (
-              <div 
-                key={s.id} 
-                className="card" 
-                style={{ 
-                  borderLeft: `4px solid ${s.color || '#0E7490'}`, 
-                  marginBottom: 0, 
-                  position: 'relative',
-                  transition: 'box-shadow 0.2s',
-                  borderRadius: '14px',
-                  padding: '16px 18px'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                  <h4 style={{ fontSize: '0.98rem', fontWeight: 700, margin: 0, color: '#0F172A' }}>
-                    {s.shiftName}
-                  </h4>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span className="status-pill active" style={{ fontSize: '0.65rem' }}>Active</span>
+            <div className="shift-cards-grid">
+              {shifts.map(s => (
+                <div
+                  key={s.id}
+                  className="card"
+                  style={{
+                    borderLeft: `4px solid ${s.color || '#0E7490'}`,
+                    marginBottom: 0,
+                    position: 'relative',
+                    transition: 'box-shadow 0.2s',
+                    borderRadius: '14px',
+                    padding: '16px 18px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '0.98rem', fontWeight: 700, margin: 0, color: '#0F172A' }}>
+                      {s.shiftName}
+                    </h4>
 
-                    {/* CEO and HR Edit & Delete Controls */}
-                    {canManageShifts ? (
-                      <>
-                        {/* EDIT SHIFT BUTTON */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="status-pill active" style={{ fontSize: '0.65rem' }}>Active</span>
+
+                      {/* CEO and HR Edit & Delete Controls */}
+                      {canManageShifts ? (
+                        <>
+                          {/* EDIT SHIFT BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditShift(s)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: '#0E7490',
+                              backgroundColor: '#ECFEFF',
+                              border: '1px solid #CFFAFE',
+                              cursor: 'pointer'
+                            }}
+                            title="Edit Shift (CEO & HR Only)"
+                          >
+                            <Edit3 size={12} /> Edit
+                          </button>
+
+                          {/* DELETE SHIFT BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmModal({ shiftId: s.id, shiftName: s.shiftName })}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: '#DC2626',
+                              backgroundColor: '#FEF2F2',
+                              border: '1px solid #FEE2E2',
+                              cursor: 'pointer'
+                            }}
+                            title="Delete Shift (CEO & HR Only)"
+                          >
+                            <Trash2 size={12} /> Delete
+                          </button>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: '0.68rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Clock size={11} /> Standard
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', fontSize: '0.82rem', color: '#475569' }}>
+                    <div><strong>Timing:</strong> {s.startTime} - {s.endTime}</div>
+                    <div><strong>Working:</strong> {s.workingHours === 8.25 ? '8h 15m' : `${s.workingHours} Hours`}</div>
+                    <div><strong>Break:</strong> {s.breakDurationMins} Mins</div>
+                    <div style={{ gridColumn: 'span 2', paddingTop: '4px', borderTop: '1px dashed #E2E8F0', color: '#64748B' }}>
+                      <strong>Assigned Staff:</strong>{' '}
+                      {assignmentLoading ? (
+                        <span aria-live="polite">Loading…</span>
+                      ) : assignmentError ? (
+                        <button type="button" onClick={loadAssignmentSummary} style={{ border: 0, padding: 0, background: 'none', color: '#B91C1C', cursor: 'pointer', textDecoration: 'underline' }}>
+                          Unavailable — Retry
+                        </button>
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => handleOpenEditShift(s)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.72rem',
-                            fontWeight: 600,
-                            color: '#0E7490',
-                            backgroundColor: '#ECFEFF',
-                            border: '1px solid #CFFAFE',
-                            cursor: 'pointer'
-                          }}
-                          title="Edit Shift (CEO & HR Only)"
+                          onClick={() => setSelectedAssignmentSummary(assignmentSummary[s.id] || { shiftId: s.id, shiftName: s.shiftName, count: 0, employees: [] })}
+                          style={{ border: 0, padding: 0, background: 'none', color: '#0E7490', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
                         >
-                          <Edit3 size={12} /> Edit
+                          {assignmentSummary[s.id]?.employees.length || 0} {(assignmentSummary[s.id]?.employees.length || 0) === 1 ? 'Employee' : 'Employees'}
                         </button>
-
-                        {/* DELETE SHIFT BUTTON */}
-                        <button
-                          type="button"
-                          onClick={() => setDeleteConfirmModal({ shiftId: s.id, shiftName: s.shiftName })}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.72rem',
-                            fontWeight: 600,
-                            color: '#DC2626',
-                            backgroundColor: '#FEF2F2',
-                            border: '1px solid #FEE2E2',
-                            cursor: 'pointer'
-                          }}
-                          title="Delete Shift (CEO & HR Only)"
-                        >
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      </>
-                    ) : (
-                      <span style={{ fontSize: '0.68rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <Clock size={11} /> Standard
-                      </span>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', fontSize: '0.82rem', color: '#475569' }}>
-                  <div><strong>Timing:</strong> {s.startTime} - {s.endTime}</div>
-                  <div><strong>Working:</strong> {s.workingHours === 8.25 ? '8h 15m' : `${s.workingHours} Hours`}</div>
-                  <div><strong>Break:</strong> {s.breakDurationMins} Mins</div>
-                  <div style={{ gridColumn: 'span 2', paddingTop: '4px', borderTop: '1px dashed #E2E8F0', color: '#64748B' }}>
-                    <strong>Assigned Staff:</strong>{' '}
-                    {assignmentLoading ? (
-                      <span aria-live="polite">Loading…</span>
-                    ) : assignmentError ? (
-                      <button type="button" onClick={loadAssignmentSummary} style={{ border: 0, padding: 0, background: 'none', color: '#B91C1C', cursor: 'pointer', textDecoration: 'underline' }}>
-                        Unavailable — Retry
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAssignmentSummary(assignmentSummary[s.id] || { shiftId: s.id, shiftName: s.shiftName, count: 0, employees: [] })}
-                        style={{ border: 0, padding: 0, background: 'none', color: '#0E7490', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
-                      >
-                        {assignmentSummary[s.id]?.employees.length || 0} {(assignmentSummary[s.id]?.employees.length || 0) === 1 ? 'Employee' : 'Employees'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
           ) : (
             <div className="card" style={{ textAlign: 'center', padding: '40px 20px', color: '#64748B' }}>
               <Clock size={36} style={{ margin: '0 auto 12px', color: '#94A3B8' }} />
@@ -642,8 +642,8 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               {isEmployee ? `My Shift Swap Requests (${displayedShiftRequests.length})` : `Employee Shift Swap Requests (${displayedShiftRequests.length})`}
             </h3>
             <p style={{ margin: '3px 0 0 0', fontSize: '0.82rem', color: '#64748B' }}>
-              {canManageShifts 
-                ? 'Review employee shift requests. Accept to automatically update employee roster, or reject with a reason.' 
+              {canManageShifts
+                ? 'Review employee shift requests. Accept to automatically update employee roster, or reject with a reason.'
                 : 'Track the status of your submitted shift swap requests.'}
             </p>
           </div>
@@ -693,13 +693,13 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                      <span style={{ 
-                        fontSize: '12px', 
-                        color: '#0E7490', 
-                        fontWeight: 600, 
-                        background: '#ECFEFF', 
-                        border: '1px solid #CFFAFE', 
-                        padding: '3px 8px', 
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#0E7490',
+                        fontWeight: 600,
+                        background: '#ECFEFF',
+                        border: '1px solid #CFFAFE',
+                        padding: '3px 8px',
                         borderRadius: '6px',
                         display: 'inline-block'
                       }}>
@@ -726,13 +726,13 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                         (isCEO || isHR) ? (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             {/* ACCEPT BUTTON */}
-                            <button 
+                            <button
                               type="button"
                               onClick={() => handleApproveRequest(r)}
-                              style={{ 
-                                fontSize: '11.5px', 
-                                fontWeight: 700, 
-                                padding: '5px 12px', 
+                              style={{
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                padding: '5px 12px',
                                 borderRadius: '8px',
                                 backgroundColor: '#22C55E',
                                 border: 'none',
@@ -748,13 +748,13 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                             </button>
 
                             {/* REJECT BUTTON */}
-                            <button 
+                            <button
                               type="button"
                               onClick={() => setRejectModal({ requestId: r.id, employeeName: r.employeeName })}
-                              style={{ 
-                                fontSize: '11.5px', 
-                                fontWeight: 700, 
-                                padding: '5px 12px', 
+                              style={{
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                padding: '5px 12px',
                                 borderRadius: '8px',
                                 backgroundColor: '#EF4444',
                                 border: 'none',
@@ -804,12 +804,12 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Shift Title / Name <span style={{ color: '#EF4444' }}>*</span></label>
-                  <input 
-                    className="form-control" 
-                    value={shiftForm.shiftName} 
-                    onChange={e => setShiftForm({ ...shiftForm, shiftName: e.target.value })} 
-                    placeholder="e.g. Shift 4 (08:00 AM - 05:00 PM)" 
-                    required 
+                  <input
+                    className="form-control"
+                    value={shiftForm.shiftName}
+                    onChange={e => setShiftForm({ ...shiftForm, shiftName: e.target.value })}
+                    placeholder="e.g. Shift 4 (08:00 AM - 05:00 PM)"
+                    required
                   />
                 </div>
                 <div className="form-row">
@@ -917,12 +917,12 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Shift Title / Name <span style={{ color: '#EF4444' }}>*</span></label>
-                  <input 
-                    className="form-control" 
-                    value={editShiftForm.shiftName} 
-                    onChange={e => setEditShiftForm({ ...editShiftForm, shiftName: e.target.value })} 
-                    placeholder="e.g. Shift 1 (09:00 AM - 06:00 PM)" 
-                    required 
+                  <input
+                    className="form-control"
+                    value={editShiftForm.shiftName}
+                    onChange={e => setEditShiftForm({ ...editShiftForm, shiftName: e.target.value })}
+                    placeholder="e.g. Shift 1 (09:00 AM - 06:00 PM)"
+                    required
                   />
                   <small style={{ color: '#64748B', fontSize: '0.74rem' }}>
                     Renaming this shift will automatically update all assigned employees.
@@ -1058,15 +1058,15 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                 </div>
                 <div className="form-group">
                   <label className="form-label">Effective Date <span style={{ color: '#EF4444' }}>*</span></label>
-            <DateInput
-                    className="form-control" 
+                  <DateInput
+                    className="form-control"
                     min={getTodayKolkata()}
-                    value={swapForm.requestedDate} 
+                    value={swapForm.requestedDate}
                     onChange={e => {
                       setSwapFormError(null);
                       setSwapForm({ ...swapForm, requestedDate: e.target.value });
-                    }} 
-                    required 
+                    }}
+                    required
                   />
                   <small style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', display: 'block' }}>
                     Select today or a future date. Past dates are strictly disabled.
@@ -1125,11 +1125,11 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               </p>
               <div className="form-group">
                 <label className="form-label">Rejection Reason / Note</label>
-                <textarea 
-                  className="form-control" 
-                  rows={3} 
-                  value={rejectionReason} 
-                  onChange={e => setRejectionReason(e.target.value)} 
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  value={rejectionReason}
+                  onChange={e => setRejectionReason(e.target.value)}
                   onKeyDown={preventSpaceEnterPropagation}
                   placeholder="e.g. Shift is at full staff capacity for that day..."
                 />
@@ -1153,7 +1153,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               </h2>
               <button type="button" onClick={() => setDeleteConfirmModal(null)}><X size={18} /></button>
             </div>
-            
+
             <div className="modal-body" style={{ textAlign: 'center', padding: '24px 16px' }}>
               <div style={{
                 width: '48px',
@@ -1172,24 +1172,24 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
               <h4 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: '8px' }}>
                 Delete "{deleteConfirmModal.shiftName}"?
               </h4>
-              
+
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
                 Are you sure you want to remove this shift schedule? Any assigned employees will need to be reallocated.
               </p>
             </div>
 
             <div className="modal-footer" style={{ justifyContent: 'center', gap: '12px' }}>
-              <button 
-                type="button" 
-                className="btn btn-secondary btn-sm" 
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
                 onClick={() => setDeleteConfirmModal(null)}
               >
                 Cancel
               </button>
-              
-              <button 
-                type="button" 
-                className="btn btn-danger btn-sm" 
+
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
                 onClick={handleConfirmDelete}
                 style={{ padding: '8px 20px', fontWeight: 700 }}
               >

@@ -147,6 +147,32 @@ const resolveEmployeeUuid = async (employeeIdOrCode?: string): Promise<string | 
   return undefined;
 };
 
+const ASSET_NULLABLE_COLUMNS = [
+  'warranty_expiry',
+  'purchase_date',
+  'assigned_date',
+  'assigned_employee_id',
+  'assigned_department_id',
+  'serial_number',
+  'notes',
+] as const;
+
+/**
+ * Builds a partial PATCH body for public.assets. Keys that are absent or `undefined` are OMITTED
+ * (left untouched in PostgreSQL); an explicit empty string for a nullable column becomes NULL.
+ */
+export function buildAssetPatchPayload(updates: Record<string, any>): Record<string, any> {
+  const payload: Record<string, any> = {};
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (value === undefined) continue;
+    payload[key] = value;
+  }
+  for (const k of ASSET_NULLABLE_COLUMNS) {
+    if (k in payload && payload[k] === '') payload[k] = null;
+  }
+  return payload;
+}
+
 export const supabaseDirect = {
   isRestAvailable(): boolean {
     return Date.now() >= restOfflineUntil;
@@ -1451,24 +1477,23 @@ export const supabaseDirect = {
   },
 
   async updateAsset(id: string, updates: Record<string, any>): Promise<boolean> {
-    try {
-      const payload: Record<string, any> = { ...updates, updated_at: new Date().toISOString() };
+    return (await this.updateAssetReturning(id, updates)) !== null;
+  },
 
-      // Convert any empty string to null for nullable database columns to prevent PostgreSQL syntax errors
-      const nullableKeys = [
-        'warranty_expiry',
-        'purchase_date',
-        'assigned_date',
-        'assigned_employee_id',
-        'assigned_department_id',
-        'serial_number',
-        'notes'
-      ];
-      for (const k of nullableKeys) {
-        if (payload[k] === '' || payload[k] === undefined) {
-          payload[k] = null;
-        }
-      }
+  /**
+   * PATCHes ONLY the columns present in `updates` and returns the authoritative row PostgreSQL
+   * stored (or null on failure).
+   *
+   * ROOT CAUSE FIX (asset serial number disappearing after assignment): the previous version
+   * converted every nullable column that was *missing* from the payload (`undefined`) into `null`.
+   * An assignment sends only { assigned_employee_id, status, assigned_date }, so every assignment
+   * PATCH also wrote serial_number = NULL, purchase_date = NULL, warranty_expiry = NULL,
+   * notes = NULL and assigned_department_id = NULL. Now only keys the caller explicitly
+   * provides are written; an explicit '' still becomes NULL.
+   */
+  async updateAssetReturning(id: string, updates: Record<string, any>): Promise<any | null> {
+    try {
+      const payload: Record<string, any> = { ...buildAssetPatchPayload(updates), updated_at: new Date().toISOString() };
 
       if (payload.assigned_employee_id) {
         payload.assigned_employee_id = (await resolveEmployeeUuid(payload.assigned_employee_id)) || null;
@@ -1497,10 +1522,16 @@ export const supabaseDirect = {
         headers: { ...getHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify(payload),
       });
-      return res.ok;
+      if (!res.ok) {
+        console.warn('[DatabaseRest] updateAsset failed:', res.status, await res.text().catch(() => ''));
+        return null;
+      }
+      const data = await res.json().catch(() => null);
+      const row = Array.isArray(data) ? data[0] : data;
+      return row && row.id ? row : null; // zero rows matched => not persisted
     } catch (err) {
       console.warn('[DatabaseRest] updateAsset error:', err);
-      return false;
+      return null;
     }
   },
 
