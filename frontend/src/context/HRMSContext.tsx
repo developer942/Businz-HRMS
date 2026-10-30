@@ -10358,6 +10358,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       warranty_expiry: assetData.warrantyExpiry,
       status: assetData.status,
       condition: assetData.condition,
+      ownership: assetData.ownership || "Owned",
       assigned_employee_id: assetData.assignedEmployeeId || undefined,
       notes: assetData.notes,
     }).then(res => {
@@ -10536,6 +10537,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (updates.warrantyExpiry !== undefined) dbPayload.warranty_expiry = updates.warrantyExpiry && updates.warrantyExpiry.trim() ? updates.warrantyExpiry.trim() : null;
       if (updates.status !== undefined) dbPayload.status = updates.status;
       if (updates.condition !== undefined) dbPayload.condition = updates.condition;
+      if (updates.ownership !== undefined) dbPayload.ownership = updates.ownership;
       if (updates.notes !== undefined) dbPayload.notes = updates.notes ? updates.notes.trim() : null;
       if (updates.assignedEmployeeDbId !== undefined) {
         dbPayload.assigned_employee_id = updates.assignedEmployeeDbId || null;
@@ -11267,6 +11269,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             warrantyExpiry: ast.warranty_expiry || '',
             status: ast.status || (ast.assigned_employee_id ? 'Assigned' : 'Available'),
             condition: ast.condition || 'Good',
+            ownership: (ast.ownership === 'Rental' || String(ast.notes || '').toLowerCase().includes('rent') || String(ast.name || '').toLowerCase().includes('rent')) ? 'Rental' : (ast.ownership || 'Owned'),
             assignedEmployeeId: empDisplayId || ast.assigned_employee_id || '',
             assignedEmployeeDbId: ast.assigned_employee_id || emp?.id || '',
             assignedEmployeeName: empName,

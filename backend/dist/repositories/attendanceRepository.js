@@ -25,14 +25,16 @@ export class AttendanceRepository {
                 const wall = toTimezoneWallClockDate(val, DEFAULT_COMPANY_TIMEZONE);
                 return `${String(wall.getHours()).padStart(2, '0')}:${String(wall.getMinutes()).padStart(2, '0')}`;
             }
-            const str = String(val);
-            if (str.includes('T')) {
+            const str = String(val).trim();
+            if (str.includes('T') || (str.includes('-') && str.includes(':'))) {
                 const d = new Date(str);
                 if (!isNaN(d.getTime())) {
                     const wall = toTimezoneWallClockDate(d, DEFAULT_COMPANY_TIMEZONE);
                     return `${String(wall.getHours()).padStart(2, '0')}:${String(wall.getMinutes()).padStart(2, '0')}`;
                 }
-                return str.split('T')[1].substring(0, 5);
+                if (str.includes('T')) {
+                    return str.split('T')[1].substring(0, 5);
+                }
             }
             if (str.length >= 5)
                 return str.substring(0, 5);
@@ -379,7 +381,7 @@ export class AttendanceRepository {
                 throw new AttendancePunchError(`Employee profile '${params.employeeId}' was not found in PostgreSQL.`, 404, 'EMPLOYEE_NOT_FOUND');
             }
             const fullName = `${employee.first_name || ''} ${employee.last_name || ''}`.trim() || 'Employee';
-            // 2. Check idempotency key for network retry safety
+            // 2. Check idempotency key for network retry safety (only short-circuit if the target punch time is actually populated)
             if (idempotencyKey) {
                 await client.query('SAVEPOINT sp_idempotency_lookup');
                 try {
@@ -387,8 +389,10 @@ export class AttendanceRepository {
                     await client.query('RELEASE SAVEPOINT sp_idempotency_lookup');
                     if (existingEvent.rows[0]?.attendance_record_id) {
                         const existingRecord = await client.query(`SELECT * FROM public.attendance_records WHERE id = $1 LIMIT 1`, [existingEvent.rows[0].attendance_record_id]);
-                        if (existingRecord.rows[0]) {
-                            return this.mapRowToAttendance(existingRecord.rows[0], employee.employee_id, fullName);
+                        const matchedRow = existingRecord.rows[0];
+                        const hasCommittedPunchTime = params.type === 'IN' ? Boolean(matchedRow?.check_in) : Boolean(matchedRow?.check_out);
+                        if (matchedRow && hasCommittedPunchTime) {
+                            return this.mapRowToAttendance(matchedRow, employee.employee_id, fullName);
                         }
                     }
                 }
@@ -601,7 +605,15 @@ export class AttendanceRepository {
                     await client.query(`INSERT INTO public.attendance_punch_events
               (idempotency_key, employee_id, attendance_record_id, punch_type, photo_fingerprint, location_lat, location_lng, location_accuracy, location_timestamp)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             ON CONFLICT (idempotency_key) DO NOTHING`, [
+             ON CONFLICT (idempotency_key) DO UPDATE SET
+               attendance_record_id = EXCLUDED.attendance_record_id,
+               punch_type = EXCLUDED.punch_type,
+               photo_fingerprint = EXCLUDED.photo_fingerprint,
+               location_lat = EXCLUDED.location_lat,
+               location_lng = EXCLUDED.location_lng,
+               location_accuracy = EXCLUDED.location_accuracy,
+               location_timestamp = EXCLUDED.location_timestamp,
+               punched_at = NOW()`, [
                         idempotencyKey,
                         employee.id,
                         savedRow.id,

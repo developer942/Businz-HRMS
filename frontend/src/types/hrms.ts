@@ -615,6 +615,7 @@ export interface AssetItem {
   warrantyExpiry: string;
   status: 'Assigned' | 'Available' | 'Under Maintenance';
   condition: 'New' | 'Good' | 'Fair' | 'Needs Repair';
+  ownership?: 'Owned' | 'Rental';
   notes?: string;
 }
 

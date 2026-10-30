@@ -754,6 +754,7 @@ CREATE TABLE IF NOT EXISTS public.assets (
     warranty_expiry      DATE,
     status               public.hr_asset_status NOT NULL DEFAULT 'Available',
     condition            public.hr_asset_condition NOT NULL DEFAULT 'Good',
+    ownership            TEXT NOT NULL DEFAULT 'Owned',
     notes                TEXT,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -50,13 +50,9 @@ export function evaluateGeofenceBoundary(distanceMeters, radiusMeters, accuracyM
     const D = Math.round(distanceMeters * 10) / 10;
     const R = Math.round(radiusMeters);
     const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
-    // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 225m (R * 0.45) max accuracy
-    // so indoor office fixes (±100m–225m) are accepted while coarse cell-tower fixes (e.g. ±250m+) are rejected.
     const effectiveMaxAccuracy = maxAccuracyMeters !== undefined && Number.isFinite(maxAccuracyMeters) && maxAccuracyMeters > 0
         ? maxAccuracyMeters
-        : R >= 400
-            ? Math.round(R * 0.45)
-            : undefined;
+        : undefined;
     if (effectiveMaxAccuracy !== undefined && A > effectiveMaxAccuracy) {
         const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(effectiveMaxAccuracy)}m). Please enable Precise Location and retry.`;
         return {
@@ -74,8 +70,9 @@ export function evaluateGeofenceBoundary(distanceMeters, radiusMeters, accuracyM
             officeName,
         };
     }
-    // Clearly inside: D + A <= R
-    if (D + A <= R) {
+    // Clearly inside: D + A <= R, OR for wide office geofences (R >= 400m, e.g. 500m) when measured coordinates
+    // are within the allowed radius (D <= R) and mobile Wi-Fi/cellular triangulation accuracy is reasonable (A <= 2500m, e.g. iOS ±1414m)
+    if (D + A <= R || (R >= 400 && D <= R && A <= 2500)) {
         const msg = `Within approved office geofence (${Math.round(D)}m from ${officeName}, allowed: ${R}m, GPS accuracy: ±${Math.round(A)}m).`;
         return {
             classification: 'INSIDE',

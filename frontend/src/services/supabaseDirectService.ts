@@ -1425,6 +1425,7 @@ export const supabaseDirect = {
     warranty_expiry?: string;
     status?: string;
     condition?: string;
+    ownership?: string;
     assigned_employee_id?: string;
     notes?: string;
   }): Promise<{ success: boolean; data?: any; error?: any }> {
@@ -1458,6 +1459,7 @@ export const supabaseDirect = {
         warranty_expiry: asset.warranty_expiry && asset.warranty_expiry.trim() ? asset.warranty_expiry.trim() : null,
         status: normStatus,
         condition: normCondition,
+        ownership: (asset.ownership && String(asset.ownership).toLowerCase().includes("rent")) ? "Rental" : "Owned",
         assigned_employee_id: assignedUuid,
         notes: asset.notes ? asset.notes.trim() : null,
       };
@@ -1509,6 +1511,10 @@ export const supabaseDirect = {
       }
 
       // Normalize condition to PostgreSQL hr_asset_condition enum: ['New', 'Good', 'Fair', 'Needs Repair']
+      if (payload.ownership) {
+        payload.ownership = String(payload.ownership).toLowerCase().includes("rent") ? "Rental" : "Owned";
+      }
+
       if (payload.condition) {
         const c = String(payload.condition).toLowerCase();
         if (c.includes('new')) payload.condition = 'New';

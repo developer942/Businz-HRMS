@@ -61,9 +61,10 @@ export const AssetManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [ownershipFilter, setOwnershipFilter] = useState<string>('All');
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState<boolean>(false);
 
-  const activeFilterCount = (categoryFilter !== 'All' ? 1 : 0) + (statusFilter !== 'All' ? 1 : 0);
+  const activeFilterCount = (categoryFilter !== 'All' ? 1 : 0) + (statusFilter !== 'All' ? 1 : 0) + (ownershipFilter !== 'All' ? 1 : 0);
 
   // Strict User Scoping: In employee view, strictly match assigned assets
   const isAssetAssignedToUser = (asset: AssetItem): boolean => {
@@ -140,6 +141,7 @@ export const AssetManagement: React.FC = () => {
     purchaseCost: number | string;
     warrantyExpiry: string;
     condition: AssetItem['condition'];
+    ownership: 'Owned' | 'Rental';
     notes: string;
   }>({
     assetTag: '',
@@ -150,6 +152,7 @@ export const AssetManagement: React.FC = () => {
     purchaseCost: '',
     warrantyExpiry: getWarrantyDefaultDate(getTodayDateString()),
     condition: 'New',
+    ownership: 'Owned',
     notes: ''
   });
   const [addFormError, setAddFormError] = useState<string | null>(null);
@@ -165,6 +168,7 @@ export const AssetManagement: React.FC = () => {
     warrantyExpiry: string;
     condition: AssetItem['condition'];
     status: AssetItem['status'];
+    ownership: 'Owned' | 'Rental';
     notes: string;
     assignedEmployeeId: string;
   }>({
@@ -177,6 +181,7 @@ export const AssetManagement: React.FC = () => {
     warrantyExpiry: '',
     condition: 'Good',
     status: 'Available',
+    ownership: 'Owned',
     notes: '',
     assignedEmployeeId: ''
   });
@@ -199,6 +204,8 @@ export const AssetManagement: React.FC = () => {
   const filteredAssets = scopedAssets.filter(a => {
     const matchesCategory = categoryFilter === 'All' || a.category === categoryFilter;
     const matchesStatus = statusFilter === 'All' || a.status === statusFilter;
+    const resolvedOwnership = a.ownership || (String(a.notes || '').toLowerCase().includes('rent') ? 'Rental' : 'Owned');
+    const matchesOwnership = ownershipFilter === 'All' || resolvedOwnership === ownershipFilter;
 
     const assignedEmp = employees.find(e => 
       (e.id && (e.id === a.assignedEmployeeId || e.id === a.assignedEmployeeDbId)) ||
@@ -217,10 +224,12 @@ export const AssetManagement: React.FC = () => {
       empCode.toLowerCase().includes(q) ||
       empDept.toLowerCase().includes(q);
 
-    return matchesCategory && matchesStatus && matchesSearch;
+    return matchesCategory && matchesStatus && matchesOwnership && matchesSearch;
   });
 
   const totalCost = assets.reduce((sum, a) => sum + toNum(a.purchaseCost), 0);
+  const ownedCount = assets.filter(a => (a.ownership || 'Owned') === 'Owned' && !String(a.notes || '').toLowerCase().includes('rent')).length;
+  const rentalCount = assets.filter(a => a.ownership === 'Rental' || String(a.notes || '').toLowerCase().includes('rent')).length;
   const assignedCount = assets.filter(a => a.status === 'Assigned').length;
   const availableCount = assets.filter(a => a.status === 'Available').length;
   const maintenanceCount = assets.filter(a => a.status === 'Under Maintenance').length;
@@ -246,6 +255,7 @@ export const AssetManagement: React.FC = () => {
       warrantyExpiry: addForm.warrantyExpiry,
       status: 'Available',
       condition: addForm.condition,
+      ownership: addForm.ownership || 'Owned',
       notes: addForm.notes
     });
 
@@ -260,6 +270,7 @@ export const AssetManagement: React.FC = () => {
       purchaseCost: '',
       warrantyExpiry: getWarrantyDefaultDate(getTodayDateString()),
       condition: 'New',
+      ownership: 'Owned',
       notes: ''
     });
   };
@@ -302,6 +313,7 @@ export const AssetManagement: React.FC = () => {
       warrantyExpiry: target.warrantyExpiry || '',
       condition: target.condition || 'Good',
       status: target.status || 'Available',
+      ownership: (target.ownership || (String(target.notes || '').toLowerCase().includes('rent') ? 'Rental' : 'Owned')) as 'Owned' | 'Rental',
       notes: target.notes || '',
       assignedEmployeeId: emp?.employeeId || (target.assignedEmployeeId && target.assignedEmployeeId.length < 30 ? target.assignedEmployeeId : '') || ''
     });
@@ -359,6 +371,7 @@ export const AssetManagement: React.FC = () => {
       warrantyExpiry: editForm.warrantyExpiry,
       condition: editForm.condition,
       status,
+      ownership: editForm.ownership || 'Owned',
       notes: editForm.notes ? editForm.notes.trim() : '',
       assignedEmployeeId,
       assignedEmployeeDbId,
@@ -378,6 +391,7 @@ export const AssetManagement: React.FC = () => {
     const columns: ExportColumn[] = [
       { key: 'assetTag', label: 'Asset Tag' },
       { key: 'name', label: 'Asset Name' },
+      { key: 'ownership', label: 'Ownership' },
       { key: 'category', label: 'Category' },
       { key: 'serialNumber', label: 'Serial Number' },
       { key: 'status', label: 'Status' },
@@ -462,6 +476,7 @@ export const AssetManagement: React.FC = () => {
                   purchaseCost: '',
                   warrantyExpiry: getWarrantyDefaultDate(purchaseDate),
                   condition: 'New',
+                  ownership: 'Owned',
                   notes: ''
                 });
                 setShowAddModal(true);
@@ -658,6 +673,7 @@ export const AssetManagement: React.FC = () => {
               </div>
               <div className="kpi-footer">
                 <span style={{ color: '#0891b2', fontWeight: 700 }}>Total Value: {formatCurrency(totalCost)}</span>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', marginLeft: '8px', fontWeight: 600 }}>({ownedCount} Owned • {rentalCount} Rental)</span>
               </div>
             </div>
 
@@ -756,6 +772,21 @@ export const AssetManagement: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            {/* Ownership Filter (Owned vs Rental) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>Ownership:</label>
+              <select 
+                className="form-control" 
+                style={{ minWidth: '130px', padding: '6px 12px', fontSize: '0.82rem', height: '38px', borderRadius: '8px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600 }}
+                value={ownershipFilter} 
+                onChange={e => setOwnershipFilter(e.target.value)}
+              >
+                <option value="All">All Ownership</option>
+                <option value="Owned">Owned</option>
+                <option value="Rental">Rental</option>
+              </select>
+            </div>
           </div>
 
 
@@ -783,6 +814,9 @@ export const AssetManagement: React.FC = () => {
               </th>
               <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                 Device Name
+              </th>
+              <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Ownership
               </th>
               <th style={{ padding: '12px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                 Category
@@ -813,7 +847,7 @@ export const AssetManagement: React.FC = () => {
           <tbody>
             {filteredAssets.length === 0 ? (
               <tr>
-                <td colSpan={canManageAssets ? 9 : 8} style={{ textAlign: 'center', padding: '45px', color: 'var(--text-muted)' }}>
+                <td colSpan={canManageAssets ? 10 : 9} style={{ textAlign: 'center', padding: '45px', color: 'var(--text-muted)' }}>
                   <Laptop size={36} style={{ opacity: 0.3, margin: '0 auto 8px', display: 'block' }} />
                   <div>
                     {isEmployeeRole 
@@ -840,6 +874,7 @@ export const AssetManagement: React.FC = () => {
                           purchaseCost: '',
                           warrantyExpiry: getWarrantyDefaultDate(purchaseDate),
                           condition: 'New',
+                          ownership: 'Owned',
                           notes: ''
                         });
                         setShowAddModal(true);
@@ -936,6 +971,29 @@ export const AssetManagement: React.FC = () => {
                           {asset.notes || 'Hardware workstation'}
                         </div>
                       </div>
+                    </td>
+
+                    {/* Ownership (Owned vs Rental) */}
+                    <td style={{ padding: '10px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                      {(() => {
+                        const isRental = asset.ownership === 'Rental' || String(asset.notes || '').toLowerCase().includes('rent');
+                        return (
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '3px 9px',
+                            borderRadius: '99px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            backgroundColor: isRental ? '#fff7ed' : '#ecfeff',
+                            color: isRental ? '#c2410c' : '#0891b2',
+                            border: `1px solid ${isRental ? '#fed7aa' : '#a5f3fc'}`
+                          }}>
+                            {isRental ? 'Rental' : 'Owned'}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* 2. Category */}
@@ -1478,18 +1536,33 @@ export const AssetManagement: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="form-group" style={{ marginBottom: '14px' }}>
-                  <label className="form-label">Hardware Condition</label>
-                  <select 
-                    className="form-control" 
-                    value={addForm.condition} 
-                    onChange={e => setAddForm({ ...addForm, condition: e.target.value as any })}
-                  >
-                    <option value="New">New</option>
-                    <option value="Good">Good</option>
-                    <option value="Fair">Fair</option>
-                    <option value="Needs Repair">Needs Repair</option>
-                  </select>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Ownership Type *</label>
+                    <select 
+                      className="form-control" 
+                      value={addForm.ownership} 
+                      onChange={e => setAddForm({ ...addForm, ownership: e.target.value as any })}
+                      style={{ fontWeight: 600 }}
+                    >
+                      <option value="Owned">Owned (Company / VRM)</option>
+                      <option value="Rental">Rental / Leased</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Hardware Condition</label>
+                    <select 
+                      className="form-control" 
+                      value={addForm.condition} 
+                      onChange={e => setAddForm({ ...addForm, condition: e.target.value as any })}
+                    >
+                      <option value="New">New</option>
+                      <option value="Good">Good</option>
+                      <option value="Fair">Fair</option>
+                      <option value="Needs Repair">Needs Repair</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '10px' }}>
@@ -1661,6 +1734,31 @@ export const AssetManagement: React.FC = () => {
                       }}>
                         {showViewModal.condition}
                       </span>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Ownership Type
+                    </div>
+                    <div style={{ marginTop: '4px' }}>
+                      {(() => {
+                        const isRental = showViewModal.ownership === 'Rental' || String(showViewModal.notes || '').toLowerCase().includes('rent');
+                        return (
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '99px',
+                            display: 'inline-block',
+                            backgroundColor: isRental ? '#fff7ed' : '#ecfeff',
+                            color: isRental ? '#c2410c' : '#0891b2',
+                            border: `1px solid ${isRental ? '#fed7aa' : '#a5f3fc'}`
+                          }}>
+                            {isRental ? 'Rental / Leased' : 'Owned (Company / VRM)'}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1923,7 +2021,20 @@ export const AssetManagement: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Ownership Type</label>
+                    <select 
+                      className="form-control" 
+                      value={editForm.ownership} 
+                      onChange={e => setEditForm({ ...editForm, ownership: e.target.value as any })}
+                      style={{ fontWeight: 600 }}
+                    >
+                      <option value="Owned">Owned (VRM)</option>
+                      <option value="Rental">Rental</option>
+                    </select>
+                  </div>
+
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label">Hardware Condition</label>
                     <select 
