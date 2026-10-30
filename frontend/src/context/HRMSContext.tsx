@@ -11881,7 +11881,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (err) {
       console.warn('[HRMSContext] syncAllModulesFromDatabase notice:', err);
     } finally {
-      isSyncingFromCloud.current = false;
+      setTimeout(() => { isSyncingFromCloud.current = false; isCloudInitialized.current = true; }, 150);
       isCloudInitialized.current = true;
     }
   };

@@ -571,6 +571,38 @@ describe('BUSINZ HRMS — Mandatory Face Attendance, Shift Timing, Late Policy &
     expect(feCoarseInside500.canPunch).toBe(false);
     expect(feCoarseInside500.errorCode).toBe('LOW_GPS_ACCURACY');
 
+    // 3. Exact production office scenario (Distance: 88m / 500m, Accuracy: ±104m, isAuthorizedFieldDuty = false)
+    const isAuthorizedFieldDuty = false;
+    const dbFieldDuty = { authorized: false, latitude: undefined as number | undefined, longitude: undefined as number | undefined };
+    const geofence = { latitude: OFFICE.lat, longitude: OFFICE.lng, radiusMeters: 500, officeName: OFFICE.name };
+    const rawFieldLat =
+      isAuthorizedFieldDuty && typeof dbFieldDuty.latitude === 'number' && dbFieldDuty.latitude !== 0
+        ? dbFieldDuty.latitude
+        : undefined;
+    const rawFieldLng =
+      isAuthorizedFieldDuty && typeof dbFieldDuty.longitude === 'number' && dbFieldDuty.longitude !== 0
+        ? dbFieldDuty.longitude
+        : undefined;
+    const targetOfficeLat = rawFieldLat ?? geofence.latitude;
+    const targetOfficeLng = rawFieldLng ?? geofence.longitude;
+    expect(targetOfficeLat).toBe(OFFICE.lat);
+    expect(targetOfficeLng).toBe(OFFICE.lng);
+
+    const office88m = offsetMetersNorth(OFFICE.lat, OFFICE.lng, 88);
+    const punchVerify88m = verifyPunchGeofence({
+      userLat: office88m.lat,
+      userLng: office88m.lng,
+      officeLat: targetOfficeLat,
+      officeLng: targetOfficeLng,
+      radiusMeters: 500,
+      accuracyMeters: 104,
+      locationTimestamp: new Date().toISOString(),
+      officeName: OFFICE.name,
+    });
+    expect(punchVerify88m.valid).toBe(true);
+    expect(punchVerify88m.evaluation?.classification).toBe('INSIDE');
+    expect(punchVerify88m.evaluation?.canPunch).toBe(true);
+
     const outside500 = backendEvaluateBoundary(620, 500, 18, OFFICE.name);
     expect(outside500.classification).toBe('OUTSIDE');
     expect(outside500.canPunch).toBe(false);

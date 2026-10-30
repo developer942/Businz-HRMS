@@ -190,13 +190,13 @@ export function evaluateGeofenceBoundary(
   const R = Math.round(radiusMeters);
   const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
 
-  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 150m max accuracy
-  // so coarse cell-tower fixes (e.g. ±250m) are never accepted simply because D + A <= R.
+  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 225m (R * 0.45) max accuracy
+  // so indoor office fixes (±100m–225m) are accepted while coarse cell-tower fixes (e.g. ±250m+) are rejected.
   const effectiveMaxAccuracy =
     maxAccuracyMeters !== undefined && Number.isFinite(maxAccuracyMeters) && maxAccuracyMeters > 0
       ? maxAccuracyMeters
       : R >= 400
-        ? 150
+        ? Math.round(R * 0.45)
         : undefined;
 
   if (effectiveMaxAccuracy !== undefined && A > effectiveMaxAccuracy) {
@@ -635,7 +635,7 @@ export async function acquireHighAccuracyGps(
           ctx.centerLat,
           ctx.centerLng
         );
-        return evaluateGeofenceBoundary(dist, ctx.radiusMeters, reading.accuracy).classification;
+        return evaluateGeofenceBoundary(dist, ctx.radiusMeters, reading.accuracy, 'Office', ctx.maxAccuracyMeters ?? options.maxAccuracyMeters).classification;
       }
       return null;
     };
@@ -717,7 +717,7 @@ export async function acquireHighAccuracyGps(
       if (settleTimer === null) {
         const classification = evaluateReadingBoundary(activeBest);
         if (classification === 'INSIDE') {
-          const settleWindowMs = activeBest.accuracy <= acceptableAccuracyMeters ? 350 : 1200;
+          const settleWindowMs = activeBest.accuracy <= acceptableAccuracyMeters ? 120 : 250;
           settleTimer = setTimeout(() => {
             if (!finished && requestSeq === activeRequestSequence && bestReading) {
               finishSuccess(bestReading);
@@ -1085,17 +1085,60 @@ export async function requestFreshGpsPosition(
       });
 
       const directFix = await new Promise<GeolocationPosition>((resolve, reject) => {
+        let settled = false;
+        let indoorFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+        const clearStageATimers = () => {
+          clearTimeout(timer);
+          if (indoorFallbackTimer !== null) {
+            clearTimeout(indoorFallbackTimer);
+            indoorFallbackTimer = null;
+          }
+        };
         const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          clearStageATimers();
           reject({ code: 3, message: 'Stage A GPS acquisition timed out' });
         }, stageATimeoutMs + 100);
 
+        // If hardware satellite GNSS stalls indoors under a roof for >2.2s, query fresh Wi-Fi/5G fused location in parallel
+        if (stageATimeoutMs >= 3000) {
+          indoorFallbackTimer = setTimeout(() => {
+            if (settled || activeRequestSequence >= stageSeq) return;
+            try {
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  if (settled) return;
+                  settled = true;
+                  clearStageATimers();
+                  resolve(pos);
+                },
+                () => {
+                  // Let primary high-accuracy request or deadline timer decide
+                },
+                {
+                  enableHighAccuracy: false,
+                  maximumAge: 0,
+                  timeout: Math.max(1500, stageATimeoutMs - 2200)
+                }
+              );
+            } catch {
+              // Ignore
+            }
+          }, 2200);
+        }
+
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            clearTimeout(timer);
+            if (settled) return;
+            settled = true;
+            clearStageATimers();
             resolve(pos);
           },
           (err) => {
-            clearTimeout(timer);
+            if (settled) return;
+            settled = true;
+            clearStageATimers();
             reject(err);
           },
           {

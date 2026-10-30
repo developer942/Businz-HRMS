@@ -632,7 +632,7 @@ export const supabaseDirect = {
    */
   async getAllCompanySettings(): Promise<Record<string, any>> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val&setting_key=neq.face_logs_data`, {
         headers: getHeaders(),
       });
       if (!res.ok) {

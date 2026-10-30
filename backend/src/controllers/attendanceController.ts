@@ -119,18 +119,14 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
     const normalizedType: 'IN' | 'OUT' =
       validated.type === 'OUT' || validated.type === 'Check-Out' ? 'OUT' : 'IN';
 
-    const [geofence, preloadedEmployee] = await Promise.all([
+    const [geofence, preloadedEmployee, dbFieldDuty] = await Promise.all([
       isGpsOrFacePunch && !isCeo
         ? settingsRepository.getGeofenceSettings()
         : Promise.resolve(null),
       employeeRepository.getEmployeeById(targetEmpId),
+      attendanceRepository.getTodayFieldDutyAssignment(targetEmpId),
     ]);
 
-    // Check if employee has an approved Field Duty assignment in PostgreSQL for today
-    const dbFieldDuty = await attendanceRepository.getTodayFieldDutyAssignment(
-      targetEmpId,
-      preloadedEmployee?.id
-    );
     const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized || dbFieldDuty.authorized);
 
     if (isGpsOrFacePunch && !isCeo) {
@@ -189,18 +185,21 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
               : 0;
 
         // If Field Duty has specific site coordinates, evaluate against site or allow field duty with accuracy check
-        const targetOfficeLat = Number(
-          (isAuthorizedFieldDuty && dbFieldDuty.latitude) ??
-            geofence?.latitude ??
-            (geofence as any)?.centerLat ??
-            13.15166
-        );
-        const targetOfficeLng = Number(
-          (isAuthorizedFieldDuty && dbFieldDuty.longitude) ??
-            geofence?.longitude ??
-            (geofence as any)?.centerLng ??
-            80.208618
-        );
+        const rawFieldLat =
+          isAuthorizedFieldDuty && typeof dbFieldDuty.latitude === 'number' && dbFieldDuty.latitude !== 0
+            ? dbFieldDuty.latitude
+            : undefined;
+        const rawFieldLng =
+          isAuthorizedFieldDuty && typeof dbFieldDuty.longitude === 'number' && dbFieldDuty.longitude !== 0
+            ? dbFieldDuty.longitude
+            : undefined;
+        const rawGeoLat = Number(geofence?.latitude ?? (geofence as any)?.centerLat ?? 0);
+        const rawGeoLng = Number(geofence?.longitude ?? (geofence as any)?.centerLng ?? 0);
+
+        const targetOfficeLat =
+          rawFieldLat ?? (Number.isFinite(rawGeoLat) && rawGeoLat !== 0 ? rawGeoLat : 13.15166);
+        const targetOfficeLng =
+          rawFieldLng ?? (Number.isFinite(rawGeoLng) && rawGeoLng !== 0 ? rawGeoLng : 80.208618);
         const targetOfficeName =
           (isAuthorizedFieldDuty && dbFieldDuty.locationName) ||
           geofence?.officeName ||

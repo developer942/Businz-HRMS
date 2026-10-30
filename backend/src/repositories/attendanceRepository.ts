@@ -110,24 +110,35 @@ export class AttendanceRepository {
     };
   }
 
+  private cachedCompanyTimezone: { tz: string; expiresAt: number } | null = null;
+
   /**
    * Resolves the company-configured timezone from PostgreSQL company_settings,
    * defaulting to 'Asia/Kolkata'.
    */
   async getCompanyTimezone(): Promise<string> {
+    if (this.cachedCompanyTimezone && Date.now() < this.cachedCompanyTimezone.expiresAt) {
+      return this.cachedCompanyTimezone.tz;
+    }
     try {
-      const res = await query<{ setting_val: any }>(
-        `SELECT setting_val FROM public.company_settings WHERE setting_key IN ('company_info', 'attendance_rules') LIMIT 2`
+      const res = await query<{ tz: string | null }>(
+        `SELECT COALESCE(setting_val->>'timezone', setting_val->>'timeZone') AS tz
+         FROM public.company_settings
+         WHERE setting_key IN ('company_info', 'attendance_rules')
+         LIMIT 2`
       );
       for (const row of res.rows) {
-        const tz = row?.setting_val?.timezone || row?.setting_val?.timeZone;
+        const tz = row?.tz;
         if (typeof tz === 'string' && tz.trim()) {
-          return tz.trim();
+          const resolved = tz.trim();
+          this.cachedCompanyTimezone = { tz: resolved, expiresAt: Date.now() + 60_000 };
+          return resolved;
         }
       }
     } catch {
       // Fallback to Asia/Kolkata
     }
+    this.cachedCompanyTimezone = { tz: DEFAULT_COMPANY_TIMEZONE, expiresAt: Date.now() + 60_000 };
     return DEFAULT_COMPANY_TIMEZONE;
   }
 
@@ -208,36 +219,43 @@ export class AttendanceRepository {
     const targetDate = dateStr || toDateStr(toTimezoneWallClockDate(new Date(), timeZone));
 
     // 1. Check PostgreSQL field_duty_assignments table
-    if (employeeUuid) {
-      try {
-        const res = await query<{
-          location_name: string;
-          latitude: number;
-          longitude: number;
-          radius_meters: number;
-          status: string;
-        }>(
-          `SELECT location_name, latitude, longitude, radius_meters, status
-           FROM public.field_duty_assignments
-           WHERE employee_id = $1
-             AND assigned_date = $2::date
-             AND LOWER(status) NOT IN ('cancelled', 'rejected')
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          [employeeUuid, targetDate]
-        );
-        if (res.rows[0]) {
-          return {
-            authorized: true,
-            locationName: res.rows[0].location_name || 'Authorized Field Duty Site',
-            latitude: Number(res.rows[0].latitude) || undefined,
-            longitude: Number(res.rows[0].longitude) || undefined,
-            radiusMeters: Number(res.rows[0].radius_meters) || 500,
-          };
-        }
-      } catch {
-        // Ignore if table not queried
+    try {
+      const res = await query<{
+        location_name: string;
+        latitude: number;
+        longitude: number;
+        radius_meters: number;
+        status: string;
+      }>(
+        employeeUuid
+          ? `SELECT location_name, latitude, longitude, radius_meters, status
+             FROM public.field_duty_assignments
+             WHERE employee_id = $1
+               AND assigned_date = $2::date
+               AND LOWER(status) NOT IN ('cancelled', 'rejected')
+             ORDER BY created_at DESC
+             LIMIT 1`
+          : `SELECT f.location_name, f.latitude, f.longitude, f.radius_meters, f.status
+             FROM public.field_duty_assignments f
+             JOIN public.employees e ON e.id = f.employee_id
+             WHERE (LOWER(e.employee_id) = LOWER($1) OR e.id::text = $1)
+               AND f.assigned_date = $2::date
+               AND LOWER(f.status) NOT IN ('cancelled', 'rejected')
+             ORDER BY f.created_at DESC
+             LIMIT 1`,
+        [employeeUuid || String(employeeId || '').trim(), targetDate]
+      );
+      if (res.rows[0]) {
+        return {
+          authorized: true,
+          locationName: res.rows[0].location_name || 'Authorized Field Duty Site',
+          latitude: Number(res.rows[0].latitude) || undefined,
+          longitude: Number(res.rows[0].longitude) || undefined,
+          radiusMeters: Number(res.rows[0].radius_meters) || 500,
+        };
       }
+    } catch {
+      // Ignore if table not queried
     }
 
     // 2. Check company_settings ('field_assignments_data', 'field_assignments')
@@ -864,7 +882,29 @@ export class AttendanceRepository {
       };
     }
 
-    // Verify employee exists and is active in PostgreSQL
+    // Verify employee exists and is active in PostgreSQL (reuse preloaded employee when available)
+    if (options && typeof options === 'object' && options.id && (options.employeeId || options.employee_id)) {
+      const statusLower = String(options.status || 'Active').toLowerCase();
+      const accUpper = String(options.accountStatus || options.account_status || 'ACTIVE').toUpperCase();
+      if (statusLower === 'terminated' || statusLower === 'inactive' || accUpper === 'DEACTIVATED') {
+        const msg = 'Employee account is inactive or terminated.';
+        return {
+          verified: false,
+          confidence: 0,
+          employeeId: options.employeeId || options.employee_id || employeeId,
+          timestamp,
+          reason: msg,
+          message: msg,
+        };
+      }
+      return {
+        verified: true,
+        confidence: 0.985,
+        employeeId: options.employeeId || options.employee_id || employeeId,
+        timestamp,
+      };
+    }
+
     try {
       const empRes = await query<{
         id: string;

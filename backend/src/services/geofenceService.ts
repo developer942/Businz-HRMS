@@ -128,13 +128,13 @@ export function evaluateGeofenceBoundary(
   const R = Math.round(radiusMeters);
   const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
 
-  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 150m max accuracy
-  // so coarse cell-tower fixes (e.g. ±250m) are never accepted simply because D + A <= R.
+  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 225m (R * 0.45) max accuracy
+  // so indoor office fixes (±100m–225m) are accepted while coarse cell-tower fixes (e.g. ±250m+) are rejected.
   const effectiveMaxAccuracy =
     maxAccuracyMeters !== undefined && Number.isFinite(maxAccuracyMeters) && maxAccuracyMeters > 0
       ? maxAccuracyMeters
       : R >= 400
-        ? 150
+        ? Math.round(R * 0.45)
         : undefined;
 
   if (effectiveMaxAccuracy !== undefined && A > effectiveMaxAccuracy) {

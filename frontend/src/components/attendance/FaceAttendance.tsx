@@ -405,6 +405,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const [lastGpsErrorCode, setLastGpsErrorCode] = useState<GpsErrorCode | null>(null);
   const [cameraAccessDenied, setCameraAccessDenied] = useState<boolean>(false);
   const [isLowLightCamera, setIsLowLightCamera] = useState<boolean>(false);
+  const activeGpsPromiseRef = useRef<Promise<any> | null>(null);
   const [gpsStatusDetails, setGpsStatusDetails] = useState<{
     verified: boolean;
     accuracy: number | null;
@@ -444,7 +445,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       const perm = await checkGpsPermissionState();
       if (perm !== 'unknown') setGpsPermissionState(perm);
 
-      const reading = await requestFreshGpsPosition({
+      const gpsTask = requestFreshGpsPosition({
         stageATimeoutMs: 8000,
         stageBTimeoutMs: 12000,
         desiredAccuracyMeters: 35,
@@ -463,6 +464,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           }
         }
       });
+      activeGpsPromiseRef.current = gpsTask;
+      const reading = await gpsTask;
 
       setGpsPermissionState('granted');
       const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
@@ -556,6 +559,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         }
       }
     } catch (err: any) {
+      if (punchInProgressRef.current || String(err?.message || '').includes('Obsolete GPS response')) {
+        return;
+      }
       setActivePunchGps(null);
       const errCode: GpsErrorCode = err instanceof GpsAcquisitionError ? err.code : 'POSITION_UNAVAILABLE';
       if (errCode === 'PERMISSION_DENIED') {
@@ -582,7 +588,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         });
       }
     } finally {
-      setGpsProgressMsg('');
+      activeGpsPromiseRef.current = null;
+      if (!punchInProgressRef.current) {
+        setGpsProgressMsg('');
+      }
       setIsRetryingLocation(false);
     }
   };
@@ -949,15 +958,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         ? Number((geofenceConfig as any).maxAccuracyMeters)
         : undefined;
 
-      // Fast Punch-In: if GPS was already verified within the last 45s, reuse that fresh verified fix immediately
+      // Fast Punch-In: if GPS was already verified within the last 60s, reuse that fresh verified fix immediately
       const hasFreshVerifiedGps = Boolean(
         activePunchGps &&
         gpsStatusDetails.verified &&
         typeof activePunchGps.timestamp === 'number' &&
-        Date.now() - activePunchGps.timestamp < 45000
+        Date.now() - activePunchGps.timestamp < 60000
       );
 
-      // Initiate camera readiness and two-stage GPS acquisition concurrently
+      // Initiate camera readiness and two-stage GPS acquisition concurrently (reusing any in-flight GPS request from mount)
       const [, reading] = await Promise.all([
         needsCameraInit
           ? startCameraStream()
@@ -989,26 +998,36 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               deviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory(),
               browserDeviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory()
             })
-          : requestFreshGpsPosition({
-              stageATimeoutMs: 8000,
-              stageBTimeoutMs: 12000,
-              desiredAccuracyMeters: 35,
-              acceptableAccuracyMeters: 65,
-              maxAccuracyMeters: maxAccuracyThreshold,
-              maxStaleAgeMs: 60000,
-              maxRetries: 1,
-              geofenceContext:
-                centerLat !== 0 && centerLng !== 0
-                  ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
-                  : undefined,
-              onProgress: (p) => {
-                if (p.phase === 'IMPROVING_ACCURACY' || (p.attempt > 1 && p.bestAccuracyMeters !== null)) {
-                  setGpsProgressMsg('Improving GPS Accuracy...');
-                } else {
-                  setGpsProgressMsg('Getting GPS Location...');
-                }
-              }
-            })
+          : activeGpsPromiseRef.current
+            ? activeGpsPromiseRef.current
+            : (() => {
+                const task = requestFreshGpsPosition({
+                  stageATimeoutMs: 8000,
+                  stageBTimeoutMs: 12000,
+                  desiredAccuracyMeters: 35,
+                  acceptableAccuracyMeters: 65,
+                  maxAccuracyMeters: maxAccuracyThreshold,
+                  maxStaleAgeMs: 60000,
+                  maxRetries: 1,
+                  geofenceContext:
+                    centerLat !== 0 && centerLng !== 0
+                      ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
+                      : undefined,
+                  onProgress: (p) => {
+                    if (p.phase === 'IMPROVING_ACCURACY' || (p.attempt > 1 && p.bestAccuracyMeters !== null)) {
+                      setGpsProgressMsg('Improving GPS Accuracy...');
+                    } else {
+                      setGpsProgressMsg('Getting GPS Location...');
+                    }
+                  }
+                });
+                activeGpsPromiseRef.current = task;
+                return task.finally(() => {
+                  if (activeGpsPromiseRef.current === task) {
+                    activeGpsPromiseRef.current = null;
+                  }
+                });
+              })()
       ]);
       setGpsPermissionState('granted');
 
