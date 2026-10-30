@@ -1538,15 +1538,15 @@ export const AssetManagement: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">Ownership Type *</label>
+                    <label className="form-label">Ownership <span style={{ color: '#EF4444' }}>*</span></label>
                     <select 
                       className="form-control" 
                       value={addForm.ownership} 
                       onChange={e => setAddForm({ ...addForm, ownership: e.target.value as any })}
                       style={{ fontWeight: 600 }}
                     >
-                      <option value="Owned">Owned (Company / VRM)</option>
-                      <option value="Rental">Rental / Leased</option>
+                      <option value="Owned">Owned</option>
+                      <option value="Rental">Rental</option>
                     </select>
                   </div>
 
@@ -1739,7 +1739,7 @@ export const AssetManagement: React.FC = () => {
 
                   <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                      Ownership Type
+                      Ownership
                     </div>
                     <div style={{ marginTop: '4px' }}>
                       {(() => {
@@ -1755,7 +1755,7 @@ export const AssetManagement: React.FC = () => {
                             color: isRental ? '#c2410c' : '#0891b2',
                             border: `1px solid ${isRental ? '#fed7aa' : '#a5f3fc'}`
                           }}>
-                            {isRental ? 'Rental / Leased' : 'Owned (Company / VRM)'}
+                            {isRental ? 'Rental' : 'Owned'}
                           </span>
                         );
                       })()}
@@ -2023,14 +2023,14 @@ export const AssetManagement: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">Ownership Type</label>
+                    <label className="form-label">Ownership</label>
                     <select 
                       className="form-control" 
                       value={editForm.ownership} 
                       onChange={e => setEditForm({ ...editForm, ownership: e.target.value as any })}
                       style={{ fontWeight: 600 }}
                     >
-                      <option value="Owned">Owned (VRM)</option>
+                      <option value="Owned">Owned</option>
                       <option value="Rental">Rental</option>
                     </select>
                   </div>
