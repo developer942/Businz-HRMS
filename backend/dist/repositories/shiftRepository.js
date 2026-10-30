@@ -1,10 +1,11 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { query } from '../config/database.js';
 import { REQUEST_REASON_ERROR_MESSAGE, validateRequestReason } from '../utils/requestValidation.js';
 export const buildShiftAssignmentSummary = (shifts, assignmentRows, companyId, businessDate, scope) => {
     const currentByEmployee = new Map();
     for (const row of assignmentRows) {
         const employee = Array.isArray(row.employee) ? row.employee[0] : row.employee;
-        if (!employee || row.company_id && row.company_id !== companyId || employee.company_id && employee.company_id !== companyId)
+        if (!employee || (row.company_id && row.company_id !== companyId) || (employee.company_id && employee.company_id !== companyId))
             continue;
         if (String(employee.status || '').toLowerCase() !== 'active')
             continue;
@@ -37,7 +38,7 @@ export const buildShiftAssignmentSummary = (shifts, assignmentRows, companyId, b
         });
         byShift.set(row.shift_id, employees);
     }
-    return shifts.map(shift => {
+    return shifts.map((shift) => {
         const employees = Array.from(byShift.get(shift.id)?.values() || []).sort((a, b) => a.employeeId.localeCompare(b.employeeId));
         return { shiftId: shift.id, shiftName: shift.shift_name, count: employees.length, employees };
     });
@@ -120,45 +121,205 @@ export class ShiftRepository {
         if (!reasonValidation.valid)
             throw new Error(reasonValidation.error || REQUEST_REASON_ERROR_MESSAGE);
         const requests = await this.getShiftRequests();
-        const index = requests.findIndex(request => request.id === id && request.employeeId === employeeId && request.status === 'Pending');
+        const index = requests.findIndex((request) => request.id === id && request.employeeId === employeeId && request.status === 'Pending');
         if (index < 0)
             return null;
         requests[index] = { ...requests[index], reason: reasonValidation.value, updatedAt: new Date().toISOString() };
         await this.saveShiftRequests(requests);
         return requests[index];
     }
-    async getShifts(companyId = 'company-a') {
-        if (!isRealSupabaseConfigured()) {
-            return [];
-        }
+    async getShifts(companyId = 'company-a', businessDate = new Date().toISOString().slice(0, 10)) {
+        const byId = new Map();
+        // 1. Load shifts and active shift_assignments from PostgreSQL tables directly
         try {
-            const supabase = getSupabaseAdmin();
-            const { data: dbShifts, error } = await supabase
-                .from('shifts')
-                .select('*')
-                .eq('company_id', companyId)
-                .order('created_at', { ascending: true });
-            if (error)
-                throw new Error(`Could not load shifts: ${error.message}`);
-            if (dbShifts && dbShifts.length > 0) {
-                return dbShifts.map((s) => ({
-                    id: s.id,
-                    shiftName: s.name || s.shift_name || 'Shift',
-                    startTime: s.start_time || '09:00',
-                    endTime: s.end_time || '18:00',
+            const dbShiftsRes = await query(`SELECT id, shift_name, start_time, end_time, break_duration_mins, working_hours, grace_period_mins, color
+         FROM public.shifts
+         WHERE company_id = $1 OR company_id IS NULL
+         ORDER BY created_at ASC`, [companyId]);
+            for (const s of dbShiftsRes.rows) {
+                byId.set(String(s.id), {
+                    id: String(s.id),
+                    shiftName: String(s.shift_name || s.name || 'Shift'),
+                    startTime: String(s.start_time || '09:00').slice(0, 5),
+                    endTime: String(s.end_time || '18:00').slice(0, 5),
                     breakDurationMins: Number(s.break_duration_mins) || 45,
                     workingHours: Number(s.working_hours) || 8.0,
-                    gracePeriodMins: Number(s.grace_period_mins) || 15,
-                    color: s.color || '#0E7490',
+                    gracePeriodMins: Number(s.grace_period_mins) || 40,
+                    color: String(s.color || '#0E7490'),
                     assignedEmployeeCount: 0,
                     assignments: [],
-                }));
+                });
+            }
+            // Load active shift_assignments for businessDate
+            const assignRes = await query(`SELECT sa.shift_id, sa.employee_id AS emp_uuid, e.employee_id AS emp_code, sa.effective_from, sa.effective_to
+         FROM public.shift_assignments sa
+         LEFT JOIN public.employees e ON e.id = sa.employee_id
+         WHERE (sa.company_id = $1 OR sa.company_id IS NULL)
+           AND sa.effective_from <= $2::date
+           AND (sa.effective_to IS NULL OR sa.effective_to >= $2::date)
+         ORDER BY sa.effective_from DESC, sa.updated_at DESC NULLS LAST`, [companyId, businessDate]);
+            // Keep only the latest effective assignment per employee
+            const latestShiftByEmp = new Map();
+            for (const row of assignRes.rows) {
+                const empUuid = String(row.emp_uuid || '');
+                if (!empUuid || latestShiftByEmp.has(empUuid))
+                    continue;
+                latestShiftByEmp.set(empUuid, {
+                    shiftId: String(row.shift_id),
+                    empCode: row.emp_code ? String(row.emp_code) : undefined,
+                    empUuid,
+                });
+            }
+            for (const { shiftId, empCode, empUuid } of latestShiftByEmp.values()) {
+                const targetShift = byId.get(shiftId);
+                if (targetShift) {
+                    const list = new Set(targetShift.assignments || []);
+                    if (empCode)
+                        list.add(empCode);
+                    if (empUuid)
+                        list.add(empUuid);
+                    targetShift.assignments = Array.from(list);
+                    targetShift.assignedEmployeeCount = list.size;
+                }
             }
         }
-        catch (err) {
-            console.warn('Database error in getShifts:', err);
+        catch (pgErr) {
+            // Fallback to Supabase REST if direct pg pool fails
+            if (isRealSupabaseConfigured()) {
+                try {
+                    const supabase = getSupabaseAdmin();
+                    const { data: dbShifts } = await supabase
+                        .from('shifts')
+                        .select('*')
+                        .eq('company_id', companyId)
+                        .order('created_at', { ascending: true });
+                    for (const s of dbShifts || []) {
+                        byId.set(String(s.id), {
+                            id: String(s.id),
+                            shiftName: s.name || s.shift_name || 'Shift',
+                            startTime: String(s.start_time || '09:00').slice(0, 5),
+                            endTime: String(s.end_time || '18:00').slice(0, 5),
+                            breakDurationMins: Number(s.break_duration_mins) || 45,
+                            workingHours: Number(s.working_hours) || 8.0,
+                            gracePeriodMins: Number(s.grace_period_mins) || 40,
+                            color: s.color || '#0E7490',
+                            assignedEmployeeCount: 0,
+                            assignments: [],
+                        });
+                    }
+                }
+                catch (err) {
+                    console.warn('Database error in getShifts fallback:', err);
+                }
+            }
         }
-        return [];
+        // 2. Also merge shifts & assignments stored in company_settings ('shifts_vps_data', 'shifts_data')
+        try {
+            const settingsRes = await query(`SELECT setting_key, setting_val
+         FROM public.company_settings
+         WHERE setting_key IN ('shifts_vps_data', 'shifts_data')
+         ORDER BY CASE WHEN setting_key = 'shifts_vps_data' THEN 0 ELSE 1 END`);
+            for (const row of settingsRes.rows) {
+                const val = row?.setting_val;
+                if (!Array.isArray(val))
+                    continue;
+                for (const rawShift of val) {
+                    if (!rawShift || typeof rawShift !== 'object')
+                        continue;
+                    const sId = String(rawShift.id || '');
+                    const sName = String(rawShift.shiftName || rawShift.name || 'Shift');
+                    if (!sId && !sName)
+                        continue;
+                    // Extract assigned employee IDs from rawShift.assignments
+                    const extractedEmpIds = [];
+                    if (Array.isArray(rawShift.assignments)) {
+                        for (const a of rawShift.assignments) {
+                            if (typeof a === 'string' && a.trim()) {
+                                extractedEmpIds.push(a.trim());
+                            }
+                            else if (a && typeof a === 'object' && a.employeeId) {
+                                // Check if upcoming shift is already effective on businessDate
+                                if (a.upcomingShift && a.upcomingShift.effectiveDate && a.upcomingShift.effectiveDate <= businessDate) {
+                                    continue; // Transferred to upcomingShift.shiftId
+                                }
+                                if (!a.status || a.status === 'ACTIVE') {
+                                    extractedEmpIds.push(String(a.employeeId).trim());
+                                }
+                            }
+                        }
+                    }
+                    // Match by ID or by shiftName
+                    let existing = byId.get(sId);
+                    if (!existing) {
+                        existing = Array.from(byId.values()).find((item) => item.shiftName.trim().toLowerCase() === sName.trim().toLowerCase());
+                    }
+                    if (existing) {
+                        const mergedAssign = new Set([...(existing.assignments || []), ...extractedEmpIds]);
+                        existing.assignments = Array.from(mergedAssign);
+                        existing.assignedEmployeeCount = existing.assignments.length;
+                        if (rawShift.startTime)
+                            existing.startTime = String(rawShift.startTime).slice(0, 5);
+                        if (rawShift.endTime)
+                            existing.endTime = String(rawShift.endTime).slice(0, 5);
+                        if (rawShift.gracePeriodMins !== undefined)
+                            existing.gracePeriodMins = Number(rawShift.gracePeriodMins);
+                    }
+                    else if (sId) {
+                        byId.set(sId, {
+                            id: sId,
+                            shiftName: sName,
+                            startTime: String(rawShift.startTime || '09:00').slice(0, 5),
+                            endTime: String(rawShift.endTime || '18:00').slice(0, 5),
+                            breakDurationMins: Number(rawShift.breakDurationMins) || 45,
+                            workingHours: Number(rawShift.workingHours) || 8.0,
+                            gracePeriodMins: Number(rawShift.gracePeriodMins) || 40,
+                            color: String(rawShift.color || '#0E7490'),
+                            assignedEmployeeCount: extractedEmpIds.length,
+                            assignments: extractedEmpIds,
+                        });
+                    }
+                }
+            }
+        }
+        catch {
+            // Ignore if company_settings query fails
+        }
+        return Array.from(byId.values());
+    }
+    async resolveEmployeeShift(employee, businessDate = new Date().toISOString().slice(0, 10), companyId = 'company-a') {
+        const shifts = await this.getShifts(companyId, businessDate);
+        const empCode = String(employee.employeeId || '').trim();
+        const empUuid = String(employee.id || '').trim();
+        const empWorkShift = String(employee.workShift || '').trim();
+        // 1. Check explicit shift_assignments / assignments list on shifts
+        const byAssignment = shifts.find((s) => Array.isArray(s.assignments) &&
+            s.assignments.some((id) => id.toLowerCase() === empCode.toLowerCase() ||
+                (empUuid && id.toLowerCase() === empUuid.toLowerCase())));
+        if (byAssignment)
+            return byAssignment;
+        // 2. Check employee.workShift by exact ID or Shift Name
+        if (empWorkShift) {
+            const cleanWS = empWorkShift.toLowerCase();
+            const byExactWorkShift = shifts.find((s) => s.id.toLowerCase() === cleanWS ||
+                s.shiftName.trim().toLowerCase() === cleanWS);
+            if (byExactWorkShift)
+                return byExactWorkShift;
+            const byPartialWorkShift = shifts.find((s) => s.shiftName.toLowerCase().includes(cleanWS) ||
+                cleanWS.includes(s.shiftName.toLowerCase()));
+            if (byPartialWorkShift)
+                return byPartialWorkShift;
+        }
+        // 3. Fallback to first configured shift or default Day Shift (09:00 AM - 06:00 PM)
+        return (shifts[0] || {
+            id: 'SH-DEFAULT',
+            shiftName: 'General Shift (09:00 AM - 06:00 PM)',
+            startTime: '09:00',
+            endTime: '18:00',
+            breakDurationMins: 60,
+            workingHours: 8,
+            gracePeriodMins: 40,
+            color: '#0E7490',
+        });
     }
     async getShiftById(id, companyId = 'company-a') {
         if (!id)
@@ -170,16 +331,20 @@ export class ShiftRepository {
         if (!isRealSupabaseConfigured())
             throw new Error('Database is not configured');
         const supabase = getSupabaseAdmin();
-        const { data: row, error } = await supabase.from('shifts').insert({
+        const { data: row, error } = await supabase
+            .from('shifts')
+            .insert({
             company_id: companyId,
             shift_name: data.shiftName || 'Shift',
             start_time: data.startTime || '09:00',
             end_time: data.endTime || '18:00',
             break_duration_mins: data.breakDurationMins || 45,
             working_hours: data.workingHours || 8,
-            grace_period_mins: data.gracePeriodMins || 15,
+            grace_period_mins: data.gracePeriodMins || 40,
             color: data.color || '#0E7490',
-        }).select('*').single();
+        })
+            .select('*')
+            .single();
         if (error || !row)
             throw new Error(`Shift could not be saved: ${error?.message || 'No row returned'}`);
         return {
@@ -189,7 +354,7 @@ export class ShiftRepository {
             endTime: data.endTime || '18:00',
             breakDurationMins: data.breakDurationMins || 45,
             workingHours: data.workingHours || 8.0,
-            gracePeriodMins: data.gracePeriodMins || 15,
+            gracePeriodMins: data.gracePeriodMins || 40,
             color: data.color || '#0E7490',
             assignedEmployeeCount: 0,
             assignments: [],
@@ -212,7 +377,7 @@ export class ShiftRepository {
             .in('employee_id', employeeIds);
         if (employeeError)
             throw new Error(`Employee assignment lookup failed: ${employeeError.message}`);
-        const employeeDbIds = (employeeRows || []).map(employee => employee.id);
+        const employeeDbIds = (employeeRows || []).map((employee) => employee.id);
         const previousDate = new Date(`${effectiveFrom}T12:00:00`);
         previousDate.setDate(previousDate.getDate() - 1);
         const effectiveTo = previousDate.toISOString().slice(0, 10);
@@ -226,7 +391,9 @@ export class ShiftRepository {
                 .or(`effective_to.is.null,effective_to.gte.${effectiveFrom}`);
             if (closeError)
                 throw new Error(`Existing shift assignment could not be closed: ${closeError.message}`);
-            const { error: saveError } = await supabase.from('shift_assignments').upsert({
+            const { error: saveError } = await supabase
+                .from('shift_assignments')
+                .upsert({
                 company_id: companyId,
                 employee_id: employeeId,
                 shift_id: shiftId,

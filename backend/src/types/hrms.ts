@@ -63,9 +63,10 @@ export interface AttendanceLogRecord {
   checkIn?: string; // ISO or HH:mm
   checkOut?: string;
   workingHours: number;
-  status: 'Present' | 'Absent' | 'Late' | 'Half Day' | 'On Duty';
-  lateStatus?: 'On Time' | 'Grace Period' | 'Late Deduction';
-  method: 'Face Scan' | 'GPS Location' | 'Manual' | 'Biometric' | 'Field Duty';
+  status: 'Present' | 'Absent' | 'Late' | 'Half Day' | 'On Duty' | 'On Leave' | 'Work From Home';
+  lateStatus?: string;
+  lateDurationMinutes?: number;
+  method: 'Face Scan' | 'Face Recognition' | 'GPS Location' | 'Manual' | 'Biometric' | 'Field Duty';
   inGeofence: boolean;
   shiftId?: string;
   shiftDate?: string;
@@ -76,6 +77,11 @@ export interface AttendanceLogRecord {
   checkInPhoto?: string;
   checkOutPhoto?: string;
   createdAt?: string;
+  monthlyLateCount?: number;
+  allowedLateCount?: number;
+  penaltyType?: 'NONE' | 'WARNING' | 'HALF_DAY' | 'LOP';
+  deductionDays?: number;
+  warningMessage?: string | null;
 }
 
 export type AttendanceShiftState =
@@ -85,19 +91,48 @@ export type AttendanceShiftState =
   | 'COMPLETED'
   | 'WAITING_FOR_NEXT_SHIFT';
 
+export type ShiftWindowState = AttendanceShiftState;
+
 export interface ShiftWindowEvaluation {
-  employeeId: string;
+  employeeId?: string;
   state: AttendanceShiftState;
   assignedShift: ShiftRecord;
   shiftDate: string; // YYYY-MM-DD
   shiftStartDateTime: string;
   shiftEndDateTime: string;
-  checkInOpenDateTime: string;
+  earlyCheckInDateTime: string;
+  graceEndDateTime?: string;
+  checkInOpenDateTime?: string;
   canCheckIn: boolean;
   canCheckOut: boolean;
+  isWithinGrace?: boolean;
+  isLateCheckIn?: boolean;
   message: string;
-  countdownSeconds?: number;
+  countdownSeconds: number;
+  activeAttendance?: AttendanceLogRecord;
   todayRecord?: AttendanceLogRecord;
+  shiftStartDisplay?: string;
+  shiftEndDisplay?: string;
+  checkInOpenDisplay?: string;
+  gracePeriodMins?: number;
+  lateAfterDisplay?: string;
+  expectedStatus?: 'Present' | 'Late';
+  timeZone?: string;
+  isHoliday?: boolean;
+  holidayName?: string;
+  isOnApprovedLeave?: boolean;
+  leaveType?: string;
+  latePolicy?: {
+    id: string;
+    policyName: string;
+    graceTimeMinutes: number;
+    allowedLateCount: number;
+    warningSystemEnabled: boolean;
+    halfDayRuleEnabled: boolean;
+    halfDayThresholdCount: number;
+    lopRuleEnabled: boolean;
+    lopThresholdCount: number;
+  };
 }
 
 export interface AttendanceTodaySummary {

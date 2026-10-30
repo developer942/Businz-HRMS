@@ -1,7 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import { attendanceRepository } from '../repositories/attendanceRepository.js';
+import { attendanceRepository, AttendancePunchError } from '../repositories/attendanceRepository.js';
 import { auditRepository } from '../repositories/auditRepository.js';
 import { punchSchema, verifyFaceSchema, gpsDiagnosticSchema } from '../validators/attendanceValidators.js';
+import { settingsRepository } from '../repositories/settingsRepository.js';
+import { employeeRepository } from '../repositories/employeeRepository.js';
+import {
+  verifyPunchGeofence,
+  recordGpsDiagnostic,
+  getRecentGpsDiagnostics,
+} from '../services/geofenceService.js';
 
 export const getAttendanceLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -45,14 +52,6 @@ export const getAttendanceLogs = async (req: Request, res: Response, next: NextF
     next(err);
   }
 };
-
-import { settingsRepository } from '../repositories/settingsRepository.js';
-import { employeeRepository } from '../repositories/employeeRepository.js';
-import {
-  verifyPunchGeofence,
-  recordGpsDiagnostic,
-  getRecentGpsDiagnostics,
-} from '../services/geofenceService.js';
 
 export const recordPunch = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -107,27 +106,44 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    // Server-side Geofence & GPS Accuracy Verification (Phase 3, 5, 6, 7, 8, 9)
+    // Server-side Geofence & GPS Accuracy Verification
     let isInsideGeofence = validated.inGeofence ?? true;
-    const isGpsOrFacePunch = !validated.method ||
+    const isGpsOrFacePunch =
+      !validated.method ||
       validated.method.toLowerCase().includes('gps') ||
       validated.method.toLowerCase().includes('face') ||
       validated.method.toLowerCase().includes('mobile') ||
-      validated.method.toLowerCase().includes('geofence');
+      validated.method.toLowerCase().includes('geofence') ||
+      validated.method.toLowerCase().includes('field');
 
-    const normalizedType: 'IN' | 'OUT' = (validated.type === 'OUT' || validated.type === 'Check-Out') ? 'OUT' : 'IN';
-    const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized);
+    const normalizedType: 'IN' | 'OUT' =
+      validated.type === 'OUT' || validated.type === 'Check-Out' ? 'OUT' : 'IN';
 
     const [geofence, preloadedEmployee] = await Promise.all([
-      isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty
+      isGpsOrFacePunch && !isCeo
         ? settingsRepository.getGeofenceSettings()
         : Promise.resolve(null),
       employeeRepository.getEmployeeById(targetEmpId),
     ]);
 
-    if (isGpsOrFacePunch && !isCeo && !isAuthorizedFieldDuty) {
-      if (geofence && (geofence.isEnabled || geofence.enabled)) {
-        const configuredRadius = Number(geofence.radiusMeters || 250);
+    // Check if employee has an approved Field Duty assignment in PostgreSQL for today
+    const dbFieldDuty = await attendanceRepository.getTodayFieldDutyAssignment(
+      targetEmpId,
+      preloadedEmployee?.id
+    );
+    const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized || dbFieldDuty.authorized);
+
+    if (isGpsOrFacePunch && !isCeo) {
+      const geofenceEnabled = Boolean(geofence && (geofence.isEnabled || (geofence as any).enabled));
+      if (geofenceEnabled || isAuthorizedFieldDuty) {
+        const configuredRadius = Number(
+          (isAuthorizedFieldDuty && dbFieldDuty.radiusMeters) || geofence?.radiusMeters || 250
+        );
+        const maxAccuracyMeters =
+          typeof (geofence as any)?.maxAccuracyMeters === 'number'
+            ? Number((geofence as any).maxAccuracyMeters)
+            : undefined;
+
         if (typeof validated.locationLat !== 'number' || typeof validated.locationLng !== 'number') {
           recordGpsDiagnostic({
             employeeCode: targetEmpId,
@@ -139,7 +155,8 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
             calculatedDistanceMeters: null,
             configuredRadiusMeters: configuredRadius,
             errorCode: 'INVALID_COORDINATES',
-            browserDeviceCategory: validated.browserDeviceCategory || String(req.headers['user-agent'] || 'Unknown').slice(0, 80),
+            browserDeviceCategory:
+              validated.browserDeviceCategory || String(req.headers['user-agent'] || 'Unknown').slice(0, 80),
             classification: 'N/A',
             sampleCount: validated.gpsSampleCount,
             retryCount: validated.gpsRetryCount,
@@ -155,34 +172,51 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
           return;
         }
 
-        // Freshness must be measured on ONE clock. `locationTimestamp` is stamped by the phone's clock,
-        // so comparing it with the server clock rejects every punch from a phone whose clock runs more
-        // than maxStaleSeconds (120s) slow ("Location reading was stale"), even for a 1-second-old fix.
-        // When the client supplies its own on-device age (same clock as the fix), derive the effective
-        // reading time from the server clock instead. Freshness is still enforced at 120s.
         const deviceMeasuredAgeMs =
           typeof validated.gpsReadingAgeMs === 'number' && Number.isFinite(validated.gpsReadingAgeMs)
             ? validated.gpsReadingAgeMs
             : null;
-        const freshnessTimestamp = deviceMeasuredAgeMs !== null
-          ? new Date(Date.now() - deviceMeasuredAgeMs).toISOString()
-          : validated.locationTimestamp;
+        const freshnessTimestamp =
+          deviceMeasuredAgeMs !== null
+            ? new Date(Date.now() - deviceMeasuredAgeMs).toISOString()
+            : validated.locationTimestamp;
 
-        const readingAgeMs = deviceMeasuredAgeMs !== null
-          ? deviceMeasuredAgeMs
-          : validated.locationTimestamp
-            ? Math.max(0, Date.now() - new Date(validated.locationTimestamp).getTime())
-            : 0;
+        const readingAgeMs =
+          deviceMeasuredAgeMs !== null
+            ? deviceMeasuredAgeMs
+            : validated.locationTimestamp
+              ? Math.max(0, Date.now() - new Date(validated.locationTimestamp).getTime())
+              : 0;
+
+        // If Field Duty has specific site coordinates, evaluate against site or allow field duty with accuracy check
+        const targetOfficeLat = Number(
+          (isAuthorizedFieldDuty && dbFieldDuty.latitude) ??
+            geofence?.latitude ??
+            (geofence as any)?.centerLat ??
+            13.15166
+        );
+        const targetOfficeLng = Number(
+          (isAuthorizedFieldDuty && dbFieldDuty.longitude) ??
+            geofence?.longitude ??
+            (geofence as any)?.centerLng ??
+            80.208618
+        );
+        const targetOfficeName =
+          (isAuthorizedFieldDuty && dbFieldDuty.locationName) ||
+          geofence?.officeName ||
+          'VRM Structures India Pvt Ltd';
 
         const geoResult = verifyPunchGeofence({
           userLat: validated.locationLat,
           userLng: validated.locationLng,
-          officeLat: Number(geofence.latitude ?? geofence.centerLat),
-          officeLng: Number(geofence.longitude ?? geofence.centerLng),
+          officeLat: targetOfficeLat,
+          officeLng: targetOfficeLng,
           radiusMeters: configuredRadius,
           accuracyMeters: validated.accuracyMeters,
+          maxAccuracyMeters,
           locationTimestamp: freshnessTimestamp,
-          officeName: geofence.officeName || 'VRM Structures India Pvt Ltd',
+          officeName: targetOfficeName,
+          fieldDutyAuthorized: isAuthorizedFieldDuty && !dbFieldDuty.latitude,
         });
 
         recordGpsDiagnostic({
@@ -199,7 +233,8 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
           calculatedDistanceMeters: geoResult.evaluation?.distanceMeters ?? null,
           configuredRadiusMeters: configuredRadius,
           errorCode: geoResult.evaluation?.errorCode || (geoResult.valid ? 'NONE' : 'INVALID_COORDINATES'),
-          browserDeviceCategory: validated.browserDeviceCategory || String(req.headers['user-agent'] || 'Unknown').slice(0, 80),
+          browserDeviceCategory:
+            validated.browserDeviceCategory || String(req.headers['user-agent'] || 'Unknown').slice(0, 80),
           classification: geoResult.evaluation?.classification || 'N/A',
           sampleCount: validated.gpsSampleCount,
           retryCount: validated.gpsRetryCount,
@@ -211,16 +246,21 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
             success: false,
             error: {
               code: isUncertain ? 'GPS_ACCURACY_INSUFFICIENT' : 'GEOFENCE_BREACH',
-              message: geoResult.evaluation?.userMessage || geoResult.error || 'Geofence boundary verification failed',
+              message:
+                geoResult.evaluation?.userMessage ||
+                geoResult.error ||
+                'Geofence boundary verification failed',
               reason: geoResult.error,
               evaluation: geoResult.evaluation,
               canRequestCorrection: Boolean(geoResult.evaluation?.canRequestCorrection),
-              details: geoResult.evaluation ? [
-                `Distance: ${geoResult.evaluation.distanceMeters}m`,
-                `Radius: ${geoResult.evaluation.radiusMeters}m`,
-                `Accuracy: ±${geoResult.evaluation.accuracyMeters}m`,
-                `Classification: ${geoResult.evaluation.classification}`,
-              ] : [],
+              details: geoResult.evaluation
+                ? [
+                    `Distance: ${geoResult.evaluation.distanceMeters}m`,
+                    `Radius: ${geoResult.evaluation.radiusMeters}m`,
+                    `Accuracy: ±${geoResult.evaluation.accuracyMeters}m`,
+                    `Classification: ${geoResult.evaluation.classification}`,
+                  ]
+                : [],
             },
           });
           return;
@@ -237,7 +277,11 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       if (!facePhoto || facePhoto.trim().length < 50) {
         res.status(422).json({
           success: false,
-          error: { code: 'FACE_CAPTURE_REQUIRED', message: 'A fresh face photograph is required for this punch.', details: [] },
+          error: {
+            code: 'FACE_CAPTURE_REQUIRED',
+            message: 'A fresh face photograph is required for this punch.',
+            details: [],
+          },
         });
         return;
       }
@@ -245,7 +289,11 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       if (!faceResult.verified) {
         res.status(422).json({
           success: false,
-          error: { code: 'FACE_VERIFICATION_FAILED', message: faceResult.message || 'Face verification failed.', details: [] },
+          error: {
+            code: 'FACE_VERIFICATION_FAILED',
+            message: faceResult.message || faceResult.reason || 'Face verification failed.',
+            details: [],
+          },
         });
         return;
       }
@@ -254,18 +302,28 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
     const punch = await attendanceRepository.recordPunch({
       ...validated,
       // Never allow a client-supplied clock to become the authoritative punch time.
-      timestamp: undefined,
       type: normalizedType,
       employeeId: targetEmpId,
       inGeofence: isInsideGeofence,
-      preloadedEmployee,
-    });
+      photoBase64: facePhoto,
+    } as any);
 
     res.status(201).json({
       success: true,
       data: punch,
     });
   } catch (err) {
+    if (err instanceof AttendancePunchError) {
+      res.status(err.statusCode).json({
+        success: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          details: [],
+        },
+      });
+      return;
+    }
     next(err);
   }
 };

@@ -195,6 +195,7 @@ import {
 } from '../services/attendanceCalculationEngine';
 import {
   evaluateShiftAttendance,
+  resolveEmployeeAssignedShift,
   ShiftWindowEvaluation
 } from '../services/shiftAttendanceEngine';
 import { formatTimeDisplay, formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../utils/dateUtils';
@@ -2205,6 +2206,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       department: currentUser.department,
     } as Employee);
 
+    const assignedShift = resolveEmployeeAssignedShift(emp, shifts);
+    const activePolicies = masterAttendancePolicies && masterAttendancePolicies.length > 0 ? masterAttendancePolicies : DEFAULT_MASTER_ATTENDANCE_POLICIES;
+    const effectiveLatePolicy = resolveEffectiveLatePolicy(emp, activePolicies, assignedShift?.id, assignedShift?.shiftName).policy;
+    const gracePeriodMinutes = effectiveLatePolicy?.graceTimeMinutes ?? effectiveLatePolicy?.gracePeriodMinutes ?? assignedShift?.gracePeriodMins ?? 40;
+
     return evaluateShiftAttendance({
       employee: emp,
       shifts,
@@ -2213,6 +2219,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       holidays: holidayPolicies,
       weeklySchedules,
       leaves: leaveRequests,
+      gracePeriodMinutes,
+      timeZone: (companyInfo as any)?.timezone || 'Asia/Kolkata'
     });
   };
 
@@ -3729,7 +3737,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setNotifications(prev => [newNote, ...prev]);
   };
 
-  const [masterAttendancePolicies, setMasterAttendancePolicies] = useState<AttendancePolicy[]>([]);
+  const [masterAttendancePolicies, setMasterAttendancePolicies] = useState<AttendancePolicy[]>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_master_attendance_policies_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_MASTER_ATTENDANCE_POLICIES;
+  });
 
   const [attendanceCorrections, setAttendanceCorrections] = useState<AttendanceCorrectionRequest[]>(INITIAL_ATTENDANCE_CORRECTIONS);
 
@@ -7063,11 +7080,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Calculate shift timing & late status
     const empShift = evalResult.assignedShift;
     const shiftStartMins = empShift ? parseTimeToMinutes(empShift.startTime) : 9 * 60; // 09:00 default
-    const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], empShift?.id, empShift?.shiftName).policy : null;
+    const activePolicies = (masterAttendancePolicies && masterAttendancePolicies.length > 0) ? masterAttendancePolicies : DEFAULT_MASTER_ATTENDANCE_POLICIES;
+    const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, activePolicies, empShift?.id, empShift?.shiftName).policy : activePolicies[0] || null;
     const graceMins = (
       effectiveLatePolicy?.graceTimeMinutes ?? 
       effectiveLatePolicy?.gracePeriodMinutes ?? 
-      (attendanceConfig?.lateGraceMinutes ?? 15)
+      (attendanceConfig?.lateGraceMinutes ?? 40)
     );
     const checkInMins = parseTimeToMinutes(nowTime);
 
@@ -11778,8 +11796,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         // Master Attendance Policies
-        if (hasSetting('master_attendance_policies_data') && Array.isArray(settings.master_attendance_policies_data)) {
-          setMasterAttendancePolicies(settings.master_attendance_policies_data);
+        const dbLatePolicies = Array.isArray(settings.master_attendance_policies_data) && settings.master_attendance_policies_data.length > 0
+          ? settings.master_attendance_policies_data
+          : (Array.isArray(settings.master_attendance_policies) && settings.master_attendance_policies.length > 0 ? settings.master_attendance_policies : null);
+        if (dbLatePolicies) {
+          setMasterAttendancePolicies(dbLatePolicies);
+          try {
+            localStorage.setItem('vrm_hrms_master_attendance_policies_persistent', JSON.stringify(dbLatePolicies));
+          } catch {}
         }
 
         // Master Leave Policies

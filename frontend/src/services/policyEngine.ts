@@ -227,6 +227,11 @@ export interface LateDeductionResult {
 /**
  * Checks if a policy applies to an employee based on company scope, department, designation, and assigned shift.
  */
+const isScopeListRestricted = (scope: unknown): scope is string[] => {
+  if (!Array.isArray(scope) || scope.length === 0) return false;
+  return !scope.some(item => String(item || '').trim().toUpperCase() === 'ALL');
+};
+
 export const isPolicyApplicableToLateEmployee = (
   policy: AttendancePolicy,
   employee: Employee,
@@ -236,22 +241,25 @@ export const isPolicyApplicableToLateEmployee = (
   if (!policy || policy.status !== 'Active') return false;
 
   // 1. Specific Employee restriction
-  if (Array.isArray(policy.applicableEmployees) && policy.applicableEmployees.length > 0) {
-    if (!policy.applicableEmployees.includes(employee.employeeId)) return false;
+  if (isScopeListRestricted(policy.applicableEmployees)) {
+    const empMatches =
+      policy.applicableEmployees.includes(employee.employeeId) ||
+      (employee.id && policy.applicableEmployees.includes(employee.id));
+    if (!empMatches) return false;
   }
 
   // 2. Department restriction
-  if (Array.isArray(policy.applicableDepartments) && policy.applicableDepartments.length > 0) {
+  if (isScopeListRestricted(policy.applicableDepartments)) {
     if (!policy.applicableDepartments.includes(employee.department)) return false;
   }
 
   // 3. Designation restriction
-  if (Array.isArray(policy.applicableDesignations) && policy.applicableDesignations.length > 0) {
+  if (isScopeListRestricted(policy.applicableDesignations)) {
     if (!employee.designation || !policy.applicableDesignations.includes(employee.designation)) return false;
   }
 
   // 4. Shift restriction (Multi-Shift Support)
-  if (Array.isArray(policy.applicableShifts) && policy.applicableShifts.length > 0) {
+  if (isScopeListRestricted(policy.applicableShifts)) {
     const shiftMatches = (empShiftId && policy.applicableShifts.includes(empShiftId)) ||
                          (empShiftName && policy.applicableShifts.includes(empShiftName));
     if (!shiftMatches) return false;
@@ -284,10 +292,10 @@ export const resolveEffectiveLatePolicy = (
   // Calculate precedence weight for each matching policy
   const scored = matching.map(p => {
     let score = 1; // Default company-wide 'ALL'
-    if (Array.isArray(p.applicableEmployees) && p.applicableEmployees.length > 0) score = 5;
-    else if (Array.isArray(p.applicableShifts) && p.applicableShifts.length > 0) score = 4;
-    else if (Array.isArray(p.applicableDesignations) && p.applicableDesignations.length > 0) score = 3;
-    else if (Array.isArray(p.applicableDepartments) && p.applicableDepartments.length > 0) score = 2;
+    if (isScopeListRestricted(p.applicableEmployees)) score = 5;
+    else if (isScopeListRestricted(p.applicableShifts)) score = 4;
+    else if (isScopeListRestricted(p.applicableDesignations)) score = 3;
+    else if (isScopeListRestricted(p.applicableDepartments)) score = 2;
     return { policy: p, score };
   });
 
@@ -453,7 +461,9 @@ export const evaluateAttendanceLateDeduction = (
   let halfDaysLateCount = 0;
   let lopDaysLateCount = 0;
 
-  const isNewPolicyConfigured = policy.allowedLateCount !== undefined || policy.halfDayRuleEnabled || policy.lopRuleEnabled;
+  const halfDayEnabled = Boolean(policy.halfDayRuleEnabled ?? (policy as any).halfDayTriggerEnabled ?? true);
+  const lopEnabled = Boolean(policy.lopRuleEnabled ?? (policy as any).lopTriggerEnabled ?? true);
+  const isNewPolicyConfigured = policy.allowedLateCount !== undefined || halfDayEnabled || lopEnabled;
 
   if (isNewPolicyConfigured) {
     // 7-Field Late Policy Engine: Evaluate late occurrences
@@ -472,8 +482,8 @@ export const evaluateAttendanceLateDeduction = (
         continue;
       }
 
-      const triggersLop = Boolean(policy.lopRuleEnabled && k >= lopThreshold);
-      const triggersHalfDay = Boolean(policy.halfDayRuleEnabled && k >= halfDayThreshold);
+      const triggersLop = Boolean(lopEnabled && k >= lopThreshold);
+      const triggersHalfDay = Boolean(halfDayEnabled && k >= halfDayThreshold);
 
       if (triggersLop) {
         lopDaysLateCount++;

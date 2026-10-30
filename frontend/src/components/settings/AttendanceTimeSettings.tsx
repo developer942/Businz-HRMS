@@ -210,25 +210,28 @@ export const AttendanceTimeSettings: React.FC = () => {
   const openEditPolicyModal = (p: AttendancePolicy) => {
     setEditingPolicy(p);
 
+    const isRestrictedList = (list: unknown): list is string[] =>
+      Array.isArray(list) && list.length > 0 && !list.some(item => String(item || '').toUpperCase() === 'ALL');
+
     let scope: 'ALL' | 'SHIFT' | 'DEPARTMENT' | 'DESIGNATION' | 'SPECIFIC' = 'ALL';
-    if (Array.isArray(p.applicableEmployees) && p.applicableEmployees.length > 0) scope = 'SPECIFIC';
-    else if (Array.isArray(p.applicableShifts) && p.applicableShifts.length > 0) scope = 'SHIFT';
-    else if (Array.isArray(p.applicableDesignations) && p.applicableDesignations.length > 0) scope = 'DESIGNATION';
-    else if (Array.isArray(p.applicableDepartments) && p.applicableDepartments.length > 0) scope = 'DEPARTMENT';
+    if (isRestrictedList(p.applicableEmployees)) scope = 'SPECIFIC';
+    else if (isRestrictedList(p.applicableShifts)) scope = 'SHIFT';
+    else if (isRestrictedList(p.applicableDesignations)) scope = 'DESIGNATION';
+    else if (isRestrictedList(p.applicableDepartments)) scope = 'DEPARTMENT';
 
     setFormState({
       policyName: p.policyName,
       applicableScope: scope,
-      applicableDepartments: Array.isArray(p.applicableDepartments) ? p.applicableDepartments : [],
-      applicableDesignations: Array.isArray(p.applicableDesignations) ? p.applicableDesignations : [],
-      applicableShifts: Array.isArray(p.applicableShifts) ? p.applicableShifts : [],
-      applicableEmployees: Array.isArray(p.applicableEmployees) ? p.applicableEmployees : [],
-      gracePeriodMinutes: p.graceTimeMinutes ?? 10,
+      applicableDepartments: isRestrictedList(p.applicableDepartments) ? p.applicableDepartments : [],
+      applicableDesignations: isRestrictedList(p.applicableDesignations) ? p.applicableDesignations : [],
+      applicableShifts: isRestrictedList(p.applicableShifts) ? p.applicableShifts : [],
+      applicableEmployees: isRestrictedList(p.applicableEmployees) ? p.applicableEmployees : [],
+      gracePeriodMinutes: p.graceTimeMinutes ?? 40,
       allowedLateCount: p.allowedLateCount ?? 3,
       warningSystemEnabled: p.warningSystemEnabled ?? true,
-      halfDayRuleEnabled: p.halfDayRuleEnabled ?? true,
+      halfDayRuleEnabled: p.halfDayRuleEnabled ?? (p as any).halfDayTriggerEnabled ?? true,
       halfDayThresholdCount: p.halfDayThresholdCount ?? 4,
-      lopRuleEnabled: p.lopRuleEnabled ?? true,
+      lopRuleEnabled: p.lopRuleEnabled ?? (p as any).lopTriggerEnabled ?? true,
       lopThresholdCount: p.lopThresholdCount ?? 6
     });
     setIsPolicyModalOpen(true);
@@ -247,12 +250,14 @@ export const AttendanceTimeSettings: React.FC = () => {
       applicableDepartments: (formState.applicableScope === 'DEPARTMENT' ? formState.applicableDepartments : 'ALL') as 'ALL' | string[],
       applicableDesignations: (formState.applicableScope === 'DESIGNATION' ? formState.applicableDesignations : 'ALL') as 'ALL' | string[],
       applicableShifts: (formState.applicableScope === 'SHIFT' ? formState.applicableShifts : 'ALL') as 'ALL' | string[],
-      graceTimeMinutes: Number(formState.gracePeriodMinutes) >= 0 ? Number(formState.gracePeriodMinutes) : 10,
+      graceTimeMinutes: Number(formState.gracePeriodMinutes) >= 0 ? Number(formState.gracePeriodMinutes) : 40,
       allowedLateCount: Number(formState.allowedLateCount) >= 0 ? Number(formState.allowedLateCount) : 3,
       warningSystemEnabled: Boolean(formState.warningSystemEnabled),
       halfDayRuleEnabled: Boolean(formState.halfDayRuleEnabled),
+      halfDayTriggerEnabled: Boolean(formState.halfDayRuleEnabled),
       halfDayThresholdCount: Number(formState.halfDayThresholdCount) || 4,
       lopRuleEnabled: Boolean(formState.lopRuleEnabled),
+      lopTriggerEnabled: Boolean(formState.lopRuleEnabled),
       lopThresholdCount: Number(formState.lopThresholdCount) || 6,
       status: (editingPolicy ? editingPolicy.status : 'Active') as 'Active' | 'Inactive'
     };

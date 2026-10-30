@@ -4,11 +4,16 @@ import {
   acquireHighAccuracyGps,
   acquireGpsWithBoundedRetry,
   cancelActiveGpsAcquisition,
+  checkGpsPermissionState,
+  clearCachedGpsReading,
   detectBrowserDeviceCategory,
   evaluateGeofenceBoundary,
+  getMobileLocationInstructions,
+  requestFreshGpsPosition,
   calculateHaversineMeters as calculateAccurateHaversine,
   prewarmGps,
-  GpsAcquisitionError
+  GpsAcquisitionError,
+  type GpsErrorCode
 } from '../../services/gpsAcquisitionService';
 import { 
   ScanFace, 
@@ -389,6 +394,161 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     radius: number;
     accuracy: number;
   } | null>(null);
+  const [gpsPermissionState, setGpsPermissionState] = useState<'granted' | 'prompt' | 'denied' | 'unknown'>('unknown');
+  const [isRetryingLocation, setIsRetryingLocation] = useState<boolean>(false);
+  const [lastGpsErrorCode, setLastGpsErrorCode] = useState<GpsErrorCode | null>(null);
+  const [cameraAccessDenied, setCameraAccessDenied] = useState<boolean>(false);
+  const [gpsStatusDetails, setGpsStatusDetails] = useState<{
+    verified: boolean;
+    accuracy: number | null;
+    distance: number | null;
+    radius: number;
+    classification: 'INSIDE' | 'OUTSIDE' | 'UNCERTAIN' | 'UNVERIFIED' | 'FIELD_DUTY';
+    errorCode: GpsErrorCode;
+    message: string;
+  }>({
+    verified: false,
+    accuracy: null,
+    distance: null,
+    radius: Number(geofenceConfig.radiusMeters) || 250,
+    classification: 'UNVERIFIED',
+    errorCode: 'NONE',
+    message: 'Tap Retry Location or Punch In to verify GPS'
+  });
+
+  // Refresh GPS permission status and verify fresh location on demand (Retry Location button)
+  const handleRetryLocation = async () => {
+    if (isRetryingLocation || isScanning) return;
+    setIsRetryingLocation(true);
+    setLastGpsErrorCode(null);
+    setUncertainContext(null);
+    setGpsProgressMsg('Requesting fresh GPS location...');
+
+    const centerLat = Number(geofenceConfig.centerLat) || 13.151660;
+    const centerLng = Number(geofenceConfig.centerLng) || 80.208618;
+    const radius = Number(geofenceConfig.radiusMeters) || 250;
+    const maxAccuracyThreshold = Number((geofenceConfig as any).maxAccuracyMeters) > 0
+      ? Number((geofenceConfig as any).maxAccuracyMeters)
+      : undefined;
+    const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
+    const isFieldDutyAuthorized = Boolean(fieldAssignment);
+
+    try {
+      const perm = await checkGpsPermissionState();
+      if (perm !== 'unknown') setGpsPermissionState(perm);
+
+      const reading = await requestFreshGpsPosition({
+        timeoutMs: 12000,
+        desiredAccuracyMeters: 35,
+        acceptableAccuracyMeters: 65,
+        maxStaleAgeMs: 60000,
+        maxRetries: 1,
+        geofenceContext: centerLat !== 0 && centerLng !== 0
+          ? { centerLat, centerLng, radiusMeters: radius }
+          : undefined,
+        onProgress: (p) => {
+          if (p.bestAccuracyMeters !== null) {
+            setGpsProgressMsg(`Getting Location (±${p.bestAccuracyMeters}m)`);
+          } else {
+            setGpsProgressMsg('Getting Location');
+          }
+        }
+      });
+
+      setGpsPermissionState('granted');
+      const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
+      const evaluation = evaluateGeofenceBoundary(
+        distance,
+        radius,
+        reading.accuracy,
+        geofenceConfig.officeName || 'HQ Office',
+        maxAccuracyThreshold
+      );
+
+      if (isFieldDutyAuthorized && reading.accuracy <= (maxAccuracyThreshold ?? 150)) {
+        setActivePunchGps({
+          latitude: reading.latitude,
+          longitude: reading.longitude,
+          accuracy: reading.accuracy,
+          address: `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`,
+          distance
+        });
+        setGpsStatusDetails({
+          verified: true,
+          accuracy: reading.accuracy,
+          distance,
+          radius,
+          classification: 'FIELD_DUTY',
+          errorCode: 'NONE',
+          message: `Field Duty Verified (±${Math.round(reading.accuracy)}m accuracy)`
+        });
+        setScanResult({
+          status: 'success',
+          message: `Field Duty GPS verified (±${Math.round(reading.accuracy)}m accuracy)`
+        });
+      } else if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
+        setActivePunchGps({
+          latitude: reading.latitude,
+          longitude: reading.longitude,
+          accuracy: reading.accuracy,
+          address: geofenceConfig.officeName || 'HQ Office',
+          distance
+        });
+        setGpsStatusDetails({
+          verified: true,
+          accuracy: reading.accuracy,
+          distance,
+          radius,
+          classification: 'INSIDE',
+          errorCode: 'NONE',
+          message: `Verified Inside Geofence (${Math.round(distance)}m from office, ±${Math.round(reading.accuracy)}m)`
+        });
+        setScanResult({
+          status: 'success',
+          message: `Location verified inside ${radius}m boundary (${Math.round(distance)}m, ±${Math.round(reading.accuracy)}m)`
+        });
+      } else {
+        setActivePunchGps(null);
+        setLastGpsErrorCode(evaluation.errorCode);
+        setGpsStatusDetails({
+          verified: false,
+          accuracy: reading.accuracy,
+          distance,
+          radius,
+          classification: evaluation.classification,
+          errorCode: evaluation.errorCode,
+          message: `${evaluation.userMessage} (${Math.round(distance)}m from office, ±${Math.round(reading.accuracy)}m)`
+        });
+        setScanResult({
+          status: 'error',
+          message: `${evaluation.userMessage} (${Math.round(distance)}m from office, ±${Math.round(reading.accuracy)}m accuracy)`
+        });
+      }
+    } catch (err: any) {
+      setActivePunchGps(null);
+      const errCode: GpsErrorCode = err instanceof GpsAcquisitionError ? err.code : 'POSITION_UNAVAILABLE';
+      if (errCode === 'PERMISSION_DENIED') {
+        setGpsPermissionState('denied');
+      }
+      setLastGpsErrorCode(errCode);
+      setGpsStatusDetails({
+        verified: false,
+        accuracy: err instanceof GpsAcquisitionError ? err.accuracyMeters : null,
+        distance: null,
+        radius,
+        classification: 'UNVERIFIED',
+        errorCode: errCode,
+        message: err?.message || 'Unable to verify GPS location.'
+      });
+      setScanResult({
+        status: 'error',
+        message: err?.message || 'Unable to verify GPS location. Please check permissions and retry.'
+      });
+    } finally {
+      setGpsProgressMsg('');
+      setIsRetryingLocation(false);
+    }
+  };
 
   // Sync canonical geofence configuration and auto-open front camera on mount (only in daily attendance mode)
   useEffect(() => {
@@ -419,6 +579,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       })
       .catch(() => {});
 
+    checkGpsPermissionState().then((perm) => {
+      if (mounted && perm !== 'unknown') setGpsPermissionState(perm);
+    }).catch(() => {});
     prewarmGps();
     startCameraStream().catch(() => {
       // Browser may require user gesture on Punch In / Punch Out tap
@@ -687,44 +850,49 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const isFieldDutyAuthorized = Boolean(fieldAssignment);
 
     try {
-      // Initiate camera readiness and GPS acquisition concurrently in one tap
+      setCameraAccessDenied(false);
+      setLastGpsErrorCode(null);
+      const maxAccuracyThreshold = Number((geofenceConfig as any).maxAccuracyMeters) > 0
+        ? Number((geofenceConfig as any).maxAccuracyMeters)
+        : undefined;
+
+      // Initiate camera readiness and mandatory high-accuracy GPS acquisition concurrently
       const [, reading] = await Promise.all([
         needsCameraInit
-          ? startCameraStream().then(() => {
-              setGpsProgressMsg('Getting Location');
-            })
+          ? startCameraStream()
+              .then(() => {
+                setCameraAccessDenied(false);
+                setGpsProgressMsg('Getting Location');
+              })
+              .catch((camErr: any) => {
+                setCameraAccessDenied(true);
+                throw new Error(
+                  camErr?.name === 'NotAllowedError' || camErr?.name === 'PermissionDeniedError'
+                    ? 'Camera access was denied. Please allow camera permission in your browser settings and retry.'
+                    : (camErr?.message || 'Camera access is required for Face Attendance.')
+                );
+              })
           : Promise.resolve(),
-        locationMode === 'real'
-          ? acquireGpsWithBoundedRetry({
-              timeoutMs: 12000,
-              desiredAccuracyMeters: 35,
-              acceptableAccuracyMeters: 65,
-              maxStaleAgeMs: 60000,
-              maxRetries: 1,
-              geofenceContext:
-                centerLat !== 0 && centerLng !== 0
-                  ? { centerLat, centerLng, radiusMeters: radius }
-                  : undefined,
-              onProgress: (p) => {
-                if (p.bestAccuracyMeters !== null) {
-                  setGpsProgressMsg(`Getting Location (±${p.bestAccuracyMeters}m)`);
-                } else {
-                  setGpsProgressMsg('Getting Location');
-                }
-              }
-            })
-          : Promise.resolve({
-              latitude: centerLat + (locationMode === 'outside' ? 0.006 : 0.00018),
-              longitude: centerLng + (locationMode === 'outside' ? 0.006 : 0.00015),
-              accuracy: 10,
-              timestamp: Date.now(),
-              readingAgeMs: 0,
-              sampleCount: 1,
-              durationMs: 50,
-              retryCount: 0,
-              browserDeviceCategory: detectBrowserDeviceCategory()
-            })
+        acquireGpsWithBoundedRetry({
+          timeoutMs: 12000,
+          desiredAccuracyMeters: 35,
+          acceptableAccuracyMeters: 65,
+          maxStaleAgeMs: 60000,
+          maxRetries: 1,
+          geofenceContext:
+            centerLat !== 0 && centerLng !== 0
+              ? { centerLat, centerLng, radiusMeters: radius }
+              : undefined,
+          onProgress: (p) => {
+            if (p.bestAccuracyMeters !== null) {
+              setGpsProgressMsg(`Getting Location (±${p.bestAccuracyMeters}m)`);
+            } else {
+              setGpsProgressMsg('Getting Location');
+            }
+          }
+        })
       ]);
+      setGpsPermissionState('granted');
 
       setIsRequestingPermissions(false);
       setGpsProgressMsg('Verifying');
@@ -734,7 +902,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         distance,
         radius,
         reading.accuracy,
-        geofenceConfig.officeName || 'HQ Office'
+        geofenceConfig.officeName || 'HQ Office',
+        maxAccuracyThreshold
       );
 
       if (geofenceConfig.enabled && !evaluation.canPunch && !isCEO && !isFieldDutyAuthorized) {
@@ -752,6 +921,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           browserDeviceCategory: reading.browserDeviceCategory,
           sampleCount: reading.sampleCount,
           retryCount: reading.retryCount
+        });
+
+        setActivePunchGps(null);
+        setLastGpsErrorCode(evaluation.errorCode);
+        setGpsStatusDetails({
+          verified: false,
+          accuracy: reading.accuracy,
+          distance,
+          radius,
+          classification: evaluation.classification,
+          errorCode: evaluation.errorCode,
+          message: `${evaluation.userMessage} (${Math.round(distance)}m from office, ±${Math.round(reading.accuracy)}m)`
         });
 
         if (evaluation.classification === 'UNCERTAIN') {
@@ -779,6 +960,17 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         distance
       };
       setActivePunchGps(gpsInfo);
+      setGpsStatusDetails({
+        verified: true,
+        accuracy: reading.accuracy,
+        distance,
+        radius,
+        classification: isFieldDutyAuthorized ? 'FIELD_DUTY' : 'INSIDE',
+        errorCode: 'NONE',
+        message: isFieldDutyAuthorized
+          ? `Field Duty Verified (±${Math.round(reading.accuracy)}m accuracy)`
+          : `Verified Inside Geofence (${Math.round(distance)}m from office, ±${Math.round(reading.accuracy)}m)`
+      });
 
       // Capture a fresh selfie from live front camera
       const capturedPhotoUrl = captureVideoFrame();
@@ -881,6 +1073,20 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     } catch (err: any) {
       console.error('Attendance punch error:', err);
       if (err instanceof GpsAcquisitionError) {
+        setActivePunchGps(null);
+        setLastGpsErrorCode(err.code);
+        if (err.code === 'PERMISSION_DENIED') {
+          setGpsPermissionState('denied');
+        }
+        setGpsStatusDetails({
+          verified: false,
+          accuracy: err.accuracyMeters,
+          distance: null,
+          radius,
+          classification: 'UNVERIFIED',
+          errorCode: err.code,
+          message: err.message
+        });
         reportClientGpsDiagnostic({
           employeeId: selectedEmpId,
           punchType: type === 'Check-In' ? 'IN' : 'OUT',
@@ -2297,6 +2503,239 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               )}
             </div>
 
+            {/* SHIFT TIMING, GRACE POLICY & GPS VERIFICATION STATUS PANEL */}
+            <div
+              data-testid="shift-policy-info-panel"
+              style={{
+                maxWidth: isMobileViewport ? '280px' : '360px',
+                margin: '10px auto 0',
+                padding: '10px 12px',
+                borderRadius: '12px',
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                textAlign: 'left',
+                fontSize: '0.74rem',
+                color: '#334155',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Clock size={13} color="#0e7490" />
+                  <span>{shiftEval.assignedShift?.shiftName?.replace(/\s*\([^)]*\)\s*$/, '') || 'Assigned Shift'}</span>
+                </span>
+                <span
+                  data-testid="shift-expected-status-badge"
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    backgroundColor: isCompletedToday
+                      ? '#dcfce7'
+                      : isCheckedIn
+                        ? (todayAttendance?.status === 'Late' ? '#fef3c7' : '#dcfce7')
+                        : !shiftEval.canCheckIn
+                          ? '#f1f5f9'
+                          : shiftEval.isLateCheckIn
+                            ? '#fef3c7'
+                            : '#ecfeff',
+                    color: isCompletedToday
+                      ? '#15803d'
+                      : isCheckedIn
+                        ? (todayAttendance?.status === 'Late' ? '#b45309' : '#15803d')
+                        : !shiftEval.canCheckIn
+                          ? '#475569'
+                          : shiftEval.isLateCheckIn
+                            ? '#b45309'
+                            : '#0e7490'
+                  }}
+                >
+                  {isCompletedToday
+                    ? 'Shift Completed'
+                    : isCheckedIn
+                      ? `Checked In (${todayAttendance?.status || 'Present'})`
+                      : !shiftEval.canCheckIn
+                        ? shiftEval.statusBadge
+                        : shiftEval.isLateCheckIn
+                          ? 'Late Check-In Window'
+                          : 'On-Time Window'}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px', fontSize: '0.72rem' }}>
+                <div>
+                  <span style={{ color: '#64748b' }}>Shift Time: </span>
+                  <strong data-testid="shift-start-end-display" style={{ color: '#0f172a' }}>
+                    {shiftEval.shiftStartDisplay} – {shiftEval.shiftEndDisplay}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ color: '#64748b' }}>Opens At: </span>
+                  <strong data-testid="shift-open-time-display" style={{ color: '#0e7490' }}>
+                    {shiftEval.checkInOpenDisplay}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ color: '#64748b' }}>Grace Policy: </span>
+                  <strong data-testid="shift-grace-mins-display" style={{ color: '#0f172a' }}>
+                    {shiftEval.gracePeriodMins} mins
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ color: '#64748b' }}>Late After: </span>
+                  <strong data-testid="shift-late-after-display" style={{ color: '#b45309' }}>
+                    {shiftEval.lateAfterDisplay}
+                  </strong>
+                </div>
+              </div>
+
+              {/* GPS Permission, Accuracy & Geofence Row */}
+              <div
+                data-testid="gps-geofence-status-panel"
+                style={{
+                  marginTop: '2px',
+                  paddingTop: '6px',
+                  borderTop: '1px dashed #cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  flexWrap: 'wrap'
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: '170px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                    <MapPin size={12} color={gpsStatusDetails.verified ? '#15803d' : gpsPermissionState === 'denied' ? '#dc2626' : '#0e7490'} />
+                    <span data-testid="gps-permission-badge" style={{ fontWeight: 700, color: '#0f172a' }}>
+                      GPS: {gpsPermissionState === 'granted' ? 'Allowed' : gpsPermissionState === 'denied' ? 'Blocked' : gpsPermissionState === 'prompt' ? 'Prompt Required' : 'Ready'}
+                    </span>
+                    <span
+                      data-testid="gps-verification-badge"
+                      style={{
+                        padding: '1px 6px',
+                        borderRadius: '9999px',
+                        fontSize: '0.66rem',
+                        fontWeight: 700,
+                        backgroundColor: gpsStatusDetails.verified
+                          ? '#dcfce7'
+                          : gpsStatusDetails.classification === 'OUTSIDE' || gpsPermissionState === 'denied'
+                            ? '#fee2e2'
+                            : gpsStatusDetails.classification === 'UNCERTAIN'
+                              ? '#fef3c7'
+                              : '#f1f5f9',
+                        color: gpsStatusDetails.verified
+                          ? '#15803d'
+                          : gpsStatusDetails.classification === 'OUTSIDE' || gpsPermissionState === 'denied'
+                            ? '#dc2626'
+                            : gpsStatusDetails.classification === 'UNCERTAIN'
+                              ? '#b45309'
+                              : '#475569'
+                      }}
+                    >
+                      {gpsStatusDetails.verified
+                        ? (gpsStatusDetails.classification === 'FIELD_DUTY' ? 'Field Duty Verified' : 'Geofence Verified')
+                        : gpsStatusDetails.classification === 'OUTSIDE'
+                          ? 'Outside Geofence'
+                          : gpsStatusDetails.classification === 'UNCERTAIN'
+                            ? 'Low Accuracy'
+                            : 'Not Verified Yet'}
+                    </span>
+                  </div>
+                  <div data-testid="gps-accuracy-distance-text" style={{ fontSize: '0.69rem', color: '#475569' }}>
+                    {gpsStatusDetails.accuracy !== null
+                      ? `Accuracy: ±${Math.round(gpsStatusDetails.accuracy)}m${gpsStatusDetails.distance !== null ? ` • Distance: ${Math.round(gpsStatusDetails.distance)}m / ${gpsStatusDetails.radius}m` : ''}`
+                      : `Allowed Geofence: ${geofenceConfig.officeName || 'HQ Office'} (${Number(geofenceConfig.radiusMeters) || 250}m)`}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  data-testid="retry-location-btn"
+                  disabled={isRetryingLocation || isScanning}
+                  onClick={handleRetryLocation}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid #0e7490',
+                    backgroundColor: '#ecfeff',
+                    color: '#0e7490',
+                    fontSize: '0.71rem',
+                    fontWeight: 700,
+                    cursor: isRetryingLocation || isScanning ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    flexShrink: 0
+                  }}
+                >
+                  <RefreshCw size={12} />
+                  <span>{isRetryingLocation ? 'Checking...' : 'Retry Location'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* ANDROID & IPHONE LOCATION / CAMERA TROUBLESHOOTING GUIDE WHEN PERMISSION OR ACCURACY FAILS */}
+            {(lastGpsErrorCode && lastGpsErrorCode !== 'NONE' && lastGpsErrorCode !== 'OUTSIDE_GEOFENCE') && (() => {
+              const guide = getMobileLocationInstructions(lastGpsErrorCode);
+              return (
+                <div
+                  data-testid="mobile-location-instructions"
+                  style={{
+                    maxWidth: isMobileViewport ? '280px' : '360px',
+                    margin: '8px auto 0',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    backgroundColor: '#fffbeb',
+                    border: '1px solid #fde68a',
+                    textAlign: 'left',
+                    fontSize: '0.71rem',
+                    color: '#78350f'
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: '#92400e', marginBottom: '4px' }}>
+                    {guide.title}
+                  </div>
+                  <div style={{ marginBottom: '6px', color: '#78350f' }}>{guide.summary}</div>
+                  <div style={{ fontWeight: 700, color: '#92400e', marginTop: '4px' }}>Android (Chrome):</div>
+                  <ul style={{ margin: '2px 0 6px 16px', padding: 0 }}>
+                    {guide.androidSteps.map((step, i) => (
+                      <li key={i} style={{ marginBottom: '2px' }}>{step}</li>
+                    ))}
+                  </ul>
+                  <div style={{ fontWeight: 700, color: '#92400e' }}>iPhone (Safari / iOS):</div>
+                  <ul style={{ margin: '2px 0 0 16px', padding: 0 }}>
+                    {guide.iphoneSteps.map((step, i) => (
+                      <li key={i} style={{ marginBottom: '2px' }}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
+
+            {cameraAccessDenied && (
+              <div
+                data-testid="camera-permission-instructions"
+                style={{
+                  maxWidth: isMobileViewport ? '280px' : '360px',
+                  margin: '8px auto 0',
+                  padding: '9px 12px',
+                  borderRadius: '10px',
+                  backgroundColor: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  textAlign: 'left',
+                  fontSize: '0.71rem',
+                  color: '#991b1b'
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: '3px' }}>Camera Permission Required</div>
+                <div>• <strong>Android Chrome:</strong> Tap the address bar lock/tune icon → Permissions → Camera → Allow.</div>
+                <div>• <strong>iPhone Safari:</strong> Tap &quot;aA&quot; in the address bar → Website Settings → Camera → Allow.</div>
+              </div>
+            )}
+
             {/* TODAY'S COMPLETED ATTENDANCE SUMMARY OR ACTIVE PUNCH IN TIME */}
             {isCompletedToday ? (
               <div
@@ -2523,7 +2962,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                       ? scanResult.message
                       : isCompletedToday
                         ? 'Attendance Saved • Punch Out successful'
-                        : activePunchGps
+                        : (activePunchGps && gpsStatusDetails.verified)
                           ? `GPS verified (${activePunchGps.distance}m, ±${activePunchGps.accuracy}m)`
                           : null,
                     isCheckedIn && !isCheckedOut && oneHourCooldown.isCooldownActive

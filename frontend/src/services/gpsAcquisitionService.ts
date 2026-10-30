@@ -183,11 +183,34 @@ export function evaluateGeofenceBoundary(
   distanceMeters: number,
   radiusMeters: number,
   accuracyMeters: number = 15,
-  officeName: string = 'Office'
+  officeName: string = 'Office',
+  maxAccuracyMeters?: number
 ): GeofenceEvaluation {
   const D = Math.round(distanceMeters * 10) / 10;
   const R = Math.round(radiusMeters);
   const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
+
+  if (
+    maxAccuracyMeters !== undefined &&
+    Number.isFinite(maxAccuracyMeters) &&
+    maxAccuracyMeters > 0 &&
+    A > maxAccuracyMeters
+  ) {
+    const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(maxAccuracyMeters)}m). Please enable Precise Location and retry.`;
+    return {
+      classification: 'UNCERTAIN',
+      distanceMeters: D,
+      radiusMeters: R,
+      accuracyMeters: A,
+      isInside: false,
+      canPunch: false,
+      message: `${userMessage} (Distance: ${Math.round(D)}m, accuracy: ±${Math.round(A)}m, boundary: ${R}m).`,
+      userMessage,
+      errorCode: 'LOW_GPS_ACCURACY',
+      canRequestCorrection: true,
+      officeName,
+    };
+  }
 
   // Clearly inside: D + A <= R
   if (D + A <= R) {
@@ -922,4 +945,168 @@ export async function acquireGpsWithBoundedRetry(
         message: 'Unable to obtain your location. Please retry with location services enabled.',
         durationMs: options.timeoutMs ?? 12000,
       });
+}
+
+
+export interface MobileLocationInstructionSet {
+  title: string;
+  summary: string;
+  androidSteps: string[];
+  iphoneSteps: string[];
+}
+
+/**
+ * Returns clear Android Chrome and iPhone Safari step-by-step instructions for GPS permission,
+ * disabled location services, GPS timeout, or disabled Precise Location.
+ */
+export function getMobileLocationInstructions(
+  errorCode: GpsErrorCode = 'PERMISSION_DENIED',
+  _deviceCategory?: string
+): MobileLocationInstructionSet {
+  if (errorCode === 'LOW_GPS_ACCURACY' || errorCode === 'GEOFENCE_UNCERTAIN') {
+    return {
+      title: 'Precise Location Required',
+      summary: 'Your browser returned an approximate location with low accuracy. Turn on Precise Location and retry.',
+      androidSteps: [
+        'Tap the Site Settings / Lock icon next to hrms.businz.com in Chrome.',
+        'Tap Permissions → Location → Allow.',
+        'Open Android Settings → Apps → Chrome → Permissions → Location → Select "Allow only while using the app" and turn ON "Use precise location".',
+        'Return here and tap "Retry Location".'
+      ],
+      iphoneSteps: [
+        'Open iPhone Settings → Privacy & Security → Location Services (ensure ON).',
+        'Scroll down to Safari Websites (or Chrome) → Select "While Using the App".',
+        'Toggle ON "Precise Location".',
+        'Return to Safari/Chrome and tap "Retry Location".'
+      ]
+    };
+  }
+
+  if (errorCode === 'POSITION_UNAVAILABLE' || errorCode === 'TIMEOUT' || errorCode === 'STALE_READING') {
+    return {
+      title: 'GPS Signal Unavailable or Timed Out',
+      summary: 'Your device could not acquire a fresh satellite/Wi-Fi GPS lock in time.',
+      androidSteps: [
+        'Swipe down your quick settings panel and ensure "Location" is turned ON.',
+        'Open Android Settings → Location → Location Services → Turn ON "Google Location Accuracy".',
+        'Move near a window or open area and tap "Retry Location".'
+      ],
+      iphoneSteps: [
+        'Open iPhone Settings → Privacy & Security → Location Services and ensure it is turned ON.',
+        'Ensure Wi-Fi is turned ON (improves indoor GPS triangulation) and Airplane Mode is OFF.',
+        'Tap "Retry Location" below for a fresh GPS reading.'
+      ]
+    };
+  }
+
+  return {
+    title: 'Allow Precise Location Access for BUSINZ HRMS',
+    summary: 'Browser or system location permission is currently blocked or set to approximate location.',
+    androidSteps: [
+      'In Android Chrome, tap the tune/lock icon on the left side of the address bar.',
+      'Tap "Permissions" → "Location" → Select "Allow" (or tap Reset permission).',
+      'In Android Settings → Apps → Chrome → Permissions → Location, enable "Use precise location".',
+      'Tap "Retry Location" below.'
+    ],
+    iphoneSteps: [
+      'Open iPhone Settings → Privacy & Security → Location Services (turn ON).',
+      'Tap "Safari Websites" → Select "While Using the App" and turn ON "Precise Location".',
+      'In Safari, tap the "aA" or page settings icon in the address bar → Website Settings → Location → Select "Allow".',
+      'Tap "Retry Location" below.'
+    ]
+  };
+}
+
+/**
+ * Forces a completely fresh GPS reading (maximumAge: 0, enableHighAccuracy: true) using
+ * navigator.geolocation.getCurrentPosition() first, falling back to multi-sample acquisition.
+ * Always clears any cached coordinates before requesting.
+ */
+export async function requestFreshGpsPosition(
+  options: AcquireGpsOptions & { maxRetries?: number } = {}
+): Promise<GpsLocationReading> {
+  cancelActiveGpsAcquisition();
+  clearCachedGpsReading();
+
+  const timeoutMs = Math.max(3000, Math.min(options.timeoutMs ?? 12000, 30000));
+  const desiredAccuracy = options.desiredAccuracyMeters ?? 35;
+  const maxStaleAgeMs = options.maxStaleAgeMs ?? options.maxAcceptableAgeMs ?? 60000;
+  const deviceCategory = detectBrowserDeviceCategory();
+  const startTime = Date.now();
+
+  if (typeof navigator !== 'undefined' && navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function') {
+    try {
+      options.onProgress?.({
+        phase: 'REQUESTING_PERMISSION',
+        message: 'Requesting fresh GPS location...',
+        bestAccuracyMeters: null,
+        sampleCount: 0,
+        attempt: 1,
+        maxAttempts: (options.maxRetries ?? 1) + 1
+      });
+
+      const directFix = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: Math.min(timeoutMs, 8000)
+        });
+      });
+
+      const lat = directFix.coords.latitude;
+      const lng = directFix.coords.longitude;
+      const acc = typeof directFix.coords.accuracy === 'number' && directFix.coords.accuracy > 0 ? directFix.coords.accuracy : 999;
+      const now = Date.now();
+      const { normalizedTimestampMs, ageMs } = calculateLocationAgeMs(directFix.timestamp, now);
+
+      if (isValidGpsCoordinate(lat, lng) && ageMs <= maxStaleAgeMs) {
+        const reading: GpsLocationReading = {
+          latitude: Number(lat.toFixed(6)),
+          longitude: Number(lng.toFixed(6)),
+          accuracy: Math.round(acc * 10) / 10,
+          timestamp: normalizedTimestampMs,
+          readingAgeMs: ageMs,
+          sampleCount: 1,
+          durationMs: now - startTime,
+          retryCount: 0,
+          deviceCategory,
+          browserDeviceCategory: deviceCategory
+        };
+
+        // If accuracy is already sharp or clearly inside geofence, return immediately
+        if (options.geofenceContext && isValidGpsCoordinate(options.geofenceContext.centerLat, options.geofenceContext.centerLng)) {
+          const dist = calculateHaversineMeters(
+            reading.latitude,
+            reading.longitude,
+            options.geofenceContext.centerLat,
+            options.geofenceContext.centerLng
+          );
+          const evalRes = evaluateGeofenceBoundary(dist, options.geofenceContext.radiusMeters, reading.accuracy);
+          if (evalRes.classification === 'INSIDE' || reading.accuracy <= desiredAccuracy) {
+            cachedReading = { reading, acquiredAt: now };
+            return reading;
+          }
+        } else if (reading.accuracy <= desiredAccuracy) {
+          cachedReading = { reading, acquiredAt: now };
+          return reading;
+        }
+      }
+    } catch (err: any) {
+      if (err && err.code === 1 /* PERMISSION_DENIED */) {
+        throw new GpsAcquisitionError({
+          code: 'PERMISSION_DENIED',
+          message: 'Please allow precise location access for BUSINZ HRMS.',
+          durationMs: Date.now() - startTime,
+          sampleCount: 0,
+          deviceCategory
+        });
+      }
+      // For timeout/unavailable or coarse initial fix, fall through to multi-sample bounded retry
+    }
+  }
+
+  return acquireGpsWithBoundedRetry({
+    ...options,
+    forceFresh: true
+  });
 }

@@ -1,195 +1,400 @@
-// ============================================================================
-// VRM Enterprise HRMS - Backend Shift Attendance Window Validation Engine
-// Enforces 3-Hour Early Check-In Window and Completed Shift Closure
-// ============================================================================
+import { ShiftRecord, AttendanceLogRecord, ShiftWindowState, ShiftWindowEvaluation } from '../types/hrms.js';
 
-import { AttendanceLogRecord, AttendanceShiftState, ShiftRecord, ShiftWindowEvaluation } from '../types/hrms.js';
+export const PRE_SHIFT_CHECKIN_BUFFER_MINUTES = 180; // Strictly 3 hours before shift start
+export const DEFAULT_COMPANY_TIMEZONE = 'Asia/Kolkata';
 
-export interface ShiftTimeComponents {
-  hours: number;
-  minutes: number;
-  display12: string;
-}
-
-export function parseShiftTime(timeStr?: string | null, fallback = '09:00'): ShiftTimeComponents {
-  const clean = (timeStr || fallback).trim().toUpperCase();
-  const match = clean.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
-
-  let hours = 9;
-  let minutes = 0;
-
-  if (match) {
-    hours = parseInt(match[1], 10);
-    minutes = parseInt(match[2], 10);
-    const meridian = match[3];
-
-    if (meridian) {
-      if (meridian === 'PM' && hours < 12) hours += 12;
-      if (meridian === 'AM' && hours === 12) hours = 0;
+/**
+ * Converts an authoritative server instant (`Date`) into a wall-clock `Date` object
+ * in the configured IANA timezone (default `Asia/Kolkata`), so `.getFullYear()`, `.getMonth()`,
+ * `.getDate()`, `.getHours()`, `.getMinutes()`, `.getSeconds()` reflect the company timezone
+ * regardless of the OS timezone of the server container.
+ */
+export function toTimezoneWallClockDate(instant: Date = new Date(), timeZone: string = DEFAULT_COMPANY_TIMEZONE): Date {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(instant);
+    const map: Record<string, number> = {};
+    for (const part of parts) {
+      if (part.type !== 'literal') {
+        map[part.type] = parseInt(part.value, 10);
+      }
     }
+    const hour = map.hour === 24 ? 0 : map.hour;
+    return new Date(
+      map.year,
+      (map.month || 1) - 1,
+      map.day || 1,
+      hour || 0,
+      map.minute || 0,
+      map.second || 0,
+      instant.getMilliseconds()
+    );
+  } catch {
+    return new Date(instant.getTime());
   }
-
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 || 12;
-  const display12 = `${String(displayHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
-
-  return { hours, minutes, display12 };
 }
 
-export function formatDateISO(d: Date): string {
+/**
+ * Formats a 24h HH:mm time string or Date into 12-hour AM/PM display (e.g., "09:00 AM").
+ */
+export function formatMinutesOrDateToAmPm(date: Date): string {
+  const h24 = date.getHours();
+  const m = date.getMinutes();
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+export function formatTimeStrToAmPm(timeStr: string): string {
+  const { hours, minutes } = parseShiftTime(timeStr);
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const h12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${String(h12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
+}
+
+/**
+ * Parses HH:mm or HH:mm AM/PM into { hours, minutes } in 24h format
+ */
+export function parseShiftTime(timeStr: string): { hours: number; minutes: number } {
+  if (!timeStr) return { hours: 9, minutes: 0 };
+  const clean = timeStr.trim().toUpperCase();
+  const isPM = clean.includes('PM');
+  const isAM = clean.includes('AM');
+  const timePart = clean.replace(/AM|PM/g, '').trim();
+  const [hStr, mStr] = timePart.split(':');
+  let hours = parseInt(hStr, 10) || 0;
+  const minutes = parseInt(mStr, 10) || 0;
+
+  if (isPM && hours < 12) hours += 12;
+  if (isAM && hours === 12) hours = 0;
+
+  return { hours, minutes };
+}
+
+/**
+ * Formats Date object to YYYY-MM-DD
+ */
+export function toDateStr(d: Date): string {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-export function calculateShiftDateTimes(shiftDateStr: string, shift: ShiftRecord): {
+/**
+ * Calculates shift start, shift end, 3-hour early check-in open time, and grace cutoff
+ * for a given shiftDate (YYYY-MM-DD) and ShiftRecord.
+ * Handles overnight shifts (where endTime <= startTime).
+ */
+export function calculateShiftDateTimes(
+  shiftDateStr: string,
+  shift: ShiftRecord,
+  earlyWindowMinutes = PRE_SHIFT_CHECKIN_BUFFER_MINUTES,
+  policyGraceMinutes?: number
+): {
   shiftStartDateTime: Date;
   shiftEndDateTime: Date;
   earlyCheckInDateTime: Date;
+  graceEndDateTime: Date;
+  effectiveGraceMins: number;
   isNightShift: boolean;
 } {
   const [year, month, day] = shiftDateStr.split('-').map(Number);
-  const start = parseShiftTime(shift.startTime, '09:00');
-  const end = parseShiftTime(shift.endTime, '18:00');
+  const start = parseShiftTime(shift.startTime);
+  const end = parseShiftTime(shift.endTime);
 
   const shiftStartDateTime = new Date(year, month - 1, day, start.hours, start.minutes, 0, 0);
-
-  // Early check-in window opens strictly 3 hours before shift start
-  const earlyCheckInDateTime = new Date(shiftStartDateTime.getTime() - 3 * 60 * 60 * 1000);
+  const shiftEndDateTime = new Date(year, month - 1, day, end.hours, end.minutes, 0, 0);
 
   let isNightShift = false;
-  let shiftEndDateTime: Date;
-
-  if (end.hours < start.hours || (end.hours === start.hours && end.minutes < start.minutes)) {
+  if (shiftEndDateTime.getTime() <= shiftStartDateTime.getTime()) {
+    shiftEndDateTime.setDate(shiftEndDateTime.getDate() + 1);
     isNightShift = true;
-    shiftEndDateTime = new Date(year, month - 1, day + 1, end.hours, end.minutes, 0, 0);
-  } else {
-    shiftEndDateTime = new Date(year, month - 1, day, end.hours, end.minutes, 0, 0);
   }
+
+  const earlyCheckInDateTime = new Date(shiftStartDateTime.getTime() - earlyWindowMinutes * 60 * 1000);
+  const effectiveGraceMins =
+    policyGraceMinutes !== undefined && Number.isFinite(policyGraceMinutes) && policyGraceMinutes >= 0
+      ? policyGraceMinutes
+      : shift.gracePeriodMins ?? 40;
+  const graceEndDateTime = new Date(shiftStartDateTime.getTime() + effectiveGraceMins * 60 * 1000);
 
   return {
     shiftStartDateTime,
     shiftEndDateTime,
     earlyCheckInDateTime,
+    graceEndDateTime,
+    effectiveGraceMins,
     isNightShift,
   };
 }
 
+/**
+ * Authoritative Backend Shift Window Evaluator.
+ * Enforces:
+ * - Check-in opens strictly 3 hours before assigned shift start.
+ * - Never blocks check-in at shift start or after grace period.
+ * - Allows late check-in throughout the shift attendance window.
+ * - Uses Late Policy grace period to determine whether check-in is Present or Late.
+ * - Handles overnight shifts, multiple shifts, holidays, and approved leaves.
+ */
 export function evaluateBackendShiftAttendance(params: {
   employeeId: string;
   assignedShift: ShiftRecord;
   attendanceLogs: AttendanceLogRecord[];
   now?: Date;
+  earlyWindowMinutes?: number;
+  policyGraceMinutes?: number;
+  timeZone?: string;
+  useTimeZoneWallClock?: boolean;
+  holidayInfo?: { isHoliday: boolean; holidayName?: string };
+  leaveInfo?: { isOnApprovedLeave: boolean; leaveType?: string };
 }): ShiftWindowEvaluation {
-  const now = params.now || new Date();
-  const todayDateStr = formatDateISO(now);
+  const {
+    employeeId,
+    assignedShift,
+    attendanceLogs,
+    now: nowInput,
+    earlyWindowMinutes = PRE_SHIFT_CHECKIN_BUFFER_MINUTES,
+    policyGraceMinutes,
+    timeZone = DEFAULT_COMPANY_TIMEZONE,
+    useTimeZoneWallClock = false,
+    holidayInfo,
+    leaveInfo,
+  } = params;
 
-  const shift = params.assignedShift;
-  const todayTimes = calculateShiftDateTimes(todayDateStr, shift);
+  const rawNow = nowInput || new Date();
+  const now = useTimeZoneWallClock ? toTimezoneWallClockDate(rawNow, timeZone) : rawNow;
 
-  // Check if there is an existing record for today's shift
-  const existingToday = params.attendanceLogs.find(
-    (l) => l.employeeId === params.employeeId && (l.shiftDate === todayDateStr || l.date === todayDateStr)
-  );
+  const todayStr = toDateStr(now);
+  const yesterdayDate = new Date(now);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayStr = toDateStr(yesterdayDate);
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = toDateStr(tomorrowDate);
 
-  const startComp = parseShiftTime(shift.startTime, '09:00');
-  const endComp = parseShiftTime(shift.endTime, '18:00');
-  const earlyComp = parseShiftTime(
-    `${todayTimes.earlyCheckInDateTime.getHours()}:${String(todayTimes.earlyCheckInDateTime.getMinutes()).padStart(2, '0')}`
-  );
+  const empLogs = attendanceLogs.filter((r) => r.employeeId === employeeId);
 
-  // 1. If today's shift has checkout -> COMPLETED / WAITING_FOR_NEXT_SHIFT
-  if (existingToday && existingToday.checkOut) {
-    // Next shift begins tomorrow (or next working day)
-    const nextDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const nextDateStr = formatDateISO(nextDate);
-    const nextTimes = calculateShiftDateTimes(nextDateStr, shift);
-    const nextEarlyComp = parseShiftTime(
-      `${nextTimes.earlyCheckInDateTime.getHours()}:${String(nextTimes.earlyCheckInDateTime.getMinutes()).padStart(2, '0')}`
-    );
+  const hasValidIn = (r?: AttendanceLogRecord) =>
+    Boolean(r?.checkIn && r.checkIn !== '--:--' && r.checkIn.trim() !== '');
+  const hasValidOut = (r?: AttendanceLogRecord) =>
+    Boolean(r?.checkOut && r.checkOut !== '--:--' && r.checkOut.trim() !== '');
 
-    const isNextWindowOpen = now.getTime() >= nextTimes.earlyCheckInDateTime.getTime();
+  // 1. Check if employee has an open check-in from yesterday (overnight shift still in progress)
+  const yesterdayRecord = empLogs.find((r) => (r.shiftDate || r.date) === yesterdayStr);
+  const todayRecord = empLogs.find((r) => (r.shiftDate || r.date) === todayStr);
 
-    if (isNextWindowOpen) {
-      return {
-        employeeId: params.employeeId,
-        state: 'CHECK_IN_AVAILABLE',
-        assignedShift: shift,
-        shiftDate: nextDateStr,
-        shiftStartDateTime: nextTimes.shiftStartDateTime.toISOString(),
-        shiftEndDateTime: nextTimes.shiftEndDateTime.toISOString(),
-        checkInOpenDateTime: nextTimes.earlyCheckInDateTime.toISOString(),
-        canCheckIn: true,
-        canCheckOut: false,
-        message: `Check In available for next shift (${nextDateStr} ${startComp.display12})`,
-        todayRecord: existingToday,
-      };
+  let targetShiftDateStr = todayStr;
+  let activeRecord: AttendanceLogRecord | undefined = todayRecord;
+
+  if (yesterdayRecord && hasValidIn(yesterdayRecord) && !hasValidOut(yesterdayRecord)) {
+    const yTimes = calculateShiftDateTimes(yesterdayStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
+    const maxCheckoutCutoff = new Date(yTimes.shiftEndDateTime.getTime() + 6 * 60 * 60 * 1000);
+    if (now.getTime() <= maxCheckoutCutoff.getTime()) {
+      targetShiftDateStr = yesterdayStr;
+      activeRecord = yesterdayRecord;
     }
+  } else if (!todayRecord) {
+    // Also check if assignedShift is an overnight shift that started yesterday and is STILL within its active shift window right now
+    const yTimes = calculateShiftDateTimes(yesterdayStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
+    const yesterdayCompleted = Boolean(yesterdayRecord && hasValidIn(yesterdayRecord) && hasValidOut(yesterdayRecord));
+    if (
+      yTimes.isNightShift &&
+      !yesterdayCompleted &&
+      now.getTime() >= yTimes.earlyCheckInDateTime.getTime() &&
+      now.getTime() <= yTimes.shiftEndDateTime.getTime()
+    ) {
+      targetShiftDateStr = yesterdayStr;
+      activeRecord = yesterdayRecord;
+    }
+  }
 
-    const countdownSeconds = Math.max(0, Math.floor((nextTimes.earlyCheckInDateTime.getTime() - now.getTime()) / 1000));
+  // 2. If today's shift is already completed (checked in AND checked out), advance to tomorrow's shift
+  if (activeRecord && hasValidIn(activeRecord) && hasValidOut(activeRecord)) {
+    const nextTimes = calculateShiftDateTimes(tomorrowStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
+    const diffMs = Math.max(0, nextTimes.earlyCheckInDateTime.getTime() - now.getTime());
+    const countdownSeconds = Math.floor(diffMs / 1000);
+
     return {
-      employeeId: params.employeeId,
       state: 'WAITING_FOR_NEXT_SHIFT',
-      assignedShift: shift,
-      shiftDate: nextDateStr,
+      canCheckIn: false,
+      canCheckOut: false,
+      assignedShift,
+      shiftDate: tomorrowStr,
       shiftStartDateTime: nextTimes.shiftStartDateTime.toISOString(),
       shiftEndDateTime: nextTimes.shiftEndDateTime.toISOString(),
-      checkInOpenDateTime: nextTimes.earlyCheckInDateTime.toISOString(),
-      canCheckIn: false,
-      canCheckOut: false,
-      message: `Shift completed. Next Check In opens at ${nextEarlyComp.display12} (${nextDateStr})`,
+      earlyCheckInDateTime: nextTimes.earlyCheckInDateTime.toISOString(),
+      graceEndDateTime: nextTimes.graceEndDateTime.toISOString(),
       countdownSeconds,
-      todayRecord: existingToday,
+      isWithinGrace: false,
+      isLateCheckIn: false,
+      activeAttendance: activeRecord,
+      message: `Completed today's shift (${assignedShift.shiftName}). Next check-in opens tomorrow at ${formatMinutesOrDateToAmPm(nextTimes.earlyCheckInDateTime)}.`,
+      shiftStartDisplay: formatMinutesOrDateToAmPm(nextTimes.shiftStartDateTime),
+      shiftEndDisplay: formatMinutesOrDateToAmPm(nextTimes.shiftEndDateTime),
+      checkInOpenDisplay: formatMinutesOrDateToAmPm(nextTimes.earlyCheckInDateTime),
+      gracePeriodMins: nextTimes.effectiveGraceMins,
+      lateAfterDisplay: formatMinutesOrDateToAmPm(nextTimes.graceEndDateTime),
+      expectedStatus: 'Present',
+      timeZone,
+      isHoliday: Boolean(holidayInfo?.isHoliday),
+      holidayName: holidayInfo?.holidayName,
+      isOnApprovedLeave: Boolean(leaveInfo?.isOnApprovedLeave),
+      leaveType: leaveInfo?.leaveType,
     };
   }
 
-  // 2. If employee checked in today but hasn't checked out -> CHECKED_IN
-  if (existingToday && existingToday.checkIn && !existingToday.checkOut) {
+  const times = calculateShiftDateTimes(targetShiftDateStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
+
+  // 3. If employee is currently Checked In (and not Checked Out)
+  if (activeRecord && hasValidIn(activeRecord) && !hasValidOut(activeRecord)) {
     return {
-      employeeId: params.employeeId,
       state: 'CHECKED_IN',
-      assignedShift: shift,
-      shiftDate: todayDateStr,
-      shiftStartDateTime: todayTimes.shiftStartDateTime.toISOString(),
-      shiftEndDateTime: todayTimes.shiftEndDateTime.toISOString(),
-      checkInOpenDateTime: todayTimes.earlyCheckInDateTime.toISOString(),
       canCheckIn: false,
       canCheckOut: true,
-      message: `Checked in at ${existingToday.checkIn}. Shift ends at ${endComp.display12}`,
-      todayRecord: existingToday,
+      assignedShift,
+      shiftDate: targetShiftDateStr,
+      shiftStartDateTime: times.shiftStartDateTime.toISOString(),
+      shiftEndDateTime: times.shiftEndDateTime.toISOString(),
+      earlyCheckInDateTime: times.earlyCheckInDateTime.toISOString(),
+      graceEndDateTime: times.graceEndDateTime.toISOString(),
+      countdownSeconds: 0,
+      isWithinGrace: false,
+      isLateCheckIn: false,
+      activeAttendance: activeRecord,
+      message: `Checked in at ${activeRecord.checkIn}. Shift ends at ${formatMinutesOrDateToAmPm(times.shiftEndDateTime)}.`,
+      shiftStartDisplay: formatMinutesOrDateToAmPm(times.shiftStartDateTime),
+      shiftEndDisplay: formatMinutesOrDateToAmPm(times.shiftEndDateTime),
+      checkInOpenDisplay: formatMinutesOrDateToAmPm(times.earlyCheckInDateTime),
+      gracePeriodMins: times.effectiveGraceMins,
+      lateAfterDisplay: formatMinutesOrDateToAmPm(times.graceEndDateTime),
+      expectedStatus: (activeRecord.status === 'Late' ? 'Late' : 'Present'),
+      timeZone,
+      isHoliday: Boolean(holidayInfo?.isHoliday),
+      holidayName: holidayInfo?.holidayName,
+      isOnApprovedLeave: Boolean(leaveInfo?.isOnApprovedLeave),
+      leaveType: leaveInfo?.leaveType,
     };
   }
 
-  // 3. Not checked in yet today: evaluate if we are within the 3-hour window
-  if (now.getTime() < todayTimes.earlyCheckInDateTime.getTime()) {
-    const countdownSeconds = Math.max(0, Math.floor((todayTimes.earlyCheckInDateTime.getTime() - now.getTime()) / 1000));
+  // 4. Employee has NOT checked in yet for targetShiftDateStr:
+  // A) Before the 3-hour early check-in window -> UPCOMING (Blocked as too early)
+  if (now.getTime() < times.earlyCheckInDateTime.getTime()) {
+    const diffMs = Math.max(0, times.earlyCheckInDateTime.getTime() - now.getTime());
+    const countdownSeconds = Math.floor(diffMs / 1000);
+
     return {
-      employeeId: params.employeeId,
       state: 'UPCOMING',
-      assignedShift: shift,
-      shiftDate: todayDateStr,
-      shiftStartDateTime: todayTimes.shiftStartDateTime.toISOString(),
-      shiftEndDateTime: todayTimes.shiftEndDateTime.toISOString(),
-      checkInOpenDateTime: todayTimes.earlyCheckInDateTime.toISOString(),
       canCheckIn: false,
       canCheckOut: false,
-      message: `Shift starts at ${startComp.display12}. Check In opens at ${earlyComp.display12} (3h before)`,
+      assignedShift,
+      shiftDate: targetShiftDateStr,
+      shiftStartDateTime: times.shiftStartDateTime.toISOString(),
+      shiftEndDateTime: times.shiftEndDateTime.toISOString(),
+      earlyCheckInDateTime: times.earlyCheckInDateTime.toISOString(),
+      graceEndDateTime: times.graceEndDateTime.toISOString(),
       countdownSeconds,
+      isWithinGrace: false,
+      isLateCheckIn: false,
+      message: `Check-in for ${assignedShift.shiftName} opens at ${formatMinutesOrDateToAmPm(times.earlyCheckInDateTime)} (3 hours before ${formatMinutesOrDateToAmPm(times.shiftStartDateTime)} shift start).`,
+      shiftStartDisplay: formatMinutesOrDateToAmPm(times.shiftStartDateTime),
+      shiftEndDisplay: formatMinutesOrDateToAmPm(times.shiftEndDateTime),
+      checkInOpenDisplay: formatMinutesOrDateToAmPm(times.earlyCheckInDateTime),
+      gracePeriodMins: times.effectiveGraceMins,
+      lateAfterDisplay: formatMinutesOrDateToAmPm(times.graceEndDateTime),
+      expectedStatus: 'Present',
+      timeZone,
+      isHoliday: Boolean(holidayInfo?.isHoliday),
+      holidayName: holidayInfo?.holidayName,
+      isOnApprovedLeave: Boolean(leaveInfo?.isOnApprovedLeave),
+      leaveType: leaveInfo?.leaveType,
     };
   }
 
-  // 4. Within or after 3-hour window -> CHECK_IN_AVAILABLE
+  // B) Within the active shift attendance window (from 3h before shiftStart up to shiftEnd + 4h buffer,
+  //    or before next day's 3-hour early check-in window opens)
+  const postShiftCheckInCutoff = new Date(times.shiftEndDateTime.getTime() + 2 * 60 * 60 * 1000);
+  if (now.getTime() <= postShiftCheckInCutoff.getTime()) {
+    const isWithinGrace = now.getTime() <= times.graceEndDateTime.getTime();
+    const isLateCheckIn = now.getTime() > times.graceEndDateTime.getTime();
+    const expectedStatus = isLateCheckIn ? 'Late' : 'Present';
+
+    let statusMsg = `Check-in open for ${assignedShift.shiftName}.`;
+    if (now.getTime() < times.shiftStartDateTime.getTime()) {
+      statusMsg = `Early check-in open for ${assignedShift.shiftName} (Starts at ${formatMinutesOrDateToAmPm(times.shiftStartDateTime)}).`;
+    } else if (isWithinGrace) {
+      statusMsg = `Within ${times.effectiveGraceMins}-min grace window (until ${formatMinutesOrDateToAmPm(times.graceEndDateTime)}) — will be marked Present.`;
+    } else {
+      statusMsg = `Past ${formatMinutesOrDateToAmPm(times.graceEndDateTime)} grace cutoff — check-in is allowed and will be marked Late.`;
+    }
+
+    return {
+      state: 'CHECK_IN_AVAILABLE',
+      canCheckIn: true,
+      canCheckOut: false,
+      assignedShift,
+      shiftDate: targetShiftDateStr,
+      shiftStartDateTime: times.shiftStartDateTime.toISOString(),
+      shiftEndDateTime: times.shiftEndDateTime.toISOString(),
+      earlyCheckInDateTime: times.earlyCheckInDateTime.toISOString(),
+      graceEndDateTime: times.graceEndDateTime.toISOString(),
+      countdownSeconds: 0,
+      isWithinGrace,
+      isLateCheckIn,
+      message: statusMsg,
+      shiftStartDisplay: formatMinutesOrDateToAmPm(times.shiftStartDateTime),
+      shiftEndDisplay: formatMinutesOrDateToAmPm(times.shiftEndDateTime),
+      checkInOpenDisplay: formatMinutesOrDateToAmPm(times.earlyCheckInDateTime),
+      gracePeriodMins: times.effectiveGraceMins,
+      lateAfterDisplay: formatMinutesOrDateToAmPm(times.graceEndDateTime),
+      expectedStatus,
+      timeZone,
+      isHoliday: Boolean(holidayInfo?.isHoliday),
+      holidayName: holidayInfo?.holidayName,
+      isOnApprovedLeave: Boolean(leaveInfo?.isOnApprovedLeave),
+      leaveType: leaveInfo?.leaveType,
+    };
+  }
+
+  // C) Past today's shift window -> waiting for tomorrow's shift
+  const nextTimes = calculateShiftDateTimes(tomorrowStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
+  const diffMs = Math.max(0, nextTimes.earlyCheckInDateTime.getTime() - now.getTime());
+  const countdownSeconds = Math.floor(diffMs / 1000);
+
   return {
-    employeeId: params.employeeId,
-    state: 'CHECK_IN_AVAILABLE',
-    assignedShift: shift,
-    shiftDate: todayDateStr,
-    shiftStartDateTime: todayTimes.shiftStartDateTime.toISOString(),
-    shiftEndDateTime: todayTimes.shiftEndDateTime.toISOString(),
-    checkInOpenDateTime: todayTimes.earlyCheckInDateTime.toISOString(),
-    canCheckIn: true,
+    state: 'WAITING_FOR_NEXT_SHIFT',
+    canCheckIn: false,
     canCheckOut: false,
-    message: `Early Check In is OPEN for shift (${startComp.display12} – ${endComp.display12})`,
+    assignedShift,
+    shiftDate: tomorrowStr,
+    shiftStartDateTime: nextTimes.shiftStartDateTime.toISOString(),
+    shiftEndDateTime: nextTimes.shiftEndDateTime.toISOString(),
+    earlyCheckInDateTime: nextTimes.earlyCheckInDateTime.toISOString(),
+    graceEndDateTime: nextTimes.graceEndDateTime.toISOString(),
+    countdownSeconds,
+    isWithinGrace: false,
+    isLateCheckIn: false,
+    message: `Shift window for today has closed. Next check-in opens at ${formatMinutesOrDateToAmPm(nextTimes.earlyCheckInDateTime)}.`,
+    shiftStartDisplay: formatMinutesOrDateToAmPm(nextTimes.shiftStartDateTime),
+    shiftEndDisplay: formatMinutesOrDateToAmPm(nextTimes.shiftEndDateTime),
+    checkInOpenDisplay: formatMinutesOrDateToAmPm(nextTimes.earlyCheckInDateTime),
+    gracePeriodMins: nextTimes.effectiveGraceMins,
+    lateAfterDisplay: formatMinutesOrDateToAmPm(nextTimes.graceEndDateTime),
+    expectedStatus: 'Present',
+    timeZone,
+    isHoliday: Boolean(holidayInfo?.isHoliday),
+    holidayName: holidayInfo?.holidayName,
+    isOnApprovedLeave: Boolean(leaveInfo?.isOnApprovedLeave),
+    leaveType: leaveInfo?.leaveType,
   };
 }

@@ -25,6 +25,16 @@ export interface ShiftWindowEvaluation {
   shiftStartDateTime: Date;
   shiftEndDateTime: Date;
   earlyCheckInDateTime: Date;    // shiftStartDateTime - 3 hours
+  graceEndDateTime: Date;        // shiftStartDateTime + gracePeriodMins
+  gracePeriodMins: number;
+  shiftStartDisplay: string;     // e.g. "09:00 AM"
+  shiftEndDisplay: string;       // e.g. "06:00 PM"
+  checkInOpenDisplay: string;    // e.g. "06:00 AM"
+  lateAfterDisplay: string;      // e.g. "09:40 AM"
+  isWithinGrace: boolean;
+  isLateCheckIn: boolean;
+  expectedStatus: 'Present' | 'Late';
+  timeZone: string;
   statusTitle: string;
   statusBadge: string;
   shiftTimingDisplay: string;    // e.g. "Shift: 09:00 AM – 06:00 PM"
@@ -121,7 +131,7 @@ export function resolveEmployeeAssignedShift(
     endTime: '18:00',
     breakDurationMins: 45,
     workingHours: 8.25,
-    gracePeriodMins: 15,
+    gracePeriodMins: 40,
     assignedEmployeeCount: 0,
     assignments: [],
     color: '#0E7490'
@@ -179,18 +189,33 @@ function activeShiftNameClean(raw: string): string {
   return String(raw || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
 }
 
+function formatDateTime12Hr(d: Date): string {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 /**
  * Calculates start and end Date objects for a given shift on a specific calendar date.
  */
-export function calculateShiftDateTimes(shiftDateStr: string, shift: Shift): {
+export function calculateShiftDateTimes(shiftDateStr: string, shift: Shift, gracePeriodMinutes?: number): {
   startDateTime: Date;
   endDateTime: Date;
   earlyCheckInDateTime: Date;
+  graceEndDateTime: Date;
+  gracePeriodMins: number;
+  shiftStartDisplay: string;
+  shiftEndDisplay: string;
+  checkInOpenDisplay: string;
+  lateAfterDisplay: string;
   isNightShift: boolean;
 } {
   const [year, month, day] = shiftDateStr.split('-').map(Number);
   const startComp = parseShiftTime(shift.startTime, '09:00');
   const endComp = parseShiftTime(shift.endTime, '18:00');
+  const gracePeriodMins = Math.max(0, Number(gracePeriodMinutes ?? shift.gracePeriodMins ?? 40));
 
   const startDateTime = new Date(year, month - 1, day, startComp.hours, startComp.minutes, 0, 0);
 
@@ -209,11 +234,18 @@ export function calculateShiftDateTimes(shiftDateStr: string, shift: Shift): {
 
   // Exactly 3 hours prior to shift start
   const earlyCheckInDateTime = new Date(startDateTime.getTime() - 3 * 60 * 60 * 1000);
+  const graceEndDateTime = new Date(startDateTime.getTime() + gracePeriodMins * 60 * 1000);
 
   return {
     startDateTime,
     endDateTime,
     earlyCheckInDateTime,
+    graceEndDateTime,
+    gracePeriodMins,
+    shiftStartDisplay: startComp.display12,
+    shiftEndDisplay: endComp.display12,
+    checkInOpenDisplay: formatDateTime12Hr(earlyCheckInDateTime),
+    lateAfterDisplay: formatDateTime12Hr(graceEndDateTime),
     isNightShift
   };
 }
@@ -286,13 +318,17 @@ export function evaluateShiftAttendance(params: {
   holidays?: HolidayItem[];
   weeklySchedules?: WeeklyScheduleItem[];
   leaves?: LeaveRequest[];
+  gracePeriodMinutes?: number;
+  timeZone?: string;
 }): ShiftWindowEvaluation {
   const now = params.now ? new Date(params.now) : new Date();
+  const timeZone = params.timeZone || 'Asia/Kolkata';
   const todayStr = formatDateISO(now);
   const employee = params.employee;
   const empId = employee?.employeeId || employee?.id || 'EMP-001';
 
   const assignedShift = resolveEmployeeAssignedShift(employee, params.shifts);
+  const effectiveGraceMins = Math.max(0, Number(params.gracePeriodMinutes ?? assignedShift.gracePeriodMins ?? 40));
   const startComp = parseShiftTime(assignedShift.startTime, '09:00');
   const endComp = parseShiftTime(assignedShift.endTime, '18:00');
   const shiftTimingDisplay = `Shift: ${startComp.display12} – ${endComp.display12}`;
@@ -314,7 +350,7 @@ export function evaluateShiftAttendance(params: {
       return true;
     }
     if (recDate === yesterdayStr) {
-      const { isNightShift, endDateTime } = calculateShiftDateTimes(yesterdayStr, assignedShift);
+      const { isNightShift, endDateTime } = calculateShiftDateTimes(yesterdayStr, assignedShift, effectiveGraceMins);
       if (isNightShift) {
         // Active night shift from yesterday running into today morning (with 4h grace)
         return now.getTime() <= endDateTime.getTime() + 4 * 3600 * 1000;
@@ -325,7 +361,18 @@ export function evaluateShiftAttendance(params: {
 
   if (activeAttendance) {
     const shiftDate = normalizeToYYYYMMDD(activeAttendance.shiftDate) || normalizeToYYYYMMDD(activeAttendance.date) || todayStr;
-    const { startDateTime, endDateTime, earlyCheckInDateTime, isNightShift } = calculateShiftDateTimes(shiftDate, assignedShift);
+    const {
+      startDateTime,
+      endDateTime,
+      earlyCheckInDateTime,
+      graceEndDateTime,
+      gracePeriodMins,
+      shiftStartDisplay,
+      shiftEndDisplay,
+      checkInOpenDisplay,
+      lateAfterDisplay,
+      isNightShift
+    } = calculateShiftDateTimes(shiftDate, assignedShift, effectiveGraceMins);
 
     const checkInComp = parseShiftTime(activeAttendance.checkIn, '09:00');
     const [sy, sm, sd] = shiftDate.split('-').map(Number);
@@ -347,6 +394,7 @@ export function evaluateShiftAttendance(params: {
     const remainingCooldownMins = isWithinOneHourCooldown
       ? Math.max(1, Math.ceil((ONE_HOUR_MS - elapsedSinceCheckInMs) / 60000))
       : 0;
+    const isLatePunch = activeAttendance.status === 'Late' || checkInDateTime.getTime() > graceEndDateTime.getTime();
 
     return {
       state: 'CHECKED_IN',
@@ -359,6 +407,16 @@ export function evaluateShiftAttendance(params: {
       shiftStartDateTime: startDateTime,
       shiftEndDateTime: endDateTime,
       earlyCheckInDateTime,
+      graceEndDateTime,
+      gracePeriodMins,
+      shiftStartDisplay,
+      shiftEndDisplay,
+      checkInOpenDisplay,
+      lateAfterDisplay,
+      isWithinGrace: !isLatePunch,
+      isLateCheckIn: isLatePunch,
+      expectedStatus: isLatePunch ? 'Late' : 'Present',
+      timeZone,
       statusTitle: 'Active Attendance',
       statusBadge: 'Checked In',
       shiftTimingDisplay,
@@ -370,6 +428,54 @@ export function evaluateShiftAttendance(params: {
       isNightShift,
       isNextDayShift: false
     };
+  }
+
+  // 1b. Check if yesterday's overnight shift is STILL running right now (and not yet checked in or completed)
+  const yesterdayTiming = calculateShiftDateTimes(yesterdayStr, assignedShift, effectiveGraceMins);
+  if (yesterdayTiming.isNightShift && now.getTime() <= yesterdayTiming.endDateTime.getTime()) {
+    const yesterdayCompleted = params.attendanceRecords.find(a => {
+      if (a.employeeId !== empId) return false;
+      const recShiftDate = normalizeToYYYYMMDD(a.shiftDate) || normalizeToYYYYMMDD(a.date);
+      return recShiftDate === yesterdayStr && Boolean(a.checkOut && a.checkOut.trim() !== '' && a.checkOut !== '--:--');
+    }) || null;
+
+    if (!yesterdayCompleted) {
+      const isLateNow = now.getTime() > yesterdayTiming.graceEndDateTime.getTime();
+      return {
+        state: 'CHECK_IN_AVAILABLE',
+        canCheckIn: true,
+        canCheckOut: false,
+        activeAttendance: null,
+        completedAttendance: null,
+        assignedShift,
+        shiftDate: yesterdayStr,
+        shiftStartDateTime: yesterdayTiming.startDateTime,
+        shiftEndDateTime: yesterdayTiming.endDateTime,
+        earlyCheckInDateTime: yesterdayTiming.earlyCheckInDateTime,
+        graceEndDateTime: yesterdayTiming.graceEndDateTime,
+        gracePeriodMins: yesterdayTiming.gracePeriodMins,
+        shiftStartDisplay: yesterdayTiming.shiftStartDisplay,
+        shiftEndDisplay: yesterdayTiming.shiftEndDisplay,
+        checkInOpenDisplay: yesterdayTiming.checkInOpenDisplay,
+        lateAfterDisplay: yesterdayTiming.lateAfterDisplay,
+        isWithinGrace: !isLateNow,
+        isLateCheckIn: isLateNow,
+        expectedStatus: isLateNow ? 'Late' : 'Present',
+        timeZone,
+        statusTitle: isLateNow ? 'Late Check-In Open' : 'Check-In Available',
+        statusBadge: isLateNow ? 'Late Window' : 'Available Now',
+        shiftTimingDisplay,
+        availabilityDisplay: isLateNow
+          ? `Overnight shift in progress (Late after ${yesterdayTiming.lateAfterDisplay})`
+          : `Overnight shift starts at ${yesterdayTiming.shiftStartDisplay}`,
+        countdownText: isLateNow ? 'Late Check-In Open' : 'Check-In Open',
+        message: isLateNow
+          ? `Overnight shift started at ${yesterdayTiming.shiftStartDisplay} (Grace ended at ${yesterdayTiming.lateAfterDisplay}). Check-in will be marked Late.`
+          : `Overnight shift starts at ${yesterdayTiming.shiftStartDisplay}. Check-in is open.`,
+        isNightShift: true,
+        isNextDayShift: false
+      };
+    }
   }
 
   // 2. Check if today's shift has already been COMPLETED (checkOut is present)
@@ -387,12 +493,19 @@ export function evaluateShiftAttendance(params: {
 
   // 3. If today's shift is workable and NOT completed yet:
   if (isTodayWorkable && !todayCompleted) {
-    const { startDateTime, endDateTime, earlyCheckInDateTime, isNightShift } = calculateShiftDateTimes(todayStr, assignedShift);
-    const earlyHours = earlyCheckInDateTime.getHours();
-    const earlyMins = earlyCheckInDateTime.getMinutes();
-    const earlyAmpm = earlyHours >= 12 ? 'PM' : 'AM';
-    const earlyDispHours = earlyHours % 12 || 12;
-    const earlyTimeStr = `${String(earlyDispHours).padStart(2, '0')}:${String(earlyMins).padStart(2, '0')} ${earlyAmpm}`;
+    const {
+      startDateTime,
+      endDateTime,
+      earlyCheckInDateTime,
+      graceEndDateTime,
+      gracePeriodMins,
+      shiftStartDisplay,
+      shiftEndDisplay,
+      checkInOpenDisplay,
+      lateAfterDisplay,
+      isNightShift
+    } = calculateShiftDateTimes(todayStr, assignedShift, effectiveGraceMins);
+    const earlyTimeStr = checkInOpenDisplay;
 
     // A. Check if current time is BEFORE the 3-hour early check-in window
     if (now.getTime() < earlyCheckInDateTime.getTime()) {
@@ -408,6 +521,16 @@ export function evaluateShiftAttendance(params: {
         shiftStartDateTime: startDateTime,
         shiftEndDateTime: endDateTime,
         earlyCheckInDateTime,
+        graceEndDateTime,
+        gracePeriodMins,
+        shiftStartDisplay,
+        shiftEndDisplay,
+        checkInOpenDisplay,
+        lateAfterDisplay,
+        isWithinGrace: true,
+        isLateCheckIn: false,
+        expectedStatus: 'Present',
+        timeZone,
         statusTitle: 'Next Shift',
         statusBadge: 'Upcoming',
         shiftTimingDisplay,
@@ -420,6 +543,10 @@ export function evaluateShiftAttendance(params: {
     }
 
     // B. Check if current time is within or after the 3-hour window
+    const isBeforeShiftStart = now.getTime() < startDateTime.getTime();
+    const isWithinGrace = now.getTime() <= graceEndDateTime.getTime();
+    const isLateCheckIn = now.getTime() > graceEndDateTime.getTime();
+
     return {
       state: 'CHECK_IN_AVAILABLE',
       canCheckIn: true,
@@ -431,12 +558,34 @@ export function evaluateShiftAttendance(params: {
       shiftStartDateTime: startDateTime,
       shiftEndDateTime: endDateTime,
       earlyCheckInDateTime,
-      statusTitle: 'Check-In Available',
-      statusBadge: 'Available Now',
+      graceEndDateTime,
+      gracePeriodMins,
+      shiftStartDisplay,
+      shiftEndDisplay,
+      checkInOpenDisplay,
+      lateAfterDisplay,
+      isWithinGrace,
+      isLateCheckIn,
+      expectedStatus: isLateCheckIn ? 'Late' : 'Present',
+      timeZone,
+      statusTitle: isLateCheckIn ? 'Late Check-In Open' : 'Check-In Available',
+      statusBadge: isLateCheckIn ? 'Late Window' : 'Available Now',
       shiftTimingDisplay,
-      availabilityDisplay: `Your shift starts at ${startComp.display12}`,
-      countdownText: 'Early Check In is available',
-      message: `Your shift starts at ${startComp.display12}. Early Check In is available.`,
+      availabilityDisplay: isLateCheckIn
+        ? `Grace ended at ${lateAfterDisplay} • Check-in marked Late`
+        : isBeforeShiftStart
+          ? `Your shift starts at ${startComp.display12}`
+          : `Within ${gracePeriodMins}m grace until ${lateAfterDisplay}`,
+      countdownText: isLateCheckIn
+        ? 'Late Check-In Open'
+        : isBeforeShiftStart
+          ? 'Early Check In is available'
+          : 'On-Time Window Open',
+      message: isLateCheckIn
+        ? `Your shift started at ${startComp.display12} (Grace ended at ${lateAfterDisplay}). Check-in is allowed and will be marked Late.`
+        : isBeforeShiftStart
+          ? `Your shift starts at ${startComp.display12}. Early Check In is available.`
+          : `Shift started at ${startComp.display12}. On-time check-in available until ${lateAfterDisplay}.`,
       isNightShift,
       isNextDayShift: false
     };
@@ -472,16 +621,16 @@ export function evaluateShiftAttendance(params: {
     startDateTime: nextStartDateTime,
     endDateTime: nextEndDateTime,
     earlyCheckInDateTime: nextEarlyCheckInDateTime,
+    graceEndDateTime: nextGraceEndDateTime,
+    gracePeriodMins: nextGracePeriodMins,
+    shiftStartDisplay: nextShiftStartDisplay,
+    shiftEndDisplay: nextShiftEndDisplay,
+    checkInOpenDisplay: nextCheckInOpenDisplay,
+    lateAfterDisplay: nextLateAfterDisplay,
     isNightShift
-  } = calculateShiftDateTimes(nextDateStr, assignedShift);
+  } = calculateShiftDateTimes(nextDateStr, assignedShift, effectiveGraceMins);
 
-  const nextEarlyHours = nextEarlyCheckInDateTime.getHours();
-  const nextEarlyMins = nextEarlyCheckInDateTime.getMinutes();
-  const nextEarlyAmpm = nextEarlyHours >= 12 ? 'PM' : 'AM';
-  const nextEarlyDispHours = nextEarlyHours % 12 || 12;
-  const nextEarlyTimeStr = `${String(nextEarlyDispHours).padStart(2, '0')}:${String(nextEarlyMins).padStart(2, '0')} ${nextEarlyAmpm}`;
-
-  const friendlyEarlyDisplay = formatFriendlyShiftTime(nextEarlyCheckInDateTime, now, nextEarlyTimeStr);
+  const friendlyEarlyDisplay = formatFriendlyShiftTime(nextEarlyCheckInDateTime, now, nextCheckInOpenDisplay);
 
   // Check if now is already within the 3-hour window for the next shift
   if (now.getTime() >= nextEarlyCheckInDateTime.getTime()) {
@@ -496,6 +645,16 @@ export function evaluateShiftAttendance(params: {
       shiftStartDateTime: nextStartDateTime,
       shiftEndDateTime: nextEndDateTime,
       earlyCheckInDateTime: nextEarlyCheckInDateTime,
+      graceEndDateTime: nextGraceEndDateTime,
+      gracePeriodMins: nextGracePeriodMins,
+      shiftStartDisplay: nextShiftStartDisplay,
+      shiftEndDisplay: nextShiftEndDisplay,
+      checkInOpenDisplay: nextCheckInOpenDisplay,
+      lateAfterDisplay: nextLateAfterDisplay,
+      isWithinGrace: true,
+      isLateCheckIn: false,
+      expectedStatus: 'Present',
+      timeZone,
       statusTitle: 'Check-In Available',
       statusBadge: 'Available Now',
       shiftTimingDisplay,
@@ -522,6 +681,16 @@ export function evaluateShiftAttendance(params: {
     shiftStartDateTime: nextStartDateTime,
     shiftEndDateTime: nextEndDateTime,
     earlyCheckInDateTime: nextEarlyCheckInDateTime,
+    graceEndDateTime: nextGraceEndDateTime,
+    gracePeriodMins: nextGracePeriodMins,
+    shiftStartDisplay: nextShiftStartDisplay,
+    shiftEndDisplay: nextShiftEndDisplay,
+    checkInOpenDisplay: nextCheckInOpenDisplay,
+    lateAfterDisplay: nextLateAfterDisplay,
+    isWithinGrace: true,
+    isLateCheckIn: false,
+    expectedStatus: 'Present',
+    timeZone,
     statusTitle: isCompletedToday ? 'Attendance Completed' : 'Next Shift',
     statusBadge: isCompletedToday ? 'Completed' : 'Waiting',
     shiftTimingDisplay,

@@ -87,7 +87,30 @@ export const INITIAL_ORG_STRUCTURE: OrganizationStructure = {
   teams: []
 };
 
-export const DEFAULT_MASTER_ATTENDANCE_POLICIES: AttendancePolicy[] = [];
+export const DEFAULT_MASTER_ATTENDANCE_POLICIES: AttendancePolicy[] = [
+  {
+    id: 'AP-DEFAULT-001',
+    policyName: 'Standard Corporate Attendance Policy',
+    applicableDepartments: 'ALL',
+    applicableDesignations: 'ALL',
+    applicableShifts: 'ALL',
+    applicableEmployees: 'ALL',
+    graceTimeMinutes: 40,
+    allowedLateCount: 3,
+    warningSystemEnabled: true,
+    halfDayRuleEnabled: true,
+    halfDayThresholdCount: 4,
+    lopRuleEnabled: true,
+    lopThresholdCount: 6,
+    lateRuleType: 'COUNT_BASED',
+    status: 'Active',
+    version: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'System',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedBy: 'System'
+  }
+];
 
 export const INITIAL_ATTENDANCE_CORRECTIONS: AttendanceCorrectionRequest[] = [];
 
