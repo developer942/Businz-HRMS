@@ -2932,205 +2932,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               </div>
             </div>
 
-            {/* SHIFT TIMING, GRACE POLICY & GPS VERIFICATION STATUS PANEL */}
-            <div
-              data-testid="shift-policy-info-panel"
-              style={{
-                maxWidth: isMobileViewport ? '280px' : '360px',
-                margin: '10px auto 0',
-                padding: '10px 12px',
-                borderRadius: '12px',
-                backgroundColor: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                textAlign: 'left',
-                fontSize: '0.74rem',
-                color: '#334155',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Clock size={13} color="#0e7490" />
-                  <span>{shiftEval.assignedShift?.shiftName?.replace(/\s*\([^)]*\)\s*$/, '') || 'Assigned Shift'}</span>
-                </span>
-                <span
-                  data-testid="shift-expected-status-badge"
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: '9999px',
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    backgroundColor: isCompletedToday
-                      ? '#dcfce7'
-                      : isCheckedIn
-                        ? (todayAttendance?.status === 'Late' ? '#fef3c7' : '#dcfce7')
-                        : !shiftEval.canCheckIn
-                          ? '#f1f5f9'
-                          : shiftEval.isLateCheckIn
-                            ? '#fef3c7'
-                            : '#ecfeff',
-                    color: isCompletedToday
-                      ? '#15803d'
-                      : isCheckedIn
-                        ? (todayAttendance?.status === 'Late' ? '#b45309' : '#15803d')
-                        : !shiftEval.canCheckIn
-                          ? '#475569'
-                          : shiftEval.isLateCheckIn
-                            ? '#b45309'
-                            : '#0e7490'
-                  }}
-                >
-                  {isCompletedToday
-                    ? 'Shift Completed'
-                    : isCheckedIn
-                      ? `Checked In (${todayAttendance?.status || 'Present'})`
-                      : !shiftEval.canCheckIn
-                        ? shiftEval.statusBadge
-                        : shiftEval.isLateCheckIn
-                          ? 'Late Check-In Allowed'
-                          : 'Ready to Punch In'}
-                </span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px', fontSize: '0.72rem' }}>
-                <div>
-                  <span style={{ color: '#64748b' }}>Shift Time: </span>
-                  <strong data-testid="shift-start-end-display" style={{ color: '#0f172a' }}>
-                    {shiftEval.shiftStartDisplay} – {shiftEval.shiftEndDisplay}
-                  </strong>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>Opens At: </span>
-                  <strong data-testid="shift-open-time-display" style={{ color: '#0e7490' }}>
-                    {shiftEval.checkInOpenDisplay}
-                  </strong>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>Grace Policy: </span>
-                  <strong data-testid="shift-grace-mins-display" style={{ color: '#0f172a' }}>
-                    {shiftEval.gracePeriodMins} mins
-                  </strong>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>Late After: </span>
-                  <strong data-testid="shift-late-after-display" style={{ color: '#b45309' }}>
-                    {shiftEval.lateAfterDisplay}
-                  </strong>
-                </div>
-              </div>
-
-              {/* GPS Permission, Accuracy & Geofence Row */}
-              <div
-                data-testid="gps-geofence-status-panel"
-                style={{
-                  marginTop: '2px',
-                  paddingTop: '6px',
-                  borderTop: '1px dashed #cbd5e1',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
-                  flexWrap: 'wrap'
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: '170px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
-                    <MapPin size={12} color={gpsStatusDetails.verified ? '#15803d' : gpsPermissionState === 'denied' ? '#dc2626' : '#0e7490'} />
-                    <span
-                      data-testid="gps-verification-badge"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.68rem',
-                        fontWeight: 700,
-                        backgroundColor: gpsStatusDetails.verified
-                          ? '#dcfce7'
-                          : gpsStatusDetails.classification === 'OUTSIDE' ||
-                              gpsPermissionState === 'denied' ||
-                              lastGpsErrorCode === 'PERMISSION_DENIED' ||
-                              lastGpsErrorCode === 'TIMEOUT' ||
-                              lastGpsErrorCode === 'POSITION_UNAVAILABLE'
-                            ? '#fee2e2'
-                            : gpsStatusDetails.classification === 'UNCERTAIN' || isRetryingLocation
-                              ? '#fef3c7'
-                              : '#f1f5f9',
-                        color: gpsStatusDetails.verified
-                          ? '#15803d'
-                          : gpsStatusDetails.classification === 'OUTSIDE' ||
-                              gpsPermissionState === 'denied' ||
-                              lastGpsErrorCode === 'PERMISSION_DENIED' ||
-                              lastGpsErrorCode === 'TIMEOUT' ||
-                              lastGpsErrorCode === 'POSITION_UNAVAILABLE'
-                            ? '#dc2626'
-                            : gpsStatusDetails.classification === 'UNCERTAIN' || isRetryingLocation
-                              ? '#b45309'
-                              : '#475569'
-                      }}
-                    >
-                      {isRetryingLocation
-                        ? (gpsProgressMsg === 'Improving GPS Accuracy...' ? 'Improving GPS Accuracy...' : 'Getting GPS Location...')
-                        : gpsStatusDetails.verified
-                          ? 'GPS Verified'
-                          : gpsPermissionState === 'denied' || lastGpsErrorCode === 'PERMISSION_DENIED'
-                            ? 'Location Permission Denied'
-                            : lastGpsErrorCode === 'TIMEOUT' || lastGpsErrorCode === 'POSITION_UNAVAILABLE' || lastGpsErrorCode === 'STALE_READING'
-                              ? 'GPS Timed Out — Retry'
-                              : gpsStatusDetails.classification === 'OUTSIDE' || lastGpsErrorCode === 'OUTSIDE_GEOFENCE'
-                                ? 'Outside Allowed Attendance Area'
-                                : gpsStatusDetails.classification === 'UNCERTAIN' || lastGpsErrorCode === 'LOW_GPS_ACCURACY'
-                                  ? 'Improving GPS Accuracy...'
-                                  : 'Ready • Verified on Punch'}
-                    </span>
-                    {hasPreservedFaceCapture && !gpsStatusDetails.verified && (
-                      <span
-                        data-testid="preserved-face-badge"
-                        style={{
-                          padding: '2px 7px',
-                          borderRadius: '9999px',
-                          fontSize: '0.66rem',
-                          fontWeight: 700,
-                          backgroundColor: '#ecfeff',
-                          color: '#0e7490',
-                          border: '1px solid #a5f3fc'
-                        }}
-                      >
-                        Face Verified &amp; Preserved
-                      </span>
-                    )}
-                  </div>
-                  <div data-testid="gps-accuracy-distance-text" style={{ fontSize: '0.69rem', color: '#475569' }}>
-                    {gpsStatusDetails.accuracy !== null
-                      ? `Accuracy: ±${Math.round(gpsStatusDetails.accuracy)}m${gpsStatusDetails.distance !== null ? ` • Distance: ${Math.round(gpsStatusDetails.distance)}m / ${gpsStatusDetails.radius}m` : ''}`
-                      : `Allowed Area: ${geofenceConfig.officeName || 'HQ Office'} (${Number(geofenceConfig.radiusMeters) || 500}m)`}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  data-testid="retry-location-btn"
-                  disabled={isRetryingLocation || isScanning}
-                  onClick={() => void handleRetryLocation()}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: '8px',
-                    border: '1px solid #0e7490',
-                    backgroundColor: '#ecfeff',
-                    color: '#0e7490',
-                    fontSize: '0.71rem',
-                    fontWeight: 700,
-                    cursor: isRetryingLocation || isScanning ? 'not-allowed' : 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    flexShrink: 0
-                  }}
-                >
-                  <RefreshCw size={12} />
-                  <span>{isRetryingLocation ? 'Checking...' : 'Retry Location'}</span>
-                </button>
-              </div>
+            {/* FULL-SCREEN FRONT CAMERA MODAL & COMMITTED PUNCH SUMMARY (Shift/GPS info panel hidden on frontend home screen per user request) */}
+            <div>
               {isFullScreenCameraOpen && (
                 <div
                   data-testid="fullscreen-face-camera-modal"
@@ -3541,7 +3344,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 <div
                   data-testid="one-click-punch-success-card"
                   style={{
-                    marginTop: '6px',
+                    maxWidth: isMobileViewport ? '280px' : '360px',
+                    margin: '10px auto 0',
                     padding: '8px 10px',
                     borderRadius: '10px',
                     backgroundColor: '#f0fdf4',
@@ -3550,7 +3354,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     flexDirection: 'column',
                     gap: '3px',
                     fontSize: '0.73rem',
-                    color: '#0f172a'
+                    color: '#0f172a',
+                    textAlign: 'left'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
