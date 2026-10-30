@@ -190,13 +190,17 @@ export function evaluateGeofenceBoundary(
   const R = Math.round(radiusMeters);
   const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
 
-  if (
-    maxAccuracyMeters !== undefined &&
-    Number.isFinite(maxAccuracyMeters) &&
-    maxAccuracyMeters > 0 &&
-    A > maxAccuracyMeters
-  ) {
-    const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(maxAccuracyMeters)}m). Please enable Precise Location and retry.`;
+  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 150m max accuracy
+  // so coarse cell-tower fixes (e.g. ±250m) are never accepted simply because D + A <= R.
+  const effectiveMaxAccuracy =
+    maxAccuracyMeters !== undefined && Number.isFinite(maxAccuracyMeters) && maxAccuracyMeters > 0
+      ? maxAccuracyMeters
+      : R >= 400
+        ? 150
+        : undefined;
+
+  if (effectiveMaxAccuracy !== undefined && A > effectiveMaxAccuracy) {
+    const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(effectiveMaxAccuracy)}m). Please enable Precise Location and retry.`;
     return {
       classification: 'UNCERTAIN',
       distanceMeters: D,
@@ -425,8 +429,11 @@ export function prewarmGps(): void {
 
 export interface AcquireGpsOptions {
   timeoutMs?: number;
+  stageATimeoutMs?: number;
+  stageBTimeoutMs?: number;
   desiredAccuracyMeters?: number;
   acceptableAccuracyMeters?: number;
+  maxAccuracyMeters?: number;
   maxAcceptableAgeMs?: number;
   maxStaleAgeMs?: number;
   forceFresh?: boolean;
@@ -434,6 +441,7 @@ export interface AcquireGpsOptions {
     centerLat: number;
     centerLng: number;
     radiusMeters: number;
+    maxAccuracyMeters?: number;
   };
   onProgress?: (progress: GpsAcquisitionProgress) => void;
   attemptNumber?: number;
@@ -1018,44 +1026,103 @@ export function getMobileLocationInstructions(
 }
 
 /**
- * Forces a completely fresh GPS reading (maximumAge: 0, enableHighAccuracy: true) using
- * navigator.geolocation.getCurrentPosition() first, falling back to multi-sample acquisition.
- * Always clears any cached coordinates before requesting.
+ * Two-Stage GPS Acquisition Strategy (Stage A: Fast 8s acquisition -> Stage B: Controlled 12s single retry).
+ *
+ * Stage A — Fast acquisition:
+ * - Requests a fresh GPS reading (enableHighAccuracy: true, maximumAge: 0) with configurable timeout (default 8000ms).
+ * - Immediately resolves if accuracy and freshness satisfy the configured security policy.
+ *
+ * Stage B — Controlled retry:
+ * - If Stage A times out or returns an uncertain fix, attempts ONE controlled retry (default 12000ms).
+ * - Cleans up location watchers and pending operations, prevents duplicate requests across React re-renders,
+ *   never reuses stale coordinates, and prevents late responses from overwriting newer state.
  */
 export async function requestFreshGpsPosition(
-  options: AcquireGpsOptions & { maxRetries?: number } = {}
+  options: AcquireGpsOptions & {
+    maxRetries?: number;
+    stageATimeoutMs?: number;
+    stageBTimeoutMs?: number;
+    maxAccuracyMeters?: number;
+  } = {}
 ): Promise<GpsLocationReading> {
   cancelActiveGpsAcquisition();
   clearCachedGpsReading();
 
-  const timeoutMs = Math.max(3000, Math.min(options.timeoutMs ?? 12000, 30000));
+  const stageATimeoutMs = Math.max(
+    250,
+    Math.min(options.stageATimeoutMs ?? options.timeoutMs ?? 8000, 20000)
+  );
+  const stageBTimeoutMs = Math.max(
+    250,
+    Math.min(options.stageBTimeoutMs ?? options.timeoutMs ?? 12000, 30000)
+  );
+  const allowStageBRetry = (options.maxRetries ?? 1) >= 1;
+  const maxAttempts = allowStageBRetry ? 2 : 1;
   const desiredAccuracy = options.desiredAccuracyMeters ?? 35;
   const maxStaleAgeMs = options.maxStaleAgeMs ?? options.maxAcceptableAgeMs ?? 60000;
+  const maxAccuracyCap =
+    options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters;
   const deviceCategory = detectBrowserDeviceCategory();
   const startTime = Date.now();
+  const stageSeq = activeRequestSequence + 1;
 
-  if (typeof navigator !== 'undefined' && navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function') {
+  let stageAReading: GpsLocationReading | null = null;
+
+  // Stage A — Fast Acquisition (initial 8s configurable window)
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.geolocation &&
+    typeof navigator.geolocation.getCurrentPosition === 'function'
+  ) {
     try {
       options.onProgress?.({
-        phase: 'REQUESTING_PERMISSION',
-        message: 'Requesting fresh GPS location...',
+        phase: 'ACQUIRING',
+        message: 'Getting GPS Location...',
         bestAccuracyMeters: null,
         sampleCount: 0,
         attempt: 1,
-        maxAttempts: (options.maxRetries ?? 1) + 1
+        maxAttempts
       });
 
       const directFix = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: Math.min(timeoutMs, 8000)
-        });
+        const timer = setTimeout(() => {
+          reject({ code: 3, message: 'Stage A GPS acquisition timed out' });
+        }, stageATimeoutMs + 100);
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            clearTimeout(timer);
+            resolve(pos);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err);
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: stageATimeoutMs
+          }
+        );
       });
+
+      // Ignore late response if a newer GPS request has started
+      if (activeRequestSequence >= stageSeq) {
+        throw new GpsAcquisitionError({
+          code: 'TIMEOUT',
+          message: 'Obsolete GPS response ignored.',
+          durationMs: Date.now() - startTime,
+          sampleCount: 0,
+          deviceCategory
+        });
+      }
 
       const lat = directFix.coords.latitude;
       const lng = directFix.coords.longitude;
-      const acc = typeof directFix.coords.accuracy === 'number' && directFix.coords.accuracy > 0 ? directFix.coords.accuracy : 999;
+      const acc =
+        typeof directFix.coords.accuracy === 'number' && directFix.coords.accuracy > 0
+          ? directFix.coords.accuracy
+          : 999;
       const now = Date.now();
       const { normalizedTimestampMs, ageMs } = calculateLocationAgeMs(directFix.timestamp, now);
 
@@ -1072,21 +1139,38 @@ export async function requestFreshGpsPosition(
           deviceCategory,
           browserDeviceCategory: deviceCategory
         };
+        stageAReading = reading;
 
-        // If accuracy is already sharp or clearly inside geofence, return immediately
-        if (options.geofenceContext && isValidGpsCoordinate(options.geofenceContext.centerLat, options.geofenceContext.centerLng)) {
+        // Immediately resolve if accuracy and freshness satisfy the configured security policy
+        if (
+          options.geofenceContext &&
+          isValidGpsCoordinate(options.geofenceContext.centerLat, options.geofenceContext.centerLng)
+        ) {
           const dist = calculateHaversineMeters(
             reading.latitude,
             reading.longitude,
             options.geofenceContext.centerLat,
             options.geofenceContext.centerLng
           );
-          const evalRes = evaluateGeofenceBoundary(dist, options.geofenceContext.radiusMeters, reading.accuracy);
-          if (evalRes.classification === 'INSIDE' || reading.accuracy <= desiredAccuracy) {
+          const evalRes = evaluateGeofenceBoundary(
+            dist,
+            options.geofenceContext.radiusMeters,
+            reading.accuracy,
+            'Office',
+            maxAccuracyCap
+          );
+          if (
+            evalRes.classification === 'INSIDE' ||
+            (evalRes.classification === 'OUTSIDE' && reading.accuracy <= 100) ||
+            (reading.accuracy <= desiredAccuracy && evalRes.errorCode !== 'LOW_GPS_ACCURACY')
+          ) {
             cachedReading = { reading, acquiredAt: now };
             return reading;
           }
-        } else if (reading.accuracy <= desiredAccuracy) {
+        } else if (
+          reading.accuracy <= desiredAccuracy &&
+          (maxAccuracyCap === undefined || reading.accuracy <= maxAccuracyCap)
+        ) {
           cachedReading = { reading, acquiredAt: now };
           return reading;
         }
@@ -1101,12 +1185,65 @@ export async function requestFreshGpsPosition(
           deviceCategory
         });
       }
-      // For timeout/unavailable or coarse initial fix, fall through to multi-sample bounded retry
+      if (!allowStageBRetry) {
+        throw new GpsAcquisitionError({
+          code: err?.code === 2 ? 'POSITION_UNAVAILABLE' : 'TIMEOUT',
+          message:
+            err?.code === 2
+              ? 'Location services appear disabled or unavailable. Please enable GPS/location services and retry.'
+              : 'Unable to obtain your location. Please retry with location services enabled.',
+          durationMs: Date.now() - startTime,
+          sampleCount: 0,
+          deviceCategory
+        });
+      }
     }
   }
 
-  return acquireGpsWithBoundedRetry({
-    ...options,
-    forceFresh: true
+  if (!allowStageBRetry && stageAReading) {
+    return stageAReading;
+  }
+
+  // Stage B — Controlled Single Retry (12s configurable window, maxRetries: 0 so we never exceed 1 retry)
+  options.onProgress?.({
+    phase: 'RETRYING',
+    message: stageAReading ? 'Improving GPS Accuracy...' : 'Getting GPS Location...',
+    currentAccuracyMeters: stageAReading ? Math.round(stageAReading.accuracy) : undefined,
+    bestAccuracyMeters: stageAReading ? Math.round(stageAReading.accuracy) : null,
+    sampleCount: stageAReading ? 1 : 0,
+    attempt: 2,
+    maxAttempts: 2
   });
+
+  try {
+    const stageBReading = await acquireHighAccuracyGps({
+      ...options,
+      timeoutMs: stageBTimeoutMs,
+      forceFresh: true,
+      attemptNumber: 2,
+      maxAttempts: 2
+    });
+    if (stageAReading && stageAReading.accuracy < stageBReading.accuracy) {
+      return {
+        ...stageAReading,
+        durationMs: Date.now() - startTime,
+        retryCount: 1,
+        sampleCount: stageBReading.sampleCount + 1
+      };
+    }
+    return {
+      ...stageBReading,
+      durationMs: Date.now() - startTime,
+      retryCount: 1
+    };
+  } catch (stageBErr: any) {
+    if (stageAReading && stageBErr?.code !== 'PERMISSION_DENIED') {
+      return {
+        ...stageAReading,
+        durationMs: Date.now() - startTime,
+        retryCount: 1
+      };
+    }
+    throw stageBErr;
+  }
 }

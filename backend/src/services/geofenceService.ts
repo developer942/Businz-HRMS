@@ -128,20 +128,23 @@ export function evaluateGeofenceBoundary(
   const R = Math.round(radiusMeters);
   const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
 
-  // If an explicit accuracy threshold is configured and the reading is coarser than allowed, do not treat as verified
-  if (
-    maxAccuracyMeters !== undefined &&
-    Number.isFinite(maxAccuracyMeters) &&
-    maxAccuracyMeters > 0 &&
-    A > maxAccuracyMeters
-  ) {
-    const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(maxAccuracyMeters)}m). Please enable Precise Location and retry.`;
+  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 150m max accuracy
+  // so coarse cell-tower fixes (e.g. ±250m) are never accepted simply because D + A <= R.
+  const effectiveMaxAccuracy =
+    maxAccuracyMeters !== undefined && Number.isFinite(maxAccuracyMeters) && maxAccuracyMeters > 0
+      ? maxAccuracyMeters
+      : R >= 400
+        ? 150
+        : undefined;
+
+  if (effectiveMaxAccuracy !== undefined && A > effectiveMaxAccuracy) {
+    const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(effectiveMaxAccuracy)}m). Please enable Precise Location and retry.`;
     return {
       classification: 'UNCERTAIN',
       distanceMeters: D,
       radiusMeters: R,
       accuracyMeters: A,
-      maxAllowedAccuracyMeters: maxAccuracyMeters,
+      maxAllowedAccuracyMeters: effectiveMaxAccuracy,
       isInside: false,
       canPunch: false,
       reason: `${userMessage} Estimated distance from ${officeName} is ${D}m with ±${A}m GPS accuracy (configured ${R}m boundary).`,

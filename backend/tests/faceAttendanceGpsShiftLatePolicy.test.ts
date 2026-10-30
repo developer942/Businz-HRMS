@@ -449,4 +449,131 @@ describe('BUSINZ HRMS — Mandatory Face Attendance, Shift Timing, Late Policy &
       })
     ).toBe('CHECKED_OUT');
   });
+
+  it('9. Shift 10:00 AM – 07:00 PM with 40m grace (opens 07:00 AM, late after 10:40 AM): verifies 06:59 AM, 07:00 AM, 10:00 AM, 10:40 AM, 10:41 AM, 11:00 AM, 11:33 AM, and 12:00 PM', () => {
+    const tenAmShift: ShiftRecord = {
+      id: 'c40ba66f-7afb-49b0-9492-e09069f50661',
+      shiftName: "10'o Clock Shift",
+      startTime: '10:00',
+      endTime: '19:00',
+      breakDurationMins: 45,
+      workingHours: 8,
+      gracePeriodMins: 40,
+      color: '#0E7490',
+      assignments: ['VRM-027'],
+    };
+
+    // Prioritize active assignment in shift.assignments even if employee.workShift has stale 'Morning'
+    const resolved = resolveEmployeeAssignedShift(
+      { id: 'c50f1606-f1b9-4030-9f57-6dc0de37a76f', employeeId: 'VRM-027', workShift: 'Morning' } as any,
+      [dayShift as any, tenAmShift as any]
+    );
+    expect(resolved.id).toBe(tenAmShift.id);
+
+    const scheduleCases = [
+      { label: '06:59 AM -> Too early', hour: 6, min: 59, canCheckIn: false, status: 'Present', lateMins: 0 },
+      { label: '07:00 AM -> Allowed', hour: 7, min: 0, canCheckIn: true, status: 'Present', lateMins: 0 },
+      { label: '10:00 AM -> Present', hour: 10, min: 0, canCheckIn: true, status: 'Present', lateMins: 0 },
+      { label: '10:40 AM -> Present', hour: 10, min: 40, canCheckIn: true, status: 'Present', lateMins: 0 },
+      { label: '10:41 AM -> Late', hour: 10, min: 41, canCheckIn: true, status: 'Late', lateMins: 41 },
+      { label: '11:00 AM -> Late', hour: 11, min: 0, canCheckIn: true, status: 'Late', lateMins: 60 },
+      { label: '11:33 AM -> Late', hour: 11, min: 33, canCheckIn: true, status: 'Late', lateMins: 93 },
+      { label: '12:00 PM -> Late', hour: 12, min: 0, canCheckIn: true, status: 'Late', lateMins: 120 },
+    ] as const;
+
+    for (const tc of scheduleCases) {
+      const now = new Date(2026, 9, 30, tc.hour, tc.min, 0);
+      const evalRes = evaluateBackendShiftAttendance({
+        employeeId: 'VRM-027',
+        assignedShift: tenAmShift,
+        attendanceLogs: [],
+        now,
+        gracePeriodMinutes: 40,
+      });
+
+      expect(evalRes.canCheckIn, tc.label).toBe(tc.canCheckIn);
+      expect(evalRes.shiftStartDisplay).toBe('10:00 AM');
+      expect(evalRes.shiftEndDisplay).toBe('07:00 PM');
+      expect(evalRes.checkInOpenDisplay).toBe('07:00 AM');
+      expect(evalRes.gracePeriodMins).toBe(40);
+      expect(evalRes.lateAfterDisplay).toBe('10:40 AM');
+
+      if (tc.canCheckIn) {
+        expect(evalRes.expectedStatus, tc.label).toBe(tc.status);
+        const punctuality = evaluateCheckInPunctualityAndPenalty({
+          checkInTime: now,
+          shiftStartDateTime: evalRes.shiftStartDateTime,
+          policy: DEFAULT_CORPORATE_LATE_POLICY,
+          previousMonthlyLateCount: 0,
+        });
+        expect(punctuality.status, tc.label).toBe(tc.status);
+        expect(punctuality.lateDurationMinutes, tc.label).toBe(tc.lateMins);
+      }
+    }
+  });
+
+  it('10. Two-Stage GPS Acquisition (Stage A 8s fast fix -> Stage B 12s single controlled retry) and 500m Geofence accuracy enforcement', async () => {
+    const inside500 = offsetMetersNorth(OFFICE.lat, OFFICE.lng, 180);
+
+    // 1. Stage A times out (code 3) -> Stage B single controlled retry recovers with ±22m fix
+    let stageACalled = 0;
+    let stageBWatchCalled = 0;
+    const clearWatchSpy = vi.fn();
+
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/129.0 Mobile Safari/537.36',
+      geolocation: {
+        getCurrentPosition: (_success: any, error: any, opts?: PositionOptions) => {
+          stageACalled++;
+          expect(opts?.enableHighAccuracy).toBe(true);
+          expect(opts?.maximumAge).toBe(0);
+          setTimeout(() => error({ code: 3, message: 'Stage A timeout' }), 10);
+        },
+        watchPosition: (success: any, _error: any, opts?: PositionOptions) => {
+          stageBWatchCalled++;
+          expect(opts?.enableHighAccuracy).toBe(true);
+          expect(opts?.maximumAge).toBe(0);
+          setTimeout(() => {
+            success({
+              coords: { latitude: inside500.lat, longitude: inside500.lng, accuracy: 22 },
+              timestamp: Date.now(),
+            });
+          }, 15);
+          return 301;
+        },
+        clearWatch: clearWatchSpy,
+      },
+    });
+
+    const recovered = await requestFreshGpsPosition({
+      stageATimeoutMs: 8000,
+      stageBTimeoutMs: 12000,
+      maxRetries: 1,
+      geofenceContext: { centerLat: OFFICE.lat, centerLng: OFFICE.lng, radiusMeters: 500 },
+    });
+
+    expect(stageACalled).toBe(1);
+    expect(stageBWatchCalled).toBe(1); // Strictly ONE controlled retry in Stage B
+    expect(clearWatchSpy).toHaveBeenCalledWith(301);
+    expect(recovered.accuracy).toBe(22);
+    expect(recovered.retryCount).toBe(1);
+
+    // 2. 500m Geofence verification: accepts accurate fix inside 500m, rejects coarse ±260m cell-tower fix even if D + A <= 500m
+    const validInside500 = backendEvaluateBoundary(180, 500, 22, OFFICE.name);
+    expect(validInside500.classification).toBe('INSIDE');
+    expect(validInside500.canPunch).toBe(true);
+
+    const coarseInside500 = backendEvaluateBoundary(40, 500, 260, OFFICE.name);
+    expect(coarseInside500.canPunch).toBe(false);
+    expect(coarseInside500.errorCode).toBe('LOW_GPS_ACCURACY');
+
+    const feCoarseInside500 = frontendEvaluateBoundary(40, 500, 260, OFFICE.name);
+    expect(feCoarseInside500.canPunch).toBe(false);
+    expect(feCoarseInside500.errorCode).toBe('LOW_GPS_ACCURACY');
+
+    const outside500 = backendEvaluateBoundary(620, 500, 18, OFFICE.name);
+    expect(outside500.classification).toBe('OUTSIDE');
+    expect(outside500.canPunch).toBe(false);
+    expect(outside500.errorCode).toBe('OUTSIDE_GEOFENCE');
+  });
 });

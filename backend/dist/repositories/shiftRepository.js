@@ -128,17 +128,42 @@ export class ShiftRepository {
         await this.saveShiftRequests(requests);
         return requests[index];
     }
+    shiftsCache = new Map();
+    invalidateShiftCache() {
+        this.shiftsCache.clear();
+    }
     async getShifts(companyId = 'company-a', businessDate = new Date().toISOString().slice(0, 10)) {
+        const cacheKey = `${companyId}:${businessDate}`;
+        const cached = this.shiftsCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.shifts.map((s) => ({
+                ...s,
+                assignments: s.assignments ? [...s.assignments] : [],
+            }));
+        }
         const byId = new Map();
+        const assignedEmployeesFromTable = new Set();
+        const dbShiftIds = new Set();
         // 1. Load shifts and active shift_assignments from PostgreSQL tables directly
         try {
-            const dbShiftsRes = await query(`SELECT id, shift_name, start_time, end_time, break_duration_mins, working_hours, grace_period_mins, color
-         FROM public.shifts
-         WHERE company_id = $1 OR company_id IS NULL
-         ORDER BY created_at ASC`, [companyId]);
+            const [dbShiftsRes, assignRes] = await Promise.all([
+                query(`SELECT id, shift_name, start_time, end_time, break_duration_mins, working_hours, grace_period_mins, color
+           FROM public.shifts
+           WHERE company_id = $1 OR company_id IS NULL
+           ORDER BY created_at ASC`, [companyId]),
+                query(`SELECT sa.shift_id, sa.employee_id AS emp_uuid, e.employee_id AS emp_code, sa.effective_from, sa.effective_to
+           FROM public.shift_assignments sa
+           LEFT JOIN public.employees e ON e.id = sa.employee_id
+           WHERE (sa.company_id = $1 OR sa.company_id IS NULL)
+             AND sa.effective_from <= $2::date
+             AND (sa.effective_to IS NULL OR sa.effective_to >= $2::date)
+           ORDER BY sa.effective_from DESC, sa.updated_at DESC NULLS LAST`, [companyId, businessDate]),
+            ]);
             for (const s of dbShiftsRes.rows) {
-                byId.set(String(s.id), {
-                    id: String(s.id),
+                const sId = String(s.id);
+                dbShiftIds.add(sId);
+                byId.set(sId, {
+                    id: sId,
                     shiftName: String(s.shift_name || s.name || 'Shift'),
                     startTime: String(s.start_time || '09:00').slice(0, 5),
                     endTime: String(s.end_time || '18:00').slice(0, 5),
@@ -150,14 +175,6 @@ export class ShiftRepository {
                     assignments: [],
                 });
             }
-            // Load active shift_assignments for businessDate
-            const assignRes = await query(`SELECT sa.shift_id, sa.employee_id AS emp_uuid, e.employee_id AS emp_code, sa.effective_from, sa.effective_to
-         FROM public.shift_assignments sa
-         LEFT JOIN public.employees e ON e.id = sa.employee_id
-         WHERE (sa.company_id = $1 OR sa.company_id IS NULL)
-           AND sa.effective_from <= $2::date
-           AND (sa.effective_to IS NULL OR sa.effective_to >= $2::date)
-         ORDER BY sa.effective_from DESC, sa.updated_at DESC NULLS LAST`, [companyId, businessDate]);
             // Keep only the latest effective assignment per employee
             const latestShiftByEmp = new Map();
             for (const row of assignRes.rows) {
@@ -174,10 +191,14 @@ export class ShiftRepository {
                 const targetShift = byId.get(shiftId);
                 if (targetShift) {
                     const list = new Set(targetShift.assignments || []);
-                    if (empCode)
+                    if (empCode) {
                         list.add(empCode);
-                    if (empUuid)
+                        assignedEmployeesFromTable.add(empCode.toLowerCase());
+                    }
+                    if (empUuid) {
                         list.add(empUuid);
+                        assignedEmployeesFromTable.add(empUuid.toLowerCase());
+                    }
                     targetShift.assignments = Array.from(list);
                     targetShift.assignedEmployeeCount = list.size;
                 }
@@ -194,8 +215,10 @@ export class ShiftRepository {
                         .eq('company_id', companyId)
                         .order('created_at', { ascending: true });
                     for (const s of dbShifts || []) {
-                        byId.set(String(s.id), {
-                            id: String(s.id),
+                        const sId = String(s.id);
+                        dbShiftIds.add(sId);
+                        byId.set(sId, {
+                            id: sId,
                             shiftName: s.name || s.shift_name || 'Shift',
                             startTime: String(s.start_time || '09:00').slice(0, 5),
                             endTime: String(s.end_time || '18:00').slice(0, 5),
@@ -220,6 +243,7 @@ export class ShiftRepository {
          WHERE setting_key IN ('shifts_vps_data', 'shifts_data')
          ORDER BY CASE WHEN setting_key = 'shifts_vps_data' THEN 0 ELSE 1 END`);
             for (const row of settingsRes.rows) {
+                const settingKey = String(row?.setting_key || '');
                 const val = row?.setting_val;
                 if (!Array.isArray(val))
                     continue;
@@ -234,17 +258,18 @@ export class ShiftRepository {
                     const extractedEmpIds = [];
                     if (Array.isArray(rawShift.assignments)) {
                         for (const a of rawShift.assignments) {
-                            if (typeof a === 'string' && a.trim()) {
-                                extractedEmpIds.push(a.trim());
+                            const rawId = typeof a === 'string' ? a.trim() : a && typeof a === 'object' && a.employeeId ? String(a.employeeId).trim() : '';
+                            if (!rawId)
+                                continue;
+                            if (a && typeof a === 'object' && a.upcomingShift && a.upcomingShift.effectiveDate && a.upcomingShift.effectiveDate <= businessDate) {
+                                continue; // Transferred to upcomingShift.shiftId
                             }
-                            else if (a && typeof a === 'object' && a.employeeId) {
-                                // Check if upcoming shift is already effective on businessDate
-                                if (a.upcomingShift && a.upcomingShift.effectiveDate && a.upcomingShift.effectiveDate <= businessDate) {
-                                    continue; // Transferred to upcomingShift.shiftId
-                                }
-                                if (!a.status || a.status === 'ACTIVE') {
-                                    extractedEmpIds.push(String(a.employeeId).trim());
-                                }
+                            if (a && typeof a === 'object' && a.status && a.status !== 'ACTIVE') {
+                                continue;
+                            }
+                            // Do not let legacy shifts_data / shifts_vps_data override an employee's authoritative public.shift_assignments row
+                            if (!assignedEmployeesFromTable.has(rawId.toLowerCase())) {
+                                extractedEmpIds.push(rawId);
                             }
                         }
                     }
@@ -254,17 +279,23 @@ export class ShiftRepository {
                         existing = Array.from(byId.values()).find((item) => item.shiftName.trim().toLowerCase() === sName.trim().toLowerCase());
                     }
                     if (existing) {
-                        const mergedAssign = new Set([...(existing.assignments || []), ...extractedEmpIds]);
-                        existing.assignments = Array.from(mergedAssign);
-                        existing.assignedEmployeeCount = existing.assignments.length;
-                        if (rawShift.startTime)
-                            existing.startTime = String(rawShift.startTime).slice(0, 5);
-                        if (rawShift.endTime)
-                            existing.endTime = String(rawShift.endTime).slice(0, 5);
-                        if (rawShift.gracePeriodMins !== undefined)
-                            existing.gracePeriodMins = Number(rawShift.gracePeriodMins);
+                        // Only merge fallback assignments from shifts_vps_data (or if public.shifts had none)
+                        if (settingKey === 'shifts_vps_data' || dbShiftIds.size === 0) {
+                            const mergedAssign = new Set([...(existing.assignments || []), ...extractedEmpIds]);
+                            existing.assignments = Array.from(mergedAssign);
+                            existing.assignedEmployeeCount = existing.assignments.length;
+                        }
+                        // Never allow legacy shifts_data to overwrite authoritative public.shifts start_time / end_time!
+                        if (!dbShiftIds.has(existing.id)) {
+                            if (rawShift.startTime)
+                                existing.startTime = String(rawShift.startTime).slice(0, 5);
+                            if (rawShift.endTime)
+                                existing.endTime = String(rawShift.endTime).slice(0, 5);
+                            if (rawShift.gracePeriodMins !== undefined)
+                                existing.gracePeriodMins = Number(rawShift.gracePeriodMins);
+                        }
                     }
-                    else if (sId) {
+                    else if (sId && (settingKey === 'shifts_vps_data' || dbShiftIds.size === 0)) {
                         byId.set(sId, {
                             id: sId,
                             shiftName: sName,
@@ -284,7 +315,12 @@ export class ShiftRepository {
         catch {
             // Ignore if company_settings query fails
         }
-        return Array.from(byId.values());
+        const result = Array.from(byId.values());
+        this.shiftsCache.set(cacheKey, {
+            expiresAt: Date.now() + 10_000,
+            shifts: result,
+        });
+        return result;
     }
     async resolveEmployeeShift(employee, businessDate = new Date().toISOString().slice(0, 10), companyId = 'company-a') {
         const shifts = await this.getShifts(companyId, businessDate);
@@ -347,6 +383,7 @@ export class ShiftRepository {
             .single();
         if (error || !row)
             throw new Error(`Shift could not be saved: ${error?.message || 'No row returned'}`);
+        this.invalidateShiftCache();
         return {
             id: row.id,
             shiftName: data.shiftName || 'Shift',
@@ -404,6 +441,7 @@ export class ShiftRepository {
             if (saveError)
                 throw new Error(`Shift assignment could not be saved: ${saveError.message}`);
         }
+        this.invalidateShiftCache();
         return shift;
     }
 }

@@ -112,7 +112,7 @@ export const recordPunch = async (req, res, next) => {
         if (isGpsOrFacePunch && !isCeo) {
             const geofenceEnabled = Boolean(geofence && (geofence.isEnabled || geofence.enabled));
             if (geofenceEnabled || isAuthorizedFieldDuty) {
-                const configuredRadius = Number((isAuthorizedFieldDuty && dbFieldDuty.radiusMeters) || geofence?.radiusMeters || 250);
+                const configuredRadius = Number((isAuthorizedFieldDuty && dbFieldDuty.radiusMeters) || geofence?.radiusMeters || 500);
                 const maxAccuracyMeters = typeof geofence?.maxAccuracyMeters === 'number'
                     ? Number(geofence.maxAccuracyMeters)
                     : undefined;

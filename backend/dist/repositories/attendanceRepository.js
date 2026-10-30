@@ -277,12 +277,16 @@ export class AttendanceRepository {
         const emp = (await employeeRepository.getEmployeeById(employeeId)) ||
             (await employeeRepository.findByEmployeeId(employeeId));
         const canonicalEmpCode = emp?.employeeId || employeeId;
-        const assignedShift = await shiftRepository.resolveEmployeeShift({
-            id: emp?.id,
-            employeeId: canonicalEmpCode,
-            workShift: emp?.workShift,
-        }, todayStr);
-        const policies = await loadActiveLatePoliciesFromDb();
+        const [assignedShift, policies, allLogs, holidayAndLeave] = await Promise.all([
+            shiftRepository.resolveEmployeeShift({
+                id: emp?.id,
+                employeeId: canonicalEmpCode,
+                workShift: emp?.workShift,
+            }, todayStr),
+            loadActiveLatePoliciesFromDb(),
+            this.getAll({ employeeId: canonicalEmpCode }),
+            this.getHolidayAndLeaveContext(emp?.id, canonicalEmpCode, todayStr),
+        ]);
         const effectivePolicy = resolveEffectiveLatePolicyForEmployee(policies, {
             id: emp?.id,
             employeeId: canonicalEmpCode,
@@ -295,8 +299,7 @@ export class AttendanceRepository {
             ...assignedShift,
             gracePeriodMins: effectivePolicy.graceTimeMinutes,
         };
-        const allLogs = await this.getAll({ employeeId: canonicalEmpCode });
-        const { holidayInfo, leaveInfo } = await this.getHolidayAndLeaveContext(emp?.id, canonicalEmpCode, todayStr);
+        const { holidayInfo, leaveInfo } = holidayAndLeave;
         const evaluation = evaluateBackendShiftAttendance({
             employeeId: canonicalEmpCode,
             assignedShift: shiftWithPolicyGrace,
@@ -339,13 +342,17 @@ export class AttendanceRepository {
             return;
         await query(`
       CREATE TABLE IF NOT EXISTS public.attendance_punch_events (
-        idempotency_key TEXT PRIMARY KEY,
-        employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         attendance_record_id UUID NOT NULL REFERENCES public.attendance_records(id) ON DELETE CASCADE,
+        employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
         punch_type TEXT NOT NULL CHECK (punch_type IN ('IN', 'OUT')),
+        punched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        idempotency_key TEXT UNIQUE,
         photo_fingerprint TEXT,
-        accuracy_meters DOUBLE PRECISION,
-        distance_meters DOUBLE PRECISION,
+        location_lat DOUBLE PRECISION,
+        location_lng DOUBLE PRECISION,
+        location_accuracy DOUBLE PRECISION,
+        location_timestamp TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_records_employee_date_unique
@@ -387,13 +394,15 @@ export class AttendanceRepository {
                     }
                 }
             }
-            // 3. Resolve employee's assigned shift & effective Late Policy from PostgreSQL
-            const assignedShift = await shiftRepository.resolveEmployeeShift({
-                id: employee.id,
-                employeeId: employee.employee_id,
-                workShift: employee.work_shift || undefined,
-            }, calendarTodayStr);
-            const activePolicies = await loadActiveLatePoliciesFromDb(client);
+            // 3. Resolve employee's assigned shift & effective Late Policy from PostgreSQL in parallel
+            const [assignedShift, activePolicies] = await Promise.all([
+                shiftRepository.resolveEmployeeShift({
+                    id: employee.id,
+                    employeeId: employee.employee_id,
+                    workShift: employee.work_shift || undefined,
+                }, calendarTodayStr),
+                loadActiveLatePoliciesFromDb(client),
+            ]);
             const effectivePolicy = resolveEffectiveLatePolicyForEmployee(activePolicies, {
                 id: employee.id,
                 employeeId: employee.employee_id,
@@ -564,16 +573,18 @@ export class AttendanceRepository {
             }
             if (idempotencyKey && savedRow?.id) {
                 await client.query(`INSERT INTO public.attendance_punch_events
-            (idempotency_key, employee_id, attendance_record_id, punch_type, photo_fingerprint, accuracy_meters, distance_meters)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (idempotency_key, employee_id, attendance_record_id, punch_type, photo_fingerprint, location_lat, location_lng, location_accuracy, location_timestamp)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            ON CONFLICT (idempotency_key) DO NOTHING`, [
                     idempotencyKey,
                     employee.id,
                     savedRow.id,
                     params.type,
-                    newPhotoFingerprint || null,
+                    newPhotoFingerprint || '',
+                    params.locationLat ?? null,
+                    params.locationLng ?? null,
                     params.accuracyMeters ?? null,
-                    params.distanceMeters ?? null,
+                    serverInstant.toISOString(),
                 ]);
             }
             return this.mapRowToAttendance(savedRow, employee.employee_id, fullName);

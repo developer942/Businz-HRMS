@@ -137,7 +137,7 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       const geofenceEnabled = Boolean(geofence && (geofence.isEnabled || (geofence as any).enabled));
       if (geofenceEnabled || isAuthorizedFieldDuty) {
         const configuredRadius = Number(
-          (isAuthorizedFieldDuty && dbFieldDuty.radiusMeters) || geofence?.radiusMeters || 250
+          (isAuthorizedFieldDuty && dbFieldDuty.radiusMeters) || geofence?.radiusMeters || 500
         );
         const maxAccuracyMeters =
           typeof (geofence as any)?.maxAccuracyMeters === 'number'

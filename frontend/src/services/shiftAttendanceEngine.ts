@@ -144,13 +144,48 @@ export function resolveEmployeeAssignedShift(
   const todayStr = new Date().toISOString().slice(0, 10);
   const upcomingShift = (employee as any).upcomingShift || (employee as any).shiftDetails?.upcomingShift;
   const upcomingEffectiveFrom = (employee as any).upcomingShiftEffectiveFrom || (employee as any).shiftDetails?.upcomingShiftEffectiveFrom;
-  const activeShiftLabel = (upcomingShift && upcomingEffectiveFrom && String(upcomingEffectiveFrom).slice(0, 10) <= todayStr)
-    ? String(upcomingShift)
-    : (employee.workShift || (employee as any).shiftDetails?.assignedShift || '');
-  const empShiftName = activeShiftNameClean(activeShiftLabel);
+  const hasEffectiveUpcoming = Boolean(
+    upcomingShift && upcomingEffectiveFrom && String(upcomingEffectiveFrom).slice(0, 10) <= todayStr
+  );
   const empId = employee.employeeId || employee.id;
 
-  // 1. Prioritize authoritative employee.workShift / activeShiftLabel match
+  // 1. If an upcoming shift change has become effective today, honor it first
+  if (hasEffectiveUpcoming) {
+    const upClean = activeShiftNameClean(String(upcomingShift));
+    const upMatch = shifts.find(
+      s =>
+        s.id.toLowerCase() === upClean ||
+        activeShiftNameClean(s.shiftName) === upClean ||
+        s.shiftName.trim().toLowerCase() === String(upcomingShift).trim().toLowerCase() ||
+        activeShiftNameClean(s.shiftName).includes(upClean) ||
+        upClean.includes(activeShiftNameClean(s.shiftName))
+    );
+    if (upMatch) return upMatch;
+  }
+
+  // 2. Prioritize active assignment in shift.assignments (PostgreSQL public.shift_assignments)
+  const assigned = shifts.find(s =>
+    s.assignments?.some((a: any) => {
+      const aEmpId = typeof a === 'string' ? a : a?.employeeId;
+      if (!aEmpId) return false;
+      const aNorm = String(aEmpId).trim().toLowerCase();
+      const empIdNorm = String(empId || '').trim().toLowerCase();
+      const uuidNorm = String(employee.id || '').trim().toLowerCase();
+      if (aNorm !== empIdNorm && aNorm !== uuidNorm) return false;
+      if (typeof a === 'object' && a !== null) {
+        const effFrom = a.effectiveFrom || a.effective_from;
+        const effTo = a.effectiveTo || a.effective_to;
+        if (effFrom && String(effFrom).slice(0, 10) > todayStr) return false;
+        if (effTo && String(effTo).slice(0, 10) < todayStr) return false;
+      }
+      return true;
+    })
+  );
+  if (assigned) return assigned;
+
+  // 3. Fallback to employee.workShift / assignedShift label
+  const activeShiftLabel = String(employee.workShift || (employee as any).shiftDetails?.assignedShift || '');
+  const empShiftName = activeShiftNameClean(activeShiftLabel);
   if (empShiftName) {
     const exactMatch = shifts.find(s =>
       s.id.toLowerCase() === empShiftName ||
@@ -165,22 +200,6 @@ export function resolveEmployeeAssignedShift(
     });
     if (partialMatch) return partialMatch;
   }
-
-  // 2. Fallback to active assignment in shift.assignments for today
-  const assigned = shifts.find(s =>
-    s.assignments?.some((a: any) => {
-      const aEmpId = typeof a === 'string' ? a : a?.employeeId;
-      if (aEmpId !== empId && aEmpId !== employee.id) return false;
-      if (typeof a === 'object' && a !== null) {
-        const effFrom = a.effectiveFrom || a.effective_from;
-        const effTo = a.effectiveTo || a.effective_to;
-        if (effFrom && String(effFrom).slice(0, 10) > todayStr) return false;
-        if (effTo && String(effTo).slice(0, 10) < todayStr) return false;
-      }
-      return true;
-    })
-  );
-  if (assigned) return assigned;
 
   return shifts[0] || defaultShift;
 }
