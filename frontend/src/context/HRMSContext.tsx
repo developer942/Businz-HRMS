@@ -1394,7 +1394,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         lastServerGeofenceKeyRef.current = geofenceKey({
           centerLat: lat,
           centerLng: lng,
-          radiusMeters: Number(canonical.radiusMeters) || 250,
+          radiusMeters: Number(canonical.radiusMeters) || 500,
           enabled: canonical.enabled ?? canonical.isEnabled ?? true,
           enforceStrictly: canonical.enforceStrictly ?? canonical.strictMode ?? true,
         });
@@ -1405,7 +1405,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           address: canonical.address || canonical.officeName || prev.address || '',
           centerLat: lat,
           centerLng: lng,
-          radiusMeters: Number(canonical.radiusMeters) || 250,
+          radiusMeters: Number(canonical.radiusMeters) || 500,
           enforceStrictly: canonical.enforceStrictly ?? canonical.strictMode ?? true,
           googleMapsLink: canonical.googleMapsLink || `https://www.google.com/maps?q=${lat},${lng}`,
         }));
@@ -1416,27 +1416,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, []);
 
-  useEffect(() => {
-    try {
-      if (
-        isCloudInitialized.current &&
-        !isSyncingFromCloud.current &&
-        (Math.abs(geofenceConfig.centerLat) > 0.0001 || Math.abs(geofenceConfig.centerLng) > 0.0001) &&
-        geofenceKey(geofenceConfig) !== lastServerGeofenceKeyRef.current
-      ) {
-        lastServerGeofenceKeyRef.current = geofenceKey(geofenceConfig);
-        supabaseDirect.saveCompanySetting('geofence_config', geofenceConfig);
-      }
-    } catch (e) {
-      console.error('Error saving geofenceConfig to VPS database', e);
-    }
-  }, [geofenceConfig]);
-
   const updateGeofenceConfig = (config: Partial<GeofenceConfig>) => {
     setGeofenceConfig(prev => {
       const updated = { ...prev, ...config };
       if (updated.enabled && config.enforceStrictly === undefined && updated.enforceStrictly === undefined) {
         updated.enforceStrictly = true;
+      }
+      try {
+        if (Math.abs(updated.centerLat) > 0.0001 || Math.abs(updated.centerLng) > 0.0001) {
+          lastServerGeofenceKeyRef.current = geofenceKey(updated);
+          supabaseDirect.saveCompanySetting('geofence_config', updated).catch(() => {});
+        }
+      } catch (e) {
+        console.error('Error saving geofenceConfig to VPS database', e);
       }
       return updated;
     });
@@ -11750,13 +11742,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               ...gf,
               centerLat: lat,
               centerLng: lng,
-              radiusMeters: Number(gf.radiusMeters) || 250,
+              radiusMeters: Number(gf.radiusMeters) || 500,
             });
             setGeofenceConfig({
               ...gf,
               centerLat: lat,
               centerLng: lng,
-              radiusMeters: Number(gf.radiusMeters) || 250,
+              radiusMeters: Number(gf.radiusMeters) || 500,
             });
           }
         }

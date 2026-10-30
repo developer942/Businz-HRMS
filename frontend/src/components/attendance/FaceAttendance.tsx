@@ -220,8 +220,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     );
     if (matches.length <= 1) return matches[0];
     return (
-      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
       matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
+      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
       matches[0]
     );
   }, [attendanceRecords, selectedEmpId, selectedEmp, todayStr]);
@@ -1378,7 +1378,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
       const emp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
       const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (currentUser.name || 'Employee');
-      const idempotencyKey = `punch-${selectedEmpId}-${todayStr}-${type === 'Check-In' ? 'IN' : 'OUT'}`;
+      const activeSessionMarker =
+        type === 'Check-In'
+          ? (todayAttendance?.checkIn && todayAttendance.checkIn !== '--:--' ? todayAttendance.checkIn : 'fresh')
+          : (todayAttendance?.checkOut && todayAttendance.checkOut !== '--:--' ? todayAttendance.checkOut : 'fresh');
+      const idempotencyKey = `punch-${selectedEmpId}-${todayStr}-${type === 'Check-In' ? 'IN' : 'OUT'}-${activeSessionMarker}`;
 
       const serverRecord = await submitVerifiedFacePunch({
         employeeId: selectedEmpId,
@@ -1405,6 +1409,14 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         confirmToSuccessMs: confirmElapsedMs
       }));
 
+      const fallbackNowTime = formatTimeDisplay(new Date(), '');
+      const resolvedCheckIn =
+        formatTimeDisplay(serverRecord.checkIn, '') ||
+        (type === 'Check-In' ? fallbackNowTime : (todayAttendance?.checkIn || null));
+      const resolvedCheckOut =
+        formatTimeDisplay(serverRecord.checkOut, '') ||
+        (type === 'Check-Out' ? fallbackNowTime : (todayAttendance?.checkOut || null));
+
       // Clear preserved face capture once attendance is committed to PostgreSQL
       preservedFaceCaptureRef.current = null;
       setHasPreservedFaceCapture(false);
@@ -1412,8 +1424,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         title: type === 'Check-In' ? 'Punch In Successful' : 'Punch Out Successful',
         savedTime:
           type === 'Check-In'
-            ? (serverRecord.checkIn || getLocalTimestampString())
-            : (serverRecord.checkOut || getLocalTimestampString()),
+            ? (resolvedCheckIn || fallbackNowTime)
+            : (resolvedCheckOut || fallbackNowTime),
         status: serverRecord.status || 'Present',
         lateStatus: serverRecord.lateStatus || (serverRecord.status === 'Late' ? 'Late' : 'On Time'),
         locationText: `GPS Verified (${Math.round(distance)}m / ${radius}m, ±${Math.round(reading.accuracy)}m)`,
@@ -1438,8 +1450,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         designation: emp?.designation,
         date: serverRecord.date,
         shiftDate: serverRecord.shiftDate || serverRecord.date,
-        checkIn: serverRecord.checkIn || null,
-        checkOut: serverRecord.checkOut || null,
+        checkIn: resolvedCheckIn,
+        checkOut: resolvedCheckOut,
         checkInPhoto: serverRecord.checkInPhoto,
         checkOutPhoto: serverRecord.checkOutPhoto,
         workingHours: serverRecord.workingHours,
@@ -1780,8 +1792,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     });
     if (matches.length <= 1) return matches[0];
     return (
-      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
       matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
+      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
       matches[0]
     );
   }, [attendanceRecords, todayStr, isLogForCurrentUser]);

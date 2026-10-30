@@ -563,16 +563,20 @@ describe('BUSINZ HRMS — Mandatory Face Attendance, Shift Timing, Late Policy &
     expect(recovered.accuracy).toBe(22);
     expect(recovered.retryCount).toBe(1);
 
-    // 2. 500m Geofence verification: accepts accurate fix inside 500m, rejects coarse ±260m cell-tower fix even if D + A <= 500m
+    // 2. 500m Geofence verification: accepts indoor/iOS Wi-Fi fixes when coordinates are within 500m, and enforces explicit maxAccuracyMeters when configured
     const validInside500 = backendEvaluateBoundary(180, 500, 22, OFFICE.name);
     expect(validInside500.classification).toBe('INSIDE');
     expect(validInside500.canPunch).toBe(true);
 
-    const coarseInside500 = backendEvaluateBoundary(40, 500, 260, OFFICE.name);
+    const iosIndoorInside500 = backendEvaluateBoundary(198, 500, 1414, OFFICE.name);
+    expect(iosIndoorInside500.classification).toBe('INSIDE');
+    expect(iosIndoorInside500.canPunch).toBe(true);
+
+    const coarseInside500 = backendEvaluateBoundary(40, 500, 260, OFFICE.name, 225);
     expect(coarseInside500.canPunch).toBe(false);
     expect(coarseInside500.errorCode).toBe('LOW_GPS_ACCURACY');
 
-    const feCoarseInside500 = frontendEvaluateBoundary(40, 500, 260, OFFICE.name);
+    const feCoarseInside500 = frontendEvaluateBoundary(40, 500, 260, OFFICE.name, 225);
     expect(feCoarseInside500.canPunch).toBe(false);
     expect(feCoarseInside500.errorCode).toBe('LOW_GPS_ACCURACY');
 

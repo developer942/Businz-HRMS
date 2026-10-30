@@ -179,8 +179,8 @@ export const Dashboard: React.FC = () => {
       a => matchesCurrentUser(a.employeeId, a.employeeName) && isTodayAttendanceRecord(a)
     );
     const todayRecord =
+      todayCandidates.find(a => Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--')) ||
       todayCandidates.find(a => String(a.method || '') === 'Manual Punch' || String(a.method || '') === 'Manual Override') ||
-      todayCandidates.find(a => Boolean(a.checkIn)) ||
       todayCandidates[0];
 
     // Match leaves
@@ -259,9 +259,14 @@ export const Dashboard: React.FC = () => {
       hasSavedCheckIn && todayRecord?.checkOut
         ? formatTimeDisplay(todayRecord.checkOut, '--:--')
         : '--:--';
-    const todayStatus = todayRecord?.status
-      ? todayRecord.status
-      : 'Not Marked';
+    const todayStatus =
+      todayRecord?.status &&
+      (hasSavedCheckIn ||
+        todayRecord.status === 'Absent' ||
+        todayRecord.status === 'On Leave' ||
+        (todayRecord.status as string) === 'Holiday')
+        ? todayRecord.status
+        : 'Not Marked';
 
     // Dynamically calculate leave balances from active master leave policies
     const leaveSummary = getEmployeeTotalLeaveSummary(

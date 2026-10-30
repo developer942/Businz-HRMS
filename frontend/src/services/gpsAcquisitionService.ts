@@ -190,14 +190,10 @@ export function evaluateGeofenceBoundary(
   const R = Math.round(radiusMeters);
   const A = Math.max(0, Math.round((accuracyMeters ?? 15) * 10) / 10);
 
-  // Use configured accuracy threshold; for wide geofences (e.g. 500m), default to 225m (R * 0.45) max accuracy
-  // so indoor office fixes (±100m–225m) are accepted while coarse cell-tower fixes (e.g. ±250m+) are rejected.
   const effectiveMaxAccuracy =
     maxAccuracyMeters !== undefined && Number.isFinite(maxAccuracyMeters) && maxAccuracyMeters > 0
       ? maxAccuracyMeters
-      : R >= 400
-        ? Math.round(R * 0.45)
-        : undefined;
+      : undefined;
 
   if (effectiveMaxAccuracy !== undefined && A > effectiveMaxAccuracy) {
     const userMessage = `Your location accuracy is currently ${Math.round(A)} metres (required: ≤${Math.round(effectiveMaxAccuracy)}m). Please enable Precise Location and retry.`;
@@ -216,8 +212,9 @@ export function evaluateGeofenceBoundary(
     };
   }
 
-  // Clearly inside: D + A <= R
-  if (D + A <= R) {
+  // Clearly inside: D + A <= R, OR for wide office geofences (R >= 400m, e.g. 500m) when measured coordinates
+  // are within the allowed radius (D <= R) and mobile Wi-Fi/cellular triangulation accuracy is reasonable (A <= 2500m, e.g. iOS ±1414m)
+  if (D + A <= R || (R >= 400 && D <= R && A <= 2500)) {
     const msg = `Within approved office geofence (${Math.round(D)}m from ${officeName}, allowed: ${R}m, GPS accuracy: ±${Math.round(A)}m).`;
     return {
       classification: 'INSIDE',
@@ -1032,7 +1029,7 @@ let activeFreshRequestPromise: Promise<GpsLocationReading> | null = null;
  */
 export function getCachedFreshGpsReading(
   maxAgeMs: number = 45000,
-  maxAccuracyMeters: number = 225,
+  maxAccuracyMeters?: number,
   geofenceContext?: {
     centerLat: number;
     centerLng: number;
@@ -1047,7 +1044,11 @@ export function getCachedFreshGpsReading(
   if (totalAgeMs > maxAgeMs) return null;
   const reading = cachedReading.reading;
   if (!isValidGpsCoordinate(reading.latitude, reading.longitude)) return null;
-  if (reading.accuracy > maxAccuracyMeters) return null;
+  const effectiveMaxAcc =
+    maxAccuracyMeters ??
+    geofenceContext?.maxAccuracyMeters ??
+    ((geofenceContext?.radiusMeters ?? 0) >= 400 ? 2500 : 225);
+  if (reading.accuracy > effectiveMaxAcc) return null;
 
   if (geofenceContext && isValidGpsCoordinate(geofenceContext.centerLat, geofenceContext.centerLng)) {
     const dist = calculateHaversineMeters(
@@ -1101,7 +1102,7 @@ export async function requestFreshGpsPosition(
   // Reuse a recent verified GPS fix if requested and its age, accuracy, and geofence integrity satisfy policy
   if (options.reuseRecentFix) {
     const maxRecentAge = options.maxRecentFixAgeMs ?? 45000;
-    const maxAcc = options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters ?? 225;
+    const maxAcc = options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters;
     const recent = getCachedFreshGpsReading(maxRecentAge, maxAcc, options.geofenceContext);
     if (recent) {
       return recent;
@@ -1134,7 +1135,6 @@ export async function requestFreshGpsPosition(
     const maxAccuracyCap =
       options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters;
     const deviceCategory = detectBrowserDeviceCategory();
-    const isIPhoneSafari = deviceCategory === 'iPhone Safari' || deviceCategory === 'iPad Safari';
     const startTime = Date.now();
     const stageSeq = activeRequestSequence + 1;
 
@@ -1173,10 +1173,9 @@ export async function requestFreshGpsPosition(
             reject({ code: 3, message: 'Stage A GPS acquisition timed out' });
           }, stageATimeoutMs + 100);
 
-          // On Android Chrome, if hardware satellite GNSS stalls indoors under a roof for >4.2s,
-          // query Wi-Fi/5G fused location in parallel, but ONLY accept it if its accuracy actually
-          // satisfies the geofence policy (never preempt an in-flight high-accuracy fix with a coarse cell-tower reading!).
-          if (!isIPhoneSafari && stageATimeoutMs >= 5000) {
+          // If hardware satellite GNSS stalls indoors under a roof for >2.5s,
+          // query Wi-Fi/5G fused location in parallel, and accept it if its position satisfies the geofence policy.
+          if (stageATimeoutMs >= 4000) {
             indoorFallbackTimer = setTimeout(() => {
               if (settled || activeRequestSequence >= stageSeq) return;
               try {
@@ -1225,14 +1224,14 @@ export async function requestFreshGpsPosition(
                   },
                   {
                     enableHighAccuracy: false,
-                    maximumAge: 0,
-                    timeout: Math.max(1500, stageATimeoutMs - 4200)
+                    maximumAge: 15000,
+                    timeout: Math.max(1500, stageATimeoutMs - 2500)
                   }
                 );
               } catch {
                 // Ignore
               }
-            }, 4200);
+            }, 2500);
           }
 
           navigator.geolocation.getCurrentPosition(
