@@ -1025,6 +1025,56 @@ export function getMobileLocationInstructions(
   };
 }
 
+let activeFreshRequestPromise: Promise<GpsLocationReading> | null = null;
+
+/**
+ * Returns the cached GPS reading only if its age, accuracy, and coordinate integrity satisfy the policy.
+ */
+export function getCachedFreshGpsReading(
+  maxAgeMs: number = 45000,
+  maxAccuracyMeters: number = 225,
+  geofenceContext?: {
+    centerLat: number;
+    centerLng: number;
+    radiusMeters: number;
+    maxAccuracyMeters?: number;
+  }
+): GpsLocationReading | null {
+  if (!cachedReading) return null;
+  const now = Date.now();
+  const elapsedSinceAcquire = Math.max(0, now - cachedReading.acquiredAt);
+  const totalAgeMs = Math.max(elapsedSinceAcquire, now - cachedReading.reading.timestamp);
+  if (totalAgeMs > maxAgeMs) return null;
+  const reading = cachedReading.reading;
+  if (!isValidGpsCoordinate(reading.latitude, reading.longitude)) return null;
+  if (reading.accuracy > maxAccuracyMeters) return null;
+
+  if (geofenceContext && isValidGpsCoordinate(geofenceContext.centerLat, geofenceContext.centerLng)) {
+    const dist = calculateHaversineMeters(
+      reading.latitude,
+      reading.longitude,
+      geofenceContext.centerLat,
+      geofenceContext.centerLng
+    );
+    const evalRes = evaluateGeofenceBoundary(
+      dist,
+      geofenceContext.radiusMeters,
+      reading.accuracy,
+      'Office',
+      geofenceContext.maxAccuracyMeters ?? maxAccuracyMeters
+    );
+    if (evalRes.classification !== 'INSIDE') {
+      return null;
+    }
+  }
+
+  return {
+    ...reading,
+    readingAgeMs: totalAgeMs,
+    durationMs: 0
+  };
+}
+
 /**
  * Two-Stage GPS Acquisition Strategy (Stage A: Fast 8s acquisition -> Stage B: Controlled 12s single retry).
  *
@@ -1043,111 +1093,168 @@ export async function requestFreshGpsPosition(
     stageATimeoutMs?: number;
     stageBTimeoutMs?: number;
     maxAccuracyMeters?: number;
+    reuseRecentFix?: boolean;
+    maxRecentFixAgeMs?: number;
+    deduplicateInFlight?: boolean;
   } = {}
 ): Promise<GpsLocationReading> {
+  // Reuse a recent verified GPS fix if requested and its age, accuracy, and geofence integrity satisfy policy
+  if (options.reuseRecentFix) {
+    const maxRecentAge = options.maxRecentFixAgeMs ?? 45000;
+    const maxAcc = options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters ?? 225;
+    const recent = getCachedFreshGpsReading(maxRecentAge, maxAcc, options.geofenceContext);
+    if (recent) {
+      return recent;
+    }
+  }
+
+  // Deduplicate overlapping requests within the same attendance attempt
+  if (options.deduplicateInFlight && activeFreshRequestPromise) {
+    return activeFreshRequestPromise;
+  }
+
   cancelActiveGpsAcquisition();
-  clearCachedGpsReading();
+  if (!options.reuseRecentFix) {
+    clearCachedGpsReading();
+  }
 
-  const stageATimeoutMs = Math.max(
-    250,
-    Math.min(options.stageATimeoutMs ?? options.timeoutMs ?? 8000, 20000)
-  );
-  const stageBTimeoutMs = Math.max(
-    250,
-    Math.min(options.stageBTimeoutMs ?? options.timeoutMs ?? 12000, 30000)
-  );
-  const allowStageBRetry = (options.maxRetries ?? 1) >= 1;
-  const maxAttempts = allowStageBRetry ? 2 : 1;
-  const desiredAccuracy = options.desiredAccuracyMeters ?? 35;
-  const maxStaleAgeMs = options.maxStaleAgeMs ?? options.maxAcceptableAgeMs ?? 60000;
-  const maxAccuracyCap =
-    options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters;
-  const deviceCategory = detectBrowserDeviceCategory();
-  const startTime = Date.now();
-  const stageSeq = activeRequestSequence + 1;
+  const runAcquisition = async (): Promise<GpsLocationReading> => {
+    const stageATimeoutMs = Math.max(
+      250,
+      Math.min(options.stageATimeoutMs ?? options.timeoutMs ?? 8000, 20000)
+    );
+    const stageBTimeoutMs = Math.max(
+      250,
+      Math.min(options.stageBTimeoutMs ?? options.timeoutMs ?? 12000, 30000)
+    );
+    const allowStageBRetry = (options.maxRetries ?? 1) >= 1;
+    const maxAttempts = allowStageBRetry ? 2 : 1;
+    const desiredAccuracy = options.desiredAccuracyMeters ?? 35;
+    const maxStaleAgeMs = options.maxStaleAgeMs ?? options.maxAcceptableAgeMs ?? 60000;
+    const maxAccuracyCap =
+      options.maxAccuracyMeters ?? (options.geofenceContext as any)?.maxAccuracyMeters;
+    const deviceCategory = detectBrowserDeviceCategory();
+    const isIPhoneSafari = deviceCategory === 'iPhone Safari' || deviceCategory === 'iPad Safari';
+    const startTime = Date.now();
+    const stageSeq = activeRequestSequence + 1;
 
-  let stageAReading: GpsLocationReading | null = null;
+    let stageAReading: GpsLocationReading | null = null;
 
-  // Stage A — Fast Acquisition (initial 8s configurable window)
-  if (
-    typeof navigator !== 'undefined' &&
-    navigator.geolocation &&
-    typeof navigator.geolocation.getCurrentPosition === 'function'
-  ) {
-    try {
-      options.onProgress?.({
-        phase: 'ACQUIRING',
-        message: 'Getting GPS Location...',
-        bestAccuracyMeters: null,
-        sampleCount: 0,
-        attempt: 1,
-        maxAttempts
-      });
+    // Stage A — Fast Acquisition (initial 8s configurable window)
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.geolocation &&
+      typeof navigator.geolocation.getCurrentPosition === 'function'
+    ) {
+      try {
+        options.onProgress?.({
+          phase: 'ACQUIRING',
+          message: 'Getting GPS Location...',
+          bestAccuracyMeters: null,
+          sampleCount: 0,
+          attempt: 1,
+          maxAttempts
+        });
 
-      const directFix = await new Promise<GeolocationPosition>((resolve, reject) => {
-        let settled = false;
-        let indoorFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-        const clearStageATimers = () => {
-          clearTimeout(timer);
-          if (indoorFallbackTimer !== null) {
-            clearTimeout(indoorFallbackTimer);
-            indoorFallbackTimer = null;
-          }
-        };
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          clearStageATimers();
-          reject({ code: 3, message: 'Stage A GPS acquisition timed out' });
-        }, stageATimeoutMs + 100);
-
-        // If hardware satellite GNSS stalls indoors under a roof for >2.2s, query fresh Wi-Fi/5G fused location in parallel
-        if (stageATimeoutMs >= 3000) {
-          indoorFallbackTimer = setTimeout(() => {
-            if (settled || activeRequestSequence >= stageSeq) return;
-            try {
-              navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                  if (settled) return;
-                  settled = true;
-                  clearStageATimers();
-                  resolve(pos);
-                },
-                () => {
-                  // Let primary high-accuracy request or deadline timer decide
-                },
-                {
-                  enableHighAccuracy: false,
-                  maximumAge: 0,
-                  timeout: Math.max(1500, stageATimeoutMs - 2200)
-                }
-              );
-            } catch {
-              // Ignore
+        const directFix = await new Promise<GeolocationPosition>((resolve, reject) => {
+          let settled = false;
+          let indoorFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+          const clearStageATimers = () => {
+            clearTimeout(timer);
+            if (indoorFallbackTimer !== null) {
+              clearTimeout(indoorFallbackTimer);
+              indoorFallbackTimer = null;
             }
-          }, 2200);
-        }
+          };
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            clearStageATimers();
+            reject({ code: 3, message: 'Stage A GPS acquisition timed out' });
+          }, stageATimeoutMs + 100);
 
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            if (settled) return;
-            settled = true;
-            clearStageATimers();
-            resolve(pos);
-          },
-          (err) => {
-            if (settled) return;
-            settled = true;
-            clearStageATimers();
-            reject(err);
-          },
-          {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: stageATimeoutMs
+          // On Android Chrome, if hardware satellite GNSS stalls indoors under a roof for >4.2s,
+          // query Wi-Fi/5G fused location in parallel, but ONLY accept it if its accuracy actually
+          // satisfies the geofence policy (never preempt an in-flight high-accuracy fix with a coarse cell-tower reading!).
+          if (!isIPhoneSafari && stageATimeoutMs >= 5000) {
+            indoorFallbackTimer = setTimeout(() => {
+              if (settled || activeRequestSequence >= stageSeq) return;
+              try {
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    if (settled) return;
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const acc =
+                      typeof pos.coords.accuracy === 'number' && pos.coords.accuracy > 0
+                        ? pos.coords.accuracy
+                        : 999;
+                    const { ageMs } = calculateLocationAgeMs(pos.timestamp, Date.now());
+                    if (!isValidGpsCoordinate(lat, lng) || ageMs > maxStaleAgeMs) {
+                      return; // Do not preempt primary high-accuracy request
+                    }
+                    if (
+                      options.geofenceContext &&
+                      isValidGpsCoordinate(options.geofenceContext.centerLat, options.geofenceContext.centerLng)
+                    ) {
+                      const dist = calculateHaversineMeters(
+                        lat,
+                        lng,
+                        options.geofenceContext.centerLat,
+                        options.geofenceContext.centerLng
+                      );
+                      const evalRes = evaluateGeofenceBoundary(
+                        dist,
+                        options.geofenceContext.radiusMeters,
+                        acc,
+                        'Office',
+                        maxAccuracyCap
+                      );
+                      if (evalRes.classification !== 'INSIDE') {
+                        return; // Keep waiting for primary high-accuracy GNSS callback
+                      }
+                    } else if (acc > (maxAccuracyCap ?? 120)) {
+                      return; // Keep waiting for primary high-accuracy GNSS callback
+                    }
+                    settled = true;
+                    clearStageATimers();
+                    resolve(pos);
+                  },
+                  () => {
+                    // Let primary high-accuracy request or deadline timer decide
+                  },
+                  {
+                    enableHighAccuracy: false,
+                    maximumAge: 0,
+                    timeout: Math.max(1500, stageATimeoutMs - 4200)
+                  }
+                );
+              } catch {
+                // Ignore
+              }
+            }, 4200);
           }
-        );
-      });
+
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              if (settled) return;
+              settled = true;
+              clearStageATimers();
+              resolve(pos);
+            },
+            (err) => {
+              if (settled) return;
+              settled = true;
+              clearStageATimers();
+              reject(err);
+            },
+            {
+              enableHighAccuracy: true,
+              maximumAge: 0,
+              timeout: stageATimeoutMs
+            }
+          );
+        });
 
       // Ignore late response if a newer GPS request has started
       if (activeRequestSequence >= stageSeq) {
@@ -1279,14 +1386,23 @@ export async function requestFreshGpsPosition(
       durationMs: Date.now() - startTime,
       retryCount: 1
     };
-  } catch (stageBErr: any) {
-    if (stageAReading && stageBErr?.code !== 'PERMISSION_DENIED') {
-      return {
-        ...stageAReading,
-        durationMs: Date.now() - startTime,
-        retryCount: 1
-      };
+    } catch (stageBErr: any) {
+      if (stageAReading && stageBErr?.code !== 'PERMISSION_DENIED') {
+        return {
+          ...stageAReading,
+          durationMs: Date.now() - startTime,
+          retryCount: 1
+        };
+      }
+      throw stageBErr;
     }
-    throw stageBErr;
-  }
+  };
+
+  const promise = runAcquisition().finally(() => {
+    if (activeFreshRequestPromise === promise) {
+      activeFreshRequestPromise = null;
+    }
+  });
+  activeFreshRequestPromise = promise;
+  return promise;
 }

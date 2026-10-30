@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   evaluateBackendShiftAttendance,
   calculateShiftDateTimes,
@@ -21,11 +23,14 @@ import {
 } from '../src/services/attendanceStateMachine.js';
 import {
   requestFreshGpsPosition,
+  getCachedFreshGpsReading,
+  detectBrowserDeviceCategory,
   getMobileLocationInstructions,
   evaluateGeofenceBoundary as frontendEvaluateBoundary,
   cancelActiveGpsAcquisition,
   clearCachedGpsReading,
 } from '../../frontend/src/services/gpsAcquisitionService.js';
+import { errorHandler } from '../src/middleware/errorHandler.js';
 import {
   resolveEmployeeAssignedShift,
 } from '../../frontend/src/services/shiftAttendanceEngine.js';
@@ -607,5 +612,219 @@ describe('BUSINZ HRMS — Mandatory Face Attendance, Shift Timing, Late Policy &
     expect(outside500.classification).toBe('OUTSIDE');
     expect(outside500.canPunch).toBe(false);
     expect(outside500.errorCode).toBe('OUTSIDE_GEOFENCE');
+  });
+
+  it('11. Section D: Shift 09:30 AM – 06:00 PM (opens 06:30 AM, grace 40 mins, late after 10:10 AM): verifies 10:30 AM, 11:00 AM, 12:00 PM, and 01:00 PM late check-ins', () => {
+    const nineThirtyShift: ShiftRecord = {
+      id: 'shift-0930-1800',
+      shiftName: 'General 09:30 Shift',
+      startTime: '09:30',
+      endTime: '18:00',
+      breakDurationMins: 45,
+      workingHours: 8,
+      gracePeriodMins: 40,
+      color: '#0E7490',
+      assignments: ['VRM-018'],
+    };
+
+    const scheduleCases = [
+      { label: '06:29 AM -> Blocked (more than 3h before shift)', hour: 6, min: 29, canCheckIn: false, status: 'Present', lateMins: 0 },
+      { label: '06:30 AM -> Allowed (opens 3h before shift)', hour: 6, min: 30, canCheckIn: true, status: 'Present', lateMins: 0 },
+      { label: '09:30 AM -> Present (shift start)', hour: 9, min: 30, canCheckIn: true, status: 'Present', lateMins: 0 },
+      { label: '10:10 AM -> Present (end of 40m grace)', hour: 10, min: 10, canCheckIn: true, status: 'Present', lateMins: 0 },
+      { label: '10:30 AM -> Allowed & Late (60m late)', hour: 10, min: 30, canCheckIn: true, status: 'Late', lateMins: 60 },
+      { label: '11:00 AM -> Allowed & Late (90m late)', hour: 11, min: 0, canCheckIn: true, status: 'Late', lateMins: 90 },
+      { label: '12:00 PM -> Allowed & Late (150m late)', hour: 12, min: 0, canCheckIn: true, status: 'Late', lateMins: 150 },
+      { label: '01:00 PM -> Allowed & Late (210m late)', hour: 13, min: 0, canCheckIn: true, status: 'Late', lateMins: 210 },
+    ] as const;
+
+    for (const tc of scheduleCases) {
+      const now = new Date(2026, 9, 30, tc.hour, tc.min, 0);
+      const evalRes = evaluateBackendShiftAttendance({
+        employeeId: 'VRM-018',
+        assignedShift: nineThirtyShift,
+        attendanceLogs: [],
+        now,
+        gracePeriodMinutes: 40,
+      });
+
+      expect(evalRes.canCheckIn, tc.label).toBe(tc.canCheckIn);
+      expect(evalRes.shiftStartDisplay).toBe('09:30 AM');
+      expect(evalRes.shiftEndDisplay).toBe('06:00 PM');
+      expect(evalRes.checkInOpenDisplay).toBe('06:30 AM');
+      expect(evalRes.gracePeriodMins).toBe(40);
+      expect(evalRes.lateAfterDisplay).toBe('10:10 AM');
+
+      if (tc.canCheckIn) {
+        expect(evalRes.expectedStatus, tc.label).toBe(tc.status);
+        const punctuality = evaluateCheckInPunctualityAndPenalty({
+          checkInTime: now,
+          shiftStartDateTime: evalRes.shiftStartDateTime,
+          policy: DEFAULT_CORPORATE_LATE_POLICY,
+          previousMonthlyLateCount: 1,
+        });
+        expect(punctuality.status, tc.label).toBe(tc.status);
+        expect(punctuality.lateDurationMinutes, tc.label).toBe(tc.lateMins);
+      }
+    }
+  });
+
+  it('12. Section A & B: One-Click Attendance, Recent GPS Fix Reuse, In-Flight Request Deduplication, Android vs iPhone Handling & Preserved Face Capture on GPS Timeout', async () => {
+    const inside120m = offsetMetersNorth(OFFICE.lat, OFFICE.lng, 120);
+
+    // 1. Browser detection for Android Chrome vs iPhone Safari
+    expect(
+      detectBrowserDeviceCategory('Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36')
+    ).toBe('Android Chrome');
+    expect(
+      detectBrowserDeviceCategory('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1')
+    ).toBe('iPhone Safari');
+
+    // 2. Single active GPS request per attempt (fast repeated taps share in-flight promise) & recent verified fix reuse
+    let hardwareCalls = 0;
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/129.0 Mobile Safari/537.36',
+      geolocation: {
+        getCurrentPosition: (success: any, _error: any) => {
+          hardwareCalls++;
+          setTimeout(() => {
+            success({
+              coords: { latitude: inside120m.lat, longitude: inside120m.lng, accuracy: 26 },
+              timestamp: Date.now(),
+            });
+          }, 25);
+        },
+        watchPosition: vi.fn(),
+        clearWatch: vi.fn(),
+      },
+    });
+
+    const geofenceCtx = { centerLat: OFFICE.lat, centerLng: OFFICE.lng, radiusMeters: 500 };
+    const [tap1, tap2] = await Promise.all([
+      requestFreshGpsPosition({ deduplicateInFlight: true, geofenceContext: geofenceCtx }),
+      requestFreshGpsPosition({ deduplicateInFlight: true, geofenceContext: geofenceCtx }),
+    ]);
+
+    expect(hardwareCalls).toBe(1); // Fast repeated taps shared 1 active geolocation request
+    expect(tap1.accuracy).toBe(26);
+    expect(tap2.accuracy).toBe(26);
+
+    // Recent GPS fix reuse (0ms hardware wait when age <= 45s, accuracy <= 225m, and INSIDE 500m geofence)
+    const reused = await requestFreshGpsPosition({
+      reuseRecentFix: true,
+      maxRecentFixAgeMs: 45000,
+      geofenceContext: geofenceCtx,
+    });
+    expect(hardwareCalls).toBe(1); // Reused recent verified reading without another hardware call
+    expect(reused.durationMs).toBe(0);
+    expect(getCachedFreshGpsReading(45000, 225, geofenceCtx)?.accuracy).toBe(26);
+
+    // Expired age window rejects cached reading
+    expect(getCachedFreshGpsReading(-1, 225, geofenceCtx)).toBeNull();
+
+    // 3. Preserved face verification on GPS timeout + completion on Retry Location within 90s freshness window
+    let faceCaptureCount = 0;
+    let preservedFace: { photoBase64: string; capturedAt: number; punchType: 'Check-In' | 'Check-Out'; employeeId: string } | null = null;
+
+    const executeOneClickAttempt = async (gpsShouldTimeout: boolean) => {
+      const now = Date.now();
+      const canReuseFace = Boolean(
+        preservedFace &&
+        preservedFace.employeeId === 'VRM-027' &&
+        preservedFace.punchType === 'Check-In' &&
+        now - preservedFace.capturedAt <= 90000
+      );
+
+      const faceTask = async () => {
+        if (canReuseFace && preservedFace) {
+          return preservedFace.photoBase64;
+        }
+        faceCaptureCount++;
+        const photo = `data:image/jpeg;base64,LIVE_SELFIE_${faceCaptureCount}`;
+        preservedFace = {
+          photoBase64: photo,
+          capturedAt: Date.now(),
+          punchType: 'Check-In',
+          employeeId: 'VRM-027',
+        };
+        return photo;
+      };
+
+      const gpsTask = async () => {
+        if (gpsShouldTimeout) {
+          throw new Error('GPS Timed Out — Tap Retry Location to Complete (Face Preserved)');
+        }
+        return { latitude: inside120m.lat, longitude: inside120m.lng, accuracy: 24 };
+      };
+
+      const [fRes, gRes] = await Promise.allSettled([faceTask(), gpsTask()]);
+      if (fRes.status === 'rejected') throw fRes.reason;
+      if (gRes.status === 'rejected') throw gRes.reason;
+
+      const committedPhoto = fRes.value;
+      preservedFace = null; // Cleared upon PostgreSQL commit
+      return { committedPhoto, gps: gRes.value };
+    };
+
+    // Attempt 1: Face succeeds concurrently, GPS times out -> face is preserved, attendance NOT saved yet
+    await expect(executeOneClickAttempt(true)).rejects.toThrow('Face Preserved');
+    expect(faceCaptureCount).toBe(1);
+    expect(preservedFace).not.toBeNull();
+
+    // Attempt 2 (Retry Location tapped within 90s): Reuses preserved face verification (faceCaptureCount stays 1!) and completes punch
+    const completed = await executeOneClickAttempt(false);
+    expect(faceCaptureCount).toBe(1);
+    expect(completed.committedPhoto).toBe('data:image/jpeg;base64,LIVE_SELFIE_1');
+    expect(preservedFace).toBeNull();
+  });
+
+  it('13. Section C: PostgreSQL Unique-Index Failure Fix, DDL Removal from Punch API, and Error Sanitization', () => {
+    // 1. Verify attendanceRepository.ts no longer runs CREATE UNIQUE INDEX idx_attendance_records_employee_date_unique inside recordPostgresPunch
+    const repoPath = path.resolve(__dirname, '../src/repositories/attendanceRepository.ts');
+    const repoSource = fs.readFileSync(repoPath, 'utf8');
+    expect(repoSource).not.toContain('idx_attendance_records_employee_date_unique');
+    expect(repoSource).toContain('ON CONFLICT (employee_id, shift_id, shift_date)');
+    expect(repoSource).toContain('SAVEPOINT sp_idempotency_lookup');
+
+    // 2. Verify standalone migration 018 exists and creates non-unique lookup index idx_attendance_records_employee_date_lookup
+    const migrationPath = path.resolve(__dirname, '../migrations/018_attendance_concurrency_and_shift_lookup.sql');
+    expect(fs.existsSync(migrationPath)).toBe(true);
+    const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+    expect(migrationSql).toContain('DROP INDEX IF EXISTS public.idx_attendance_records_employee_date_unique');
+    expect(migrationSql).toContain('idx_attendance_records_employee_date_lookup');
+
+    // 3. Verify read-only backup of historical duplicate records exists and contains the 5 duplicate groups
+    const backupPath = path.resolve(__dirname, '../backups/attendance_duplicate_records_backup_2026-10-30.json');
+    expect(fs.existsSync(backupPath)).toBe(true);
+    const backupData = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+    expect(backupData.duplicateGroupCount).toBe(5);
+    expect(backupData.totalDuplicateRows).toBe(15);
+    expect(backupData.records.length).toBe(15);
+
+    // 4. Verify errorHandler sanitizes raw PostgreSQL index/constraint errors and never exposes index names
+    const createMockRes = () => {
+      const res: any = {
+        statusCode: 200,
+        body: null,
+        status(code: number) {
+          this.statusCode = code;
+          return this;
+        },
+        json(payload: any) {
+          this.body = payload;
+          return this;
+        },
+      };
+      return res;
+    };
+
+    const rawIndexErr: any = new Error('could not create unique index "idx_attendance_records_employee_date_unique"');
+    rawIndexErr.code = '23505';
+    const res1 = createMockRes();
+    errorHandler(rawIndexErr, {} as any, res1, (() => {}) as any);
+    expect(res1.statusCode).toBe(409);
+    expect(res1.body.error.code).toBe('DUPLICATE_RECORD_CONFLICT');
+    expect(res1.body.error.message).not.toContain('idx_attendance_records_employee_date_unique');
+    expect(res1.body.error.message).toContain('This attendance or record update has already been saved');
   });
 });

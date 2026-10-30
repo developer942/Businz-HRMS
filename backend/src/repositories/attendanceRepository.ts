@@ -458,29 +458,6 @@ export class AttendanceRepository {
     return this.recordPostgresPunch(params);
   }
 
-  private async ensureAttendanceConcurrencySchema(): Promise<void> {
-    if (attendanceSchemaEnsured) return;
-    await query(`
-      CREATE TABLE IF NOT EXISTS public.attendance_punch_events (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        attendance_record_id UUID NOT NULL REFERENCES public.attendance_records(id) ON DELETE CASCADE,
-        employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
-        punch_type TEXT NOT NULL CHECK (punch_type IN ('IN', 'OUT')),
-        punched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        idempotency_key TEXT UNIQUE,
-        photo_fingerprint TEXT,
-        location_lat DOUBLE PRECISION,
-        location_lng DOUBLE PRECISION,
-        location_accuracy DOUBLE PRECISION,
-        location_timestamp TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_records_employee_date_unique
-        ON public.attendance_records(employee_id, date);
-    `);
-    attendanceSchemaEnsured = true;
-  }
-
   private async recordPostgresPunch(params: {
     employeeId: string;
     type: 'IN' | 'OUT';
@@ -497,7 +474,8 @@ export class AttendanceRepository {
     now?: Date;
     bypassShiftWindow?: boolean;
   }): Promise<AttendanceLogRecord> {
-    await this.ensureAttendanceConcurrencySchema();
+    // Note: Schema DDL migrations (018_attendance_concurrency_and_shift_lookup.sql) are executed
+    // out-of-band via migration scripts and NEVER inside normal attendance API requests.
     const serverInstant = params.now || new Date();
     const timeZone = await this.getCompanyTimezone();
     const wallClockNow = toTimezoneWallClockDate(serverInstant, timeZone);
@@ -541,18 +519,24 @@ export class AttendanceRepository {
 
       // 2. Check idempotency key for network retry safety
       if (idempotencyKey) {
-        const existingEvent = await client.query<{ attendance_record_id: string }>(
-          `SELECT attendance_record_id FROM public.attendance_punch_events WHERE idempotency_key = $1 LIMIT 1`,
-          [idempotencyKey]
-        );
-        if (existingEvent.rows[0]?.attendance_record_id) {
-          const existingRecord = await client.query(
-            `SELECT * FROM public.attendance_records WHERE id = $1 LIMIT 1`,
-            [existingEvent.rows[0].attendance_record_id]
+        await client.query('SAVEPOINT sp_idempotency_lookup');
+        try {
+          const existingEvent = await client.query<{ attendance_record_id: string }>(
+            `SELECT attendance_record_id FROM public.attendance_punch_events WHERE idempotency_key = $1 LIMIT 1`,
+            [idempotencyKey]
           );
-          if (existingRecord.rows[0]) {
-            return this.mapRowToAttendance(existingRecord.rows[0], employee.employee_id, fullName);
+          await client.query('RELEASE SAVEPOINT sp_idempotency_lookup');
+          if (existingEvent.rows[0]?.attendance_record_id) {
+            const existingRecord = await client.query(
+              `SELECT * FROM public.attendance_records WHERE id = $1 LIMIT 1`,
+              [existingEvent.rows[0].attendance_record_id]
+            );
+            if (existingRecord.rows[0]) {
+              return this.mapRowToAttendance(existingRecord.rows[0], employee.employee_id, fullName);
+            }
           }
+        } catch {
+          await client.query('ROLLBACK TO SAVEPOINT sp_idempotency_lookup');
         }
       }
 
@@ -622,7 +606,17 @@ export class AttendanceRepository {
       ]);
 
       const currentResult = await client.query(
-        `SELECT * FROM public.attendance_records WHERE employee_id = $1 AND date = $2::date FOR UPDATE`,
+        `SELECT * FROM public.attendance_records
+         WHERE employee_id = $1 AND (shift_date = $2::date OR date = $2::date)
+         ORDER BY
+           CASE WHEN check_in IS NOT NULL AND check_out IS NULL THEN 0
+                WHEN check_in IS NOT NULL THEN 1
+                ELSE 2 END,
+           check_in DESC NULLS LAST,
+           updated_at DESC NULLS LAST,
+           created_at DESC NULLS LAST
+         LIMIT 1
+         FOR UPDATE`,
         [employee.id, targetShiftDate]
       );
       const currentRow = currentResult.rows[0] || null;
@@ -690,6 +684,18 @@ export class AttendanceRepository {
                late_duration_minutes, method, in_geofence, face_verified, location_lat, location_lng,
                location_address, check_in_photo, notes)
              VALUES ($1, $2::date, $3, $2::date, $4, 0, $5, $6, $7, $8, $9, true, $10, $11, $12, $13, $14)
+             ON CONFLICT (employee_id, shift_id, shift_date)
+             DO UPDATE SET
+               check_in = COALESCE(public.attendance_records.check_in, EXCLUDED.check_in),
+               status = CASE WHEN public.attendance_records.check_in IS NULL THEN EXCLUDED.status ELSE public.attendance_records.status END,
+               late_status = CASE WHEN public.attendance_records.check_in IS NULL THEN EXCLUDED.late_status ELSE public.attendance_records.late_status END,
+               late_duration_minutes = CASE WHEN public.attendance_records.check_in IS NULL THEN EXCLUDED.late_duration_minutes ELSE public.attendance_records.late_duration_minutes END,
+               check_in_photo = COALESCE(public.attendance_records.check_in_photo, EXCLUDED.check_in_photo),
+               location_lat = COALESCE(public.attendance_records.location_lat, EXCLUDED.location_lat),
+               location_lng = COALESCE(public.attendance_records.location_lng, EXCLUDED.location_lng),
+               location_address = COALESCE(public.attendance_records.location_address, EXCLUDED.location_address),
+               notes = COALESCE(public.attendance_records.notes, EXCLUDED.notes),
+               updated_at = NOW()
              RETURNING *`,
             [
               employee.id,
@@ -796,23 +802,29 @@ export class AttendanceRepository {
       }
 
       if (idempotencyKey && savedRow?.id) {
-        await client.query(
-          `INSERT INTO public.attendance_punch_events
-            (idempotency_key, employee_id, attendance_record_id, punch_type, photo_fingerprint, location_lat, location_lng, location_accuracy, location_timestamp)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT (idempotency_key) DO NOTHING`,
-          [
-            idempotencyKey,
-            employee.id,
-            savedRow.id,
-            params.type,
-            newPhotoFingerprint || '',
-            params.locationLat ?? null,
-            params.locationLng ?? null,
-            params.accuracyMeters ?? null,
-            serverInstant.toISOString(),
-          ]
-        );
+        await client.query('SAVEPOINT sp_idempotency_insert');
+        try {
+          await client.query(
+            `INSERT INTO public.attendance_punch_events
+              (idempotency_key, employee_id, attendance_record_id, punch_type, photo_fingerprint, location_lat, location_lng, location_accuracy, location_timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (idempotency_key) DO NOTHING`,
+            [
+              idempotencyKey,
+              employee.id,
+              savedRow.id,
+              params.type,
+              newPhotoFingerprint || '',
+              params.locationLat ?? null,
+              params.locationLng ?? null,
+              params.accuracyMeters ?? null,
+              serverInstant.toISOString(),
+            ]
+          );
+          await client.query('RELEASE SAVEPOINT sp_idempotency_insert');
+        } catch {
+          await client.query('ROLLBACK TO SAVEPOINT sp_idempotency_insert');
+        }
       }
 
       return this.mapRowToAttendance(savedRow, employee.employee_id, fullName);

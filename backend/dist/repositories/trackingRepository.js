@@ -59,7 +59,7 @@ export class TrackingRepository {
           COALESCE(e.employee_id, fa.employee_id::text) AS employee_code,
           TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS employee_name,
           e.avatar_url AS employee_avatar,
-          COALESCE(fa.department, e.department, 'Operations') AS department,
+          COALESCE(fa.department, d.name, 'Operations') AS department,
           fa.duty_type,
           fa.schedule_type,
           fa.start_date::text AS start_date,
@@ -82,6 +82,7 @@ export class TrackingRepository {
           fa.updated_at
         FROM public.field_duty_assignments fa
         LEFT JOIN public.employees e ON e.id = fa.employee_id
+        LEFT JOIN public.departments d ON d.id = e.department_id
         ${whereClause}
         ORDER BY fa.start_date DESC, fa.created_at DESC
       `;
@@ -600,11 +601,12 @@ export class TrackingRepository {
           COALESCE(e.employee_id, ts.employee_id::text) AS employee_code,
           TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS employee_name,
           e.avatar_url AS employee_avatar,
-          COALESCE(fa.department, e.department, 'Operations') AS department,
+          COALESCE(fa.department, d.name, 'Operations') AS department,
           COALESCE(fa.duty_type, 'Site Visit') AS duty_type,
           COALESCE(fa.customer_site_name, 'Site') AS customer_site_name
         FROM public.field_trip_sessions ts
         LEFT JOIN public.employees e ON e.id = ts.employee_id
+        LEFT JOIN public.departments d ON d.id = e.department_id
         LEFT JOIN public.field_duty_assignments fa ON fa.id = ts.assignment_id
         ${whereClause}
         ORDER BY ts.trip_start_time DESC
@@ -650,9 +652,10 @@ export class TrackingRepository {
             const whereClause = status ? `WHERE LOWER(status) = LOWER($1)` : '';
             const values = status ? [status] : [];
             const sql = `
-        SELECT a.*, e.employee_id AS employee_code, TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS employee_name, e.department
+        SELECT a.*, e.employee_id AS employee_code, TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS employee_name, d.name AS department
         FROM public.field_tracking_alerts a
         LEFT JOIN public.employees e ON e.id = a.employee_id
+        LEFT JOIN public.departments d ON d.id = e.department_id
         ${whereClause}
         ORDER BY a.created_at DESC
       `;

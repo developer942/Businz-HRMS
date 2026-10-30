@@ -8,6 +8,7 @@ import {
   clearCachedGpsReading,
   detectBrowserDeviceCategory,
   evaluateGeofenceBoundary,
+  getCachedFreshGpsReading,
   getMobileLocationInstructions,
   requestFreshGpsPosition,
   calculateHaversineMeters as calculateAccurateHaversine,
@@ -406,6 +407,22 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const [cameraAccessDenied, setCameraAccessDenied] = useState<boolean>(false);
   const [isLowLightCamera, setIsLowLightCamera] = useState<boolean>(false);
   const activeGpsPromiseRef = useRef<Promise<any> | null>(null);
+  const preservedFaceCaptureRef = useRef<{
+    photoBase64: string;
+    capturedAt: number;
+    punchType: 'Check-In' | 'Check-Out';
+    employeeId: string;
+  } | null>(null);
+  const [hasPreservedFaceCapture, setHasPreservedFaceCapture] = useState<boolean>(false);
+  const [committedPunchSummary, setCommittedPunchSummary] = useState<{
+    title: string;
+    savedTime: string;
+    status: string;
+    lateStatus: string;
+    locationText: string;
+    totalLatencyMs: number;
+    gpsDurationMs: number;
+  } | null>(null);
   const [gpsStatusDetails, setGpsStatusDetails] = useState<{
     verified: boolean;
     accuracy: number | null;
@@ -421,10 +438,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     radius: Number(geofenceConfig.radiusMeters) || 500,
     classification: 'UNVERIFIED',
     errorCode: 'NONE',
-    message: 'Getting GPS Location...'
+    message: 'Ready • Verified on Punch'
   });
 
   // Refresh GPS permission status and verify fresh location on demand (Two-Stage GPS: Stage A 8s -> Stage B 12s)
+  // If a preserved face capture exists from a recent GPS timeout within 90s, automatically finish the pending punch once verified.
   const handleRetryLocation = async (opts?: { silentOnStart?: boolean }) => {
     if (isRetryingLocation || isScanning) return;
     setIsRetryingLocation(true);
@@ -440,6 +458,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
     const isFieldDutyAuthorized = Boolean(fieldAssignment);
+    let verifiedOnRetry = false;
 
     try {
       const perm = await checkGpsPermissionState();
@@ -453,6 +472,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         maxAccuracyMeters: maxAccuracyThreshold,
         maxStaleAgeMs: 60000,
         maxRetries: 1,
+        reuseRecentFix: false,
         geofenceContext: centerLat !== 0 && centerLng !== 0
           ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
           : undefined,
@@ -478,6 +498,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       );
 
       if (isFieldDutyAuthorized && reading.accuracy <= (maxAccuracyThreshold ?? 150)) {
+        verifiedOnRetry = true;
         setActivePunchGps({
           latitude: reading.latitude,
           longitude: reading.longitude,
@@ -507,6 +528,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           });
         }
       } else if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
+        verifiedOnRetry = true;
         setActivePunchGps({
           latitude: reading.latitude,
           longitude: reading.longitude,
@@ -594,9 +616,20 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       }
       setIsRetryingLocation(false);
     }
+
+    // If a preserved face verification exists within its 90-second freshness window, complete the punch automatically
+    const preserved = preservedFaceCaptureRef.current;
+    if (
+      verifiedOnRetry &&
+      preserved &&
+      preserved.employeeId === selectedEmpId &&
+      Date.now() - preserved.capturedAt <= 90000
+    ) {
+      void handlePunchAction(preserved.punchType);
+    }
   };
 
-  // Sync canonical geofence configuration, start front camera, and begin two-stage GPS acquisition independently in parallel
+  // Sync canonical geofence configuration and check existing permission state without starting background GPS loops
   useEffect(() => {
     if (mode === 'log') {
       stopCamera();
@@ -625,18 +658,63 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       })
       .catch(() => {});
 
-    // Start front camera and two-stage GPS verification independently in parallel on mount
-    startCameraStream().catch(() => {
-      // Browser may require user gesture on Punch In / Punch Out tap
-    });
-    void handleRetryLocation({ silentOnStart: true });
+    // Check geolocation permission state passively and reuse any recent cached reading without starting a background watch
+    checkGpsPermissionState()
+      .then((perm) => {
+        if (!mounted) return;
+        if (perm !== 'unknown') setGpsPermissionState(perm);
+        const centerLat = Number(geofenceConfig.centerLat) || 13.151660;
+        const centerLng = Number(geofenceConfig.centerLng) || 80.208618;
+        const radius = Number(geofenceConfig.radiusMeters) || 500;
+        const cached = getCachedFreshGpsReading(45000, 225, {
+          centerLat,
+          centerLng,
+          radiusMeters: radius
+        });
+        if (cached) {
+          const dist = calculateAccurateHaversine(cached.latitude, cached.longitude, centerLat, centerLng);
+          setActivePunchGps({
+            latitude: cached.latitude,
+            longitude: cached.longitude,
+            accuracy: cached.accuracy,
+            address: geofenceConfig.officeName || 'HQ Office',
+            distance: dist,
+            timestamp: cached.timestamp,
+            readingAgeMs: cached.readingAgeMs,
+            durationMs: cached.durationMs,
+            sampleCount: cached.sampleCount,
+            retryCount: cached.retryCount,
+            browserDeviceCategory: cached.browserDeviceCategory
+          });
+          setGpsStatusDetails({
+            verified: true,
+            accuracy: cached.accuracy,
+            distance: dist,
+            radius,
+            classification: 'INSIDE',
+            errorCode: 'NONE',
+            message: 'GPS Verified'
+          });
+        }
+      })
+      .catch(() => {});
+
+    // Only pre-activate front camera preview on mount if camera permission is already granted (no silent capture, no unsolicited OS prompt)
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: 'camera' as PermissionName })
+        .then((status) => {
+          if (mounted && status.state === 'granted') {
+            startCameraStream().catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && mounted) {
         if (videoRef.current && videoRef.current.paused && mediaStreamRef.current) {
           videoRef.current.play().catch(() => {});
-        } else if (!mediaStreamRef.current) {
-          startCameraStream().catch(() => {});
         }
       }
     };
@@ -936,10 +1014,26 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       !videoRef.current ||
       videoRef.current.videoWidth <= 0;
 
+    const punchStartMs = Date.now();
+    const preserved = preservedFaceCaptureRef.current;
+    const canReusePreservedFace = Boolean(
+      preserved &&
+      preserved.employeeId === selectedEmpId &&
+      preserved.punchType === type &&
+      punchStartMs - preserved.capturedAt <= 90000
+    );
+
     punchInProgressRef.current = true;
     setIsScanning(true);
     setIsRequestingPermissions(true);
-    setGpsProgressMsg(needsCameraInit ? 'Opening Camera' : 'Getting GPS Location...');
+    setCommittedPunchSummary(null);
+    setGpsProgressMsg(
+      canReusePreservedFace
+        ? 'Getting GPS Location...'
+        : needsCameraInit
+          ? 'Opening Camera & Getting GPS...'
+          : 'Capturing Face & Getting GPS...'
+    );
     setScanResult({
       status: null,
       message: ''
@@ -958,81 +1052,123 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         ? Number((geofenceConfig as any).maxAccuracyMeters)
         : undefined;
 
-      // Fast Punch-In: if GPS was already verified within the last 60s, reuse that fresh verified fix immediately
+      // Fast Punch-In: if GPS was already verified within the last 45s, reuse that fresh verified fix immediately
       const hasFreshVerifiedGps = Boolean(
         activePunchGps &&
         gpsStatusDetails.verified &&
         typeof activePunchGps.timestamp === 'number' &&
-        Date.now() - activePunchGps.timestamp < 60000
+        Date.now() - activePunchGps.timestamp < 45000
       );
 
-      // Initiate camera readiness and two-stage GPS acquisition concurrently (reusing any in-flight GPS request from mount)
-      const [, reading] = await Promise.all([
-        needsCameraInit
-          ? startCameraStream()
-              .then(() => {
-                setCameraAccessDenied(false);
-                if (!hasFreshVerifiedGps) {
-                  setGpsProgressMsg('Getting GPS Location...');
-                }
-              })
-              .catch((camErr: any) => {
-                setCameraAccessDenied(true);
-                throw new Error(
-                  camErr?.name === 'NotAllowedError' || camErr?.name === 'PermissionDeniedError'
-                    ? 'Camera Permission Denied'
-                    : (camErr?.message || 'Camera access is required for Face Attendance.')
-                );
-              })
-          : Promise.resolve(),
-        hasFreshVerifiedGps && activePunchGps
-          ? Promise.resolve({
-              latitude: activePunchGps.latitude,
-              longitude: activePunchGps.longitude,
-              accuracy: activePunchGps.accuracy,
-              timestamp: activePunchGps.timestamp!,
-              readingAgeMs: Math.max(0, Date.now() - activePunchGps.timestamp!),
-              sampleCount: activePunchGps.sampleCount ?? 1,
-              durationMs: activePunchGps.durationMs ?? 0,
-              retryCount: activePunchGps.retryCount ?? 0,
-              deviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory(),
-              browserDeviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory()
-            })
-          : activeGpsPromiseRef.current
-            ? activeGpsPromiseRef.current
-            : (() => {
-                const task = requestFreshGpsPosition({
-                  stageATimeoutMs: 8000,
-                  stageBTimeoutMs: 12000,
-                  desiredAccuracyMeters: 35,
-                  acceptableAccuracyMeters: 65,
-                  maxAccuracyMeters: maxAccuracyThreshold,
-                  maxStaleAgeMs: 60000,
-                  maxRetries: 1,
-                  geofenceContext:
-                    centerLat !== 0 && centerLng !== 0
-                      ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
-                      : undefined,
-                  onProgress: (p) => {
-                    if (p.phase === 'IMPROVING_ACCURACY' || (p.attempt > 1 && p.bestAccuracyMeters !== null)) {
-                      setGpsProgressMsg('Improving GPS Accuracy...');
-                    } else {
-                      setGpsProgressMsg('Getting GPS Location...');
-                    }
-                  }
-                });
-                activeGpsPromiseRef.current = task;
-                return task.finally(() => {
-                  if (activeGpsPromiseRef.current === task) {
-                    activeGpsPromiseRef.current = null;
-                  }
-                });
-              })()
-      ]);
-      setGpsPermissionState('granted');
+      // Concurrent Branch 1: Activate front camera and automatically capture verified face frame (or reuse fresh preserved capture)
+      const faceCaptureTask = async (): Promise<string> => {
+        if (canReusePreservedFace && preserved) {
+          return preserved.photoBase64;
+        }
+        if (needsCameraInit) {
+          try {
+            await startCameraStream();
+            setCameraAccessDenied(false);
+          } catch (camErr: any) {
+            setCameraAccessDenied(true);
+            throw new Error(
+              camErr?.name === 'NotAllowedError' || camErr?.name === 'PermissionDeniedError'
+                ? 'Camera Permission Denied'
+                : (camErr?.message || 'Camera access is required for Face Attendance.')
+            );
+          }
+        }
+        if (!hasFreshVerifiedGps) {
+          setGpsProgressMsg('Getting GPS Location...');
+        } else {
+          setGpsProgressMsg('Verifying Face...');
+        }
+        const frame = captureVideoFrame();
+        if (
+          type === 'Check-Out' &&
+          ((myTodayCheckInPhoto && frame === myTodayCheckInPhoto) ||
+            (todayAttendance?.checkInPhoto && frame === todayAttendance.checkInPhoto))
+        ) {
+          throw new Error('New selfie required for Punch Out. Please retry.');
+        }
+        preservedFaceCaptureRef.current = {
+          photoBase64: frame,
+          capturedAt: Date.now(),
+          punchType: type,
+          employeeId: selectedEmpId
+        };
+        setHasPreservedFaceCapture(true);
+        return frame;
+      };
 
+      // Concurrent Branch 2: Acquire or reuse fresh high-accuracy GPS coordinates
+      const gpsAcquisitionTask = async () => {
+        if (hasFreshVerifiedGps && activePunchGps) {
+          return {
+            latitude: activePunchGps.latitude,
+            longitude: activePunchGps.longitude,
+            accuracy: activePunchGps.accuracy,
+            timestamp: activePunchGps.timestamp!,
+            readingAgeMs: Math.max(0, Date.now() - activePunchGps.timestamp!),
+            sampleCount: activePunchGps.sampleCount ?? 1,
+            durationMs: activePunchGps.durationMs ?? 0,
+            retryCount: activePunchGps.retryCount ?? 0,
+            deviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory(),
+            browserDeviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory()
+          };
+        }
+        if (activeGpsPromiseRef.current) {
+          return activeGpsPromiseRef.current;
+        }
+        const task = requestFreshGpsPosition({
+          stageATimeoutMs: 8000,
+          stageBTimeoutMs: 12000,
+          desiredAccuracyMeters: 35,
+          acceptableAccuracyMeters: 65,
+          maxAccuracyMeters: maxAccuracyThreshold,
+          maxStaleAgeMs: 60000,
+          maxRetries: 1,
+          reuseRecentFix: true,
+          maxRecentFixAgeMs: 45000,
+          deduplicateInFlight: true,
+          geofenceContext:
+            centerLat !== 0 && centerLng !== 0
+              ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
+              : undefined,
+          onProgress: (p) => {
+            if (p.phase === 'IMPROVING_ACCURACY' || (p.attempt > 1 && p.bestAccuracyMeters !== null)) {
+              setGpsProgressMsg('Improving GPS Accuracy...');
+            } else {
+              setGpsProgressMsg('Getting GPS Location...');
+            }
+          }
+        });
+        activeGpsPromiseRef.current = task;
+        return task.finally(() => {
+          if (activeGpsPromiseRef.current === task) {
+            activeGpsPromiseRef.current = null;
+          }
+        });
+      };
+
+      const [faceSettled, gpsSettled] = await Promise.allSettled([
+        faceCaptureTask(),
+        gpsAcquisitionTask()
+      ]);
+
+      if (faceSettled.status === 'rejected') {
+        throw faceSettled.reason;
+      }
+      const capturedPhotoUrl = faceSettled.value;
+
+      if (gpsSettled.status === 'rejected') {
+        throw gpsSettled.reason;
+      }
+      const reading = gpsSettled.value;
+
+      setGpsPermissionState('granted');
       setIsRequestingPermissions(false);
-      setGpsProgressMsg('Verifying');
+      setGpsProgressMsg('Submitting Attendance...');
 
       const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
       const evaluation = evaluateGeofenceBoundary(
@@ -1083,7 +1219,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             radius,
             accuracy: reading.accuracy
           });
-          throw new Error('Improving GPS Accuracy...');
+          throw new Error('Improving GPS Accuracy — Tap Retry Location to Complete');
         }
 
         throw new Error('Outside Allowed Attendance Area');
@@ -1115,18 +1251,6 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         message: 'GPS Verified'
       });
 
-      // Capture a fresh selfie from live front camera
-      const capturedPhotoUrl = captureVideoFrame();
-
-      // Never reuse the Punch In photograph for Punch Out
-      if (
-        type === 'Check-Out' &&
-        ((myTodayCheckInPhoto && capturedPhotoUrl === myTodayCheckInPhoto) ||
-          (todayAttendance?.checkInPhoto && capturedPhotoUrl === todayAttendance.checkInPhoto))
-      ) {
-        throw new Error('New selfie required for Punch Out. Please retry.');
-      }
-
       const emp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
       const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (currentUser.name || 'Employee');
       const idempotencyKey = `punch-${selectedEmpId}-${todayStr}-${type === 'Check-In' ? 'IN' : 'OUT'}`;
@@ -1147,6 +1271,22 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         browserDeviceCategory: reading.browserDeviceCategory,
         fieldDutyAuthorized: isFieldDutyAuthorized,
         idempotencyKey
+      });
+
+      // Clear preserved face capture once attendance is committed to PostgreSQL
+      preservedFaceCaptureRef.current = null;
+      setHasPreservedFaceCapture(false);
+      setCommittedPunchSummary({
+        title: type === 'Check-In' ? 'Punch In Successful' : 'Punch Out Successful',
+        savedTime:
+          type === 'Check-In'
+            ? (serverRecord.checkIn || getLocalTimestampString())
+            : (serverRecord.checkOut || getLocalTimestampString()),
+        status: serverRecord.status || 'Present',
+        lateStatus: serverRecord.lateStatus || (serverRecord.status === 'Late' ? 'Late' : 'On Time'),
+        locationText: `GPS Verified (${Math.round(distance)}m / ${radius}m, ±${Math.round(reading.accuracy)}m)`,
+        totalLatencyMs: Math.max(1, Date.now() - punchStartMs),
+        gpsDurationMs: reading.durationMs ?? 0
       });
 
       // Apply authoritative PostgreSQL record immediately upon server confirmation
@@ -1215,6 +1355,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       punchInProgressRef.current = false;
     } catch (err: any) {
       console.error('Attendance punch error:', err);
+      const hasPreserved = Boolean(
+        preservedFaceCaptureRef.current &&
+        preservedFaceCaptureRef.current.employeeId === selectedEmpId &&
+        Date.now() - preservedFaceCaptureRef.current.capturedAt <= 90000
+      );
       let conciseErr = err?.message || 'GPS Timed Out — Retry';
       if (err instanceof GpsAcquisitionError) {
         setActivePunchGps(null);
@@ -1223,7 +1368,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           setGpsPermissionState('denied');
           conciseErr = 'Location Permission Denied';
         } else {
-          conciseErr = 'GPS Timed Out — Retry';
+          conciseErr = hasPreserved
+            ? 'GPS Timed Out — Tap Retry Location to Complete (Face Preserved)'
+            : 'GPS Timed Out — Retry';
         }
         setGpsStatusDetails({
           verified: false,
@@ -2823,8 +2970,24 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                                 ? 'Outside Allowed Attendance Area'
                                 : gpsStatusDetails.classification === 'UNCERTAIN' || lastGpsErrorCode === 'LOW_GPS_ACCURACY'
                                   ? 'Improving GPS Accuracy...'
-                                  : 'Getting GPS Location...'}
+                                  : 'Ready • Verified on Punch'}
                     </span>
+                    {hasPreservedFaceCapture && !gpsStatusDetails.verified && (
+                      <span
+                        data-testid="preserved-face-badge"
+                        style={{
+                          padding: '2px 7px',
+                          borderRadius: '9999px',
+                          fontSize: '0.66rem',
+                          fontWeight: 700,
+                          backgroundColor: '#ecfeff',
+                          color: '#0e7490',
+                          border: '1px solid #a5f3fc'
+                        }}
+                      >
+                        Face Verified &amp; Preserved
+                      </span>
+                    )}
                   </div>
                   <div data-testid="gps-accuracy-distance-text" style={{ fontSize: '0.69rem', color: '#475569' }}>
                     {gpsStatusDetails.accuracy !== null
@@ -2857,6 +3020,47 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                   <span>{isRetryingLocation ? 'Checking...' : 'Retry Location'}</span>
                 </button>
               </div>
+              {committedPunchSummary && (
+                <div
+                  data-testid="one-click-punch-success-card"
+                  style={{
+                    marginTop: '6px',
+                    padding: '8px 10px',
+                    borderRadius: '10px',
+                    backgroundColor: '#f0fdf4',
+                    border: '1px solid #86efac',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '3px',
+                    fontSize: '0.73rem',
+                    color: '#0f172a'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 800, color: '#15803d' }}>
+                      <CheckCircle2 size={14} />
+                      <span>{committedPunchSummary.title}</span>
+                    </span>
+                    <span
+                      data-testid="committed-punch-policy-status"
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                        fontSize: '0.68rem',
+                        fontWeight: 800,
+                        backgroundColor: committedPunchSummary.status === 'Late' ? '#fef3c7' : '#dcfce7',
+                        color: committedPunchSummary.status === 'Late' ? '#b45309' : '#15803d'
+                      }}
+                    >
+                      {committedPunchSummary.status}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', color: '#334155', fontSize: '0.7rem' }}>
+                    <span>Saved Time: <strong>{committedPunchSummary.savedTime}</strong></span>
+                    <span style={{ color: '#15803d', fontWeight: 700 }}>{committedPunchSummary.locationText}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* TODAY'S COMPLETED ATTENDANCE SUMMARY OR ACTIVE PUNCH IN TIME */}
