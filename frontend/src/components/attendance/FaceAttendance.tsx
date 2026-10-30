@@ -2886,21 +2886,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 }}
               />
 
-              {!isCameraActive && (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  color: '#0e7490'
-                }}>
-                  <ScanFace size={32} strokeWidth={1.75} />
-                  <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#475569' }}>
-                    Live Camera
-                  </span>
-                </div>
-              )}
+              {/* ScanFace live camera placeholder removed */}
 
               {/* Attendance Home Banner (Camera is NOT permanently active on the home screen; opens in Full-Screen when Punch In / Out is tapped) */}
               <div
