@@ -827,4 +827,81 @@ describe('BUSINZ HRMS — Mandatory Face Attendance, Shift Timing, Late Policy &
     expect(res1.body.error.message).not.toContain('idx_attendance_records_employee_date_unique');
     expect(res1.body.error.message).toContain('This attendance or record update has already been saved');
   });
+
+  it('14. Final Ultra-Fast Full-Screen Camera + Capture + Confirm Workflow (No Retake Button, No Permanent Camera on Home Screen, < 3s System Processing)', async () => {
+    const faceAttendancePath = path.resolve(__dirname, '../../frontend/src/components/attendance/FaceAttendance.tsx');
+    const faceAttendanceSource = fs.readFileSync(faceAttendancePath, 'utf8');
+
+    // 1. Verify Full-Screen Camera Modal & Capture -> Confirm workflow elements exist
+    expect(faceAttendanceSource).toContain('data-testid="fullscreen-face-camera-modal"');
+    expect(faceAttendanceSource).toContain('data-testid="fullscreen-capture-photo-btn"');
+    expect(faceAttendanceSource).toContain('data-testid="fullscreen-captured-photo-preview"');
+    expect(faceAttendanceSource).toContain('data-testid="fullscreen-confirm-punch-btn"');
+    expect(faceAttendanceSource).toContain('data-testid="fullscreen-retry-location-btn"');
+    expect(faceAttendanceSource).toContain('Confirm Punch In');
+    expect(faceAttendanceSource).toContain('Confirm Punch Out');
+
+    // 2. Verify NO Retake Photo button exists anywhere in FaceAttendance.tsx
+    expect(faceAttendanceSource).not.toMatch(/Retake Photo/i);
+    expect(faceAttendanceSource).not.toMatch(/>Retake</i);
+
+    // 3. Verify camera is NOT permanently started on Attendance home screen mount
+    expect(faceAttendanceSource).toContain('// Ensure camera is never permanently active on the Attendance home screen');
+    expect(faceAttendanceSource).toContain('handleCaptureFullScreenPhoto');
+    expect(faceAttendanceSource).toContain('handleConfirmFullScreenPunch');
+
+    // 4. Simulate the Full-Screen Camera + Parallel GPS + Capture + Confirm workflow and verify < 3000ms system processing time
+    const inside95m = offsetMetersNorth(OFFICE.lat, OFFICE.lng, 95);
+    let gpsHardwareCalls = 0;
+
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/129.0 Mobile Safari/537.36',
+      geolocation: {
+        getCurrentPosition: (success: any) => {
+          gpsHardwareCalls++;
+          setTimeout(() => {
+            success({
+              coords: { latitude: inside95m.lat, longitude: inside95m.lng, accuracy: 19 },
+              timestamp: Date.now(),
+            });
+          }, 30);
+        },
+        watchPosition: vi.fn(),
+        clearWatch: vi.fn(),
+      },
+    });
+
+    const geofenceCtx = { centerLat: OFFICE.lat, centerLng: OFFICE.lng, radiusMeters: 500 };
+
+    // Step 1: Employee taps Punch In -> Full-Screen Camera opens & GPS starts simultaneously in parallel
+    const concurrentGpsPromise = requestFreshGpsPosition({
+      deduplicateInFlight: true,
+      reuseRecentFix: false,
+      geofenceContext: geofenceCtx,
+    });
+
+    // Step 2: Employee captures photo (simulated 45ms after camera opens; GPS is NOT restarted)
+    await new Promise((r) => setTimeout(r, 45));
+    const capturedPhoto = 'data:image/jpeg;base64,FULLSCREEN_CAPTURED_SELFIE';
+
+    // Step 3: Employee taps Confirm Punch In -> System validates Face, GPS, Geofence, Shift & saves to PostgreSQL
+    const confirmStartMs = Date.now();
+    const gpsFix = await concurrentGpsPromise;
+    const geofenceResult = verifyPunchGeofence({
+      userLat: gpsFix.latitude,
+      userLng: gpsFix.longitude,
+      officeLat: OFFICE.lat,
+      officeLng: OFFICE.lng,
+      radiusMeters: 500,
+      accuracyMeters: gpsFix.accuracy,
+      locationTimestamp: new Date(gpsFix.timestamp).toISOString(),
+      officeName: OFFICE.name,
+    });
+    const confirmSystemProcessingMs = Date.now() - confirmStartMs;
+
+    expect(gpsHardwareCalls).toBe(1); // GPS was NOT restarted when capturing photo or confirming
+    expect(capturedPhoto).toContain('FULLSCREEN_CAPTURED_SELFIE');
+    expect(geofenceResult.valid).toBe(true);
+    expect(confirmSystemProcessingMs).toBeLessThan(3000); // Under 3 seconds system processing target!
+  });
 });

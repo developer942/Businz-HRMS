@@ -422,7 +422,25 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     locationText: string;
     totalLatencyMs: number;
     gpsDurationMs: number;
+    cameraOpenMs?: number;
+    photoCaptureMs?: number;
+    confirmToSuccessMs?: number;
   } | null>(null);
+  const [isFullScreenCameraOpen, setIsFullScreenCameraOpen] = useState<boolean>(false);
+  const [fullScreenStep, setFullScreenStep] = useState<'CAMERA' | 'CONFIRM'>('CAMERA');
+  const [capturedFullScreenPhoto, setCapturedFullScreenPhoto] = useState<string | null>(null);
+  const [fullScreenError, setFullScreenError] = useState<string | null>(null);
+  const [perfMetrics, setPerfMetrics] = useState<{
+    cameraOpenMs: number;
+    photoCaptureMs: number;
+    gpsDurationMs: number;
+    confirmToSuccessMs: number;
+  }>({
+    cameraOpenMs: 0,
+    photoCaptureMs: 0,
+    gpsDurationMs: 0,
+    confirmToSuccessMs: 0
+  });
   const [gpsStatusDetails, setGpsStatusDetails] = useState<{
     verified: boolean;
     accuracy: number | null;
@@ -617,7 +635,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       setIsRetryingLocation(false);
     }
 
-    // If a preserved face verification exists within its 90-second freshness window, complete the punch automatically
+    // If a preserved face verification exists within its 90-second freshness window, keep it ready for Confirm Punch In / Out
     const preserved = preservedFaceCaptureRef.current;
     if (
       verifiedOnRetry &&
@@ -625,9 +643,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       preserved.employeeId === selectedEmpId &&
       Date.now() - preserved.capturedAt <= 90000
     ) {
-      void handlePunchAction(preserved.punchType);
+      setFullScreenError(null);
     }
   };
+
+  // Do NOT keep the camera permanently active on the Attendance home screen.
+  // Camera opens only in full-screen mode when the employee taps Punch In or Punch Out.
 
   // Sync canonical geofence configuration and check existing permission state without starting background GPS loops
   useEffect(() => {
@@ -699,17 +720,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       })
       .catch(() => {});
 
-    // Only pre-activate front camera preview on mount if camera permission is already granted (no silent capture, no unsolicited OS prompt)
-    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
-      navigator.permissions
-        .query({ name: 'camera' as PermissionName })
-        .then((status) => {
-          if (mounted && status.state === 'granted') {
-            startCameraStream().catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }
+    // Ensure camera is never permanently active on the Attendance home screen
+    stopCamera();
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && mounted) {
@@ -1014,161 +1026,275 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       !videoRef.current ||
       videoRef.current.videoWidth <= 0;
 
-    const punchStartMs = Date.now();
-    const preserved = preservedFaceCaptureRef.current;
-    const canReusePreservedFace = Boolean(
-      preserved &&
-      preserved.employeeId === selectedEmpId &&
-      preserved.punchType === type &&
-      punchStartMs - preserved.capturedAt <= 90000
-    );
+    // Reset full-screen camera state and open immediately
+    setCommittedPunchSummary(null);
+    setScanResult({ status: null, message: '' });
+    setCapturedFullScreenPhoto(null);
+    setFullScreenError(null);
+    setFullScreenStep('CAMERA');
+    setIsFullScreenCameraOpen(true);
+    setCameraAccessDenied(false);
 
+    // Start GPS acquisition simultaneously in parallel with camera initialization (non-blocking)
+    void startConcurrentGpsAcquisition().catch(() => {});
+
+    // Open front camera and measure camera initialization latency
+    const camStartMs = Date.now();
+    try {
+      await startCameraStream();
+      setCameraAccessDenied(false);
+      setPerfMetrics(prev => ({
+        ...prev,
+        cameraOpenMs: Math.max(1, Date.now() - camStartMs)
+      }));
+    } catch (camErr: any) {
+      setCameraAccessDenied(true);
+      const errMsg =
+        camErr?.name === 'NotAllowedError' || camErr?.name === 'PermissionDeniedError'
+          ? 'Camera Permission Denied. Please allow camera access in browser settings.'
+          : (camErr?.message || 'Camera access is required for Face Attendance.');
+      setFullScreenError(errMsg);
+      setScanResult({
+        status: 'error',
+        message: errMsg
+      });
+    }
+  };
+
+  // Start or reuse concurrent GPS acquisition in parallel with camera opening (no duplicate requests)
+  const startConcurrentGpsAcquisition = () => {
+    const centerLat = Number(geofenceConfig.centerLat) || 13.151660;
+    const centerLng = Number(geofenceConfig.centerLng) || 80.208618;
+    const radius = Number(geofenceConfig.radiusMeters) || 500;
+    const maxAccuracyThreshold = Number((geofenceConfig as any).maxAccuracyMeters) > 0
+      ? Number((geofenceConfig as any).maxAccuracyMeters)
+      : undefined;
+    const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
+    const isFieldDutyAuthorized = Boolean(fieldAssignment);
+
+    // If a verified GPS reading was acquired within the last 45s, reuse it immediately (0ms wait)
+    if (
+      activePunchGps &&
+      gpsStatusDetails.verified &&
+      typeof activePunchGps.timestamp === 'number' &&
+      Date.now() - activePunchGps.timestamp < 45000
+    ) {
+      setPerfMetrics(prev => ({ ...prev, gpsDurationMs: 0 }));
+      return Promise.resolve({
+        latitude: activePunchGps.latitude,
+        longitude: activePunchGps.longitude,
+        accuracy: activePunchGps.accuracy,
+        timestamp: activePunchGps.timestamp,
+        readingAgeMs: Math.max(0, Date.now() - activePunchGps.timestamp),
+        sampleCount: activePunchGps.sampleCount ?? 1,
+        durationMs: 0,
+        retryCount: activePunchGps.retryCount ?? 0,
+        deviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory(),
+        browserDeviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory()
+      });
+    }
+
+    // If an active GPS promise is already in flight, share it without restarting geolocation
+    if (activeGpsPromiseRef.current) {
+      return activeGpsPromiseRef.current;
+    }
+
+    setGpsProgressMsg('Getting GPS Location...');
+    setLastGpsErrorCode(null);
+
+    const task = requestFreshGpsPosition({
+      stageATimeoutMs: 8000,
+      stageBTimeoutMs: 12000,
+      desiredAccuracyMeters: 35,
+      acceptableAccuracyMeters: 65,
+      maxAccuracyMeters: maxAccuracyThreshold,
+      maxStaleAgeMs: 60000,
+      maxRetries: 1,
+      reuseRecentFix: true,
+      maxRecentFixAgeMs: 45000,
+      deduplicateInFlight: true,
+      geofenceContext:
+        centerLat !== 0 && centerLng !== 0
+          ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
+          : undefined,
+      onProgress: (p) => {
+        if (p.phase === 'IMPROVING_ACCURACY' || (p.attempt > 1 && p.bestAccuracyMeters !== null)) {
+          setGpsProgressMsg('Improving GPS Accuracy...');
+        } else {
+          setGpsProgressMsg('Getting GPS Location...');
+        }
+      }
+    })
+      .then((reading) => {
+        setGpsPermissionState('granted');
+        setPerfMetrics(prev => ({ ...prev, gpsDurationMs: reading.durationMs ?? 0 }));
+        const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
+        const evaluation = evaluateGeofenceBoundary(
+          distance,
+          radius,
+          reading.accuracy,
+          geofenceConfig.officeName || 'HQ Office',
+          maxAccuracyThreshold
+        );
+
+        if (isFieldDutyAuthorized && reading.accuracy <= (maxAccuracyThreshold ?? 150)) {
+          setActivePunchGps({
+            latitude: reading.latitude,
+            longitude: reading.longitude,
+            accuracy: reading.accuracy,
+            address: `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`,
+            distance,
+            timestamp: reading.timestamp,
+            readingAgeMs: reading.readingAgeMs,
+            durationMs: reading.durationMs,
+            sampleCount: reading.sampleCount,
+            retryCount: reading.retryCount,
+            browserDeviceCategory: reading.browserDeviceCategory
+          });
+          setGpsStatusDetails({
+            verified: true,
+            accuracy: reading.accuracy,
+            distance,
+            radius,
+            classification: 'FIELD_DUTY',
+            errorCode: 'NONE',
+            message: 'GPS Verified'
+          });
+        } else if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
+          setActivePunchGps({
+            latitude: reading.latitude,
+            longitude: reading.longitude,
+            accuracy: reading.accuracy,
+            address: geofenceConfig.officeName || 'HQ Office',
+            distance,
+            timestamp: reading.timestamp,
+            readingAgeMs: reading.readingAgeMs,
+            durationMs: reading.durationMs,
+            sampleCount: reading.sampleCount,
+            retryCount: reading.retryCount,
+            browserDeviceCategory: reading.browserDeviceCategory
+          });
+          setGpsStatusDetails({
+            verified: true,
+            accuracy: reading.accuracy,
+            distance,
+            radius,
+            classification: 'INSIDE',
+            errorCode: 'NONE',
+            message: 'GPS Verified'
+          });
+        } else {
+          setActivePunchGps(null);
+          setLastGpsErrorCode(evaluation.errorCode);
+          const conciseMsg =
+            evaluation.classification === 'OUTSIDE'
+              ? 'Outside Allowed Attendance Area'
+              : 'Improving GPS Accuracy...';
+          setGpsStatusDetails({
+            verified: false,
+            accuracy: reading.accuracy,
+            distance,
+            radius,
+            classification: evaluation.classification,
+            errorCode: evaluation.errorCode,
+            message: conciseMsg
+          });
+        }
+        setGpsProgressMsg('');
+        return reading;
+      })
+      .finally(() => {
+        if (activeGpsPromiseRef.current === task) {
+          activeGpsPromiseRef.current = null;
+        }
+      });
+
+    activeGpsPromiseRef.current = task;
+    return task;
+  };
+
+  // Close the Full-Screen Camera modal and release camera hardware immediately
+  const handleCloseFullScreenCamera = () => {
+    if (isScanning || punchInProgressRef.current) return;
+    stopCamera();
+    setIsFullScreenCameraOpen(false);
+    setFullScreenStep('CAMERA');
+    setCapturedFullScreenPhoto(null);
+    setFullScreenError(null);
+    setGpsProgressMsg('');
+  };
+
+  // STEP 2: Employee taps Capture Photo in Full-Screen Camera -> Display Captured Photo & Confirm Button Only (NO Retake)
+  const handleCaptureFullScreenPhoto = () => {
+    setFullScreenError(null);
+    const capStartMs = Date.now();
+    try {
+      const frame = captureVideoFrame();
+      if (
+        punchType === 'Check-Out' &&
+        ((myTodayCheckInPhoto && frame === myTodayCheckInPhoto) ||
+          (todayAttendance?.checkInPhoto && frame === todayAttendance.checkInPhoto))
+      ) {
+        setFullScreenError('New selfie required for Punch Out. Please capture a live photo.');
+        return;
+      }
+
+      const captureMs = Math.max(1, Date.now() - capStartMs);
+      setPerfMetrics(prev => ({ ...prev, photoCaptureMs: captureMs }));
+
+      // Preserve verified face photo for this punch session
+      preservedFaceCaptureRef.current = {
+        photoBase64: frame,
+        capturedAt: Date.now(),
+        punchType,
+        employeeId: selectedEmpId
+      };
+      setHasPreservedFaceCapture(true);
+      setCapturedFullScreenPhoto(frame);
+      setFullScreenStep('CONFIRM');
+
+      // Stop live camera hardware once photo is captured while keeping concurrent GPS running untouched
+      stopCamera();
+    } catch (err: any) {
+      setFullScreenError(err?.message || 'Camera frame not ready. Please try again.');
+    }
+  };
+
+  // STEP 3: Employee taps Confirm Punch In / Confirm Punch Out -> Validate Face, GPS, Geofence & Shift -> Save to PostgreSQL
+  const handleConfirmFullScreenPunch = async () => {
+    if (isScanning || punchInProgressRef.current) return;
+    const type = punchType;
+    const capturedPhotoUrl = capturedFullScreenPhoto || preservedFaceCaptureRef.current?.photoBase64;
+    if (!capturedPhotoUrl) {
+      setFullScreenError('Please capture your face photo first.');
+      setFullScreenStep('CAMERA');
+      void startCameraStream().catch(() => {});
+      return;
+    }
+
+    const confirmStartMs = Date.now();
     punchInProgressRef.current = true;
     setIsScanning(true);
     setIsRequestingPermissions(true);
-    setCommittedPunchSummary(null);
-    setGpsProgressMsg(
-      canReusePreservedFace
-        ? 'Getting GPS Location...'
-        : needsCameraInit
-          ? 'Opening Camera & Getting GPS...'
-          : 'Capturing Face & Getting GPS...'
-    );
-    setScanResult({
-      status: null,
-      message: ''
-    });
+    setFullScreenError(null);
+    setUncertainContext(null);
 
     const centerLat = Number(geofenceConfig.centerLat) || 13.151660;
     const centerLng = Number(geofenceConfig.centerLng) || 80.208618;
     const radius = Number(geofenceConfig.radiusMeters) || 500;
+    const maxAccuracyThreshold = Number((geofenceConfig as any).maxAccuracyMeters) > 0
+      ? Number((geofenceConfig as any).maxAccuracyMeters)
+      : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
     const isFieldDutyAuthorized = Boolean(fieldAssignment);
 
     try {
-      setCameraAccessDenied(false);
-      setLastGpsErrorCode(null);
-      const maxAccuracyThreshold = Number((geofenceConfig as any).maxAccuracyMeters) > 0
-        ? Number((geofenceConfig as any).maxAccuracyMeters)
-        : undefined;
-
-      // Fast Punch-In: if GPS was already verified within the last 45s, reuse that fresh verified fix immediately
-      const hasFreshVerifiedGps = Boolean(
-        activePunchGps &&
-        gpsStatusDetails.verified &&
-        typeof activePunchGps.timestamp === 'number' &&
-        Date.now() - activePunchGps.timestamp < 45000
-      );
-
-      // Concurrent Branch 1: Activate front camera and automatically capture verified face frame (or reuse fresh preserved capture)
-      const faceCaptureTask = async (): Promise<string> => {
-        if (canReusePreservedFace && preserved) {
-          return preserved.photoBase64;
-        }
-        if (needsCameraInit) {
-          try {
-            await startCameraStream();
-            setCameraAccessDenied(false);
-          } catch (camErr: any) {
-            setCameraAccessDenied(true);
-            throw new Error(
-              camErr?.name === 'NotAllowedError' || camErr?.name === 'PermissionDeniedError'
-                ? 'Camera Permission Denied'
-                : (camErr?.message || 'Camera access is required for Face Attendance.')
-            );
-          }
-        }
-        if (!hasFreshVerifiedGps) {
-          setGpsProgressMsg('Getting GPS Location...');
-        } else {
-          setGpsProgressMsg('Verifying Face...');
-        }
-        const frame = captureVideoFrame();
-        if (
-          type === 'Check-Out' &&
-          ((myTodayCheckInPhoto && frame === myTodayCheckInPhoto) ||
-            (todayAttendance?.checkInPhoto && frame === todayAttendance.checkInPhoto))
-        ) {
-          throw new Error('New selfie required for Punch Out. Please retry.');
-        }
-        preservedFaceCaptureRef.current = {
-          photoBase64: frame,
-          capturedAt: Date.now(),
-          punchType: type,
-          employeeId: selectedEmpId
-        };
-        setHasPreservedFaceCapture(true);
-        return frame;
-      };
-
-      // Concurrent Branch 2: Acquire or reuse fresh high-accuracy GPS coordinates
-      const gpsAcquisitionTask = async () => {
-        if (hasFreshVerifiedGps && activePunchGps) {
-          return {
-            latitude: activePunchGps.latitude,
-            longitude: activePunchGps.longitude,
-            accuracy: activePunchGps.accuracy,
-            timestamp: activePunchGps.timestamp!,
-            readingAgeMs: Math.max(0, Date.now() - activePunchGps.timestamp!),
-            sampleCount: activePunchGps.sampleCount ?? 1,
-            durationMs: activePunchGps.durationMs ?? 0,
-            retryCount: activePunchGps.retryCount ?? 0,
-            deviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory(),
-            browserDeviceCategory: activePunchGps.browserDeviceCategory || detectBrowserDeviceCategory()
-          };
-        }
-        if (activeGpsPromiseRef.current) {
-          return activeGpsPromiseRef.current;
-        }
-        const task = requestFreshGpsPosition({
-          stageATimeoutMs: 8000,
-          stageBTimeoutMs: 12000,
-          desiredAccuracyMeters: 35,
-          acceptableAccuracyMeters: 65,
-          maxAccuracyMeters: maxAccuracyThreshold,
-          maxStaleAgeMs: 60000,
-          maxRetries: 1,
-          reuseRecentFix: true,
-          maxRecentFixAgeMs: 45000,
-          deduplicateInFlight: true,
-          geofenceContext:
-            centerLat !== 0 && centerLng !== 0
-              ? { centerLat, centerLng, radiusMeters: radius, maxAccuracyMeters: maxAccuracyThreshold }
-              : undefined,
-          onProgress: (p) => {
-            if (p.phase === 'IMPROVING_ACCURACY' || (p.attempt > 1 && p.bestAccuracyMeters !== null)) {
-              setGpsProgressMsg('Improving GPS Accuracy...');
-            } else {
-              setGpsProgressMsg('Getting GPS Location...');
-            }
-          }
-        });
-        activeGpsPromiseRef.current = task;
-        return task.finally(() => {
-          if (activeGpsPromiseRef.current === task) {
-            activeGpsPromiseRef.current = null;
-          }
-        });
-      };
-
-      const [faceSettled, gpsSettled] = await Promise.allSettled([
-        faceCaptureTask(),
-        gpsAcquisitionTask()
-      ]);
-
-      if (faceSettled.status === 'rejected') {
-        throw faceSettled.reason;
-      }
-      const capturedPhotoUrl = faceSettled.value;
-
-      if (gpsSettled.status === 'rejected') {
-        throw gpsSettled.reason;
-      }
-      const reading = gpsSettled.value;
+      // Wait for concurrent GPS acquisition (or reuse already-verified fresh reading in 0ms)
+      const reading = await startConcurrentGpsAcquisition();
 
       setGpsPermissionState('granted');
       setIsRequestingPermissions(false);
-      setGpsProgressMsg('Submitting Attendance...');
+      setGpsProgressMsg('Saving Attendance...');
 
       const distance = calculateAccurateHaversine(reading.latitude, reading.longitude, centerLat, centerLng);
       const evaluation = evaluateGeofenceBoundary(
@@ -1200,8 +1326,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         setLastGpsErrorCode(evaluation.errorCode);
         const conciseMsg =
           evaluation.classification === 'OUTSIDE'
-            ? 'Outside Allowed Attendance Area'
-            : 'Improving GPS Accuracy...';
+            ? `Outside Allowed Attendance Area (${Math.round(distance)}m from ${geofenceConfig.officeName || 'Office'}, allowed ${radius}m)`
+            : `GPS Accuracy Insufficient (±${Math.round(reading.accuracy)}m) — Tap Retry Location`;
         setGpsStatusDetails({
           verified: false,
           accuracy: reading.accuracy,
@@ -1219,10 +1345,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             radius,
             accuracy: reading.accuracy
           });
-          throw new Error('Improving GPS Accuracy — Tap Retry Location to Complete');
         }
 
-        throw new Error('Outside Allowed Attendance Area');
+        throw new Error(conciseMsg);
       }
 
       const gpsInfo = {
@@ -1273,6 +1398,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         idempotencyKey
       });
 
+      const confirmElapsedMs = Math.max(1, Date.now() - confirmStartMs);
+      setPerfMetrics(prev => ({
+        ...prev,
+        gpsDurationMs: reading.durationMs ?? prev.gpsDurationMs,
+        confirmToSuccessMs: confirmElapsedMs
+      }));
+
       // Clear preserved face capture once attendance is committed to PostgreSQL
       preservedFaceCaptureRef.current = null;
       setHasPreservedFaceCapture(false);
@@ -1285,9 +1417,17 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         status: serverRecord.status || 'Present',
         lateStatus: serverRecord.lateStatus || (serverRecord.status === 'Late' ? 'Late' : 'On Time'),
         locationText: `GPS Verified (${Math.round(distance)}m / ${radius}m, ±${Math.round(reading.accuracy)}m)`,
-        totalLatencyMs: Math.max(1, Date.now() - punchStartMs),
-        gpsDurationMs: reading.durationMs ?? 0
+        totalLatencyMs: confirmElapsedMs,
+        gpsDurationMs: reading.durationMs ?? 0,
+        cameraOpenMs: perfMetrics.cameraOpenMs,
+        photoCaptureMs: perfMetrics.photoCaptureMs,
+        confirmToSuccessMs: confirmElapsedMs
       });
+      stopCamera();
+      setIsFullScreenCameraOpen(false);
+      setFullScreenStep('CAMERA');
+      setCapturedFullScreenPhoto(null);
+      setFullScreenError(null);
 
       // Apply authoritative PostgreSQL record immediately upon server confirmation
       applyServerAttendanceRecord({
@@ -1360,17 +1500,17 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         preservedFaceCaptureRef.current.employeeId === selectedEmpId &&
         Date.now() - preservedFaceCaptureRef.current.capturedAt <= 90000
       );
-      let conciseErr = err?.message || 'GPS Timed Out — Retry';
+      let conciseErr = err?.message || 'GPS Timed Out — Retry Location';
       if (err instanceof GpsAcquisitionError) {
         setActivePunchGps(null);
         setLastGpsErrorCode(err.code);
         if (err.code === 'PERMISSION_DENIED') {
           setGpsPermissionState('denied');
-          conciseErr = 'Location Permission Denied';
+          conciseErr = 'Location Permission Denied — Please enable Precise Location in Browser Settings';
         } else {
           conciseErr = hasPreserved
-            ? 'GPS Timed Out — Tap Retry Location to Complete (Face Preserved)'
-            : 'GPS Timed Out — Retry';
+            ? 'GPS Timed Out — Tap Retry Location (Captured Photo Preserved)'
+            : 'GPS Timed Out — Retry Location';
         }
         setGpsStatusDetails({
           verified: false,
@@ -1405,10 +1545,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       setIsRequestingPermissions(false);
       setIsScanning(false);
       punchInProgressRef.current = false;
+      setFullScreenError(conciseErr);
       setScanResult({
         status: 'error',
         message: conciseErr
       });
+      return;
     }
   };
 
@@ -2748,77 +2890,46 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 </div>
               )}
 
-              {/* Compact Face-Guidance Frame Inside Camera Preview (no darkening vignette) */}
+              {/* Attendance Home Banner (Camera is NOT permanently active on the home screen; opens in Full-Screen when Punch In / Out is tapped) */}
               <div
                 data-testid="face-guidance-frame"
                 style={{
-                  position: 'absolute',
-                  width: '58%',
-                  height: '70%',
-                  borderRadius: '9999px',
-                  border: '2px dashed #0e7490',
-                  boxShadow: 'none',
-                  pointerEvents: 'none',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '12px',
+                  textAlign: 'center',
                   zIndex: 10
                 }}
-              />
-
-              {/* Non-Intrusive Low-Light Warning Badge */}
-              {isCameraActive && isLowLightCamera && (
+              >
                 <div
-                  data-testid="low-light-warning-badge"
                   style={{
-                    position: 'absolute',
-                    bottom: '8px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 20,
-                    padding: '3px 10px',
-                    borderRadius: '9999px',
-                    backgroundColor: 'rgba(15, 23, 42, 0.76)',
-                    color: '#fef3c7',
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none'
-                  }}
-                >
-                  Low light — move to brighter area
-                </div>
-              )}
-
-              {/* Subtle Mirror Toggle Icon */}
-              {isCameraActive && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMirrored(prev => {
-                      const next = !prev;
-                      try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch {}
-                      return next;
-                    });
-                  }}
-                  aria-label="Flip camera preview"
-                  style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    zIndex: 20,
-                    width: '32px',
-                    height: '32px',
+                    width: '52px',
+                    height: '52px',
                     borderRadius: '50%',
-                    backgroundColor: 'rgba(255, 255, 255, 0.88)',
-                    border: '1px solid #cbd5e1',
-                    color: '#0e7490',
+                    backgroundColor: '#ecfeff',
+                    border: '2px dashed #0e7490',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    cursor: 'pointer'
+                    color: '#0e7490'
                   }}
                 >
-                  <FlipHorizontal size={15} />
-                </button>
-              )}
+                  <Camera size={24} />
+                </div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#0f172a' }}>
+                  {isCompletedToday
+                    ? "Today's Shift Attendance Completed"
+                    : isCheckedIn
+                      ? 'Tap Punch Out to Open Full-Screen Camera'
+                      : 'Tap Punch In to Open Full-Screen Camera'}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#475569', lineHeight: 1.35, maxWidth: '240px' }}>
+                  Front camera &amp; GPS start together when you tap <strong>{isCheckedIn && !isCheckedOut ? 'Punch Out' : 'Punch In'}</strong>.
+                </div>
+              </div>
             </div>
 
             {/* SHIFT TIMING, GRACE POLICY & GPS VERIFICATION STATUS PANEL */}
@@ -3020,6 +3131,412 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                   <span>{isRetryingLocation ? 'Checking...' : 'Retry Location'}</span>
                 </button>
               </div>
+              {isFullScreenCameraOpen && (
+                <div
+                  data-testid="fullscreen-face-camera-modal"
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 99990,
+                    backgroundColor: '#f8fafc',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    overflow: 'hidden'
+                  }}
+                >
+                  {/* Top Bar: Action Title, Shift Status, Compact GPS Pill & Close Button */}
+                  <div
+                    style={{
+                      padding: '14px 18px',
+                      backgroundColor: '#ffffff',
+                      borderBottom: '1px solid #e2e8f0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          backgroundColor: '#ecfeff',
+                          color: '#0e7490',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}
+                      >
+                        <ScanFace size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+                          {punchType === 'Check-In' ? 'Punch In Verification' : 'Punch Out Verification'}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>
+                          {shiftEval.assignedShift?.shiftName?.replace(/\s*\([^)]*\)\s*$/, '') || 'Assigned Shift'} • {shiftEval.shiftStartDisplay} – {shiftEval.shiftEndDisplay}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span
+                        data-testid="fullscreen-gps-status-pill"
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '9999px',
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          backgroundColor: gpsStatusDetails.verified
+                            ? '#dcfce7'
+                            : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
+                              ? '#fee2e2'
+                              : '#ecfeff',
+                          color: gpsStatusDetails.verified
+                            ? '#15803d'
+                            : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
+                              ? '#dc2626'
+                              : '#0e7490'
+                        }}
+                      >
+                        <MapPin size={12} />
+                        <span>
+                          {gpsStatusDetails.verified
+                            ? `GPS Ready (${Math.round(gpsStatusDetails.distance ?? 0)}m)`
+                            : gpsProgressMsg
+                              ? gpsProgressMsg
+                              : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
+                                ? 'GPS Retry Needed'
+                                : 'Acquiring GPS...'}
+                        </span>
+                      </span>
+
+                      <button
+                        type="button"
+                        data-testid="fullscreen-close-btn"
+                        disabled={isScanning}
+                        onClick={handleCloseFullScreenCamera}
+                        aria-label="Close full-screen camera"
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          border: '1px solid #cbd5e1',
+                          backgroundColor: '#ffffff',
+                          color: '#475569',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: isScanning ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Center Viewport: Live Full-Screen Front Camera OR Captured Photo Preview */}
+                  <div
+                    style={{
+                      flex: 1,
+                      position: 'relative',
+                      backgroundColor: '#0f172a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    {fullScreenStep === 'CAMERA' ? (
+                      <>
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)'
+                          }}
+                        />
+
+                        {/* Clean Face Alignment Guide */}
+                        <div
+                          data-testid="fullscreen-face-guide"
+                          style={{
+                            position: 'absolute',
+                            width: isMobileViewport ? '240px' : '290px',
+                            height: isMobileViewport ? '300px' : '360px',
+                            borderRadius: '9999px',
+                            border: '3px dashed rgba(255, 255, 255, 0.88)',
+                            boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.28)',
+                            pointerEvents: 'none',
+                            zIndex: 10
+                          }}
+                        />
+
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '16px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            zIndex: 20,
+                            padding: '6px 14px',
+                            borderRadius: '9999px',
+                            backgroundColor: 'rgba(15, 23, 42, 0.72)',
+                            color: '#ffffff',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          Align your face inside the oval &amp; tap Capture Photo
+                        </div>
+
+                        {isCameraActive && isLowLightCamera && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: '16px',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              zIndex: 20,
+                              padding: '5px 12px',
+                              borderRadius: '9999px',
+                              backgroundColor: 'rgba(15, 23, 42, 0.82)',
+                              color: '#fef3c7',
+                              fontSize: '0.72rem',
+                              fontWeight: 700
+                            }}
+                          >
+                            Low light — move to a brighter area
+                          </div>
+                        )}
+
+                        {isCameraActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMirrored(prev => {
+                                const next = !prev;
+                                try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch {}
+                                return next;
+                              });
+                            }}
+                            aria-label="Flip camera preview"
+                            style={{
+                              position: 'absolute',
+                              top: '16px',
+                              right: '16px',
+                              zIndex: 20,
+                              width: '38px',
+                              height: '38px',
+                              borderRadius: '50%',
+                              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                              border: '1px solid #cbd5e1',
+                              color: '#0e7490',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <FlipHorizontal size={17} />
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div
+                        data-testid="fullscreen-captured-photo-preview"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          position: 'relative',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: '#0f172a'
+                        }}
+                      >
+                        {capturedFullScreenPhoto && (
+                          <img
+                            src={capturedFullScreenPhoto}
+                            alt="Captured Attendance Selfie"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover'
+                            }}
+                          />
+                        )}
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '16px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            zIndex: 20,
+                            padding: '6px 14px',
+                            borderRadius: '9999px',
+                            backgroundColor: 'rgba(21, 128, 61, 0.92)',
+                            color: '#ffffff',
+                            fontSize: '0.76rem',
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)'
+                          }}
+                        >
+                          <CheckCircle2 size={15} />
+                          <span>Photo Captured • Ready to Confirm</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom Action Sheet: Capture Photo (Step 1) OR Confirm Punch In / Confirm Punch Out ONLY (Step 2 — NO Retake Button) */}
+                  <div
+                    style={{
+                      padding: '16px 20px 24px',
+                      backgroundColor: '#ffffff',
+                      borderTop: '1px solid #e2e8f0',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '10px',
+                      boxShadow: '0 -4px 16px rgba(15, 23, 42, 0.05)'
+                    }}
+                  >
+                    {fullScreenError && (
+                      <div
+                        data-testid="fullscreen-error-banner"
+                        style={{
+                          width: '100%',
+                          maxWidth: '420px',
+                          padding: '10px 12px',
+                          borderRadius: '10px',
+                          backgroundColor: '#fef2f2',
+                          border: '1px solid #fecaca',
+                          color: '#b91c1c',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        <span style={{ flex: 1 }}>{fullScreenError}</span>
+                        {fullScreenStep === 'CONFIRM' && (
+                          <button
+                            type="button"
+                            data-testid="fullscreen-retry-location-btn"
+                            disabled={isRetryingLocation || isScanning}
+                            onClick={() => {
+                              setFullScreenError(null);
+                              void handleRetryLocation({ silentOnStart: true });
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              border: '1px solid #0e7490',
+                              backgroundColor: '#ecfeff',
+                              color: '#0e7490',
+                              fontSize: '0.74rem',
+                              fontWeight: 800,
+                              cursor: isRetryingLocation || isScanning ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              flexShrink: 0
+                            }}
+                          >
+                            <RefreshCw size={13} />
+                            <span>{isRetryingLocation ? 'Checking GPS...' : 'Retry Location'}</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {fullScreenStep === 'CAMERA' ? (
+                      <button
+                        type="button"
+                        data-testid="fullscreen-capture-photo-btn"
+                        disabled={!isCameraActive || cameraAccessDenied}
+                        onClick={handleCaptureFullScreenPhoto}
+                        style={{
+                          width: '100%',
+                          maxWidth: '420px',
+                          minHeight: '54px',
+                          padding: '14px 20px',
+                          borderRadius: '14px',
+                          backgroundColor: isCameraActive && !cameraAccessDenied ? '#0e7490' : '#cbd5e1',
+                          color: '#ffffff',
+                          fontSize: '1rem',
+                          fontWeight: 800,
+                          border: 'none',
+                          cursor: isCameraActive && !cameraAccessDenied ? 'pointer' : 'not-allowed',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          boxShadow: isCameraActive && !cameraAccessDenied ? '0 6px 16px rgba(14, 116, 144, 0.28)' : 'none'
+                        }}
+                      >
+                        <Camera size={20} />
+                        <span>Capture Photo</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="fullscreen-confirm-punch-btn"
+                        disabled={isScanning || isRetryingLocation}
+                        onClick={() => void handleConfirmFullScreenPunch()}
+                        style={{
+                          width: '100%',
+                          maxWidth: '420px',
+                          minHeight: '54px',
+                          padding: '14px 20px',
+                          borderRadius: '14px',
+                          backgroundColor: isScanning || isRetryingLocation ? '#0891b2' : '#0e7490',
+                          color: '#ffffff',
+                          fontSize: '1rem',
+                          fontWeight: 800,
+                          border: 'none',
+                          cursor: isScanning || isRetryingLocation ? 'wait' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          boxShadow: '0 6px 16px rgba(14, 116, 144, 0.3)'
+                        }}
+                      >
+                        <CheckCircle2 size={20} />
+                        <span>
+                          {isScanning
+                            ? (gpsProgressMsg || 'Verifying & Saving Attendance...')
+                            : punchType === 'Check-In'
+                              ? 'Confirm Punch In'
+                              : 'Confirm Punch Out'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {committedPunchSummary && (
                 <div
                   data-testid="one-click-punch-success-card"
@@ -3272,7 +3789,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     scanResult.status === 'success' && scanResult.message
                       ? scanResult.message
                       : isCompletedToday
-                        ? 'Attendance Saved • Punch Out successful'
+                        ? 'Punch Out Successful'
                         : isCheckedIn
                           ? 'GPS Verified'
                           : !shiftEval.canCheckIn
