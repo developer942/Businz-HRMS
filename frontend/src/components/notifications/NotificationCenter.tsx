@@ -40,7 +40,6 @@ export const NotificationCenter: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1>Global Notification Center</h1>
-          <p className="page-subtitle">Company announcements, leave status alerts, task assignments, and payroll updates</p>
         </div>
         <div className="header-actions">
           <button className="btn btn-primary btn-sm" onClick={() => setShowAnnounceModal(true)}>

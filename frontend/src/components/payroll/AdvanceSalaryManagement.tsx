@@ -749,11 +749,6 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
           <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', margin: 0 }}>
             {isViewingAsEmployee ? 'My Advance Salary' : 'Advance Salary Management'}
           </h1>
-          <p className="page-subtitle" style={{ fontSize: '0.85rem', color: '#64748B', margin: '4px 0 0', lineHeight: 1.45 }}>
-            {isViewingAsEmployee 
-              ? 'Check personal advance salary limits, submit requests, view ongoing EMI deductions, and track remaining advance balances.'
-              : 'End-to-end administration for employee advance salaries, eligibility evaluations, multi-stage approvals, disbursements, and automated payroll recoveries.'}
-          </p>
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, marginTop: '2px' }}>

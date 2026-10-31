@@ -418,9 +418,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
                 Accounts Payment Disbursement
               </h1>
             </div>
-            <p style={{ color: '#64748B', fontSize: '0.88rem', margin: 0 }}>
-              Official disbursement desk for CEO-approved Expense Claims, Advance Salaries, and Petty Cash Funding.
-            </p>
+            
           </div>
 
         </div>

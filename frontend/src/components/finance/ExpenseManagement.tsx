@@ -484,9 +484,6 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       <div className="page-header" style={{ marginBottom: '24px' }}>
         <div className="page-title-group">
           <h1>Finance &amp; Expense Claims</h1>
-          <p className="page-subtitle">
-            Submit expense claims with verified bill/receipt proofs. Only HR or CEO approves claims — approved claims go to Accounts, who hand over the amount.
-          </p>
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

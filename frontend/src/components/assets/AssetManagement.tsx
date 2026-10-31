@@ -446,11 +446,6 @@ export const AssetManagement: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1>{isEmployeeRole ? 'My Assigned Assets & Hardware' : 'Asset Management & Hardware Inventory'}</h1>
-          <p className="page-subtitle">
-            {isEmployeeRole 
-              ? 'View corporate devices, laptops, and field equipment currently assigned to you' 
-              : 'Track company hardware allocations, laptop inventory, employee assignments, purchase costs, and warranty status'}
-          </p>
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>

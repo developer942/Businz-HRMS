@@ -17,9 +17,6 @@ export const GpsGeofencePortal: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1>GPS Geofence & Location Intelligence Portal</h1>
-          <p className="page-subtitle">
-            Interactive Google Map pin picker, custom area radius enforcement, and real-time staff location boundary restriction
-          </p>
         </div>
 
         <div className="header-actions">

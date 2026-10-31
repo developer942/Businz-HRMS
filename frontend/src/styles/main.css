@@ -1024,6 +1024,19 @@ input[type="number"] {
   margin: 0;
 }
 
+/* All subtitles / secondary descriptions under page title h1 are removed as requested */
+h1 + p,
+h1 + h2,
+.page-title p,
+.page-header p,
+.page-title-group p,
+.page-subtitle,
+.welcome-banner-subtitle,
+.vrm-hub-header-subtitle,
+.petty-cash-title-group p {
+  display: none !important;
+}
+
 .page-title p, .page-header p, .page-subtitle {
   font-size: 0.82rem; /* ~11.5px to 12px */
   color: var(--color-text-secondary);

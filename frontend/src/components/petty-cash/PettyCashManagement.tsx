@@ -196,9 +196,7 @@ export const PettyCashManagement: React.FC = () => {
             <Wallet size={28} color="var(--color-primary-blue)" />
             Petty Cash Management
           </h1>
-          <p>
-            Role-based financial stewardship • CEO Approvals • Accounts Disbursements • Custodian Daily Expenses & Ledger
-          </p>
+          
         </div>
 
         <div className="petty-cash-actions-group">

@@ -277,17 +277,6 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
                   ? (activeTab === 'daily_reports' ? 'Daily Task Reports' : 'My Tasks') 
                   : 'Task Management'}
           </h1>
-          <p className="page-subtitle">
-            {activeTab === 'assigned_tasks'
-              ? `Track deliverables, assignee progress, and status of tasks assigned by you (${currentUser.name})`
-              : activeTab === 'team_tasks'
-                ? 'Collaborative deliverables assigned to 2 or more team members with independent progress tracking'
-                : isEmployee 
-                  ? `Personal task workspace — monitor deliverables and submit daily reports (${currentUser.name})`
-                  : isCEO 
-                    ? 'Assign deliverables, monitor company progress, and review department execution'
-                    : 'Assign, track, and monitor department deliverables and task completion progress'}
-          </p>
         </div>
         <div className="header-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
           {!isEmployee && activeTab !== 'new_task' && (

@@ -239,11 +239,6 @@ export const RecruitmentPipeline: React.FC = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div className="page-title-group">
           <h1>{isEmployeeRole ? 'Referral Portal' : 'Recruitment & Referral Portal'}</h1>
-          <p className="page-subtitle">
-            {isEmployeeRole 
-              ? 'Submit candidate referrals, track referral stages, and earn referral bonuses'
-              : 'Candidate recruitment pipeline, job openings, and employee referral tracking with HR & CEO acceptance'}
-          </p>
         </div>
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {canPostJob && (

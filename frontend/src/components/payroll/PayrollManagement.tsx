@@ -557,13 +557,6 @@ export const PayrollManagement: React.FC = () => {
           <h1 className="page-title">
             {!canViewAllPayroll ? 'My Payroll & Payslips' : 'Payroll Management'}
           </h1>
-          <p className="page-subtitle">
-            {!canViewAllPayroll 
-              ? 'View official monthly salary slips, itemized allowances, statutory deductions, and download signed records.'
-              : isAccountsUser && !isApprovalAuthority
-                ? 'All employee payroll details for salary disbursement. Hand over the net salary and mark each record as paid.'
-                : 'Automated calculation engine based on configured payroll components, statutory compliance, and batch disbursement.'}
-          </p>
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>

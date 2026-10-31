@@ -209,13 +209,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
       <div className="page-header">
         <div className="page-title-group">
           <h1>Employee Directory{isEmployeeRole ? ' (My Profile)' : isManagerRole ? ` (${currentUser.department} Department)` : ''}</h1>
-          <p className="page-subtitle">
-            {isEmployeeRole 
-              ? 'View and manage your personal employee profile details' 
-              : isManagerRole 
-              ? `Manage workforce records and profiles for the ${currentUser.department} department` 
-              : 'Manage company-wide workforce records, department assignments, and employee profiles'}
-          </p>
         </div>
         <div className="header-actions">
           {isCEO && (

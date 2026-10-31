@@ -185,9 +185,6 @@ export const ReportsAnalytics: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1>Reports & Analytics Center</h1>
-          <p className="page-subtitle">
-            Exportable executive reports for attendance, salary payouts, sandwich leave deductions, and department metrics
-          </p>
         </div>
         <div className="header-actions">
           <ExportDropdown 

@@ -383,11 +383,6 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       <div className="page-header">
         <div className="page-title-group">
           <h1>{isEmployee ? 'My Shift & Schedule' : 'Shift Management'}</h1>
-          <p className="page-subtitle">
-            {isEmployee
-              ? 'View your assigned shift timetable, working hours, and request a shift swap with HR & CEO approval.'
-              : 'Configure system shifts, working hours, and review employee shift change requests.'}
-          </p>
         </div>
         <div className="header-actions">
           {canManageShifts && (

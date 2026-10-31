@@ -60,9 +60,7 @@
 }
 
 .petty-cash-title-group p {
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
-  margin: 4px 0 0 0;
+  display: none !important;
 }
 
 .petty-cash-actions-group {

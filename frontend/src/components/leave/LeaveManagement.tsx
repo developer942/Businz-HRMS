@@ -741,11 +741,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
       <div className="page-header">
         <div className="page-title-group">
           <h1>{isEmployeeRole ? 'Leave Request' : 'Leave Management System'}</h1>
-          <p className="page-subtitle">
-            {isEmployeeRole
-              ? 'Apply for leave, track approval status, and view your personal leave balance'
-              : 'Policy-driven leave engine, automated sandwich calculations, attendance sync, and payroll integration'}
-          </p>
+          
         </div>
         {isEmployeeRole && (
           <div className="header-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
