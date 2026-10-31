@@ -185,7 +185,12 @@ export const pettyCashService = {
 
   // 6. Categories
   async getCategories(): Promise<PettyCashCategory[]> {
-    return request<PettyCashCategory[]>('/categories');
+    const raw = await request<any[]>('/categories');
+    return (raw || []).map((c) => ({
+      ...c,
+      name: c.name || c.category_name || '',
+      category_name: c.category_name || c.name || '',
+    }));
   },
 
   async createCategory(categoryName: string, description?: string): Promise<PettyCashCategory> {

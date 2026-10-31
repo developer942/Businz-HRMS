@@ -102,6 +102,7 @@ export interface PettyCashCategory {
   id: string;
   company_id: string;
   category_name: string;
+  name?: string;
   description?: string;
   is_active: boolean;
   is_system_default: boolean;
@@ -234,7 +235,7 @@ export interface ConfirmReceiptPayload {
 }
 
 export interface AddExpensePayload {
-  categoryId: string;
+  categoryId?: string;
   categoryName: string;
   amount: number;
   expenseDate: string;

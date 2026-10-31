@@ -351,7 +351,7 @@ export class PettyCashService {
     custodianId: string;
     custodianEmployeeCode?: string;
     custodianName: string;
-    categoryId: string;
+    categoryId?: string;
     categoryName: string;
     amount: number;
     expenseDate: string;
@@ -374,14 +374,31 @@ export class PettyCashService {
       throw new Error('Unauthorized: Only the currently assigned Petty Cash Custodian can record daily expenses');
     }
 
+    let finalCategoryId = params.categoryId;
+    let finalCategoryName = (params.categoryName || '').trim();
+
+    if (!finalCategoryId || finalCategoryId === 'custom' || finalCategoryId.startsWith('cat-')) {
+      const existingCategories = await pettyCashRepository.getCategories(params.companyId);
+      const matched = existingCategories.find(
+        (c) => (c.name || (c as any).category_name || '').toLowerCase() === finalCategoryName.toLowerCase()
+      );
+      if (matched) {
+        finalCategoryId = matched.id;
+        finalCategoryName = matched.name || (matched as any).category_name || finalCategoryName;
+      } else {
+        const newCat = await pettyCashRepository.createCategory(params.companyId, finalCategoryName);
+        finalCategoryId = newCat.id;
+      }
+    }
+
     const { expense, newBalance } = await pettyCashRepository.recordExpense({
       companyId: params.companyId,
       accountId: activeAccount.id,
       custodianId: params.custodianId,
       custodianEmployeeCode: params.custodianEmployeeCode,
       custodianName: params.custodianName,
-      categoryId: params.categoryId,
-      categoryName: params.categoryName,
+      categoryId: finalCategoryId,
+      categoryName: finalCategoryName,
       amount: params.amount,
       expenseDate: params.expenseDate,
       reason: params.reason,

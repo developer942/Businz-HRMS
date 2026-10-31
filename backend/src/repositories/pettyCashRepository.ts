@@ -1181,21 +1181,81 @@ export class PettyCashRepository {
   // ============================================================
 
   async getCategories(companyId: string): Promise<PettyCashCategory[]> {
+    try {
+      const res = await query(
+        `SELECT id, company_id, name, description, is_active, created_at, updated_at 
+         FROM public.petty_cash_categories 
+         WHERE company_id = $1 AND is_active = true 
+         ORDER BY name ASC`,
+        [companyId || 'company-a']
+      );
+      if (res && res.rows && res.rows.length > 0) {
+        return res.rows.map(r => ({
+          id: r.id,
+          company_id: r.company_id,
+          name: r.name,
+          category_name: r.name,
+          description: r.description,
+          is_active: r.is_active,
+          created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        }));
+      }
+    } catch (err) {
+      console.warn('[PettyCashRepository] DB getCategories fallback:', err);
+    }
+
     const list: PettyCashCategory[] = [];
     for (const c of this.categories.values()) {
       if (c.company_id === (companyId || 'company-a') && c.is_active) {
-        list.push(c);
+        list.push({ ...c, category_name: c.name });
       }
     }
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async createCategory(companyId: string, name: string, description?: string): Promise<PettyCashCategory> {
+    const trimmedName = name.trim();
+    try {
+      const res = await query(
+        `INSERT INTO public.petty_cash_categories (company_id, name, description, is_active)
+         VALUES ($1, $2, $3, true)
+         ON CONFLICT (company_id, name) DO UPDATE SET is_active = true, updated_at = NOW()
+         RETURNING id, company_id, name, description, is_active, created_at, updated_at`,
+        [companyId || 'company-a', trimmedName, description || '']
+      );
+      if (res && res.rows && res.rows.length > 0) {
+        const row = res.rows[0];
+        const cat: PettyCashCategory = {
+          id: row.id,
+          company_id: row.company_id,
+          name: row.name,
+          category_name: row.name,
+          description: row.description,
+          is_active: row.is_active,
+          created_at: new Date(row.created_at).toISOString(),
+          updated_at: new Date(row.updated_at).toISOString(),
+        };
+        this.categories.set(cat.id, cat);
+        return cat;
+      }
+    } catch (err) {
+      console.warn('[PettyCashRepository] DB createCategory fallback:', err);
+    }
+
+    for (const c of this.categories.values()) {
+      if (c.company_id === (companyId || 'company-a') && c.name.toLowerCase() === trimmedName.toLowerCase()) {
+        c.is_active = true;
+        return { ...c, category_name: c.name };
+      }
+    }
+
     const id = crypto.randomUUID();
     const cat: PettyCashCategory = {
       id,
       company_id: companyId || 'company-a',
-      name: name.trim(),
+      name: trimmedName,
+      category_name: trimmedName,
       description: description || '',
       is_active: true,
       created_at: new Date().toISOString(),

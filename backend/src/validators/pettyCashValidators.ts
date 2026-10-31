@@ -96,7 +96,7 @@ export const custodianReceiptConfirmationSchema = z.object({
 
 // 7. Add Daily Expense
 export const addDailyExpenseSchema = z.object({
-  categoryId: z.string().min(1, { message: 'Valid Category ID is required' }),
+  categoryId: z.string().optional(),
   categoryName: z.string().trim().min(1, { message: 'Category Name is required' }),
   amount: moneySchema,
   expenseDate: notFutureDateSchema,

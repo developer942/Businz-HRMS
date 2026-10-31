@@ -20,6 +20,7 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
 }) => {
   const { currentUser } = useHRMS();
   const [categories, setCategories] = useState<PettyCashCategory[]>([]);
+  const [categoryName, setCategoryName] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [expenseDate, setExpenseDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -35,26 +36,29 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
       pettyCashService
         .getCategories()
         .then((cats) => {
-          setCategories(cats);
-          if (cats.length > 0 && !categoryId) {
-            setCategoryId(cats[0].id);
-          }
+          const normalized = (cats || []).map((c) => ({
+            ...c,
+            name: c.name || c.category_name || '',
+            category_name: c.category_name || c.name || '',
+          }));
+          setCategories(normalized);
         })
         .catch(() => {
           // Fallback static categories
           const fallback = [
-            { id: 'cat-001', category_name: 'Tea & Coffee', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-002', category_name: 'Stationery', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-003', category_name: 'Courier', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-004', category_name: 'Local Transport', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-005', category_name: 'Petrol / Fuel', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-006', category_name: 'Office Maintenance', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-007', category_name: 'Cleaning Materials', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-008', category_name: 'Other', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-001', name: 'Tea & Coffee', category_name: 'Tea & Coffee', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-002', name: 'Stationery', category_name: 'Stationery', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-003', name: 'Courier', category_name: 'Courier', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-004', name: 'Local Transport', category_name: 'Local Transport', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-005', name: 'Petrol / Fuel', category_name: 'Petrol / Fuel', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-006', name: 'Office Maintenance', category_name: 'Office Maintenance', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-007', name: 'Cleaning Materials', category_name: 'Cleaning Materials', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-008', name: 'Other', category_name: 'Other', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
           ];
           setCategories(fallback);
-          setCategoryId(fallback[0].id);
         });
+      setCategoryName('');
+      setCategoryId('');
       setAmount('');
       setReason('');
       setFile(null);
@@ -112,7 +116,16 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
       return;
     }
 
-    const category = categories.find((c) => c.id === categoryId);
+    const trimmedCategory = categoryName.trim();
+    if (!trimmedCategory) {
+      setError('Expense Category is required. Please type or select a category.');
+      return;
+    }
+
+    const category = categories.find(
+      (c) => (c.name || c.category_name || '').toLowerCase() === trimmedCategory.toLowerCase()
+    );
+    const finalCatId = category ? category.id : (categoryId || 'custom');
 
     try {
       setLoading(true);
@@ -132,8 +145,8 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
       }
 
       const res = await pettyCashService.recordDailyExpense({
-        categoryId,
-        categoryName: category?.category_name || 'General Expense',
+        categoryId: finalCatId,
+        categoryName: trimmedCategory,
         amount: numAmount,
         expenseDate,
         reason: reason.trim(),
@@ -229,19 +242,64 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
                 <label>
                   Expense Category <span className="required">*</span>
                 </label>
-                <select
-                  className="petty-cash-select"
-                  style={{ width: '100%' }}
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  required
-                >
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.category_name}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="petty-cash-input"
+                    style={{ width: '100%' }}
+                    list="petty-cash-category-options"
+                    placeholder="Type or select category (e.g. Tea, Fuel, Stationery...)"
+                    value={categoryName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCategoryName(val);
+                      const matched = categories.find(
+                        (c) => (c.name || c.category_name || '').toLowerCase() === val.trim().toLowerCase()
+                      );
+                      setCategoryId(matched ? matched.id : '');
+                    }}
+                    required
+                    autoComplete="off"
+                  />
+                  <datalist id="petty-cash-category-options">
+                    {categories.map((cat) => {
+                      const label = cat.name || cat.category_name;
+                      return <option key={cat.id} value={label} />;
+                    })}
+                  </datalist>
+                </div>
+
+                {/* Quick Selection Pills */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                  {categories.slice(0, 8).map((cat) => {
+                    const cName = cat.name || cat.category_name || '';
+                    if (!cName) return null;
+                    const isSelected = categoryName.trim().toLowerCase() === cName.toLowerCase();
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          setCategoryName(cName);
+                          setCategoryId(cat.id);
+                        }}
+                        style={{
+                          padding: '3px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 500,
+                          borderRadius: '9999px',
+                          border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                          backgroundColor: isSelected ? '#ECFEFF' : '#F8FAFC',
+                          color: isSelected ? '#0E7490' : '#475569',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {cName}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="form-group">
