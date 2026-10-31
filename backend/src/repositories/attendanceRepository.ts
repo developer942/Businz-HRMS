@@ -497,9 +497,10 @@ export class AttendanceRepository {
         last_name: string;
         designation: string | null;
         work_shift: string | null;
+        attendance_method: string | null;
         department_name: string | null;
       }>(
-        `SELECT e.id, e.employee_id, e.first_name, e.last_name, e.designation, e.work_shift,
+        `SELECT e.id, e.employee_id, e.first_name, e.last_name, e.designation, e.work_shift, e.attendance_method,
                 d.name AS department_name
          FROM public.employees e
          LEFT JOIN public.departments d ON d.id = e.department_id
@@ -646,7 +647,7 @@ export class AttendanceRepository {
         effectivePolicy.graceTimeMinutes
       );
 
-      if (params.type === 'IN' && !params.bypassShiftWindow) {
+      if (params.type === 'IN' && !params.bypassShiftWindow && employee.attendance_method !== 'Flexible') {
         if (wallClockNow.getTime() < shiftTimes.earlyCheckInDateTime.getTime()) {
           throw new AttendancePunchError(
             shiftEvaluation.message ||
@@ -680,7 +681,11 @@ export class AttendanceRepository {
           previousMonthlyLateCount,
         });
 
-        const finalNotes = params.notes || lateEval.notes;
+        const isFlexibleWorker = employee.attendance_method === 'Flexible';
+        const finalStatus = isFlexibleWorker ? 'Present' : lateEval.status;
+        const finalLateStatus = isFlexibleWorker ? 'On-Time' : lateEval.lateStatus;
+        const finalLateMins = isFlexibleWorker ? 0 : lateEval.lateDurationMinutes;
+        const finalNotes = params.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : lateEval.notes);
 
         if (!currentRow) {
           const inserted = await client.query(
@@ -707,14 +712,14 @@ export class AttendanceRepository {
               targetShiftDate,
               validShiftUuid,
               serverInstant.toISOString(),
-              lateEval.status,
-              lateEval.lateStatus,
-              lateEval.lateDurationMinutes,
+              finalStatus,
+              finalLateStatus,
+              finalLateMins,
               dbMethod,
               params.inGeofence ?? true,
               params.locationLat ?? null,
               params.locationLng ?? null,
-              params.locationAddress || 'Verified Office Geofence',
+              params.locationAddress || (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence'),
               params.photoBase64 || null,
               finalNotes,
             ]
@@ -745,14 +750,14 @@ export class AttendanceRepository {
               validShiftUuid,
               targetShiftDate,
               serverInstant.toISOString(),
-              lateEval.status,
-              lateEval.lateStatus,
-              lateEval.lateDurationMinutes,
+              finalStatus,
+              finalLateStatus,
+              finalLateMins,
               dbMethod,
               params.inGeofence ?? true,
               params.locationLat ?? null,
               params.locationLng ?? null,
-              params.locationAddress || 'Verified Office Geofence',
+              params.locationAddress || (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence'),
               params.photoBase64 || null,
               finalNotes,
             ]

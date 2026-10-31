@@ -127,7 +127,14 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       attendanceRepository.getTodayFieldDutyAssignment(targetEmpId),
     ]);
 
-    const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized || dbFieldDuty.authorized);
+    const isFlexibleWorker =
+      (preloadedEmployee as any)?.attendance_method === 'Flexible' ||
+      (preloadedEmployee as any)?.attendanceMethod === 'Flexible' ||
+      String(validated.method || '').toLowerCase().includes('flexible');
+
+    const isAuthorizedFieldDuty = Boolean(
+      validated.fieldDutyAuthorized || dbFieldDuty.authorized || isFlexibleWorker
+    );
 
     if (isGpsOrFacePunch && !isCeo) {
       const geofenceEnabled = Boolean(geofence && (geofence.isEnabled || (geofence as any).enabled));
@@ -305,6 +312,8 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       employeeId: targetEmpId,
       inGeofence: isInsideGeofence,
       photoBase64: facePhoto,
+      bypassShiftWindow: isFlexibleWorker || isAuthorizedFieldDuty,
+      notes: (validated as any).notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : undefined),
     } as any);
 
     res.status(201).json({

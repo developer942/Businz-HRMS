@@ -18,3 +18,4 @@ ALTER TABLE public.petty_cash_ledger ADD CONSTRAINT petty_cash_ledger_reference_
   ));
 
 COMMIT;
+

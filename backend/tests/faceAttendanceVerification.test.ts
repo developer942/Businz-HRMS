@@ -56,4 +56,17 @@ describe('Face Attendance server-authoritative state machine', () => {
     expect(near).toBeLessThan(50);
     expect(far).toBeGreaterThan(500);
   });
+
+  it('supports Flexible attendance method for daily field workers', () => {
+    const fieldPunch = {
+      type: 'IN',
+      method: 'Flexible',
+      locationLat: 13.0827,
+      locationLng: 80.2707,
+      photoBase64: `data:image/jpeg;base64,${'B'.repeat(80)}`,
+      idempotencyKey: 'attendance-flexible-field-12345',
+      fieldDutyAuthorized: true,
+    };
+    expect(punchSchema.safeParse(fieldPunch).success).toBe(true);
+  });
 });

@@ -790,6 +790,17 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       sanitizedValue = typeof value === 'string' ? value.replace(/[^a-zA-Z\s]/g, '').slice(0, 100) : value;
     }
 
+    // Attendance Method handling
+    if (field === 'attendanceMethod') {
+      setFormData(prev => ({
+        ...prev,
+        attendanceMethod: value,
+        gpsAllowed: value === 'Flexible' ? true : prev.gpsAllowed
+      }));
+      if (validationError) setValidationError(null);
+      return;
+    }
+
     // Phone & Emergency Mobile numbers (Digits only, max 10)
     if (['phone', 'emergencyMobile', 'emergencyAltMobile'].includes(field)) {
       sanitizedValue = typeof value === 'string' ? value.replace(/\D/g, '').slice(0, 10) : value;
@@ -3566,15 +3577,31 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                 <label className="form-label">Primary Attendance Verification Method <span style={{ color: '#EF4444' }}>*</span></label>
                 <select 
                   className="form-control" 
-                  value={formData.attendanceMethod} 
+                  value={
+                    formData.attendanceMethod === 'Face Scan' ? 'Face Attendance' :
+                    formData.attendanceMethod === 'Biometric' ? 'Biometric Fingerprint' :
+                    formData.attendanceMethod || 'Face Attendance'
+                  } 
                   onChange={e => handleChange('attendanceMethod', e.target.value)}
                 >
-                  <option value="Face Scan">Face Recognition Scan (AI Camera)</option>
-                  <option value="GPS Location">Mobile GPS Geofenced Check-In</option>
-                  <option value="Biometric">Biometric Fingerprint Scanner</option>
-                  <option value="Manual">Manual HR Portal Punch</option>
-                  <option value="Exempt">Exempt from Attendance (Executive / CEO)</option>
+                  <option value="Face Attendance">Face Attendance</option>
+                  <option value="Biometric Fingerprint">Biometric Fingerprint</option>
+                  <option value="Flexible">Flexible</option>
                 </select>
+                {formData.attendanceMethod === 'Flexible' && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '10px 12px',
+                    backgroundColor: '#ECFEFF',
+                    border: '1px solid #A5F3FC',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    color: '#0E7490',
+                    lineHeight: 1.4
+                  }}>
+                    📍 <strong>Daily Field Work Employee:</strong> Flexible attendance enabled. This employee is on the field daily, so attendance is flexible without fixed office geofencing restrictions.
+                  </div>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Assigned Shift Schedule</label>

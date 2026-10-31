@@ -2198,6 +2198,34 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       department: currentUser.department,
     } as Employee);
 
+    if (emp.attendanceMethod === 'Flexible' || (emp as any).attendance_method === 'Flexible') {
+      const todayStr = getTrustedNow().toISOString().split('T')[0];
+      const todayPunch = attendanceRecords.find(
+        a => (a.employeeId === emp.employeeId || a.employeeId === emp.id) && 
+             (a.date === todayStr || a.shiftDate === todayStr)
+      );
+      const isCheckedIn = Boolean(todayPunch && todayPunch.checkIn && !todayPunch.checkOut);
+      const isCheckedOut = Boolean(todayPunch && todayPunch.checkOut);
+
+      return {
+        state: isCheckedOut ? 'COMPLETED' : isCheckedIn ? 'CHECKED_IN' : 'CHECK_IN_AVAILABLE',
+        canCheckIn: !isCheckedIn && !isCheckedOut,
+        canCheckOut: isCheckedIn && !isCheckedOut,
+        activeAttendance: todayPunch || null,
+        message: isCheckedOut ? 'Daily Field Work Completed' : isCheckedIn ? 'Checked In (Daily Field Work)' : 'Flexible Field Check-In Available',
+        statusBadge: isCheckedIn ? 'On Field Duty' : 'Flexible Check-In',
+        shiftName: 'Flexible Field Duty',
+        shiftTiming: 'Flexible Timing',
+        isLateCheckIn: false,
+        penaltyType: 'NONE',
+        checkInOpenDisplay: 'Always Available',
+        checkInCloseDisplay: 'Flexible',
+        expectedCheckInTime: 'Flexible',
+        effectiveGracePeriodMins: 0,
+        todayShiftDate: todayStr
+      } as any;
+    }
+
     const assignedShift = resolveEmployeeAssignedShift(emp, shifts);
     const activePolicies = masterAttendancePolicies && masterAttendancePolicies.length > 0 ? masterAttendancePolicies : DEFAULT_MASTER_ATTENDANCE_POLICIES;
     const effectiveLatePolicy = resolveEffectiveLatePolicy(emp, activePolicies, assignedShift?.id, assignedShift?.shiftName).policy;

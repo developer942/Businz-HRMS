@@ -114,7 +114,7 @@ export interface Employee {
   withPf?: boolean;
   payrollEligible?: boolean;
   bankDetails: BankDetails;
-  attendanceMethod: 'Face Scan' | 'GPS Location' | 'Manual' | 'Biometric' | 'Exempt';
+  attendanceMethod: 'Face Attendance' | 'Face Scan' | 'Biometric Fingerprint' | 'Biometric' | 'Flexible' | 'GPS Location' | 'Manual' | 'Exempt';
   gpsAllowed: boolean;
   faceRegistered: boolean;
   facePhotoUrl?: string;

@@ -475,7 +475,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? Number((geofenceConfig as any).maxAccuracyMeters)
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
-    const isFieldDutyAuthorized = Boolean(fieldAssignment);
+    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible';
+    const isFieldDutyAuthorized = Boolean(fieldAssignment) || isFlexibleEmp;
     let verifiedOnRetry = false;
 
     try {
@@ -521,7 +522,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           latitude: reading.latitude,
           longitude: reading.longitude,
           accuracy: reading.accuracy,
-          address: `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`,
+          address: fieldAssignment
+            ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+            : isFlexibleEmp
+              ? 'Daily Field Work (GPS Verified)'
+              : (geofenceConfig.officeName || 'HQ Office'),
           distance,
           timestamp: reading.timestamp,
           readingAgeMs: reading.readingAgeMs,
@@ -1070,7 +1075,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? Number((geofenceConfig as any).maxAccuracyMeters)
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
-    const isFieldDutyAuthorized = Boolean(fieldAssignment);
+    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible';
+    const isFieldDutyAuthorized = Boolean(fieldAssignment) || isFlexibleEmp;
 
     // If a verified GPS reading was acquired within the last 45s, reuse it immediately (0ms wait)
     if (
@@ -1142,7 +1148,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             latitude: reading.latitude,
             longitude: reading.longitude,
             accuracy: reading.accuracy,
-            address: `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`,
+            address: fieldAssignment
+            ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+            : isFlexibleEmp
+              ? 'Daily Field Work (GPS Verified)'
+              : (geofenceConfig.officeName || 'HQ Office'),
             distance,
             timestamp: reading.timestamp,
             readingAgeMs: reading.readingAgeMs,
@@ -1286,7 +1296,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? Number((geofenceConfig as any).maxAccuracyMeters)
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
-    const isFieldDutyAuthorized = Boolean(fieldAssignment);
+    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible';
+    const isFieldDutyAuthorized = Boolean(fieldAssignment) || isFlexibleEmp;
 
     try {
       // Wait for concurrent GPS acquisition (or reuse already-verified fresh reading in 0ms)
@@ -1355,7 +1366,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         longitude: reading.longitude,
         accuracy: reading.accuracy,
         address: isFieldDutyAuthorized
-          ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+          ? (fieldAssignment
+              ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+              : 'Daily Field Work (GPS Verified)')
           : (geofenceConfig.officeName || 'HQ Office'),
         distance,
         timestamp: reading.timestamp,

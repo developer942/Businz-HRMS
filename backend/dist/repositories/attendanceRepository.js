@@ -369,7 +369,7 @@ export class AttendanceRepository {
             : undefined;
         return withTransaction(async (client) => {
             // 1. Lock employee row and load profile + department metadata
-            const empResult = await client.query(`SELECT e.id, e.employee_id, e.first_name, e.last_name, e.designation, e.work_shift,
+            const empResult = await client.query(`SELECT e.id, e.employee_id, e.first_name, e.last_name, e.designation, e.work_shift, e.attendance_method,
                 d.name AS department_name
          FROM public.employees e
          LEFT JOIN public.departments d ON d.id = e.department_id
@@ -470,7 +470,7 @@ export class AttendanceRepository {
             });
             // 6. Enforce 3-hour pre-shift check-in window on Check-In (unless explicitly bypassed by admin manual override)
             const shiftTimes = calculateShiftDateTimes(targetShiftDate, shiftWithPolicyGrace, 180, effectivePolicy.graceTimeMinutes);
-            if (params.type === 'IN' && !params.bypassShiftWindow) {
+            if (params.type === 'IN' && !params.bypassShiftWindow && employee.attendance_method !== 'Flexible') {
                 if (wallClockNow.getTime() < shiftTimes.earlyCheckInDateTime.getTime()) {
                     throw new AttendancePunchError(shiftEvaluation.message ||
                         `Check-in for ${assignedShift.shiftName} opens 3 hours before shift start (${shiftEvaluation.checkInOpenDisplay}).`, 409, 'SHIFT_CHECKIN_TOO_EARLY');
@@ -491,7 +491,11 @@ export class AttendanceRepository {
                     policy: effectivePolicy,
                     previousMonthlyLateCount,
                 });
-                const finalNotes = params.notes || lateEval.notes;
+                const isFlexibleWorker = employee.attendance_method === 'Flexible';
+                const finalStatus = isFlexibleWorker ? 'Present' : lateEval.status;
+                const finalLateStatus = isFlexibleWorker ? 'On-Time' : lateEval.lateStatus;
+                const finalLateMins = isFlexibleWorker ? 0 : lateEval.lateDurationMinutes;
+                const finalNotes = params.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : lateEval.notes);
                 if (!currentRow) {
                     const inserted = await client.query(`INSERT INTO public.attendance_records
               (employee_id, date, shift_id, shift_date, check_in, working_hours, status, late_status,
@@ -515,14 +519,14 @@ export class AttendanceRepository {
                         targetShiftDate,
                         validShiftUuid,
                         serverInstant.toISOString(),
-                        lateEval.status,
-                        lateEval.lateStatus,
-                        lateEval.lateDurationMinutes,
+                        finalStatus,
+                        finalLateStatus,
+                        finalLateMins,
                         dbMethod,
                         params.inGeofence ?? true,
                         params.locationLat ?? null,
                         params.locationLng ?? null,
-                        params.locationAddress || 'Verified Office Geofence',
+                        params.locationAddress || (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence'),
                         params.photoBase64 || null,
                         finalNotes,
                     ]);
@@ -551,14 +555,14 @@ export class AttendanceRepository {
                         validShiftUuid,
                         targetShiftDate,
                         serverInstant.toISOString(),
-                        lateEval.status,
-                        lateEval.lateStatus,
-                        lateEval.lateDurationMinutes,
+                        finalStatus,
+                        finalLateStatus,
+                        finalLateMins,
                         dbMethod,
                         params.inGeofence ?? true,
                         params.locationLat ?? null,
                         params.locationLng ?? null,
-                        params.locationAddress || 'Verified Office Geofence',
+                        params.locationAddress || (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence'),
                         params.photoBase64 || null,
                         finalNotes,
                     ]);

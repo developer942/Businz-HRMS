@@ -46,7 +46,7 @@ export interface EmployeeFullRecord {
   accountNumber?: string;
   ifscCode?: string;
   branch?: string;
-  attendanceMethod?: 'Face Scan' | 'GPS Location' | 'Manual' | 'Biometric';
+  attendanceMethod?: 'Face Attendance' | 'Face Scan' | 'Biometric Fingerprint' | 'Biometric' | 'Flexible' | 'GPS Location' | 'Manual' | 'Exempt';
   gpsAllowed?: boolean;
   faceRegistered?: boolean;
   facePhotoUrl?: string;

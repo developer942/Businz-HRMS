@@ -3378,29 +3378,45 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           <label style={labelStyle}>Attendance Verification Method</label>
           {isEditing ? (
             <select
-              value={formData.attendanceMethod}
-              onChange={(e) => handleChange('attendanceMethod', e.target.value)}
+              value={
+                formData.attendanceMethod === 'Face Scan' ? 'Face Attendance' :
+                formData.attendanceMethod === 'Biometric' || (formData.attendanceMethod as any) === 'Biometric Device' ? 'Biometric Fingerprint' :
+                formData.attendanceMethod || 'Face Attendance'
+              }
+              onChange={(e) => {
+                const val = e.target.value;
+                handleChange('attendanceMethod', val);
+                if (val === 'Flexible') {
+                  handleChange('gpsAllowed', true);
+                }
+              }}
               style={selectStyle}
             >
-              <option value="Face Scan">Face Scan</option>
-              <option value="GPS Geofence">GPS Geofence</option>
-              <option value="Biometric Device">Biometric Device</option>
-              <option value="Manual Punch">Manual Punch</option>
-              <option value="Exempt">Exempt</option>
+              <option value="Face Attendance">Face Attendance</option>
+              <option value="Biometric Fingerprint">Biometric Fingerprint</option>
+              <option value="Flexible">Flexible</option>
             </select>
           ) : (
             <div style={viewValueStyle}>
               <span style={{
-                backgroundColor: '#ECFEFF',
-                color: '#0E7490',
-                border: '1px solid #CFFAFE',
+                backgroundColor: formData.attendanceMethod === 'Flexible' ? '#ECFEFF' : '#F1F5F9',
+                color: formData.attendanceMethod === 'Flexible' ? '#0E7490' : '#1E293B',
+                border: `1px solid ${formData.attendanceMethod === 'Flexible' ? '#A5F3FC' : '#E2E8F0'}`,
                 padding: '3px 10px',
                 borderRadius: '8px',
                 fontSize: '0.82rem',
                 fontWeight: 700
               }}>
-                {formData.attendanceMethod}
+                {formData.attendanceMethod === 'Face Scan' ? 'Face Attendance' :
+                 formData.attendanceMethod === 'Biometric' || (formData.attendanceMethod as any) === 'Biometric Device' ? 'Biometric Fingerprint' :
+                 formData.attendanceMethod === 'Flexible' ? 'Flexible (Daily Field Work)' :
+                 (formData.attendanceMethod || 'Face Attendance')}
               </span>
+              {formData.attendanceMethod === 'Flexible' && (
+                <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#0E7490', fontWeight: 600 }}>
+                  📍 Daily Field Work — Flexible Attendance Enabled
+                </div>
+              )}
             </div>
           )}
         </div>
