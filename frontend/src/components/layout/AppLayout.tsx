@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { useHRMS } from '../../context/HRMSContext';
@@ -7,32 +7,35 @@ import { useHRMS } from '../../context/HRMSContext';
 import { Dashboard } from '../dashboard/Dashboard';
 import { MobileBottomNav } from './MobileBottomNav';
 import { isCeoOrHrUser } from '../../services/authService';
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
+import { ErrorBoundary } from '../common/ErrorBoundary';
+import { ModuleLoadingFallback } from '../common/ModuleLoadingFallback';
 
-const EmployeeList = lazy(() => import('../employees/EmployeeList').then(m => ({ default: m.EmployeeList })));
-const FaceAttendance = lazy(() => import('../attendance/FaceAttendance').then(m => ({ default: m.FaceAttendance })));
-const LeaveManagement = lazy(() => import('../leave/LeaveManagement').then(m => ({ default: m.LeaveManagement })));
-const ShiftManagement = lazy(() => import('../shift/ShiftManagement').then(m => ({ default: m.ShiftManagement })));
-const TaskManagement = lazy(() => import('../tasks/TaskManagement').then(m => ({ default: m.TaskManagement })));
-const ExpenseManagement = lazy(() => import('../finance/ExpenseManagement').then(m => ({ default: m.ExpenseManagement })));
-const AttendanceReportsView = lazy(() => import('../attendance/AttendanceReportsView').then(m => ({ default: m.AttendanceReportsView })));
-const UserProfile = lazy(() => import('../profile/UserProfile').then(m => ({ default: m.UserProfile })));
-const AccountsPaymentDashboard = lazy(() => import('../finance/AccountsPaymentDashboard').then(m => ({ default: m.AccountsPaymentDashboard })));
-const AIAssistantWidget = lazy(() => import('../ai/AIAssistantWidget').then(m => ({ default: m.AIAssistantWidget })));
+const EmployeeList = lazyWithRetry(() => import('../employees/EmployeeList'), 'EmployeeList');
+const FaceAttendance = lazyWithRetry(() => import('../attendance/FaceAttendance'), 'FaceAttendance');
+const LeaveManagement = lazyWithRetry(() => import('../leave/LeaveManagement'), 'LeaveManagement');
+const ShiftManagement = lazyWithRetry(() => import('../shift/ShiftManagement'), 'ShiftManagement');
+const TaskManagement = lazyWithRetry(() => import('../tasks/TaskManagement'), 'TaskManagement');
+const ExpenseManagement = lazyWithRetry(() => import('../finance/ExpenseManagement'), 'ExpenseManagement');
+const AttendanceReportsView = lazyWithRetry(() => import('../attendance/AttendanceReportsView'), 'AttendanceReportsView');
+const UserProfile = lazyWithRetry(() => import('../profile/UserProfile'), 'UserProfile');
+const AccountsPaymentDashboard = lazyWithRetry(() => import('../finance/AccountsPaymentDashboard'), 'AccountsPaymentDashboard');
+const AIAssistantWidget = lazyWithRetry(() => import('../ai/AIAssistantWidget'), 'AIAssistantWidget');
 
 // Secondary heavy modules.
-const GpsGeofencePortal = lazy(() => import('../attendance/GpsGeofencePortal').then(m => ({ default: m.GpsGeofencePortal })));
-const OvertimeManagementModule = lazy(() => import('../overtime/OvertimeManagementModule').then(m => ({ default: m.OvertimeManagementModule })));
-const PerformanceTracking = lazy(() => import('../performance/PerformanceTracking').then(m => ({ default: m.PerformanceTracking })));
-const RecruitmentPipeline = lazy(() => import('../recruitment/RecruitmentPipeline').then(m => ({ default: m.RecruitmentPipeline })));
-const PayrollManagement = lazy(() => import('../payroll/PayrollManagement').then(m => ({ default: m.PayrollManagement })));
-const AdvanceSalaryManagement = lazy(() => import('../payroll/AdvanceSalaryManagement').then(m => ({ default: m.AdvanceSalaryManagement })));
-const Organization = lazy(() => import('../organization/Organization').then(m => ({ default: m.Organization })));
-const AssetManagement = lazy(() => import('../assets/AssetManagement').then(m => ({ default: m.AssetManagement })));
-const Settings = lazy(() => import('../settings/Settings').then(m => ({ default: m.Settings })));
-const TrackingModule = lazy(() => import('../tracking/TrackingModule').then(m => ({ default: m.TrackingModule })));
-const CustomerModule = lazy(() => import('../customer/CustomerModule').then(m => ({ default: m.CustomerModule })));
-const WhatsAppCRMModule = lazy(() => import('../whatsapp-crm/WhatsAppCRMModule').then(m => ({ default: m.WhatsAppCRMModule })));
-const PettyCashManagement = lazy(() => import('../petty-cash/PettyCashManagement').then(m => ({ default: m.PettyCashManagement })));
+const GpsGeofencePortal = lazyWithRetry(() => import('../attendance/GpsGeofencePortal'), 'GpsGeofencePortal');
+const OvertimeManagementModule = lazyWithRetry(() => import('../overtime/OvertimeManagementModule'), 'OvertimeManagementModule');
+const PerformanceTracking = lazyWithRetry(() => import('../performance/PerformanceTracking'), 'PerformanceTracking');
+const RecruitmentPipeline = lazyWithRetry(() => import('../recruitment/RecruitmentPipeline'), 'RecruitmentPipeline');
+const PayrollManagement = lazyWithRetry(() => import('../payroll/PayrollManagement'), 'PayrollManagement');
+const AdvanceSalaryManagement = lazyWithRetry(() => import('../payroll/AdvanceSalaryManagement'), 'AdvanceSalaryManagement');
+const Organization = lazyWithRetry(() => import('../organization/Organization'), 'Organization');
+const AssetManagement = lazyWithRetry(() => import('../assets/AssetManagement'), 'AssetManagement');
+const Settings = lazyWithRetry(() => import('../settings/Settings'), 'Settings');
+const TrackingModule = lazyWithRetry(() => import('../tracking/TrackingModule'), 'TrackingModule');
+const CustomerModule = lazyWithRetry(() => import('../customer/CustomerModule'), 'CustomerModule');
+const WhatsAppCRMModule = lazyWithRetry(() => import('../whatsapp-crm/WhatsAppCRMModule'), 'WhatsAppCRMModule');
+const PettyCashManagement = lazyWithRetry(() => import('../petty-cash/PettyCashManagement'), 'PettyCashManagement');
 
 interface AppLayoutProps {
     onLogout?: () => void;
@@ -59,6 +62,24 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         (window as any).__setModule = (mod: string) => setActiveModule(mod as any);
         (window as any).__switchRole = (role: string) => switchRole(role as any);
     }, [setActiveModule, switchRole]);
+
+    // Idle background preloading of frequently accessed modules to eliminate loading delays
+    useEffect(() => {
+        const idleCallback = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 1500));
+        const handle = idleCallback(() => {
+            void import('../employees/EmployeeList');
+            void import('../leave/LeaveManagement');
+            void import('../attendance/AttendanceReportsView');
+            void import('../petty-cash/PettyCashManagement');
+            void import('../finance/ExpenseManagement');
+            void import('../payroll/PayrollManagement');
+        });
+        return () => {
+            if ((window as any).cancelIdleCallback) {
+                (window as any).cancelIdleCallback(handle);
+            }
+        };
+    }, []);
 
     // Monitor viewport resize for responsive mobile detection
     useEffect(() => {
@@ -205,9 +226,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
                 />
 
                 <main className="hrms-content">
-                    <Suspense fallback={<div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '0.88rem', fontWeight: 600 }}>Loading...</div>}>
-                        {renderModuleView()}
-                    </Suspense>
+                    <ErrorBoundary fallbackTitle={`Error loading ${activeModule}`} onReset={() => setActiveModule('dashboard')}>
+                        <Suspense fallback={<ModuleLoadingFallback />}>
+                            {renderModuleView()}
+                        </Suspense>
+                    </ErrorBoundary>
                 </main>
             </div>
 

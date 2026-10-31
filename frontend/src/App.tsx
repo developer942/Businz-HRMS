@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import React, { useEffect, useState } from 'react';
 import { HRMSProvider, useHRMS } from './context/HRMSContext';
 import { AppLayout } from './components/layout/AppLayout';
@@ -82,9 +83,11 @@ const AuthenticatedApp: React.FC = () => {
 };
 
 export const App: React.FC = () => (
-  <HRMSProvider>
-    <AuthenticatedApp />
-  </HRMSProvider>
+  <ErrorBoundary fallbackTitle="HRMS Portal Recovery">
+    <HRMSProvider>
+      <AuthenticatedApp />
+    </HRMSProvider>
+  </ErrorBoundary>
 );
 
 export default App;
