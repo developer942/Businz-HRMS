@@ -50,11 +50,21 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const body = (await response.json().catch(() => ({}))) as ApiResponse<T>;
 
   if (!response.ok) {
-    const errorMsg =
-      body.message ||
-      body.error ||
-      (Array.isArray(body.details) ? body.details.map((d: any) => d.message).join(', ') : null) ||
-      `Request failed with status ${response.status}`;
+    let errorMsg = `Request failed with status ${response.status}`;
+    if (typeof body.message === 'string' && body.message.trim()) {
+      errorMsg = body.message;
+    } else if (typeof body.error === 'string' && body.error.trim()) {
+      errorMsg = body.error;
+    } else if (body.error && typeof body.error === 'object') {
+      const errObj = body.error as any;
+      if (Array.isArray(errObj.details) && errObj.details.length > 0) {
+        errorMsg = errObj.details.map((d: any) => d.message || d.field).join(', ');
+      } else if (typeof errObj.message === 'string') {
+        errorMsg = errObj.message;
+      }
+    } else if (Array.isArray(body.details) && body.details.length > 0) {
+      errorMsg = body.details.map((d: any) => d.message || d.field).join(', ');
+    }
     throw new Error(errorMsg);
   }
 
@@ -172,7 +182,7 @@ export const pettyCashService = {
   ): Promise<{ expense: PettyCashExpense; restoredBalance: number }> {
     return request<{ expense: PettyCashExpense; restoredBalance: number }>(`/expenses/${expenseId}/reverse`, {
       method: 'POST',
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, reversalReason: reason }),
     });
   },
 

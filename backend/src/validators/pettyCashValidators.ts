@@ -109,7 +109,14 @@ export const addDailyExpenseSchema = z.object({
 // 8. Reverse Expense
 export const reverseExpenseSchema = z.object({
   expenseId: z.string().min(1, { message: 'Valid Expense ID is required' }),
-  reversalReason: meaningfulTextSchema,
+  reversalReason: meaningfulTextSchema.optional(),
+  reason: meaningfulTextSchema.optional(),
+}).transform(data => ({
+  expenseId: data.expenseId,
+  reversalReason: (data.reversalReason || data.reason || '').trim(),
+})).refine(data => data.reversalReason.length >= 3, {
+  message: 'Audit reversal reason must contain at least 3 non-whitespace characters',
+  path: ['reversalReason'],
 });
 
 // 9. Flag Expense

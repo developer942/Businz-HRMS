@@ -288,7 +288,8 @@ export class PettyCashController {
     async reverseExpense(req, res, next) {
         try {
             const id = String(req.params.id);
-            const parsed = reverseExpenseSchema.parse({ expenseId: id, ...req.body });
+            const rawReason = req.body.reversalReason || req.body.reason || '';
+            const parsed = reverseExpenseSchema.parse({ expenseId: id, reversalReason: rawReason, reason: rawReason, ...req.body });
             const user = req.user;
             const companyId = user.company_id || 'company-a';
             const result = await pettyCashService.reverseExpense({

@@ -99,7 +99,8 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
       setReversalReason('');
       onRefresh();
     } catch (err: any) {
-      setReversalError(err.message || 'Failed to reverse expense.');
+      const msg = typeof err === 'string' ? err : err?.message || 'Failed to reverse expense.';
+      setReversalError(typeof msg === 'object' ? JSON.stringify(msg) : String(msg));
     } finally {
       setReversing(false);
     }

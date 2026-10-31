@@ -1141,10 +1141,12 @@ export class PettyCashRepository {
                 console.warn('[PettyCashRepository] DB reverse balance fallback:', dbErr);
             }
             try {
+                const isUuid = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+                const revUuid = isUuid(params.reversedById) ? params.reversedById : (isUuid(account.custodian_id) ? account.custodian_id : null);
                 await query(`UPDATE public.petty_cash_expenses 
            SET is_reversed = true, status = 'REVERSED', reversed_at = NOW(), 
                reversed_by_id = $1, reversed_by_name = $2, reversal_reason = $3, updated_at = NOW() 
-           WHERE id = $4`, [account.custodian_id, params.reversedByName, params.reversalReason, expense.id]);
+           WHERE id = $4`, [revUuid, params.reversedByName, params.reversalReason, expense.id]);
             }
             catch (dbErr) {
                 console.warn('[PettyCashRepository] DB update reversed expense fallback:', dbErr);
