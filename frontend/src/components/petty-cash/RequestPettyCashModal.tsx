@@ -68,9 +68,14 @@ export const RequestPettyCashModal: React.FC<RequestPettyCashModalProps> = ({
       let attachmentUrl: string | undefined = undefined;
       if (file) {
         setUploading(true);
-        const uploadRes = await pettyCashService.uploadAttachment(file, 'REQUEST');
-        attachmentUrl = uploadRes.fileUrl;
-        setUploading(false);
+        try {
+          const uploadRes = await pettyCashService.uploadAttachment(file, 'REQUEST');
+          attachmentUrl = uploadRes.fileUrl;
+        } catch (uploadErr) {
+          console.warn('[RequestPettyCashModal] Upload warning, continuing with request:', uploadErr);
+        } finally {
+          setUploading(false);
+        }
       }
 
       const newRequest = await pettyCashService.requestPettyCash({

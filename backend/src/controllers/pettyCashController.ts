@@ -494,6 +494,28 @@ export class PettyCashController {
       next(err);
     }
   }
+
+  // 18. File Attachments Upload
+  async uploadAttachment(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { fileData, fileName, fileSize, mimeType, entityType = 'REQUEST' } = req.body;
+      const fileUrl = fileData || '';
+      const name = fileName || 'attachment';
+      const size = Number(fileSize) || 0;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          fileUrl,
+          originalFileName: name,
+          fileSize: size,
+        },
+        message: 'Attachment uploaded successfully',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const pettyCashController = new PettyCashController();

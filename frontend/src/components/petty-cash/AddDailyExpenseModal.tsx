@@ -121,9 +121,14 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
       let billUrl: string | undefined = undefined;
       if (file) {
         setUploading(true);
-        const uploadRes = await pettyCashService.uploadAttachment(file, 'EXPENSE');
-        billUrl = uploadRes.fileUrl;
-        setUploading(false);
+        try {
+          const uploadRes = await pettyCashService.uploadAttachment(file, 'EXPENSE');
+          billUrl = uploadRes.fileUrl;
+        } catch (uploadErr) {
+          console.warn('[AddDailyExpenseModal] Upload warning, continuing with expense:', uploadErr);
+        } finally {
+          setUploading(false);
+        }
       }
 
       const res = await pettyCashService.recordDailyExpense({

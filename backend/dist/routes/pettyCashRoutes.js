@@ -54,4 +54,8 @@ pettyCashRouter.put('/categories/:id', requireRoles(['Super Admin', 'Admin', 'CE
 pettyCashRouter.get('/dashboards/ceo', requireRoles(['CEO', 'Super Admin']), (req, res, next) => pettyCashController.getCeoDashboard(req, res, next));
 pettyCashRouter.get('/dashboards/accounts', requireRoles(['Finance Manager', 'Finance', 'Accountant', 'Admin', 'Super Admin', 'CEO']), (req, res, next) => pettyCashController.getAccountsDashboard(req, res, next));
 pettyCashRouter.get('/dashboards/custodian', (req, res, next) => pettyCashController.getCustodianDashboard(req, res, next));
+// ============================================================
+// 9. File Attachments Upload
+// ============================================================
+pettyCashRouter.post('/attachments/upload', (req, res, next) => pettyCashController.uploadAttachment(req, res, next));
 //# sourceMappingURL=pettyCashRoutes.js.map

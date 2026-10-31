@@ -1,5 +1,6 @@
 import { Decimal } from 'decimal.js';
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { query } from '../config/database.js';
 // Default categories
 const DEFAULT_CATEGORIES = [
     { id: 'cat-001', company_id: 'company-a', name: 'Tea & Coffee', description: 'Office daily tea, coffee, refreshments, snacks', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
@@ -47,6 +48,34 @@ export class PettyCashRepository {
     // 1. CUSTODIAN ACCOUNT MANAGEMENT
     // ============================================================
     async getActiveAccount(companyId) {
+        try {
+            const res = await query(`SELECT * FROM public.petty_cash_accounts WHERE company_id = $1 AND status = 'ACTIVE' LIMIT 1`, [companyId || 'company-a']);
+            if (res && res.rows && res.rows[0]) {
+                const data = res.rows[0];
+                const acc = {
+                    id: data.id,
+                    company_id: data.company_id,
+                    custodian_id: data.custodian_id,
+                    custodian_employee_id: data.custodian_employee_id,
+                    custodian_name: data.custodian_name,
+                    assigned_by_id: data.assigned_by_id,
+                    assigned_by_name: data.assigned_by_name,
+                    assignment_date: data.assignment_date instanceof Date ? data.assignment_date.toISOString().slice(0, 10) : String(data.assignment_date || ''),
+                    status: data.status,
+                    current_balance: Number(data.current_balance),
+                    low_balance_threshold: Number(data.low_balance_threshold),
+                    reconciliation_status: data.reconciliation_status || 'NONE',
+                    reconciliation_notes: data.reconciliation_notes,
+                    created_at: data.created_at ? new Date(data.created_at).toISOString() : new Date().toISOString(),
+                    updated_at: data.updated_at ? new Date(data.updated_at).toISOString() : new Date().toISOString(),
+                };
+                this.accounts.set(acc.id, acc);
+                return acc;
+            }
+        }
+        catch (err) {
+            console.warn('[PettyCashRepository] getActiveAccount direct DB fallback:', err);
+        }
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
@@ -93,6 +122,34 @@ export class PettyCashRepository {
         const acc = this.accounts.get(accountId);
         if (acc)
             return acc;
+        try {
+            const res = await query(`SELECT * FROM public.petty_cash_accounts WHERE id = $1 LIMIT 1`, [accountId]);
+            if (res && res.rows && res.rows[0]) {
+                const data = res.rows[0];
+                const mapped = {
+                    id: data.id,
+                    company_id: data.company_id,
+                    custodian_id: data.custodian_id,
+                    custodian_employee_id: data.custodian_employee_id,
+                    custodian_name: data.custodian_name,
+                    assigned_by_id: data.assigned_by_id,
+                    assigned_by_name: data.assigned_by_name,
+                    assignment_date: data.assignment_date instanceof Date ? data.assignment_date.toISOString().slice(0, 10) : String(data.assignment_date || ''),
+                    status: data.status,
+                    current_balance: Number(data.current_balance),
+                    low_balance_threshold: Number(data.low_balance_threshold),
+                    reconciliation_status: data.reconciliation_status || 'NONE',
+                    reconciliation_notes: data.reconciliation_notes,
+                    created_at: data.created_at ? new Date(data.created_at).toISOString() : new Date().toISOString(),
+                    updated_at: data.updated_at ? new Date(data.updated_at).toISOString() : new Date().toISOString(),
+                };
+                this.accounts.set(mapped.id, mapped);
+                return mapped;
+            }
+        }
+        catch (err) {
+            console.warn('[PettyCashRepository] getAccountById direct DB fallback:', err);
+        }
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
@@ -277,10 +334,57 @@ export class PettyCashRepository {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         };
+        try {
+            await query(`INSERT INTO public.petty_cash_requests (
+          id, request_number, company_id, account_id, employee_id, employee_name,
+          employee_code, requested_amount, request_date, purpose, status,
+          supporting_document_url, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())`, [
+                request.id, request.request_number, request.company_id, request.account_id,
+                request.employee_id, request.employee_name, request.employee_code,
+                request.requested_amount, request.request_date, request.purpose,
+                request.status, request.supporting_document_url || null
+            ]);
+        }
+        catch (dbErr) {
+            console.warn('[PettyCashRepository] DB insert request fallback:', dbErr);
+        }
         this.requests.set(id, request);
         return request;
     }
     async getRequests(companyId, filters) {
+        try {
+            const res = await query(`SELECT * FROM public.petty_cash_requests WHERE company_id = $1 ORDER BY created_at DESC`, [companyId || 'company-a']);
+            if (res && res.rows) {
+                for (const row of res.rows) {
+                    const r = {
+                        id: row.id,
+                        request_number: row.request_number,
+                        company_id: row.company_id,
+                        account_id: row.account_id,
+                        employee_id: row.employee_id,
+                        employee_name: row.employee_name,
+                        employee_code: row.employee_code,
+                        requested_amount: Number(row.requested_amount),
+                        approved_amount: row.approved_amount ? Number(row.approved_amount) : undefined,
+                        request_date: row.request_date instanceof Date ? row.request_date.toISOString().slice(0, 10) : String(row.request_date || ''),
+                        purpose: row.purpose,
+                        status: row.status,
+                        ceo_id: row.ceo_id,
+                        ceo_name: row.ceo_name,
+                        ceo_action_at: row.ceo_action_at ? new Date(row.ceo_action_at).toISOString() : undefined,
+                        ceo_remarks: row.ceo_remarks,
+                        supporting_document_url: row.supporting_document_url,
+                        created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+                        updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+                    };
+                    this.requests.set(r.id, r);
+                }
+            }
+        }
+        catch (dbErr) {
+            console.warn('[PettyCashRepository] DB getRequests fallback:', dbErr);
+        }
         const result = [];
         for (const req of this.requests.values()) {
             if (req.company_id === (companyId || 'company-a')) {
@@ -310,6 +414,15 @@ export class PettyCashRepository {
         req.ceo_remarks = params.remarks || '';
         req.ceo_action_at = new Date().toISOString();
         req.updated_at = new Date().toISOString();
+        try {
+            await query(`UPDATE public.petty_cash_requests 
+         SET status = 'APPROVED_BY_CEO', approved_amount = $1, ceo_id = $2, ceo_name = $3, 
+             ceo_remarks = $4, ceo_action_at = NOW(), updated_at = NOW() 
+         WHERE id = $5`, [req.approved_amount, req.ceo_id, req.ceo_name, req.ceo_remarks, req.id]);
+        }
+        catch (dbErr) {
+            console.warn('[PettyCashRepository] DB approveRequest fallback:', dbErr);
+        }
         this.requests.set(req.id, req);
         return req;
     }
@@ -372,15 +485,118 @@ export class PettyCashRepository {
                 status: 'DISBURSED',
                 created_at: new Date().toISOString(),
             };
-            // Update request status
-            request.status = 'DISBURSED_PENDING_RECEIPT';
+            // Atomically credit the custodian's cash balance
+            const account = await this.getAccountById(request.account_id) || await this.getActiveAccount(request.company_id);
+            if (account) {
+                const balanceBefore = new Decimal(account.current_balance || 0);
+                const balanceAfter = balanceBefore.plus(disbursed);
+                account.current_balance = balanceAfter.toNumber();
+                account.updated_at = new Date().toISOString();
+                this.accounts.set(account.id, account);
+                try {
+                    await query(`UPDATE public.petty_cash_accounts 
+             SET current_balance = $1, updated_at = NOW() 
+             WHERE id = $2`, [balanceAfter.toNumber(), account.id]);
+                }
+                catch (dbErr) {
+                    console.warn('[PettyCashRepository] DB update account balance fallback:', dbErr);
+                }
+                // Record immutable ledger entry for disbursement
+                const ledgerEntry = {
+                    id: crypto.randomUUID(),
+                    company_id: account.company_id,
+                    account_id: account.id,
+                    transaction_type: 'CREDIT',
+                    reference_type: 'DISBURSEMENT',
+                    reference_id: id,
+                    amount: disbursed.toNumber(),
+                    balance_before: balanceBefore.toNumber(),
+                    balance_after: balanceAfter.toNumber(),
+                    description: `Cash disbursement from Accounts (${params.paymentMode} - Ref: ${params.paymentReference || 'N/A'})`,
+                    idempotency_key: `LEDGER-DISB-${id}`,
+                    created_by_id: params.disbursedById,
+                    created_by_name: params.disbursedByName,
+                    created_at: new Date().toISOString(),
+                };
+                this.ledger.unshift(ledgerEntry);
+                try {
+                    await query(`INSERT INTO public.petty_cash_ledger (
+              id, company_id, account_id, transaction_type, reference_type,
+              reference_id, amount, balance_before, balance_after, description,
+              idempotency_key, created_by_id, created_by_name, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`, [
+                        ledgerEntry.id, ledgerEntry.company_id, ledgerEntry.account_id,
+                        ledgerEntry.transaction_type, ledgerEntry.reference_type,
+                        ledgerEntry.reference_id, ledgerEntry.amount, ledgerEntry.balance_before,
+                        ledgerEntry.balance_after, ledgerEntry.description, ledgerEntry.idempotency_key,
+                        ledgerEntry.created_by_id, ledgerEntry.created_by_name
+                    ]);
+                }
+                catch (dbErr) {
+                    console.warn('[PettyCashRepository] DB insert ledger fallback:', dbErr);
+                }
+            }
+            // Mark request as COMPLETED (Disbursed & Credited)
+            request.status = 'COMPLETED';
             request.updated_at = new Date().toISOString();
+            try {
+                await query(`UPDATE public.petty_cash_requests 
+           SET status = 'COMPLETED', updated_at = NOW() 
+           WHERE id = $1`, [request.id]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB update request status fallback:', dbErr);
+            }
+            try {
+                await query(`INSERT INTO public.petty_cash_disbursements (
+            id, disbursement_number, company_id, request_id, account_id,
+            disbursed_by_id, disbursed_by_name, disbursed_amount, payment_mode,
+            payment_date, payment_reference, remarks, payment_proof_url, status, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'DISBURSED', NOW())`, [
+                    disbursement.id, disbursement.disbursement_number, disbursement.company_id,
+                    disbursement.request_id, disbursement.account_id, disbursement.disbursed_by_id,
+                    disbursement.disbursed_by_name, disbursement.disbursed_amount, disbursement.payment_mode,
+                    disbursement.payment_date, disbursement.payment_reference, disbursement.remarks,
+                    disbursement.payment_proof_url
+                ]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB insert disbursement fallback:', dbErr);
+            }
             this.disbursements.set(id, disbursement);
             this.requests.set(request.id, request);
             return disbursement;
         });
     }
     async getDisbursements(companyId, filters) {
+        try {
+            const res = await query(`SELECT * FROM public.petty_cash_disbursements WHERE company_id = $1 ORDER BY created_at DESC`, [companyId || 'company-a']);
+            if (res && res.rows) {
+                for (const row of res.rows) {
+                    const d = {
+                        id: row.id,
+                        disbursement_number: row.disbursement_number,
+                        company_id: row.company_id,
+                        request_id: row.request_id,
+                        account_id: row.account_id,
+                        disbursed_by_id: row.disbursed_by_id,
+                        disbursed_by_name: row.disbursed_by_name,
+                        disbursed_amount: Number(row.disbursed_amount),
+                        payment_mode: row.payment_mode,
+                        payment_date: row.payment_date instanceof Date ? row.payment_date.toISOString().slice(0, 10) : String(row.payment_date || ''),
+                        payment_reference: row.payment_reference,
+                        remarks: row.remarks,
+                        payment_proof_url: row.payment_proof_url,
+                        status: row.status,
+                        created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+                    };
+                    this.disbursements.set(d.id, d);
+                }
+            }
+        }
+        catch (dbErr) {
+            console.warn('[PettyCashRepository] DB getDisbursements fallback:', dbErr);
+        }
         const list = [];
         for (const d of this.disbursements.values()) {
             if (d.company_id === (companyId || 'company-a')) {
@@ -665,6 +881,30 @@ export class PettyCashRepository {
     // 6. LEDGER TRANSACTIONS & AUDIT TRAIL
     // ============================================================
     async getLedger(companyId, accountId, limit = 100) {
+        try {
+            const res = await query(`SELECT * FROM public.petty_cash_ledger WHERE company_id = $1 ORDER BY created_at DESC LIMIT $2`, [companyId || 'company-a', limit]);
+            if (res && res.rows && res.rows.length > 0) {
+                return res.rows.map(row => ({
+                    id: row.id,
+                    company_id: row.company_id,
+                    account_id: row.account_id,
+                    transaction_type: row.transaction_type,
+                    reference_type: row.reference_type,
+                    reference_id: row.reference_id,
+                    amount: Number(row.amount),
+                    balance_before: Number(row.balance_before),
+                    balance_after: Number(row.balance_after),
+                    description: row.description,
+                    idempotency_key: row.idempotency_key,
+                    created_by_id: row.created_by_id,
+                    created_by_name: row.created_by_name,
+                    created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+                }));
+            }
+        }
+        catch (dbErr) {
+            console.warn('[PettyCashRepository] DB getLedger fallback:', dbErr);
+        }
         let list = this.ledger.filter(l => l.company_id === (companyId || 'company-a'));
         if (accountId) {
             list = list.filter(l => l.account_id === accountId);

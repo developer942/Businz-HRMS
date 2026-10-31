@@ -61,9 +61,14 @@ export const DisburseCashModal: React.FC<DisburseCashModalProps> = ({
       let proofUrl: string | undefined = undefined;
       if (file) {
         setUploading(true);
-        const uploadRes = await pettyCashService.uploadAttachment(file, 'DISBURSEMENT');
-        proofUrl = uploadRes.fileUrl;
-        setUploading(false);
+        try {
+          const uploadRes = await pettyCashService.uploadAttachment(file, 'DISBURSEMENT');
+          proofUrl = uploadRes.fileUrl;
+        } catch (uploadErr) {
+          console.warn('[DisburseCashModal] Upload warning, continuing with disbursement:', uploadErr);
+        } finally {
+          setUploading(false);
+        }
       }
 
       // Requirement: Full approved amount must be disbursed

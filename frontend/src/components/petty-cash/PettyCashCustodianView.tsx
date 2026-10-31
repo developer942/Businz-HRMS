@@ -415,7 +415,7 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                   ) : (
                     paginatedRequests.map((req) => {
                       const matchingDisbursement = disbursements.find(
-                        (d) => d.request_id === req.id && d.status === 'PENDING_RECEIPT'
+                        (d) => d.request_id === req.id && (d.status === 'PENDING_RECEIPT' || d.status === 'DISBURSED' || d.status === 'CONFIRMED')
                       );
                       return (
                         <tr key={req.id}>
@@ -449,14 +449,14 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                             {req.ceo_remarks || '—'}
                           </td>
                           <td>
-                            {matchingDisbursement ? (
+                            {matchingDisbursement && matchingDisbursement.status === 'PENDING_RECEIPT' ? (
                               <button
                                 className="btn-primary btn-sm"
                                 onClick={() => onOpenConfirmReceiptModal(matchingDisbursement)}
                               >
                                 Confirm Receipt
                               </button>
-                            ) : req.status === 'COMPLETED' ? (
+                            ) : req.status === 'COMPLETED' || req.status === 'DISBURSED_PENDING_RECEIPT' || (matchingDisbursement && matchingDisbursement.status !== 'DISPUTED') ? (
                               <span style={{ fontSize: '0.8rem', color: '#16A34A', fontWeight: 600 }}>
                                 <CheckCircle2 size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
                                 Credited

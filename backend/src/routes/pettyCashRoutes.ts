@@ -156,3 +156,11 @@ pettyCashRouter.get(
   '/dashboards/custodian',
   (req, res, next) => pettyCashController.getCustodianDashboard(req, res, next)
 );
+
+// ============================================================
+// 9. File Attachments Upload
+// ============================================================
+pettyCashRouter.post(
+  '/attachments/upload',
+  (req, res, next) => pettyCashController.uploadAttachment(req, res, next)
+);

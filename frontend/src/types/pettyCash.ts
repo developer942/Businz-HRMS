@@ -37,9 +37,12 @@ export interface PettyCashRequest {
   company_id: string;
   account_id: string;
   request_number: string;
-  custodian_id: string;
-  custodian_name: string;
-  custodian_employee_id: string;
+  custodian_id?: string;
+  custodian_name?: string;
+  custodian_employee_id?: string;
+  employee_id?: string;
+  employee_name?: string;
+  employee_code?: string;
   requested_amount: number;
   approved_amount?: number;
   purpose: string;
@@ -54,7 +57,7 @@ export interface PettyCashRequest {
   updated_at: string;
 }
 
-export type PettyCashDisbursementStatus = 'PENDING_RECEIPT' | 'CONFIRMED' | 'DISPUTED';
+export type PettyCashDisbursementStatus = 'PENDING_RECEIPT' | 'DISBURSED' | 'CONFIRMED' | 'DISPUTED';
 export type PaymentMode = 'Cash' | 'Bank Transfer' | 'UPI' | 'Cheque' | 'Card' | 'Other';
 
 export interface PettyCashDisbursement {

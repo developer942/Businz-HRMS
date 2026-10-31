@@ -134,6 +134,7 @@ export interface PettyCashExpense {
 
 export type LedgerTransactionType = 'CREDIT' | 'DEBIT' | 'REVERSAL' | 'ADJUSTMENT';
 export type LedgerReferenceType = 
+  | 'DISBURSEMENT'
   | 'RECEIPT_CONFIRMATION'
   | 'EXPENSE_RECORD'
   | 'EXPENSE_REVERSAL'
