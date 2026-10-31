@@ -567,20 +567,6 @@ export const PayrollManagement: React.FC = () => {
           )}
           {canMarkPaid && (
             <>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px',
-                borderRadius: '10px',
-                backgroundColor: '#ECFEFF',
-                border: '1px solid #A5F3FC',
-                color: '#0E7490',
-                fontSize: '0.82rem',
-                fontWeight: 700
-              }}>
-                <ShieldCheck size={16} /> Accounts Payout Access • All Employees
-              </div>
               <button
                 type="button"
                 className="btn btn-primary"

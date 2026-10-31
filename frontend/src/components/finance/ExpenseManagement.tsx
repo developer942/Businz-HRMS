@@ -487,23 +487,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Accounts Department Disbursal Access Indicator */}
-          {isAccountsUser && !isApprovalAuthority && (
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 14px',
-              borderRadius: '10px',
-              backgroundColor: '#ECFEFF',
-              border: '1px solid #A5F3FC',
-              color: '#0E7490',
-              fontSize: '0.82rem',
-              fontWeight: 700
-            }}>
-              <ShieldCheck size={16} /> Accounts Payout Access • Pays claims approved by HR / CEO
-            </div>
-          )}
+
 
           {/* Export Dropdown for Accounts and HR/CEO */}
           {!isEmployeeRole && (
