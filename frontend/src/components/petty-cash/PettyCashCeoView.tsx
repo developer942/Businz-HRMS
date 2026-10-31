@@ -107,7 +107,13 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
 
   const currentBalance = Number(activeAccount?.current_balance || 0);
   const totalReceived = Number(activeAccount?.total_cash_received || 0);
-  const totalSpent = Number(activeAccount?.total_spent || 0);
+
+  const computedTotalSpent = expenses
+    .filter((e) => !e.is_reversed && e.status !== 'REVERSED')
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const totalSpent = activeAccount?.total_spent != null && Number(activeAccount.total_spent) > 0
+    ? Number(activeAccount.total_spent)
+    : computedTotalSpent;
   const isLowBalance =
     activeAccount &&
     currentBalance > 0 &&

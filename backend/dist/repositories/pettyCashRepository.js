@@ -49,7 +49,12 @@ export class PettyCashRepository {
     // ============================================================
     async getActiveAccount(companyId) {
         try {
-            const res = await query(`SELECT * FROM public.petty_cash_accounts WHERE company_id = $1 AND status = 'ACTIVE' LIMIT 1`, [companyId || 'company-a']);
+            const res = await query(`SELECT 
+           a.*,
+           COALESCE((SELECT SUM(d.disbursed_amount) FROM public.petty_cash_disbursements d WHERE d.account_id = a.id AND d.status IN ('DISBURSED', 'CONFIRMED')), 0) AS total_cash_received,
+           COALESCE((SELECT SUM(e.amount) FROM public.petty_cash_expenses e WHERE e.account_id = a.id AND e.is_reversed = false), 0) AS total_spent
+         FROM public.petty_cash_accounts a 
+         WHERE a.company_id = $1 AND a.status = 'ACTIVE' LIMIT 1`, [companyId || 'company-a']);
             if (res && res.rows && res.rows[0]) {
                 const data = res.rows[0];
                 const acc = {
@@ -63,6 +68,8 @@ export class PettyCashRepository {
                     assignment_date: data.assignment_date instanceof Date ? data.assignment_date.toISOString().slice(0, 10) : String(data.assignment_date || ''),
                     status: data.status,
                     current_balance: Number(data.current_balance),
+                    total_cash_received: Number(data.total_cash_received || 0),
+                    total_spent: Number(data.total_spent || 0),
                     low_balance_threshold: Number(data.low_balance_threshold),
                     reconciliation_status: data.reconciliation_status || 'NONE',
                     reconciliation_notes: data.reconciliation_notes,
@@ -119,11 +126,13 @@ export class PettyCashRepository {
         return null;
     }
     async getAccountById(accountId) {
-        const acc = this.accounts.get(accountId);
-        if (acc)
-            return acc;
         try {
-            const res = await query(`SELECT * FROM public.petty_cash_accounts WHERE id = $1 LIMIT 1`, [accountId]);
+            const res = await query(`SELECT 
+           a.*,
+           COALESCE((SELECT SUM(d.disbursed_amount) FROM public.petty_cash_disbursements d WHERE d.account_id = a.id AND d.status IN ('DISBURSED', 'CONFIRMED')), 0) AS total_cash_received,
+           COALESCE((SELECT SUM(e.amount) FROM public.petty_cash_expenses e WHERE e.account_id = a.id AND e.is_reversed = false), 0) AS total_spent
+         FROM public.petty_cash_accounts a 
+         WHERE a.id = $1 LIMIT 1`, [accountId]);
             if (res && res.rows && res.rows[0]) {
                 const data = res.rows[0];
                 const mapped = {
@@ -137,6 +146,8 @@ export class PettyCashRepository {
                     assignment_date: data.assignment_date instanceof Date ? data.assignment_date.toISOString().slice(0, 10) : String(data.assignment_date || ''),
                     status: data.status,
                     current_balance: Number(data.current_balance),
+                    total_cash_received: Number(data.total_cash_received || 0),
+                    total_spent: Number(data.total_spent || 0),
                     low_balance_threshold: Number(data.low_balance_threshold),
                     reconciliation_status: data.reconciliation_status || 'NONE',
                     reconciliation_notes: data.reconciliation_notes,
@@ -150,6 +161,9 @@ export class PettyCashRepository {
         catch (err) {
             console.warn('[PettyCashRepository] getAccountById direct DB fallback:', err);
         }
+        const acc = this.accounts.get(accountId);
+        if (acc)
+            return acc;
         if (isRealSupabaseConfigured()) {
             try {
                 const supabase = getSupabaseAdmin();
@@ -804,15 +818,23 @@ export class PettyCashRepository {
             const balanceAfter = currentBalance.minus(expenseAmount);
             account.current_balance = balanceAfter.toNumber();
             account.updated_at = new Date().toISOString();
+            let expenseNumber = `PCX-${new Date().getFullYear()}-0001`;
+            try {
+                const countRes = await query(`SELECT COUNT(*) as count FROM public.petty_cash_expenses WHERE company_id = $1`, [account.company_id]);
+                const count = (parseInt(countRes?.rows?.[0]?.count || '0', 10)) + 1;
+                expenseNumber = `PCX-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+            }
+            catch (e) {
+                const count = this.expenses.size + 1;
+                expenseNumber = `PCX-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+            }
             const expenseId = params.idempotencyKey || crypto.randomUUID();
-            const count = this.expenses.size + 1;
-            const expenseNumber = `PCX-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
             const expense = {
                 id: expenseId,
                 expense_number: expenseNumber,
                 company_id: account.company_id,
                 account_id: account.id,
-                custodian_id: params.custodianId,
+                custodian_id: account.custodian_id,
                 custodian_name: params.custodianName,
                 category_id: params.categoryId,
                 category_name: params.categoryName,
@@ -839,17 +861,144 @@ export class PettyCashRepository {
                 balance_after: balanceAfter.toNumber(),
                 description: `Daily expense: ${params.categoryName} - ${params.reason}`,
                 idempotency_key: `LEDGER-DR-${expenseId}`,
-                created_by_id: params.custodianId,
+                created_by_id: account.custodian_id,
                 created_by_name: params.custodianName,
                 created_at: new Date().toISOString(),
             };
             this.expenses.set(expenseId, expense);
             this.accounts.set(account.id, account);
             this.ledger.unshift(ledgerEntry);
+            // Persist balance deduction to DB
+            try {
+                await query(`UPDATE public.petty_cash_accounts 
+           SET current_balance = $1, updated_at = NOW() 
+           WHERE id = $2`, [balanceAfter.toNumber(), account.id]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB update account balance fallback:', dbErr);
+            }
+            // Persist expense to DB
+            try {
+                await query(`INSERT INTO public.petty_cash_expenses (
+            id, expense_number, company_id, account_id, custodian_id, custodian_name,
+            category_id, category_name, amount, expense_date, reason, payment_mode,
+            bill_attachment_url, status, is_reversed, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+          ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`, [
+                    expense.id,
+                    expense.expense_number,
+                    expense.company_id,
+                    expense.account_id,
+                    account.custodian_id,
+                    expense.custodian_name,
+                    expense.category_id,
+                    expense.category_name,
+                    expense.amount,
+                    expense.expense_date,
+                    expense.reason,
+                    expense.payment_mode,
+                    expense.bill_attachment_url || null,
+                    expense.status,
+                    expense.is_reversed,
+                ]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB insert expense fallback:', dbErr);
+            }
+            // Persist debit ledger entry to DB
+            try {
+                await query(`INSERT INTO public.petty_cash_ledger (
+            id, company_id, account_id, transaction_type, reference_type,
+            reference_id, amount, balance_before, balance_after,
+            description, idempotency_key, created_by_id, created_by_name, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+          ON CONFLICT (idempotency_key) DO NOTHING`, [
+                    ledgerEntry.id,
+                    ledgerEntry.company_id,
+                    ledgerEntry.account_id,
+                    ledgerEntry.transaction_type,
+                    ledgerEntry.reference_type,
+                    ledgerEntry.reference_id,
+                    ledgerEntry.amount,
+                    ledgerEntry.balance_before,
+                    ledgerEntry.balance_after,
+                    ledgerEntry.description,
+                    ledgerEntry.idempotency_key,
+                    account.custodian_id,
+                    ledgerEntry.created_by_name,
+                ]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB insert ledger debit fallback:', dbErr);
+            }
             return { expense, newBalance: account.current_balance };
         });
     }
     async getExpenses(companyId, filters) {
+        try {
+            let q = `SELECT * FROM public.petty_cash_expenses WHERE company_id = $1`;
+            const params = [companyId || 'company-a'];
+            let paramIdx = 2;
+            if (filters?.accountId) {
+                q += ` AND account_id = $${paramIdx++}`;
+                params.push(filters.accountId);
+            }
+            if (filters?.categoryId) {
+                q += ` AND category_id = $${paramIdx++}`;
+                params.push(filters.categoryId);
+            }
+            if (filters?.status) {
+                q += ` AND status = $${paramIdx++}`;
+                params.push(filters.status);
+            }
+            if (filters?.startDate) {
+                q += ` AND expense_date >= $${paramIdx++}`;
+                params.push(filters.startDate);
+            }
+            if (filters?.endDate) {
+                q += ` AND expense_date <= $${paramIdx++}`;
+                params.push(filters.endDate);
+            }
+            q += ` ORDER BY expense_date DESC, created_at DESC`;
+            const res = await query(q, params);
+            if (res && res.rows && res.rows.length > 0) {
+                const rows = res.rows.map((row) => {
+                    const exp = {
+                        id: row.id,
+                        expense_number: row.expense_number,
+                        company_id: row.company_id,
+                        account_id: row.account_id,
+                        custodian_id: row.custodian_id,
+                        custodian_name: row.custodian_name,
+                        category_id: row.category_id,
+                        category_name: row.category_name,
+                        amount: Number(row.amount),
+                        expense_date: row.expense_date instanceof Date ? row.expense_date.toISOString().slice(0, 10) : String(row.expense_date || ''),
+                        reason: row.reason,
+                        payment_mode: row.payment_mode,
+                        bill_attachment_url: row.bill_attachment_url,
+                        status: row.status,
+                        flag_reason: row.flag_reason,
+                        flagged_by_id: row.flagged_by_id,
+                        flagged_by_name: row.flagged_by_name,
+                        flagged_at: row.flagged_at ? new Date(row.flagged_at).toISOString() : undefined,
+                        is_reversed: Boolean(row.is_reversed),
+                        reversed_at: row.reversed_at ? new Date(row.reversed_at).toISOString() : undefined,
+                        reversed_by_id: row.reversed_by_id,
+                        reversed_by_name: row.reversed_by_name,
+                        reversal_reason: row.reversal_reason,
+                        created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+                        updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+                    };
+                    this.expenses.set(exp.id, exp);
+                    return exp;
+                });
+                return rows;
+            }
+        }
+        catch (err) {
+            console.warn('[PettyCashRepository] getExpenses DB query fallback:', err);
+        }
         const list = [];
         for (const exp of this.expenses.values()) {
             if (exp.company_id === (companyId || 'company-a')) {
@@ -869,7 +1018,48 @@ export class PettyCashRepository {
         return list.sort((a, b) => new Date(b.expense_date).getTime() - new Date(a.expense_date).getTime());
     }
     async getExpenseById(id) {
-        return this.expenses.get(id) || null;
+        const mem = this.expenses.get(id);
+        if (mem)
+            return mem;
+        try {
+            const res = await query(`SELECT * FROM public.petty_cash_expenses WHERE id = $1 LIMIT 1`, [id]);
+            if (res && res.rows && res.rows[0]) {
+                const row = res.rows[0];
+                const exp = {
+                    id: row.id,
+                    expense_number: row.expense_number,
+                    company_id: row.company_id,
+                    account_id: row.account_id,
+                    custodian_id: row.custodian_id,
+                    custodian_name: row.custodian_name,
+                    category_id: row.category_id,
+                    category_name: row.category_name,
+                    amount: Number(row.amount),
+                    expense_date: row.expense_date instanceof Date ? row.expense_date.toISOString().slice(0, 10) : String(row.expense_date || ''),
+                    reason: row.reason,
+                    payment_mode: row.payment_mode,
+                    bill_attachment_url: row.bill_attachment_url,
+                    status: row.status,
+                    flag_reason: row.flag_reason,
+                    flagged_by_id: row.flagged_by_id,
+                    flagged_by_name: row.flagged_by_name,
+                    flagged_at: row.flagged_at ? new Date(row.flagged_at).toISOString() : undefined,
+                    is_reversed: Boolean(row.is_reversed),
+                    reversed_at: row.reversed_at ? new Date(row.reversed_at).toISOString() : undefined,
+                    reversed_by_id: row.reversed_by_id,
+                    reversed_by_name: row.reversed_by_name,
+                    reversal_reason: row.reversal_reason,
+                    created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+                    updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+                };
+                this.expenses.set(exp.id, exp);
+                return exp;
+            }
+        }
+        catch (err) {
+            console.warn('[PettyCashRepository] getExpenseById DB query fallback:', err);
+        }
+        return null;
     }
     async reverseExpense(params) {
         return this.acquireLock(async () => {
@@ -906,13 +1096,56 @@ export class PettyCashRepository {
                 balance_before: balanceBefore.toNumber(),
                 balance_after: balanceAfter.toNumber(),
                 description: `Reversal of expense ${expense.expense_number} (${expense.category_name}): ${params.reversalReason}`,
-                created_by_id: params.reversedById,
+                created_by_id: account.custodian_id,
                 created_by_name: params.reversedByName,
                 created_at: new Date().toISOString(),
             };
             this.expenses.set(expense.id, expense);
             this.accounts.set(account.id, account);
             this.ledger.unshift(ledgerEntry);
+            // Persist to PostgreSQL
+            try {
+                await query(`UPDATE public.petty_cash_accounts 
+           SET current_balance = $1, updated_at = NOW() 
+           WHERE id = $2`, [balanceAfter.toNumber(), account.id]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB reverse balance fallback:', dbErr);
+            }
+            try {
+                await query(`UPDATE public.petty_cash_expenses 
+           SET is_reversed = true, status = 'REVERSED', reversed_at = NOW(), 
+               reversed_by_id = $1, reversed_by_name = $2, reversal_reason = $3, updated_at = NOW() 
+           WHERE id = $4`, [account.custodian_id, params.reversedByName, params.reversalReason, expense.id]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB update reversed expense fallback:', dbErr);
+            }
+            try {
+                await query(`INSERT INTO public.petty_cash_ledger (
+            id, company_id, account_id, transaction_type, reference_type,
+            reference_id, amount, balance_before, balance_after,
+            description, idempotency_key, created_by_id, created_by_name, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+          ON CONFLICT DO NOTHING`, [
+                    ledgerEntry.id,
+                    ledgerEntry.company_id,
+                    ledgerEntry.account_id,
+                    ledgerEntry.transaction_type,
+                    ledgerEntry.reference_type,
+                    ledgerEntry.reference_id,
+                    ledgerEntry.amount,
+                    ledgerEntry.balance_before,
+                    ledgerEntry.balance_after,
+                    ledgerEntry.description,
+                    `LEDGER-REV-${expense.id}`,
+                    account.custodian_id,
+                    params.reversedByName,
+                ]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB insert reversal ledger fallback:', dbErr);
+            }
             return { expense, newBalance: account.current_balance };
         });
     }
@@ -927,6 +1160,15 @@ export class PettyCashRepository {
         expense.flagged_at = new Date().toISOString();
         expense.updated_at = new Date().toISOString();
         this.expenses.set(expense.id, expense);
+        try {
+            await query(`UPDATE public.petty_cash_expenses 
+         SET status = 'FLAGGED', flag_reason = $1, flagged_by_id = $2, 
+             flagged_by_name = $3, flagged_at = NOW(), updated_at = NOW() 
+         WHERE id = $4`, [params.flagReason, params.flaggedById, params.flaggedByName, expense.id]);
+        }
+        catch (dbErr) {
+            console.warn('[PettyCashRepository] DB flag expense fallback:', dbErr);
+        }
         return expense;
     }
     // ============================================================

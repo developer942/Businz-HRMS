@@ -123,6 +123,7 @@ export interface PettyCashExpense {
   reason: string;
   payment_mode: 'Cash' | 'UPI' | 'Card' | 'Other';
   bill_attachment_url?: string;
+  status?: string;
   is_reversed: boolean;
   reversal_reason?: string;
   reversed_by_id?: string;

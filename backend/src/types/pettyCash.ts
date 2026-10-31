@@ -19,6 +19,8 @@ export interface PettyCashAccount {
   assignment_date: string;
   status: PettyCashAccountStatus;
   current_balance: number;
+  total_cash_received?: number;
+  total_spent?: number;
   low_balance_threshold: number;
   reconciliation_status: ReconciliationStatus;
   reconciliation_notes?: string | null;

@@ -54,8 +54,20 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const currentBalance = Number(activeAccount?.current_balance || 0);
-  const totalReceived = Number(activeAccount?.total_cash_received || 0);
-  const totalSpent = Number(activeAccount?.total_spent || 0);
+
+  const computedTotalReceived = disbursements
+    .filter((d) => d.status === 'DISBURSED' || d.status === 'CONFIRMED')
+    .reduce((sum, d) => sum + Number(d.disbursed_amount || 0), 0);
+  const totalReceived = activeAccount?.total_cash_received != null && Number(activeAccount.total_cash_received) > 0
+    ? Number(activeAccount.total_cash_received)
+    : computedTotalReceived;
+
+  const computedTotalSpent = expenses
+    .filter((e) => !e.is_reversed && e.status !== 'REVERSED')
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const totalSpent = activeAccount?.total_spent != null && Number(activeAccount.total_spent) > 0
+    ? Number(activeAccount.total_spent)
+    : computedTotalSpent;
   const lowThreshold = Number(activeAccount?.low_balance_threshold || 1000);
   const isLowBalance = activeAccount && currentBalance <= lowThreshold;
 

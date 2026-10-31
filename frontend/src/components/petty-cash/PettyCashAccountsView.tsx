@@ -80,8 +80,20 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
   };
 
   const currentBalance = Number(activeAccount?.current_balance || 0);
-  const totalAllocated = Number(activeAccount?.total_cash_received || 0);
-  const totalExpenses = Number(activeAccount?.total_spent || 0);
+
+  const computedTotalAllocated = disbursements
+    .filter((d) => d.status === 'DISBURSED' || d.status === 'CONFIRMED')
+    .reduce((sum, d) => sum + Number(d.disbursed_amount || 0), 0);
+  const totalAllocated = activeAccount?.total_cash_received != null && Number(activeAccount.total_cash_received) > 0
+    ? Number(activeAccount.total_cash_received)
+    : computedTotalAllocated;
+
+  const computedTotalExpenses = expenses
+    .filter((e) => !e.is_reversed && e.status !== 'REVERSED')
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const totalExpenses = activeAccount?.total_spent != null && Number(activeAccount.total_spent) > 0
+    ? Number(activeAccount.total_spent)
+    : computedTotalExpenses;
 
   return (
     <div>
