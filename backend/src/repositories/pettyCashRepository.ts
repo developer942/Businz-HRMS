@@ -1037,7 +1037,31 @@ export class PettyCashRepository {
         expenseNumber = `PCX-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
       }
 
-      const expenseId = params.idempotencyKey || crypto.randomUUID();
+      const isUuid = (str?: string): boolean => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+      const expenseId = (params.idempotencyKey && isUuid(params.idempotencyKey)) ? params.idempotencyKey : crypto.randomUUID();
+
+      let finalCatId = params.categoryId;
+      if (!isUuid(finalCatId)) {
+        try {
+          const catRes = await query(
+            `SELECT id FROM public.petty_cash_categories WHERE company_id = $1 AND name ILIKE $2 LIMIT 1`,
+            [account.company_id, params.categoryName || 'Other']
+          );
+          if (catRes && catRes.rows && catRes.rows[0]) {
+            finalCatId = catRes.rows[0].id;
+          } else {
+            const firstCatRes = await query(
+              `SELECT id FROM public.petty_cash_categories WHERE company_id = $1 LIMIT 1`,
+              [account.company_id]
+            );
+            if (firstCatRes && firstCatRes.rows && firstCatRes.rows[0]) {
+              finalCatId = firstCatRes.rows[0].id;
+            }
+          }
+        } catch (catErr) {
+          console.warn('[PettyCashRepository] category resolution error:', catErr);
+        }
+      }
 
       const expense: PettyCashExpense = {
         id: expenseId,
@@ -1046,7 +1070,7 @@ export class PettyCashRepository {
         account_id: account.id,
         custodian_id: account.custodian_id,
         custodian_name: params.custodianName,
-        category_id: params.categoryId,
+        category_id: finalCatId,
         category_name: params.categoryName,
         amount: expenseAmount.toNumber(),
         expense_date: params.expenseDate,
@@ -1071,7 +1095,7 @@ export class PettyCashRepository {
         balance_before: currentBalance.toNumber(),
         balance_after: balanceAfter.toNumber(),
         description: `Daily expense: ${params.categoryName} - ${params.reason}`,
-        idempotency_key: `LEDGER-DR-${expenseId}`,
+        idempotency_key: params.idempotencyKey ? `LEDGER-DR-${params.idempotencyKey}` : `LEDGER-DR-${expenseId}`,
         created_by_id: account.custodian_id,
         created_by_name: params.custodianName,
         created_at: new Date().toISOString(),
@@ -1080,18 +1104,6 @@ export class PettyCashRepository {
       this.expenses.set(expenseId, expense);
       this.accounts.set(account.id, account);
       this.ledger.unshift(ledgerEntry);
-
-      // Persist balance deduction to DB
-      try {
-        await query(
-          `UPDATE public.petty_cash_accounts 
-           SET current_balance = $1, updated_at = NOW() 
-           WHERE id = $2`,
-          [balanceAfter.toNumber(), account.id]
-        );
-      } catch (dbErr) {
-        console.warn('[PettyCashRepository] DB update account balance fallback:', dbErr);
-      }
 
       // Persist expense to DB
       try {
@@ -1109,7 +1121,7 @@ export class PettyCashRepository {
             expense.account_id,
             account.custodian_id,
             expense.custodian_name,
-            expense.category_id,
+            finalCatId,
             expense.category_name,
             expense.amount,
             expense.expense_date,
@@ -1139,7 +1151,7 @@ export class PettyCashRepository {
             ledgerEntry.account_id,
             ledgerEntry.transaction_type,
             ledgerEntry.reference_type,
-            ledgerEntry.reference_id,
+            expenseId,
             ledgerEntry.amount,
             ledgerEntry.balance_before,
             ledgerEntry.balance_after,
@@ -1151,6 +1163,27 @@ export class PettyCashRepository {
         );
       } catch (dbErr) {
         console.warn('[PettyCashRepository] DB insert ledger debit fallback:', dbErr);
+      }
+
+      // Recalculate true balance in DB to ensure zero discrepancy
+      try {
+        const balRes = await query(
+          `UPDATE public.petty_cash_accounts a
+           SET current_balance = (
+             COALESCE((SELECT SUM(d.disbursed_amount) FROM public.petty_cash_disbursements d WHERE d.account_id = a.id AND d.status IN ('DISBURSED', 'CONFIRMED')), 0)
+             -
+             COALESCE((SELECT SUM(e.amount) FROM public.petty_cash_expenses e WHERE e.account_id = a.id AND e.is_reversed = false), 0)
+           ),
+           updated_at = NOW()
+           WHERE a.id = $1
+           RETURNING current_balance`,
+          [account.id]
+        );
+        if (balRes && balRes.rows && balRes.rows[0]) {
+          account.current_balance = Number(balRes.rows[0].current_balance);
+        }
+      } catch (dbErr) {
+        console.warn('[PettyCashRepository] DB update account balance fallback:', dbErr);
       }
 
       return { expense, newBalance: account.current_balance };

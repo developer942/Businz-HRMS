@@ -3906,7 +3906,14 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                 </div>
                 <div className="review-field-box">
                   <div className="review-field-label">Reporting Manager</div>
-                  <div className="review-field-val">{formData.reportingManagerName} ({formData.reportingManagerId})</div>
+                  <div className="review-field-val">
+                    {(() => {
+                      const mgr = employees.find(e => e.id === formData.reportingManagerId || e.employeeId === formData.reportingManagerId);
+                      const code = mgr?.employeeId || (formData.reportingManagerId && !formData.reportingManagerId.includes('-') ? formData.reportingManagerId : '');
+                      const name = formData.reportingManagerName || (mgr ? `${mgr.firstName} ${mgr.lastName}`.trim() : 'Self / Board of Directors');
+                      return code ? `${name} (${code})` : name;
+                    })()}
+                  </div>
                 </div>
                 <div className="review-field-box">
                   <div className="review-field-label">Work Location / Branch</div>

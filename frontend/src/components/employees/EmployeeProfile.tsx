@@ -1985,11 +1985,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           ) : (
             <div style={viewValueStyle}>
               {formData.reportingManagerName || currentEmp.reportingManagerName || (formData.reportingManagerId || currentEmp.reportingManagerId ? 'Reporting Manager' : 'None / Self')}
-              {(formData.reportingManagerId || currentEmp.reportingManagerId) && (
-                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>
-                  ({formData.reportingManagerId || currentEmp.reportingManagerId})
-                </span>
-              )}
+              {(() => {
+                const rawId = formData.reportingManagerId || currentEmp.reportingManagerId;
+                if (!rawId) return null;
+                const mgr = employees.find(e => e.id === rawId || e.employeeId === rawId);
+                const code = mgr?.employeeId || (!rawId.includes('-') ? rawId : '');
+                return code ? (
+                  <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500, marginLeft: '6px' }}>
+                    ({code})
+                  </span>
+                ) : null;
+              })()}
             </div>
           )}
         </div>
@@ -3952,9 +3958,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 ) : (
                   <div style={viewValueStyle}>
                     {formData.reportingManagerName || currentEmp.reportingManagerName || 'Executive Office'}
-                    <span style={{ fontSize: '0.74rem', color: '#64748B', marginLeft: '6px' }}>
-                      ({formData.reportingManagerId || currentEmp.reportingManagerId || 'EMP-001'})
-                    </span>
+                    {(() => {
+                      const rawId = formData.reportingManagerId || currentEmp.reportingManagerId;
+                      if (!rawId) return null;
+                      const mgr = employees.find(e => e.id === rawId || e.employeeId === rawId);
+                      const code = mgr?.employeeId || (!rawId.includes('-') ? rawId : '');
+                      return code ? (
+                        <span style={{ fontSize: '0.74rem', color: '#64748B', marginLeft: '6px' }}>
+                          ({code})
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 )}
               </div>
