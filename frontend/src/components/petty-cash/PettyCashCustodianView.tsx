@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import {
   Wallet,
   Send,
-  PlusCircle,
   ShieldCheck,
   TrendingDown,
   Clock,
@@ -264,20 +263,6 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
               }}
             >
               Fund Requisition History ({requests.length})
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button className="btn-secondary" onClick={onOpenRequestModal}>
-              <Send size={15} /> Request Petty Cash
-            </button>
-            <button
-              className="btn-primary"
-              onClick={onOpenAddExpenseModal}
-              disabled={currentBalance <= 0}
-              title={currentBalance <= 0 ? 'Cannot record expense without available balance' : undefined}
-            >
-              <PlusCircle size={15} /> Add Daily Expense
             </button>
           </div>
         </div>
