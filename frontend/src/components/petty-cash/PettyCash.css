@@ -72,6 +72,7 @@
 
 /* Tabs Navigation */
 .petty-cash-tabs {
+  display: none !important;
   display: flex;
   align-items: center;
   gap: 8px;

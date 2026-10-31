@@ -224,57 +224,6 @@ export const PettyCashManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary Navigation Tabs - Strictly Isolated by Role */}
-      <div className="petty-cash-tabs">
-        {/* 1. CEO View: Only visible to CEO / Super Admin */}
-        {isCEO && (
-          <button
-            className={`petty-cash-tab-btn ${activeTab === 'CEO_DASHBOARD' ? 'active' : ''}`}
-            onClick={() => setActiveTab('CEO_DASHBOARD')}
-          >
-            <UserCheck size={16} /> CEO Executive Desk
-            {requests.filter((r) => r.status === 'PENDING_CEO_APPROVAL').length > 0 && (
-              <span className="tab-badge">
-                {requests.filter((r) => r.status === 'PENDING_CEO_APPROVAL').length}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* 2. Accounts View: Only visible to Accounts / Finance staff */}
-        {isAccounts && !isCEO && (
-          <button
-            className={`petty-cash-tab-btn ${activeTab === 'ACCOUNTS_DISBURSEMENTS' ? 'active' : ''}`}
-            onClick={() => setActiveTab('ACCOUNTS_DISBURSEMENTS')}
-          >
-            <CreditCard size={16} /> Accounts Disbursements
-            {requests.filter((r) => r.status === 'APPROVED_BY_CEO').length > 0 && (
-              <span className="tab-badge" style={{ background: '#CFFAFE', color: '#0E7490' }}>
-                {requests.filter((r) => r.status === 'APPROVED_BY_CEO').length}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* 3. Custodian View: Only visible to the assigned Custodian employee */}
-        {isCustodian && !isCEO && !isAccounts && (
-          <button
-            className={`petty-cash-tab-btn ${activeTab === 'CUSTODIAN_DESK' ? 'active' : ''}`}
-            onClick={() => setActiveTab('CUSTODIAN_DESK')}
-          >
-            <Wallet size={16} /> Custodian Desk
-          </button>
-        )}
-
-        {/* 4. General Ledger & Reports: Available for authorized roles */}
-        <button
-          className={`petty-cash-tab-btn ${activeTab === 'LEDGER_REPORTS' ? 'active' : ''}`}
-          onClick={() => setActiveTab('LEDGER_REPORTS')}
-        >
-          <FileSpreadsheet size={16} /> General Ledger & Reports
-        </button>
-      </div>
-
       {/* Main Tab Views */}
       {activeTab === 'CEO_DASHBOARD' && (
         <PettyCashCeoView
