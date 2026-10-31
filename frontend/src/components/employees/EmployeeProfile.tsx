@@ -3004,22 +3004,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           )}
         </div>
 
-        <div>
-          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            SALARY EFFECTIVE FROM
-          </div>
-          {isEditing ? (
-            <div style={{ display: 'grid', gap: '6px', marginTop: '4px' }}>
-              <DateInput value={formData.salaryEffectiveFrom} onChange={(value) => handleChange('salaryEffectiveFrom', value)} style={inputStyle} />
-              <input value={formData.salaryRevisionReason} onChange={(e) => handleChange('salaryRevisionReason', e.target.value)}
-                placeholder="Revision reason" maxLength={250} style={inputStyle} />
-            </div>
-          ) : (
-            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#0F172A', marginTop: '6px' }}>
-              {formatDateDDMMYYYY(formData.salaryEffectiveFrom)}
-            </div>
-          )}
-        </div>
 
         <div>
           <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -3449,31 +3433,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           )}
         </div>
 
-        <div>
-          <label style={labelStyle}>Shift / Weekly Off Effective From</label>
-          {isEditing ? (
-            <DateInput value={formData.shiftEffectiveFrom} onChange={(value) => handleChange('shiftEffectiveFrom', value)} style={inputStyle} />
-          ) : (
-            <div style={viewValueStyle}>{formatDateDDMMYYYY(formData.shiftEffectiveFrom)}</div>
-          )}
-        </div>
-
-        <div>
-          <label style={labelStyle}>Weekly Off Schedule</label>
-          {isEditing ? (
-            <select
-              value={formData.weeklyOff}
-              onChange={(e) => handleChange('weeklyOff', e.target.value)}
-              style={selectStyle}
-            >
-              {weeklySchedules.map(w => (
-                <option key={w.id} value={w.name}>{w.name}</option>
-              ))}
-            </select>
-          ) : (
-            <div style={viewValueStyle}>{formData.weeklyOff}</div>
-          )}
-        </div>
 
         <div>
           <label style={labelStyle}>GPS Remote Punch Permission</label>
