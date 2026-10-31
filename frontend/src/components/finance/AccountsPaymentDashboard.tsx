@@ -19,7 +19,6 @@ import {
   Wallet, 
   Search, 
   ArrowUpRight, 
-  ShieldCheck, 
   FileText, 
   X, 
   RefreshCw,
@@ -424,33 +423,6 @@ export const AccountsPaymentDashboard: React.FC = () => {
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button 
-              type="button" 
-              onClick={fetchPettyCashRequests} 
-              className="btn btn-secondary"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem' }}
-              title="Refresh Queue"
-            >
-              <RefreshCw size={15} className={isLoadingPettyCash ? 'spin' : ''} />
-              <span>Refresh</span>
-            </button>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              backgroundColor: '#F0FDF4',
-              border: '1px solid #BBF7D0',
-              borderRadius: '9999px',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              color: '#15803D'
-            }}>
-              <ShieldCheck size={14} />
-              <span>CEO Approval Enforced</span>
-            </div>
-          </div>
         </div>
       </div>
 
