@@ -25,7 +25,6 @@ import {
   Pin,
   PinOff,
   X,
-  Contact2,
   MessageSquare,
   Receipt,
   ChevronRight,
@@ -197,7 +196,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'WORKFLOW & OPS' },
     { id: 'tracking', label: 'Tracking', icon: MapPin, section: 'WORKFLOW & OPS' },
-    { id: 'customer_data', label: 'Customer Data Collection', icon: Contact2, section: 'WORKFLOW & OPS' },
     { id: 'whatsapp_crm', label: 'WhatsApp CRM', icon: MessageSquare, section: 'WORKFLOW & OPS' },
     { 
       id: 'performance', 
@@ -321,7 +319,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Accounts role: Normal employee features + payment disbursement desk.
     // STRICTLY NO access to Employee Directory, Attendance Management, Executive Reports, HRMS Settings, Customer Data, or WhatsApp CRM
     if (isAccountsStaff && !isCEO) {
-      if (['employees', 'attendance', 'reports', 'settings', 'customer_data', 'whatsapp_crm'].includes(item.id)) {
+      if (['employees', 'attendance', 'reports', 'settings', 'whatsapp_crm'].includes(item.id)) {
         return false;
       }
     }

@@ -5752,6 +5752,7 @@ div[style*="overflow-x: auto"] {
 }
 
 .customer-header-card {
+  display: none !important;
   background-color: #FFFFFF;
   border-radius: 16px;
   padding: 24px 28px;
@@ -5847,6 +5848,7 @@ div[style*="overflow-x: auto"] {
   }
 
   .customer-header-card {
+  display: none !important;
     padding: 14px 14px !important;
     border-radius: 14px !important;
     flex-direction: column !important;
