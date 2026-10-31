@@ -454,6 +454,8 @@ export class PettyCashRepository {
             employee_id: row.employee_id,
             employee_name: row.employee_name,
             employee_code: row.employee_code,
+            custodian_name: row.employee_name,
+            custodian_employee_id: row.employee_code,
             requested_amount: Number(row.requested_amount),
             approved_amount: row.approved_amount ? Number(row.approved_amount) : undefined,
             request_date: row.request_date instanceof Date ? row.request_date.toISOString().slice(0, 10) : String(row.request_date || ''),
@@ -486,7 +488,46 @@ export class PettyCashRepository {
   }
 
   async getRequestById(id: string): Promise<PettyCashRequest | null> {
-    return this.requests.get(id) || null;
+    let req = this.requests.get(id);
+    if (req) return req;
+
+    try {
+      const res = await query(
+        `SELECT * FROM public.petty_cash_requests WHERE id = $1 LIMIT 1`,
+        [id]
+      );
+      if (res && res.rows && res.rows.length > 0) {
+        const row = res.rows[0];
+        const r: PettyCashRequest = {
+          id: row.id,
+          request_number: row.request_number,
+          company_id: row.company_id,
+          account_id: row.account_id,
+          employee_id: row.employee_id,
+          employee_name: row.employee_name,
+          employee_code: row.employee_code,
+          custodian_name: row.employee_name,
+          custodian_employee_id: row.employee_code,
+          requested_amount: Number(row.requested_amount),
+          approved_amount: row.approved_amount ? Number(row.approved_amount) : undefined,
+          request_date: row.request_date instanceof Date ? row.request_date.toISOString().slice(0, 10) : String(row.request_date || ''),
+          purpose: row.purpose,
+          status: row.status,
+          ceo_id: row.ceo_id,
+          ceo_name: row.ceo_name,
+          ceo_action_at: row.ceo_action_at ? new Date(row.ceo_action_at).toISOString() : undefined,
+          ceo_remarks: row.ceo_remarks,
+          supporting_document_url: row.supporting_document_url,
+          created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+          updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+        };
+        this.requests.set(r.id, r);
+        return r;
+      }
+    } catch (err) {
+      console.warn('[PettyCashRepository] DB getRequestById fallback:', err);
+    }
+    return null;
   }
 
   async approveRequest(params: {
@@ -511,13 +552,16 @@ export class PettyCashRepository {
     req.ceo_action_at = new Date().toISOString();
     req.updated_at = new Date().toISOString();
 
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ceoDbId = isUuid.test(req.ceo_id || '') ? req.ceo_id : null;
+
     try {
       await query(
         `UPDATE public.petty_cash_requests 
          SET status = 'APPROVED_BY_CEO', approved_amount = $1, ceo_id = $2, ceo_name = $3, 
              ceo_remarks = $4, ceo_action_at = NOW(), updated_at = NOW() 
          WHERE id = $5`,
-        [req.approved_amount, req.ceo_id, req.ceo_name, req.ceo_remarks, req.id]
+        [req.approved_amount, ceoDbId, req.ceo_name, req.ceo_remarks, req.id]
       );
     } catch (dbErr) {
       console.warn('[PettyCashRepository] DB approveRequest fallback:', dbErr);
@@ -543,9 +587,24 @@ export class PettyCashRepository {
     req.status = 'REJECTED_BY_CEO';
     req.ceo_id = params.ceoId;
     req.ceo_name = params.ceoName;
-    req.ceo_remarks = params.remarks;
+    req.ceo_remarks = params.remarks || 'Rejected by CEO';
     req.ceo_action_at = new Date().toISOString();
     req.updated_at = new Date().toISOString();
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ceoDbId = isUuid.test(req.ceo_id || '') ? req.ceo_id : null;
+
+    try {
+      await query(
+        `UPDATE public.petty_cash_requests 
+         SET status = 'REJECTED_BY_CEO', ceo_id = $1, ceo_name = $2, 
+             ceo_remarks = $3, ceo_action_at = NOW(), updated_at = NOW() 
+         WHERE id = $4`,
+        [ceoDbId, req.ceo_name, req.ceo_remarks, req.id]
+      );
+    } catch (dbErr) {
+      console.warn('[PettyCashRepository] DB rejectRequest fallback:', dbErr);
+    }
 
     this.requests.set(req.id, req);
     return req;

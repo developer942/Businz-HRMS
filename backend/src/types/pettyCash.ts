@@ -54,6 +54,8 @@ export interface PettyCashRequest {
   employee_id: string;
   employee_name: string;
   employee_code: string;
+  custodian_name?: string | null;
+  custodian_employee_id?: string | null;
   requested_amount: number;
   approved_amount?: number | null;
   request_date: string;

@@ -136,8 +136,8 @@ export const DisburseCashModal: React.FC<DisburseCashModalProps> = ({
             >
               <div>
                 <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>CUSTODIAN BENEFICIARY</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#14532D' }}>{request.custodian_name}</div>
-                <div style={{ fontSize: '0.75rem', color: '#166534' }}>ID: {request.custodian_employee_id}</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#14532D' }}>{request.custodian_name || request.employee_name || 'Assigned Custodian'}</div>
+                <div style={{ fontSize: '0.75rem', color: '#166534' }}>ID: {request.custodian_employee_id || request.employee_code || ''}</div>
               </div>
 
               <div>

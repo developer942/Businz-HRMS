@@ -50,16 +50,12 @@ export const CeoApprovalModal: React.FC<CeoApprovalModalProps> = ({
         return;
       }
 
-      if (action === 'REJECT' && !remarks.trim()) {
-        setError('Please enter rejection remarks explaining the rationale.');
-        setLoading(false);
-        return;
-      }
+      const finalRemarks = remarks.trim() || (action === 'APPROVE' ? 'Approved by CEO' : 'Rejected by CEO');
 
       const updated = await pettyCashService.approveRequest(request.id, {
         action,
         approvedAmount: action === 'APPROVE' ? numAmount : undefined,
-        remarks: remarks.trim() || (action === 'APPROVE' ? 'Approved by CEO' : 'Rejected by CEO'),
+        remarks: finalRemarks,
       });
 
       onActionComplete(updated);
@@ -119,10 +115,10 @@ export const CeoApprovalModal: React.FC<CeoApprovalModalProps> = ({
                 CUSTODIAN EMPLOYEE
               </div>
               <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                {request.custodian_name}
+                {request.custodian_name || request.employee_name || 'Assigned Custodian'}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
-                ID: {request.custodian_employee_id}
+                ID: {request.custodian_employee_id || request.employee_code || 'N/A'}
               </div>
             </div>
 

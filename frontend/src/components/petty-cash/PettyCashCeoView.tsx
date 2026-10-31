@@ -329,9 +329,9 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
                   <tr key={req.id}>
                     <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{req.request_number}</td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{req.custodian_name}</div>
+                      <div style={{ fontWeight: 600 }}>{req.custodian_name || req.employee_name || 'Assigned Custodian'}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
-                        {req.custodian_employee_id}
+                        {req.custodian_employee_id || req.employee_code || ''}
                       </div>
                     </td>
                     <td>{req.request_date}</td>
