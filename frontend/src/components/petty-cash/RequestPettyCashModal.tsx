@@ -108,8 +108,8 @@ export const RequestPettyCashModal: React.FC<RequestPettyCashModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div className="modal-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {error && (
               <div
                 style={{
@@ -232,7 +232,7 @@ export const RequestPettyCashModal: React.FC<RequestPettyCashModalProps> = ({
             </div>
           </div>
 
-          <div className="modal-footer">
+          <div className="modal-footer" style={{ flexShrink: 0, marginTop: 'auto' }}>
             <button type="button" className="btn-secondary" onClick={onClose} disabled={loading || uploading}>
               Cancel
             </button>
