@@ -22,6 +22,9 @@ import type {
   PettyCashLedgerEntry,
 } from '../../types/pettyCash';
 
+import { ExportDropdown } from '../common/ExportDropdown';
+import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import './PettyCash.css';
 import { PettyCashCeoView } from './PettyCashCeoView';
 import { PettyCashAccountsView } from './PettyCashAccountsView';
@@ -145,6 +148,40 @@ export const PettyCashManagement: React.FC = () => {
 
   const currentBalance = Number(activeAccount?.current_balance || 0);
 
+  const expenseExportColumns: ExportColumn[] = [
+    { label: 'Expense #', key: 'expense_number' },
+    { label: 'Date', key: 'expense_date_formatted' },
+    { label: 'Category', key: 'category_name' },
+    { label: 'Reason / Description', key: 'reason' },
+    { label: 'Payment Mode', key: 'payment_mode' },
+    { label: 'Amount (₹)', key: 'amount_formatted' },
+    { label: 'Custodian', key: 'custodian_name' },
+    { label: 'Status', key: 'status' },
+  ];
+
+  const getExpensesExportData = () => {
+    return expenses.map((e) => ({
+      ...e,
+      expense_date_formatted: formatDateDDMMYYYY(e.expense_date),
+      amount_formatted: Number(e.amount || 0).toFixed(2),
+    }));
+  };
+
+  const handleExportCSV = () => {
+    const data = getExpensesExportData();
+    downloadCSV(data, `Petty_Cash_Expenses_${new Date().toISOString().slice(0, 10)}`, expenseExportColumns);
+  };
+
+  const handleExportExcel = () => {
+    const data = getExpensesExportData();
+    downloadExcel(data, `Petty_Cash_Expenses_${new Date().toISOString().slice(0, 10)}`, expenseExportColumns);
+  };
+
+  const handleExportPDF = () => {
+    const data = getExpensesExportData();
+    downloadPDF(data, 'Petty Cash Expenses Register', `Petty_Cash_Expenses_${new Date().toISOString().slice(0, 10)}`, expenseExportColumns);
+  };
+
   if (!isAuthorized && !loading) {
     return (
       <div className="petty-cash-container">
@@ -221,6 +258,14 @@ export const PettyCashManagement: React.FC = () => {
               <UserCheck size={16} /> Assign Custodian
             </button>
           )}
+
+          <ExportDropdown
+            onExportExcel={handleExportExcel}
+            onExportPDF={handleExportPDF}
+            onExportCSV={handleExportCSV}
+            label="Download"
+            variant="secondary"
+          />
         </div>
       </div>
 

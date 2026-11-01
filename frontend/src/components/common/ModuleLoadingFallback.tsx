@@ -71,3 +71,4 @@ export const ModuleLoadingFallback: React.FC = () => {
     </div>
   );
 };
+

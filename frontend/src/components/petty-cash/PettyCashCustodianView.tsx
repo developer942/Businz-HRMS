@@ -22,6 +22,8 @@ import type {
 } from '../../types/pettyCash';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { StandardTablePagination } from '../common/StandardTablePagination';
+import { ExportDropdown } from '../common/ExportDropdown';
+import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 
 interface PettyCashCustodianViewProps {
   activeAccount: PettyCashAccount | null;
@@ -103,6 +105,83 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
         (currentPage - 1) * pageSize,
         currentPage * pageSize
       );
+
+  const expenseExportColumns: ExportColumn[] = [
+    { label: 'Expense #', key: 'expense_number' },
+    { label: 'Date', key: 'expense_date_formatted' },
+    { label: 'Category', key: 'category_name' },
+    { label: 'Reason / Description', key: 'reason' },
+    { label: 'Payment Mode', key: 'payment_mode' },
+    { label: 'Amount (₹)', key: 'amount_formatted' },
+    { label: 'Status', key: 'status' },
+  ];
+
+  const requestExportColumns: ExportColumn[] = [
+    { label: 'Request #', key: 'request_number' },
+    { label: 'Date', key: 'request_date' },
+    { label: 'Purpose', key: 'purpose' },
+    { label: 'Requested Amount (₹)', key: 'requested_amount_formatted' },
+    { label: 'Approved Amount (₹)', key: 'approved_amount_formatted' },
+    { label: 'Status', key: 'status' },
+    { label: 'CEO Remarks', key: 'ceo_remarks' },
+  ];
+
+  const handleExportCSV = () => {
+    if (activeTab === 'EXPENSES') {
+      const data = filteredExpenses.map(e => ({
+        ...e,
+        expense_date_formatted: formatDateDDMMYYYY(e.expense_date),
+        amount_formatted: Number(e.amount || 0).toFixed(2),
+      }));
+      downloadCSV(data, `Petty_Cash_Daily_Expenses_${new Date().toISOString().slice(0, 10)}`, expenseExportColumns);
+    } else {
+      const data = requests.map(r => ({
+        ...r,
+        requested_amount_formatted: Number(r.requested_amount || 0).toFixed(2),
+        approved_amount_formatted: r.approved_amount ? Number(r.approved_amount).toFixed(2) : '-',
+        ceo_remarks: r.ceo_remarks || '-',
+      }));
+      downloadCSV(data, `Petty_Cash_Requests_${new Date().toISOString().slice(0, 10)}`, requestExportColumns);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (activeTab === 'EXPENSES') {
+      const data = filteredExpenses.map(e => ({
+        ...e,
+        expense_date_formatted: formatDateDDMMYYYY(e.expense_date),
+        amount_formatted: Number(e.amount || 0).toFixed(2),
+      }));
+      downloadExcel(data, `Petty_Cash_Daily_Expenses_${new Date().toISOString().slice(0, 10)}`, expenseExportColumns);
+    } else {
+      const data = requests.map(r => ({
+        ...r,
+        requested_amount_formatted: Number(r.requested_amount || 0).toFixed(2),
+        approved_amount_formatted: r.approved_amount ? Number(r.approved_amount).toFixed(2) : '-',
+        ceo_remarks: r.ceo_remarks || '-',
+      }));
+      downloadExcel(data, `Petty_Cash_Requests_${new Date().toISOString().slice(0, 10)}`, requestExportColumns);
+    }
+  };
+
+  const handleExportPDF = () => {
+    if (activeTab === 'EXPENSES') {
+      const data = filteredExpenses.map(e => ({
+        ...e,
+        expense_date_formatted: formatDateDDMMYYYY(e.expense_date),
+        amount_formatted: Number(e.amount || 0).toFixed(2),
+      }));
+      downloadPDF(data, 'Petty Cash Daily Expenses Register', `Petty_Cash_Daily_Expenses_${new Date().toISOString().slice(0, 10)}`, expenseExportColumns);
+    } else {
+      const data = requests.map(r => ({
+        ...r,
+        requested_amount_formatted: Number(r.requested_amount || 0).toFixed(2),
+        approved_amount_formatted: r.approved_amount ? Number(r.approved_amount).toFixed(2) : '-',
+        ceo_remarks: r.ceo_remarks || '-',
+      }));
+      downloadPDF(data, 'Petty Cash Fund Requisition History', `Petty_Cash_Requests_${new Date().toISOString().slice(0, 10)}`, requestExportColumns);
+    }
+  };
 
   return (
     <div>
@@ -256,7 +335,7 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
 
       {/* Main Operations Section Card */}
       <div className="petty-cash-section-card">
-        <div className="section-card-header">
+        <div className="section-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               className={`petty-cash-tab-btn ${activeTab === 'EXPENSES' ? 'active' : ''}`}
@@ -277,6 +356,14 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
               Fund Requisition History ({requests.length})
             </button>
           </div>
+
+          <ExportDropdown
+            onExportExcel={handleExportExcel}
+            onExportPDF={handleExportPDF}
+            onExportCSV={handleExportCSV}
+            label="Download"
+            variant="secondary"
+          />
         </div>
 
         {activeTab === 'EXPENSES' ? (

@@ -4,6 +4,8 @@ import { pettyCashService } from '../../services/pettyCashService';
 import { PettyCashRequest } from '../../types/pettyCash';
 import { Expense, LoanRecord } from '../../types/hrms';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { ExportDropdown } from '../common/ExportDropdown';
+import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 
 const formatCurrency = (val: number | string | undefined | null): string => {
   const num = Number(val) || 0;
@@ -394,6 +396,50 @@ export const AccountsPaymentDashboard: React.FC = () => {
     }
   };
 
+  const exportColumns: ExportColumn[] = [
+    { label: 'Request Number', key: 'requestNumber' },
+    { label: 'Employee Name', key: 'employeeName' },
+    { label: 'Employee ID', key: 'employeeId' },
+    { label: 'Department', key: 'department' },
+    { label: 'Payment Type', key: 'typeLabel' },
+    { label: 'Approved Amount (₹)', key: 'approvedAmountFormatted' },
+    { label: 'Requested Amount (₹)', key: 'requestedAmountFormatted' },
+    { label: 'Approval Date', key: 'approvedDateFormatted' },
+    { label: 'Status', key: 'statusLabel' },
+    { label: 'Payment Mode', key: 'paymentMode' },
+    { label: 'Reference / UTR', key: 'transactionRef' },
+    { label: 'Disbursement Date', key: 'paidDateFormatted' },
+    { label: 'Purpose / Remarks', key: 'purpose' }
+  ];
+
+  const getExportData = (items: UnifiedPaymentItem[]) => {
+    return items.map(item => ({
+      ...item,
+      approvedAmountFormatted: Number(item.approvedAmount || 0).toFixed(2),
+      requestedAmountFormatted: Number(item.requestedAmount || 0).toFixed(2),
+      approvedDateFormatted: item.approvedDate ? formatDateDDMMYYYY(item.approvedDate) : '-',
+      statusLabel: item.status === 'DISBURSED' ? 'Disbursed' : item.status === 'REJECTED' ? 'Rejected' : 'Pending Disbursement',
+      paymentMode: item.paymentDetails?.paymentMode || '-',
+      transactionRef: item.paymentDetails?.transactionRef || '-',
+      paidDateFormatted: item.paymentDetails?.paymentDate ? formatDateDDMMYYYY(item.paymentDetails.paymentDate) : '-',
+    }));
+  };
+
+  const handleExportCSV = () => {
+    const data = getExportData(filteredItems);
+    downloadCSV(data, `Accounts_Payment_Disbursements_${new Date().toISOString().slice(0, 10)}`, exportColumns);
+  };
+
+  const handleExportExcel = () => {
+    const data = getExportData(filteredItems);
+    downloadExcel(data, `Accounts_Payment_Disbursements_${new Date().toISOString().slice(0, 10)}`, exportColumns);
+  };
+
+  const handleExportPDF = () => {
+    const data = getExportData(filteredItems);
+    downloadPDF(data, 'Accounts Payment Disbursement Register', `Accounts_Payment_Disbursements_${new Date().toISOString().slice(0, 10)}`, exportColumns);
+  };
+
   return (
     <div className="accounts-payment-dashboard" style={{ paddingBottom: '40px' }}>
       {/* 1. Header & Title Banner */}
@@ -421,6 +467,15 @@ export const AccountsPaymentDashboard: React.FC = () => {
             
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <ExportDropdown
+              onExportExcel={handleExportExcel}
+              onExportPDF={handleExportPDF}
+              onExportCSV={handleExportCSV}
+              label="Download"
+              variant="secondary"
+            />
+          </div>
         </div>
       </div>
 
