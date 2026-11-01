@@ -25,16 +25,34 @@ interface SendWhatsAppModalProps {
 
 const getTemplateVariables = (t?: WhatsAppTemplate | null): string[] => {
   if (!t) return [];
-  if (Array.isArray(t.variables) && t.variables.length > 0) return t.variables;
-  if (Array.isArray((t as any).variableMapping) && (t as any).variableMapping.length > 0) return (t as any).variableMapping;
-  if (Array.isArray((t as any).variable_mapping) && (t as any).variable_mapping.length > 0) return (t as any).variable_mapping;
-  if (t.bodyText) {
-    const matches = t.bodyText.match(/\{\{([a-zA-Z0-9_]+)\}\}/g);
-    if (matches) {
-      return Array.from(new Set(matches.map(m => m.replace(/[{}]/g, ''))));
+  const rawList = Array.isArray(t.variables) && t.variables.length > 0 
+    ? t.variables 
+    : Array.isArray((t as any).variableMapping) && (t as any).variableMapping.length > 0
+    ? (t as any).variableMapping
+    : Array.isArray((t as any).variable_mapping) && (t as any).variable_mapping.length > 0
+    ? (t as any).variable_mapping
+    : [];
+
+  const extracted: string[] = [];
+  for (const item of rawList) {
+    if (typeof item === 'string') {
+      extracted.push(item.replace(/[{}]/g, '').trim());
+    } else if (item && typeof item === 'object') {
+      const name = item.placeholder || item.name || item.key || item.variable;
+      if (name && typeof name === 'string') {
+        extracted.push(name.replace(/[{}]/g, '').trim());
+      }
     }
   }
-  return [];
+
+  if (extracted.length === 0 && t.bodyText) {
+    const matches = t.bodyText.match(/\{\{([a-zA-Z0-9_]+)\}\}/g);
+    if (matches) {
+      extracted.push(...matches.map(m => m.replace(/[{}]/g, '').trim()));
+    }
+  }
+
+  return Array.from(new Set(extracted.filter(Boolean)));
 };
 
 export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
