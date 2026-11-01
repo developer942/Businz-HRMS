@@ -611,7 +611,15 @@ const INITIAL_HOLIDAYS: HolidayItem[] = [];
 
 const INITIAL_ATTENDANCE_POLICIES: AttendancePolicyItem[] = [];
 
-const INITIAL_WEEKLY_SCHEDULES: WeeklyScheduleItem[] = [];
+const INITIAL_WEEKLY_SCHEDULES: WeeklyScheduleItem[] = [
+  {
+    id: 'ws-default',
+    name: 'General Weekly Off',
+    workingDays: 'Monday, Tuesday, Wednesday, Thursday, Friday, Saturday',
+    offDays: 'Sunday',
+    isDefault: true
+  }
+];
 
 const INITIAL_GLOBAL_ATTENDANCE_CONFIG: GlobalAttendanceConfig = {
   trackInOutTime: true,

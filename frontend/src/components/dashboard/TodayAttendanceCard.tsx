@@ -7,6 +7,7 @@ interface TodayAttendanceCardProps {
   absent: number;
   leave: number;
   late?: number;
+  weekOff?: number;
   onSelectCategory?: (category: AttendanceCategoryType) => void;
   onOpenLeaves?: () => void;
 }
@@ -17,6 +18,7 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
   absent,
   leave,
   late = 0,
+  weekOff = 0,
   onSelectCategory,
   onOpenLeaves
 }) => {
@@ -36,17 +38,20 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
   const latePct = late / safeTotal;
   const lPct = leave / safeTotal;
   const aPct = absent / safeTotal;
+  const wPct = weekOff / safeTotal;
 
   const gap = safeTotal > 1 ? 2.5 : 0;
   const pLength = Math.max(0, pPct * circumference - (pPct > 0 && safeTotal > 1 ? gap : 0));
   const lateLength = Math.max(0, latePct * circumference - (latePct > 0 && safeTotal > 1 ? gap : 0));
   const lLength = Math.max(0, lPct * circumference - (lPct > 0 && safeTotal > 1 ? gap : 0));
   const aLength = Math.max(0, aPct * circumference - (aPct > 0 && safeTotal > 1 ? gap : 0));
+  const wLength = Math.max(0, wPct * circumference - (wPct > 0 && safeTotal > 1 ? gap : 0));
 
   const pOffset = 0;
   const lateOffset = -(pPct * circumference);
   const lOffset = -((pPct + latePct) * circumference);
   const aOffset = -((pPct + latePct + lPct) * circumference);
+  const wOffset = -((pPct + latePct + lPct + aPct) * circumference);
 
   return (
     <div className="dashboard-widget-card">
@@ -193,6 +198,30 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
                   onClick={() => onSelectCategory && onSelectCategory('absent')}
                 >
                   <title>Absent: {absent} ({((aPct) * 100).toFixed(0)}%)</title>
+                </circle>
+              )}
+
+              {/* Week Off / Holiday Arc (Cyan #06B6D4) */}
+              {weekOff > 0 && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill="none"
+                  stroke="#06B6D4"
+                  strokeWidth={hoveredSegment === 'weekoff' ? strokeWidth + 3 : strokeWidth}
+                  strokeDasharray={`${wLength} ${circumference}`}
+                  strokeDashoffset={wOffset}
+                  style={{ 
+                    cursor: 'pointer', 
+                    transition: 'all 0.2s ease',
+                    opacity: hoveredSegment && hoveredSegment !== 'weekoff' ? 0.65 : 1
+                  }}
+                  onMouseEnter={() => setHoveredSegment('weekoff')}
+                  onMouseLeave={() => setHoveredSegment(null)}
+                  onClick={() => onSelectCategory && onSelectCategory('weekoff')}
+                >
+                  <title>Week Off / Holiday: {weekOff} ({((wPct) * 100).toFixed(0)}%)</title>
                 </circle>
               )}
             </g>
@@ -350,6 +379,37 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
               </span>
               <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '18px', textAlign: 'right' }}>
                 {absent}
+              </span>
+            </div>
+          </div>
+
+          {/* Week Off / Holiday */}
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              cursor: 'pointer',
+              padding: '3px 8px',
+              borderRadius: '6px',
+              transition: 'background 0.15s ease'
+            }}
+            onClick={() => onSelectCategory && onSelectCategory('weekoff')}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; setHoveredSegment('weekoff'); }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; setHoveredSegment(null); }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#06B6D4', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#0B1A2D', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                Week Off / Holiday
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D', minWidth: '32px', textAlign: 'right' }}>
+                {((wPct) * 100).toFixed(0)}%
+              </span>
+              <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '18px', textAlign: 'right' }}>
+                {weekOff}
               </span>
             </div>
           </div>

@@ -643,7 +643,8 @@ export const Dashboard: React.FC = () => {
     filteredAttendance.some(a => doesAttendanceMatchEmployee(a, emp) && a.status === 'On Leave') ||
     leaveRequests.some(l => doesLeaveMatchEmployee(l, emp) && doesLeaveCoverToday(l))
   ).length;
-  const donutAbsent = Math.max(0, totalAttendanceCount - donutPresent - donutLate - donutLeave);
+  const donutAbsent = absentToday;
+  const donutWeekOff = (attendanceReport.weekOff || []).length + (attendanceReport.holiday || []).length;
 
   // Dynamic Celebrations derived from real employees
   const celebrations = useMemo(() => {
@@ -1555,6 +1556,7 @@ export const Dashboard: React.FC = () => {
             absent={donutAbsent}
             leave={donutLeave}
             late={donutLate}
+            weekOff={donutWeekOff}
             onSelectCategory={(cat) => setSelectedCategory(cat)}
             onOpenLeaves={() => setActiveModule('leaves')}
           />

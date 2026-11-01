@@ -1,6 +1,7 @@
 import { AttendanceRecord, Employee, HolidayItem, LeaveRequest, Shift, WeeklyScheduleItem } from '../types/hrms';
 import { FieldAssignment } from '../types/tracking';
 import { isAttendanceExemptEmployee } from '../data/hrmsInitialData';
+import { DAYS_OF_WEEK, isDateWeeklyOffBySchedule, isDateWeeklyOffByRule } from '../utils/weeklyScheduleUtils';
 
 export type AttendanceClassification = 'Present' | 'Late' | 'On Leave' | 'Field Work' | 'Absent' | 'Not Due' | 'Holiday' | 'Week Off';
 
@@ -34,6 +35,8 @@ export interface AttendanceReportResult {
   present: AttendanceReportRow[];
   late: AttendanceReportRow[];
   onLeave: AttendanceReportRow[];
+  weekOff: AttendanceReportRow[];
+  holiday: AttendanceReportRow[];
   excluded: AttendanceReportRow[];
 }
 
@@ -108,10 +111,24 @@ const addDays = (date: string, days: number) => {
 };
 
 const isWeeklyOff = (employee: Employee, schedules: WeeklyScheduleItem[], date: string) => {
-  const configured = employee.shiftDetails?.weeklyOff || schedules.find(schedule => schedule.isDefault)?.offDays || schedules[0]?.offDays;
-  if (!configured) return false;
-  const weekday = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }).toLowerCase();
-  return configured.toLowerCase().split(/[,/&\s]+/).some(day => day && (weekday === day || weekday.startsWith(day.slice(0, 3))));
+  const [y, m, d] = date.split('-').map(Number);
+  const targetDate = new Date(y, m - 1, d);
+  const dayName = DAYS_OF_WEEK[targetDate.getDay()];
+
+  // 1. Employee-level or shift-level weeklyOff override
+  const empWeeklyOff = employee.shiftDetails?.weeklyOff || (employee as any).weeklyOff;
+  if (empWeeklyOff && typeof empWeeklyOff === 'string' && empWeeklyOff.trim() !== '') {
+    return isDateWeeklyOffByRule(targetDate, empWeeklyOff);
+  }
+
+  // 2. Schedule-based weekly off from weeklySchedules
+  if (schedules && schedules.length > 0) {
+    const isScheduleOff = isDateWeeklyOffBySchedule(targetDate, schedules);
+    if (isScheduleOff) return true;
+  }
+
+  // 3. Universal standard: Sunday is Weekly Off across the enterprise unless specifically configured otherwise
+  return dayName === 'Sunday';
 };
 
 const hasFieldWork = (employee: Employee, assignments: FieldAssignment[], date: string) => assignments.some(assignment =>
@@ -168,6 +185,8 @@ export const buildAttendanceReport = (scope: AttendanceScope): AttendanceReportR
     present: reportRows.filter(row => row.classification === 'Present' || row.classification === 'Late' || row.classification === 'Field Work'),
     late: reportRows.filter(row => row.classification === 'Late'),
     onLeave: reportRows.filter(row => row.classification === 'On Leave'),
+    weekOff: reportRows.filter(row => row.classification === 'Week Off'),
+    holiday: reportRows.filter(row => row.classification === 'Holiday'),
     excluded: reportRows.filter(row => ['Holiday', 'Week Off', 'Not Due'].includes(row.classification))
   };
 };

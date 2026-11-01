@@ -19,10 +19,11 @@ import {
   LogOut, 
   Clock, 
   ExternalLink, 
-  Building2 
+  Building2,
+  CalendarCheck
 } from 'lucide-react';
 
-export type AttendanceCategoryType = 'total' | 'absent' | 'present' | 'early' | 'missed' | 'late';
+export type AttendanceCategoryType = 'total' | 'absent' | 'present' | 'early' | 'missed' | 'late' | 'weekoff';
 
 interface CategoryItem {
   employee: Employee;
@@ -123,6 +124,14 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       accentColor: '#f59e0b',
       badgeBg: '#fef3c7',
       badgeColor: '#b45309'
+    },
+    weekoff: {
+      title: 'Week Off & Holiday Employees',
+      subtitle: 'Employees on scheduled weekly off or company holiday today',
+      icon: <CalendarCheck size={22} color="#0e7490" />,
+      accentColor: '#0e7490',
+      badgeBg: '#cffafe',
+      badgeColor: '#0e7490'
     }
   }[category];
 
@@ -175,14 +184,29 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       statusLabel = att?.status || 'Present';
       statusType = 'success';
       note = att?.method || 'Face Recognition';
-    } else if (att?.status === 'On Leave' || isOnApprovedLeave) {
-      statusLabel = 'On Leave';
-      statusType = 'info';
-      note = 'Sanctioned leave';
     } else {
-      statusLabel = 'Absent';
-      statusType = 'danger';
-      note = 'No check-in recorded';
+      const reportRow = attendanceReport.rows.find(r => r.employee.employeeId === emp.employeeId);
+      if (att?.status === 'On Leave' || isOnApprovedLeave || reportRow?.classification === 'On Leave') {
+        statusLabel = 'On Leave';
+        statusType = 'info';
+        note = 'Sanctioned leave';
+      } else if (reportRow?.classification === 'Week Off') {
+        statusLabel = 'Week Off';
+        statusType = 'info';
+        note = 'Scheduled weekly off';
+      } else if (reportRow?.classification === 'Holiday') {
+        statusLabel = 'Holiday';
+        statusType = 'info';
+        note = reportRow.reason || 'Company holiday';
+      } else if (reportRow?.classification === 'Not Due') {
+        statusLabel = 'Not Due';
+        statusType = 'info';
+        note = 'Shift not started';
+      } else {
+        statusLabel = 'Absent';
+        statusType = 'danger';
+        note = 'No check-in recorded';
+      }
     }
 
     return {
@@ -236,6 +260,9 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
         item.attendance.status === 'Late' ||
         (item.attendance.lateStatus && item.attendance.lateStatus.toLowerCase().includes('late') && item.attendance.lateStatus !== 'On Time')
       );
+    }
+    if (category === 'weekoff') {
+      return item.statusLabel === 'Week Off' || item.statusLabel === 'Holiday';
     }
     if (category === 'absent') {
       return absentEmployeeIds.has(item.employee.employeeId);
