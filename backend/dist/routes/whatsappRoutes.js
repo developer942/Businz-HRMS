@@ -9,7 +9,7 @@ whatsappRouter.post('/webhook', customerController.handleWebhook.bind(customerCo
 // Authenticated WhatsApp Endpoints
 whatsappRouter.use(authenticateToken);
 // WhatsApp Cloud API Configuration
-whatsappRouter.get('/config', requirePermission('settings', 'view'), customerController.getWhatsAppConfig.bind(customerController));
+whatsappRouter.get('/config', requirePermission(['settings', 'customer_data'], 'view'), customerController.getWhatsAppConfig.bind(customerController));
 whatsappRouter.post('/config', requirePermission('settings', 'edit'), customerController.saveWhatsAppConfig.bind(customerController));
 whatsappRouter.post('/test-connection', requirePermission('settings', 'edit'), customerController.testWhatsAppConnection.bind(customerController));
 // Template Management
@@ -19,7 +19,7 @@ whatsappRouter.post('/templates/submit', requirePermission('customer_data', 'cre
 whatsappRouter.get('/templates/:name/status', requirePermission('customer_data', 'view'), customerController.checkTemplateStatus.bind(customerController));
 whatsappRouter.get('/templates/:id/status', requirePermission('customer_data', 'view'), customerController.checkTemplateStatus.bind(customerController));
 // Send WhatsApp Message
-whatsappRouter.post('/send', requirePermission('customer_data', 'edit'), customerController.sendMessage.bind(customerController));
+whatsappRouter.post('/send', requirePermission('customer_data', 'create'), customerController.sendMessage.bind(customerController));
 // Message History
 whatsappRouter.get('/messages', requirePermission('customer_data', 'view'), customerController.getMessageHistory.bind(customerController));
 //# sourceMappingURL=whatsappRoutes.js.map

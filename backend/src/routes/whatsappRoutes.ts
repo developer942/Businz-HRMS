@@ -15,7 +15,7 @@ whatsappRouter.use(authenticateToken);
 // WhatsApp Cloud API Configuration
 whatsappRouter.get(
   '/config',
-  requirePermission('settings', 'view'),
+  requirePermission(['settings', 'customer_data'], 'view'),
   customerController.getWhatsAppConfig.bind(customerController)
 );
 whatsappRouter.post(
@@ -62,7 +62,7 @@ whatsappRouter.get(
 // Send WhatsApp Message
 whatsappRouter.post(
   '/send',
-  requirePermission('customer_data', 'edit'),
+  requirePermission('customer_data', 'create'),
   customerController.sendMessage.bind(customerController)
 );
 

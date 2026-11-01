@@ -10,7 +10,7 @@ customerRouter.use(authenticateToken);
 // Duplicate check endpoint
 customerRouter.get('/check-duplicate', requirePermission('customer_data', 'view'), customerController.checkDuplicate.bind(customerController));
 // Record WhatsApp Consent Audit
-customerRouter.post('/consent', requirePermission('customer_data', 'edit'), customerController.recordConsent.bind(customerController));
+customerRouter.post('/consent', requirePermission('customer_data', 'create'), customerController.recordConsent.bind(customerController));
 // List Customers (Search, Filter, Paginate)
 customerRouter.get('/', requirePermission('customer_data', 'view'), customerController.getCustomers.bind(customerController));
 // Get Single Customer Details

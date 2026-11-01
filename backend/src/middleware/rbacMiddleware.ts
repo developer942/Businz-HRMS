@@ -57,7 +57,7 @@ export const requireRoles = (allowedRoles: UserRole[]) => {
  * Validates dynamic module-level action permission for the user's role.
  * Example: requirePermission('employees', 'view'), requirePermission('payroll', 'edit')
  */
-export const requirePermission = (moduleName: string, action: PermissionAction) => {
+export const requirePermission = (moduleName: string | string[], action: PermissionAction) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
@@ -89,20 +89,25 @@ export const requirePermission = (moduleName: string, action: PermissionAction) 
         error: {
           code: 'FORBIDDEN',
           message: `No permission matrix configured for role: ${userRole}`,
-          details: [`Required module permission: ${moduleName}.${action}`],
+          details: [`Required module permission: ${Array.isArray(moduleName) ? moduleName.join(', ') : moduleName}.${action}`],
         },
       });
       return;
     }
 
-    const moduleActions = roleConfig.modulePermissions[moduleName] || [];
-    if (!moduleActions.includes(action)) {
+    const modules = Array.isArray(moduleName) ? moduleName : [moduleName];
+    const hasPermission = modules.some(mod => {
+      const moduleActions = roleConfig.modulePermissions[mod] || [];
+      return moduleActions.includes(action);
+    });
+
+    if (!hasPermission) {
       res.status(403).json({
         success: false,
         error: {
           code: 'FORBIDDEN',
-          message: `Access denied: Role "${userRole}" lacks "${action}" permission on module "${moduleName}".`,
-          details: [`Configured actions for ${moduleName}: [${moduleActions.join(', ') || 'none'}]`],
+          message: `Access denied: Role "${userRole}" lacks "${action}" permission on ${modules.length > 1 ? `any of [${modules.join(', ')}]` : `module "${modules[0]}"`}.`,
+          details: modules.map(m => `Configured actions for ${m}: [${(roleConfig.modulePermissions[m] || []).join(', ') || 'none'}]`),
         },
       });
       return;

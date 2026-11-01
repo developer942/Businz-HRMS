@@ -24,7 +24,7 @@ customerRouter.get(
 // Record WhatsApp Consent Audit
 customerRouter.post(
   '/consent',
-  requirePermission('customer_data', 'edit'),
+  requirePermission('customer_data', 'create'),
   customerController.recordConsent.bind(customerController)
 );
 
