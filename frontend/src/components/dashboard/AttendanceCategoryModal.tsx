@@ -155,6 +155,20 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
     return leave.status === 'Approved' && !!start && start <= todayStr && todayStr <= end;
   };
 
+  const attendanceReport = buildAttendanceReport({
+    currentUser,
+    role: currentUser?.role,
+    employees: workforceEmployees,
+    attendanceRecords,
+    leaveRequests,
+    shifts,
+    weeklySchedules,
+    holidayPolicies,
+    fieldAssignments,
+    date: todayStr
+  });
+  const absentEmployeeIds = new Set(attendanceReport.absent.map(row => row.employee.employeeId));
+
   const categoryItems: CategoryItem[] = workforceEmployees.map(emp => {
     const att = attendanceRecords.find(a => 
       a.employeeId === emp.employeeId || 
@@ -220,20 +234,6 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       note
     };
   });
-
-  const attendanceReport = buildAttendanceReport({
-    currentUser,
-    role: currentUser?.role,
-    employees: workforceEmployees,
-    attendanceRecords,
-    leaveRequests,
-    shifts,
-    weeklySchedules,
-    holidayPolicies,
-    fieldAssignments,
-    date: todayStr
-  });
-  const absentEmployeeIds = new Set(attendanceReport.absent.map(row => row.employee.employeeId));
 
   // Filter for the requested category
   const filteredByCategory = categoryItems.filter(item => {

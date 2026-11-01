@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AttendanceCategoryType } from './AttendanceCategoryModal';
+import type { AttendanceCategoryType } from './AttendanceCategoryModal';
 
 interface TodayAttendanceCardProps {
   total: number;
