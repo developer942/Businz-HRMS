@@ -26,6 +26,7 @@ import {
   Mail,
   MapPin,
   Calendar,
+  Camera,
   User,
   Check,
   AlertCircle
@@ -361,7 +362,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                   whiteSpace: 'nowrap'
                 }}
               >
-                + Add Customer
+                <Camera size={14} /> Scan / Add Card
               </button>
             )}
           </div>

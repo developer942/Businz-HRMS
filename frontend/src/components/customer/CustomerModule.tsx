@@ -14,7 +14,9 @@ import {
   CheckCircle2, 
   AlertCircle,
   ExternalLink,
-  Settings
+  Settings,
+  Camera,
+  Contact2
 } from 'lucide-react';
 
 export type CustomerModuleTab = 'add_customer' | 'records';
@@ -53,8 +55,8 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
   };
 
   const tabs: { id: CustomerModuleTab; label: string; icon: React.ElementType }[] = [
-    { id: 'records', label: 'Customer Records', icon: Table },
-    { id: 'add_customer', label: 'Add Customer', icon: UserPlus }
+    { id: 'records', label: 'Contact Directory', icon: Table },
+    { id: 'add_customer', label: 'Scan Visiting Card', icon: Camera }
   ];
 
   return (
@@ -73,15 +75,13 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Users size={24} />
+            <Contact2 size={24} />
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <h1 style={{ fontSize: '1.45rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0', wordBreak: 'break-word', lineHeight: 1.25 }}>
-              Customer Data Collection
+              Contact Card Scanner
             </h1>
-            <p style={{ fontSize: '0.85rem', color: '#64748B', margin: 0, wordBreak: 'break-word' }}>
-              Field Customer Capture, Visiting Card OCR, and Meta WhatsApp Business Cloud Messaging
-            </p>
+            
           </div>
         </div>
 

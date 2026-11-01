@@ -8,6 +8,7 @@ import {
   LogOut, 
   User,
   UserPlus,
+  Camera,
   Clock,
   CalendarPlus,
   CheckSquare,
@@ -138,6 +139,8 @@ export const Header: React.FC<HeaderProps> = ({
       case 'settings': return 'Settings';
       case 'profile': return 'My Profile';
       case 'tracking': return currentUser.role === 'Employee' ? 'My Field Duty & Tracking' : 'Field Duty & GPS Tracking';
+      case 'customer_data': return 'Contact Card Scanner';
+      case 'whatsapp_crm': return 'WhatsApp CRM';
       default: return 'Dashboard';
     }
   };
@@ -430,6 +433,21 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   </>
                 )}
+                <div style={{ height: '1px', backgroundColor: '#E2E8F0', margin: '4px 0' }} />
+                <button
+                  type="button"
+                  className="dropdown-menu-item"
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setActiveModule('customer_data');
+                    setShowQuickAddMenu(false); 
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', borderRadius: '6px', backgroundColor: '#ECFEFF', color: '#0E7490', flexShrink: 0 }}>
+                    <Camera size={14} />
+                  </span>
+                  <span>Scan Contact Card</span>
+                </button>
               </div>
             </>
           )}
