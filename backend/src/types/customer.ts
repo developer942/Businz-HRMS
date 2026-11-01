@@ -60,6 +60,7 @@ export interface WhatsAppTemplateModel {
     metaParamIndex: number; // e.g. 1
     description: string;
   }>;
+  variables?: string[];
   sampleValues: Record<string, string>;
   status: WhatsAppTemplateStatus;
   rejectionReason?: string;

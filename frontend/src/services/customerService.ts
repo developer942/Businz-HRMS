@@ -557,7 +557,24 @@ SAFETY & ACCURACY RULES:
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = await res.json();
-      return body.data || [];
+      const rawList = body.data || [];
+      return rawList.map((t: any) => {
+        const vars = (Array.isArray(t.variables) && t.variables.length > 0)
+          ? t.variables
+          : (Array.isArray(t.variableMapping) && t.variableMapping.length > 0)
+          ? t.variableMapping
+          : (Array.isArray(t.variable_mapping) && t.variable_mapping.length > 0)
+          ? t.variable_mapping
+          : (t.bodyText ? (t.bodyText.match(/\{\{([a-zA-Z0-9_]+)\}\}/g) || []).map((m: string) => m.replace(/[{}]/g, '')) : []);
+
+        return {
+          ...t,
+          variables: vars,
+          variableMapping: vars,
+          sampleValues: t.sampleValues || t.sample_values || {},
+          isEnabled: t.isEnabled ?? t.is_active ?? true
+        };
+      });
     } catch {
       const raw = localStorage.getItem(LOCAL_TEMPLATES_KEY);
       if (raw) return JSON.parse(raw);

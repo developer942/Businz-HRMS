@@ -19,13 +19,30 @@ interface SendWhatsAppModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  onSent?: () => void;
 }
+
+
+const getTemplateVariables = (t?: WhatsAppTemplate | null): string[] => {
+  if (!t) return [];
+  if (Array.isArray(t.variables) && t.variables.length > 0) return t.variables;
+  if (Array.isArray((t as any).variableMapping) && (t as any).variableMapping.length > 0) return (t as any).variableMapping;
+  if (Array.isArray((t as any).variable_mapping) && (t as any).variable_mapping.length > 0) return (t as any).variable_mapping;
+  if (t.bodyText) {
+    const matches = t.bodyText.match(/\{\{([a-zA-Z0-9_]+)\}\}/g);
+    if (matches) {
+      return Array.from(new Set(matches.map(m => m.replace(/[{}]/g, ''))));
+    }
+  }
+  return [];
+};
 
 export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
   customer,
   isOpen,
   onClose,
-  onSuccess
+  onSuccess,
+  onSent
 }) => {
   const { currentUser } = useHRMS();
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
@@ -73,6 +90,7 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
   };
 
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
+  const templateVariables = getTemplateVariables(selectedTemplate);
 
   // Auto-fill variables whenever template or customer changes
   useEffect(() => {
@@ -80,7 +98,7 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
       const vars: Record<string, string> = {};
       const companyName = 'BUSINZ HRMS';
 
-      selectedTemplate.variables.forEach(v => {
+      templateVariables.forEach(v => {
         switch (v) {
           case 'customer_name':
             vars[v] = customer.customerName;
@@ -108,8 +126,8 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
   // Compute rendered message
   const renderMessageBody = () => {
     if (!selectedTemplate) return '';
-    let body = selectedTemplate.bodyText;
-    selectedTemplate.variables.forEach(v => {
+    let body = selectedTemplate.bodyText || '';
+    templateVariables.forEach(v => {
       const val = variableValues[v] || `{{${v}}}`;
       body = body.split(`{{${v}}}`).join(val);
     });
@@ -158,6 +176,7 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
       setSuccessMessage('WhatsApp message dispatched successfully to Meta Cloud API!');
       setTimeout(() => {
         onSuccess?.();
+        onSent?.();
         onClose();
       }, 1500);
     } catch (e: any) {
@@ -463,7 +482,7 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
           </div>
 
           {/* Variables Configuration */}
-          {selectedTemplate && selectedTemplate.variables.length > 0 && (
+          {selectedTemplate && templateVariables.length > 0 && (
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#1E293B', marginBottom: '8px' }}>
                 Dynamic Template Variables:
@@ -477,7 +496,7 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
                 borderRadius: '12px',
                 border: '1px solid #E2E8F0'
               }}>
-                {selectedTemplate.variables.map(v => (
+                {templateVariables.map(v => (
                   <div key={v}>
                     <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px', textTransform: 'capitalize' }}>
                       {`{{${v}}}`}
