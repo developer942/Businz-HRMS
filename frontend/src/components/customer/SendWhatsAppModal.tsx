@@ -188,7 +188,9 @@ export const SendWhatsAppModal: React.FC<SendWhatsAppModalProps> = ({
         customerContactId: customer.id,
         templateId: selectedTemplate.id,
         variableValues,
-        companyId: customer.companyId || 'company-a'
+        companyId: customer.companyId || 'company-a',
+        customerName: customer.customerName,
+        recipientPhone: customer.contactNumber
       });
 
       setSuccessMessage('WhatsApp message dispatched successfully to Meta Cloud API!');

@@ -348,6 +348,7 @@ export const customerService = {
   // 4. Record / Update Consent Audit
   async recordConsent(payload: {
     customerId: string;
+    customerContactId?: string;
     consentStatus: WhatsAppConsentStatus;
     source: string;
     method: string;
@@ -357,7 +358,10 @@ export const customerService = {
     const res = await fetch(`${getApiBase()}/customers/consent`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        ...payload,
+        customerContactId: payload.customerContactId || payload.customerId,
+      })
     });
 
     const body = await res.json();
@@ -701,6 +705,8 @@ SAFETY & ACCURACY RULES:
     templateId: string;
     variableValues: Record<string, string>;
     companyId?: string;
+    customerName?: string;
+    recipientPhone?: string;
   }): Promise<{ messageId: string; status: string; renderedBody: string }> {
     const res = await fetch(`${getApiBase()}/whatsapp/send`, {
       method: 'POST',

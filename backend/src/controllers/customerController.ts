@@ -186,8 +186,14 @@ export class CustomerController {
         return;
       }
 
+      const contactId = parsed.data.customerContactId || parsed.data.customerId || '';
       const record = await customerRepository.recordConsent({
-        ...parsed.data,
+        companyId: parsed.data.companyId,
+        customerContactId: contactId,
+        consentStatus: parsed.data.consentStatus,
+        source: parsed.data.source,
+        purpose: parsed.data.purpose,
+        notes: parsed.data.notes,
         recordedById: req.user?.id,
         recordedByName: req.user?.name,
         ipAddress: req.ip
@@ -371,18 +377,26 @@ export class CustomerController {
 
       const companyId = parsed.data.companyId || req.user?.company_id || 'company-a';
 
+      const customerContactId = parsed.data.customerContactId || parsed.data.customerId;
+      let customerName = parsed.data.customerName || '';
+      let recipientPhone = parsed.data.recipientPhone || '';
+
       // 1. Verify Customer exists and consent status
-      if (parsed.data.customerContactId) {
-        const customer = await customerRepository.getCustomerById(parsed.data.customerContactId, companyId);
-        if (customer && customer.consentStatus !== 'Opted In') {
-          res.status(403).json({
-            success: false,
-            error: {
-              code: 'CONSENT_REQUIRED',
-              message: `Customer "${customer.customerName}" has not opted in for WhatsApp messages (Current status: ${customer.consentStatus}). You must obtain explicit permission before sending.`
-            }
-          });
-          return;
+      if (customerContactId) {
+        const customer = await customerRepository.getCustomerById(customerContactId, companyId);
+        if (customer) {
+          if (!customerName) customerName = customer.customerName;
+          if (!recipientPhone) recipientPhone = customer.contactNumber;
+          if (customer.consentStatus !== 'Opted In') {
+            res.status(403).json({
+              success: false,
+              error: {
+                code: 'CONSENT_REQUIRED',
+                message: `Customer "${customer.customerName}" has not opted in for WhatsApp messages (Current status: ${customer.consentStatus}). You must obtain explicit permission before sending.`
+              }
+            });
+            return;
+          }
         }
       }
 
@@ -412,9 +426,9 @@ export class CustomerController {
       // 3. Dispatch Message
       const result = await whatsappService.sendTemplateMessage({
         companyId,
-        customerContactId: parsed.data.customerContactId,
-        customerName: parsed.data.customerName,
-        recipientPhone: parsed.data.recipientPhone,
+        customerContactId,
+        customerName: customerName || 'Customer',
+        recipientPhone: recipientPhone || '',
         template,
         variableValues: parsed.data.variableValues,
         sentById: req.user?.id,

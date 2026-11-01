@@ -51,18 +51,23 @@ export const saveCustomerSchema = z.object({
     notes: optionalText(2000)
 });
 export const recordConsentSchema = z.object({
-    customerContactId: z.string().min(1, 'customerContactId is required'),
+    customerContactId: z.string().optional(),
+    customerId: z.string().optional(),
     companyId: z.string().default('company-a'),
     consentStatus: z.enum(['Opted In', 'Not Opted In', 'Unknown']),
     source: z.string().min(1, 'Consent source is required'),
     purpose: z.string().min(1, 'Consent purpose is required'),
     notes: z.string().optional()
+}).refine(data => Boolean(data.customerContactId || data.customerId), {
+    message: 'customerContactId or customerId is required',
+    path: ['customerContactId']
 });
 export const sendWhatsAppSchema = z.object({
     companyId: z.string().default('company-a'),
     customerContactId: z.string().optional(),
-    customerName: z.string().min(1, 'Customer Name is required'),
-    recipientPhone: z.string().min(7, 'Recipient Phone is required'),
+    customerId: z.string().optional(),
+    customerName: z.string().optional(),
+    recipientPhone: z.string().optional(),
     templateId: z.string().min(1, 'Template selection is required'),
     variableValues: z.record(z.string(), z.string()).default({})
 });
