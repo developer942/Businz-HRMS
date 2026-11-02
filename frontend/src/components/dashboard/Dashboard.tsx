@@ -37,8 +37,6 @@ import {
   Banknote,
   Wallet,
   FileText,
-  Download,
-  BarChart3,
   User
 } from 'lucide-react';
 
@@ -1116,18 +1114,18 @@ export const Dashboard: React.FC = () => {
                   <span className="ceo-report-name">Payroll Summary</span>
                 </div>
 
-                <div className="ceo-report-tile" onClick={() => setActiveModule('organization')}>
+                <div className="ceo-report-tile" onClick={() => setActiveModule('tasks')}>
                   <div className="ceo-report-icon-box amber">
-                    <BarChart3 size={18} color="#D97706" />
+                    <CheckSquare size={18} color="#D97706" />
                   </div>
-                  <span className="ceo-report-name">Department Wise</span>
+                  <span className="ceo-report-name">Tasks</span>
                 </div>
 
-                <div className="ceo-report-tile" onClick={() => setActiveModule('reports')}>
+                <div className="ceo-report-tile" onClick={() => setActiveModule('tracking')}>
                   <div className="ceo-report-icon-box green">
-                    <Download size={18} color="#16A34A" />
+                    <MapPin size={18} color="#16A34A" />
                   </div>
-                  <span className="ceo-report-name">Download Reports</span>
+                  <span className="ceo-report-name">Tracking</span>
                 </div>
               </div>
             </div>
