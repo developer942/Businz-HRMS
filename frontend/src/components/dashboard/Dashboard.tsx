@@ -179,8 +179,8 @@ export const Dashboard: React.FC = () => {
       a => matchesCurrentUser(a.employeeId, a.employeeName) && isTodayAttendanceRecord(a)
     );
     const todayRecord =
-      todayCandidates.find(a => Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--')) ||
       todayCandidates.find(a => String(a.method || '') === 'Manual Punch' || String(a.method || '') === 'Manual Override') ||
+      todayCandidates.find(a => Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--')) ||
       todayCandidates[0];
 
     // Match leaves
@@ -210,8 +210,8 @@ export const Dashboard: React.FC = () => {
     const userRecords = Array.from(byDate.values());
 
     const totalWorkingDays = month.elapsedWorkingDays;
-    const userPresentCount = userRecords.filter(r => r.status === 'Present' || r.status === 'Work From Home').length;
-    const userLateCount = userRecords.filter(r => r.status === 'Late' || r.status === 'Half Day').length;
+    const userPresentCount = userRecords.filter(r => r.status === 'Present' || r.status === 'Work From Home' || (r.status === 'Late' && r.lateStatus === 'On Time')).length;
+    const userLateCount = userRecords.filter(r => (r.status === 'Late' && r.lateStatus !== 'On Time') || r.status === 'Half Day').length;
     const userLeaveCount = userLeaves.reduce((acc, l) => acc + countLeaveDaysInMonth(l.startDate, l.endDate, month), 0);
 
     const realPresent = userPresentCount;
@@ -259,13 +259,19 @@ export const Dashboard: React.FC = () => {
       hasSavedCheckIn && todayRecord?.checkOut
         ? formatTimeDisplay(todayRecord.checkOut, '--:--')
         : '--:--';
+    const rawTodayStatus = todayRecord?.status;
+    const effectiveTodayStatus =
+      rawTodayStatus === 'Late' && todayRecord?.lateStatus === 'On Time'
+        ? 'Present'
+        : rawTodayStatus;
+
     const todayStatus =
-      todayRecord?.status &&
+      effectiveTodayStatus &&
       (hasSavedCheckIn ||
-        todayRecord.status === 'Absent' ||
-        todayRecord.status === 'On Leave' ||
-        (todayRecord.status as string) === 'Holiday')
-        ? todayRecord.status
+        effectiveTodayStatus === 'Absent' ||
+        effectiveTodayStatus === 'On Leave' ||
+        (effectiveTodayStatus as string) === 'Holiday')
+        ? effectiveTodayStatus
         : 'Not Marked';
 
     // Dynamically calculate leave balances from active master leave policies

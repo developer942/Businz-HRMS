@@ -1978,22 +1978,29 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       matchedShift = shifts.find(s => s.shiftName.toLowerCase() === existingRec.shiftName?.toLowerCase());
     }
     if (!matchedShift && emp) {
-      matchedShift = shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? a === emp.employeeId || a === emp.id : a.employeeId === emp.employeeId || a.employeeId === emp.id)));
-      const empWorkShift = emp.workShift;
-      if (!matchedShift && empWorkShift) {
-        matchedShift = shifts.find(s => s.id === empWorkShift || s.shiftName.toLowerCase() === empWorkShift.toLowerCase());
-      }
+      matchedShift = resolveEmployeeAssignedShift(emp, shifts);
     }
     if (!matchedShift && shifts.length > 0) {
       matchedShift = shifts[0];
     }
 
-    const shiftStartTime = matchedShift?.startTime || '09:00 AM';
+    const shiftRangeMatch = (emp?.workShift || '').match(/\(([^)]+)\)/)?.[1]?.trim();
+    let shiftStartTime = matchedShift?.startTime;
+    if (shiftRangeMatch) {
+      const parts = shiftRangeMatch.split('-').map(p => p.trim());
+      if (parts[0]) shiftStartTime = parts[0];
+    }
+    if (!shiftStartTime) {
+      shiftStartTime = matchedShift?.startTime || '09:00 AM';
+    }
+
     const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], matchedShift?.id, matchedShift?.shiftName).policy : null;
     const shiftGraceMins = (
       effectiveLatePolicy?.graceTimeMinutes ?? 
       effectiveLatePolicy?.gracePeriodMinutes ?? 
-      15
+      (matchedShift as any)?.gracePeriodMinutes ??
+      (matchedShift as any)?.gracePeriodMins ??
+      (attendanceConfig?.lateGraceMinutes ?? 40)
     );
 
     // Calculate working hours & OT
@@ -2035,10 +2042,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (inMins !== null) {
         if (inMins > (startMins + shiftGraceMins)) {
-          finalLateMinutes = inMins - startMins;
-          finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
-          if (finalStatus === 'Present' || finalStatus === 'Late') {
-            finalStatus = 'Late';
+          if (params.status === 'Present') {
+            // HR/CEO explicitly regularized/marked Present
+            finalStatus = 'Present';
+            finalLateStatus = 'On Time';
+            finalLateMinutes = 0;
+          } else {
+            finalLateMinutes = inMins - startMins;
+            finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
+            if (finalStatus === 'Present' || finalStatus === 'Late') {
+              finalStatus = 'Late';
+            }
           }
         } else {
           // On Time! No longer late!
@@ -3169,20 +3183,28 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const otHrs = entry.otHours || 0;
 
     // Resolve employee shift & punctuality
-    let matchedShift = shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? a === emp.employeeId || a === emp.id : a.employeeId === emp.employeeId || a.employeeId === emp.id)));
-    const empWorkShift = emp?.workShift;
-    if (!matchedShift && empWorkShift) {
-      matchedShift = shifts.find(s => s.id === empWorkShift || s.shiftName.toLowerCase() === empWorkShift.toLowerCase());
-    }
+    let matchedShift = resolveEmployeeAssignedShift(emp, shifts);
     if (!matchedShift && shifts.length > 0) {
       matchedShift = shifts[0];
     }
-    const shiftStartTime = matchedShift?.startTime || '09:00 AM';
+
+    const shiftRangeMatch = (emp?.workShift || '').match(/\(([^)]+)\)/)?.[1]?.trim();
+    let shiftStartTime = matchedShift?.startTime;
+    if (shiftRangeMatch) {
+      const parts = shiftRangeMatch.split('-').map(p => p.trim());
+      if (parts[0]) shiftStartTime = parts[0];
+    }
+    if (!shiftStartTime) {
+      shiftStartTime = matchedShift?.startTime || '09:00 AM';
+    }
+
     const effectiveLatePolicy = resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], matchedShift?.id, matchedShift?.shiftName).policy;
     const effectiveGraceMins = (
       effectiveLatePolicy?.graceTimeMinutes ?? 
       effectiveLatePolicy?.gracePeriodMinutes ?? 
-      15
+      (matchedShift as any)?.gracePeriodMinutes ??
+      (matchedShift as any)?.gracePeriodMins ??
+      (attendanceConfig?.lateGraceMinutes ?? 40)
     );
 
     let finalStatus = entry.status;
@@ -3197,15 +3219,33 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const startMins = parseTimeToMinutes(shiftStartTime) ?? 9 * 60;
       if (inMins !== null) {
         if (inMins > (startMins + effectiveGraceMins)) {
-          finalLateMinutes = inMins - startMins;
-          finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
+          // Check-in is after shift start + grace period
+          if (entry.status === 'Present') {
+            // HR or CEO explicitly authorized / regularized as Present
+            finalStatus = 'Present';
+            finalLateStatus = 'On Time';
+            finalLateMinutes = 0;
+          } else {
+            finalLateMinutes = inMins - startMins;
+            finalLateStatus = finalLateMinutes <= 30 ? 'Late (<30m)' : 'Severely Late';
+            finalStatus = 'Late';
+          }
         } else {
+          // On Time / within grace period!
           finalLateMinutes = 0;
           finalLateStatus = 'On Time';
+          // Even if entry.status was passed as 'Late' (from an existing late punch),
+          // changing check-in to an on-time or grace period time MUST update status to 'Present'!
+          if (finalStatus === 'Late' || finalStatus === 'Present') {
+            finalStatus = 'Present';
+          }
         }
       }
     } else {
-      finalLateStatus = 'On Time';
+      if (entry.status === 'Present') {
+        finalStatus = 'Present';
+        finalLateStatus = 'On Time';
+      }
       finalLateMinutes = 0;
     }
 
@@ -7107,12 +7147,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Calculate shift timing & late status
     const empShift = evalResult.assignedShift;
-    const shiftStartMins = empShift ? parseTimeToMinutes(empShift.startTime) : 9 * 60; // 09:00 default
+    const shiftRangeMatch = (emp?.workShift || '').match(/\(([^)]+)\)/)?.[1]?.trim();
+    let effectiveShiftStartMins = empShift ? parseTimeToMinutes(empShift.startTime) : null;
+    if (shiftRangeMatch) {
+      const parts = shiftRangeMatch.split('-').map(p => p.trim());
+      if (parts[0]) {
+        const parsedM = parseTimeToMinutes(parts[0]);
+        if (parsedM !== null) effectiveShiftStartMins = parsedM;
+      }
+    }
+    const shiftStartMins = effectiveShiftStartMins ?? (9 * 60);
     const activePolicies = (masterAttendancePolicies && masterAttendancePolicies.length > 0) ? masterAttendancePolicies : DEFAULT_MASTER_ATTENDANCE_POLICIES;
     const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, activePolicies, empShift?.id, empShift?.shiftName).policy : activePolicies[0] || null;
     const graceMins = (
       effectiveLatePolicy?.graceTimeMinutes ?? 
       effectiveLatePolicy?.gracePeriodMinutes ?? 
+      (empShift as any)?.gracePeriodMinutes ??
+      (empShift as any)?.gracePeriodMins ??
       (attendanceConfig?.lateGraceMinutes ?? 40)
     );
     const checkInMins = parseTimeToMinutes(nowTime);

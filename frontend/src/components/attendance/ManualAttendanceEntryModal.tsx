@@ -17,6 +17,7 @@ import { AttendanceRecord } from '../../types/hrms';
 import { DateInput } from '../common/DateInput';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import { resolveEffectiveLatePolicy } from '../../services/policyEngine';
+import { resolveEmployeeAssignedShift } from '../../services/shiftAttendanceEngine';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 const format24to12 = (time24: string): string => {
@@ -78,7 +79,8 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     addManualAttendanceRecord,
     currentUser,
     shifts,
-    masterAttendancePolicies
+    masterAttendancePolicies,
+    attendanceConfig
   } = useHRMS();
 
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => {
@@ -149,17 +151,8 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   // Resolve employee assigned shift & shift window
   const assignedShift = useMemo(() => {
     if (!selectedEmployee) return shifts[0];
-    const empId = selectedEmployee.id;
-    const empCode = selectedEmployee.employeeId;
-    const empWorkShift = selectedEmployee.workShift;
-    return (
-      shifts.find(s => s.id === existingRecord?.shiftId) ||
-      shifts.find(s => s.shiftName?.toLowerCase() === existingRecord?.shiftName?.toLowerCase()) ||
-      (empWorkShift ? shifts.find(s => s.id === empWorkShift || s.shiftName?.toLowerCase() === empWorkShift.toLowerCase()) : null) ||
-      shifts.find(s => s.assignments?.some(a => (typeof a === 'string' ? (a === empId || a === empCode) : (a.employeeId === empId || a.employeeId === empCode)))) ||
-      shifts[0]
-    );
-  }, [shifts, selectedEmployee, existingRecord]);
+    return resolveEmployeeAssignedShift(selectedEmployee, shifts);
+  }, [shifts, selectedEmployee]);
 
   // Resolve applicable late policy for the selected employee and shift
   const effectiveLatePolicy = useMemo(() => {
@@ -172,18 +165,46 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     ).policy;
   }, [selectedEmployee, masterAttendancePolicies, assignedShift]);
 
-  const shiftStartTimeStr = assignedShift?.startTime || '09:00 AM';
+  const shiftRangeMatch = (selectedEmployee?.workShift || '').match(/\(([^)]+)\)/)?.[1]?.trim();
+  let resolvedShiftStartTime = assignedShift?.startTime;
+  if (shiftRangeMatch) {
+    const parts = shiftRangeMatch.split('-').map(p => p.trim());
+    if (parts[0]) resolvedShiftStartTime = parts[0];
+  }
+  const shiftStartTimeStr = resolvedShiftStartTime || assignedShift?.startTime || '09:00 AM';
+
   // Late policy grace period takes precedence over shift grace
   const effectiveGraceMins = (
     effectiveLatePolicy?.graceTimeMinutes ??
     effectiveLatePolicy?.gracePeriodMinutes ??
-    15
+    (assignedShift as any)?.gracePeriodMinutes ??
+    (assignedShift as any)?.gracePeriodMins ??
+    (attendanceConfig?.lateGraceMinutes ?? 40)
   );
 
   const inMins = parseTimeToMinutes(checkInTime);
   const shiftMins = parseTimeToMinutes(shiftStartTimeStr) ?? (9 * 60);
   const isCurrentlyLate = inMins !== null && shiftMins !== null && inMins > (shiftMins + effectiveGraceMins);
   const lateMinutesDiff = inMins !== null && shiftMins !== null ? Math.max(0, inMins - shiftMins) : 0;
+
+  // Format the grace limit time string for quick buttons
+  const graceThresholdTimeStr = useMemo(() => {
+    if (shiftMins === null) return '';
+    const totalM = shiftMins + effectiveGraceMins;
+    const hh = Math.floor(totalM / 60) % 24;
+    const mm = totalM % 60;
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    const h12 = hh % 12 || 12;
+    return `${String(h12).padStart(2, '0')}:${String(mm).padStart(2, '0')} ${ampm}`;
+  }, [shiftMins, effectiveGraceMins]);
+
+  // When check-in time is adjusted by HR/CEO to a time within shift start + grace period,
+  // automatically update status to 'Present' if it was 'Late'
+  useEffect(() => {
+    if (!isCurrentlyLate && status === 'Late' && !isMissedCheckIn && checkInTime) {
+      setStatus('Present');
+    }
+  }, [isCurrentlyLate, status, isMissedCheckIn, checkInTime]);
 
   // Sync state when existing record or defaults change, without wiping active user edits
   useEffect(() => {
@@ -309,8 +330,11 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     const finalCheckIn = isMissedCheckIn ? null : (normalizeTimeString(checkInTime) || checkInTime);
     const finalCheckOut = isMissedCheckOut ? null : (normalizeTimeString(checkOutTime) || checkOutTime);
 
-    // Administrative status explicitly selected by HR/CEO is preserved
-    const statusToSend = status;
+    // If the check-in time is on-time or within grace period, ensure status is recorded as Present
+    let statusToSend = status;
+    if (!isCurrentlyLate && status === 'Late' && !isMissedCheckIn && checkInTime) {
+      statusToSend = 'Present';
+    }
 
     const addedBy = `${currentUser?.name} (${currentUser?.role})`;
 
@@ -755,8 +779,21 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                         </div>
                       )}
                     </div>
+                    {!isMissedCheckIn && checkInTime && (
+                      <div style={{ marginTop: '6px', fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {!isCurrentlyLate ? (
+                          <span style={{ color: '#047857', backgroundColor: '#ECFDF5', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, border: '1px solid #A7F3D0' }}>
+                            ✓ On Time (Shift: {shiftStartTimeStr}, Grace: {effectiveGraceMins}m) &rarr; Marked as Present
+                          </span>
+                        ) : (
+                          <span style={{ color: '#B45309', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, border: '1px solid #FDE68A' }}>
+                            ⏱ Late by {lateMinutesDiff}m (Exceeds {effectiveGraceMins}m grace). Can be saved as Late or regularized as Present.
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                      {Array.from(new Set([shiftStartTimeStr, '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM'])).filter(Boolean).map(t => (
+                      {Array.from(new Set([shiftStartTimeStr, graceThresholdTimeStr, '09:00 AM', '09:30 AM', '10:00 AM', '10:40 AM'])).filter(Boolean).map(t => (
                         <button
                           key={t}
                           type="button"
@@ -775,7 +812,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                             cursor: 'pointer'
                           }}
                         >
-                          {t} {t === shiftStartTimeStr ? '(Shift)' : ''}
+                          {t} {t === shiftStartTimeStr ? '(Shift Start)' : (t === graceThresholdTimeStr ? '(Grace Limit)' : '')}
                         </button>
                       ))}
                     </div>

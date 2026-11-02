@@ -85,8 +85,8 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
     // Month-to-date working days (Sundays = weekly off)
     const totalWorkingDays = month.elapsedWorkingDays;
     
-    const userPresentCount = userRecords.filter(r => r.status === 'Present' || r.status === 'Work From Home').length;
-    const userLateCount = userRecords.filter(r => r.status === 'Late' || r.status === 'Half Day').length;
+    const userPresentCount = userRecords.filter(r => r.status === 'Present' || r.status === 'Work From Home' || (r.status === 'Late' && r.lateStatus === 'On Time')).length;
+    const userLateCount = userRecords.filter(r => (r.status === 'Late' && r.lateStatus !== 'On Time') || r.status === 'Half Day').length;
     const userLeaveCount = userLeaves.reduce((acc, l) => acc + countLeaveDaysInMonth(l.startDate, l.endDate, month), 0);
 
     const realPresent = userPresentCount;
