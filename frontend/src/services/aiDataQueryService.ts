@@ -25,6 +25,7 @@ import {
 import { getLocalizedPack } from './aiLanguageEngine';
 import { formatCurrency } from '../utils/numbers';
 import { buildAttendanceReport } from './attendanceReportService';
+import { isAttendanceExemptEmployee } from '../data/hrmsInitialData';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 interface QueryContextData {
@@ -82,6 +83,8 @@ export function executeHRMSQuery(
   isError?: boolean;
 } {
   const pack = getLocalizedPack(lang);
+  // Workforce used by the dashboard (excludes system admin / CEO-owner attendance-exempt accounts)
+  const workforceEmployees = data.employees.filter(e => !isAttendanceExemptEmployee(e));
   const dateKey = entities.dateKey || 'today';
   const dateLabel = pack.dateLabels[dateKey as keyof typeof pack.dateLabels] || pack.dateLabels.today;
   const resolvedDate = entities.resolvedDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -557,11 +560,36 @@ export function executeHRMSQuery(
 
   // 5. GET_LATE_EMPLOYEES: Employees who arrived late
   if (intent === 'GET_LATE_EMPLOYEES') {
-    let lateRecords = data.attendanceRecords.filter(a => a.status === 'Late' || (a.lateStatus && a.lateStatus.includes('Late')));
-    
-    if (entities.department) {
-      lateRecords = lateRecords.filter(a => a.department.toLowerCase().includes(entities.department!.toLowerCase()));
+    if (workforceEmployees.length === 0) {
+      return {
+        responseText: 'Attendance data is currently unavailable. Please retry after the employee directory finishes loading.',
+        payload: { type: 'none' },
+        newFilters: { date: resolvedDate, module: 'attendance' },
+        followUpSuggestions: ['Retry today late list'],
+        isError: true
+      };
     }
+    const lateReport = buildAttendanceReport({
+      currentUser: data.currentUser,
+      role: data.role,
+      employees: data.employees,
+      attendanceRecords: data.attendanceRecords,
+      leaveRequests: data.leaveRequests,
+      shifts: data.shifts,
+      fieldAssignments: data.fieldAssignments,
+      weeklySchedules: data.weeklySchedules,
+      holidayPolicies: data.holidayPolicies,
+      date: resolvedDate,
+      department: entities.department
+    });
+    const lateRecords = lateReport.late.map(({ employee, attendance }) => ({
+      id: attendance?.id || `ATT-LATE-${employee.employeeId}`,
+      employeeName: `${employee.firstName} ${employee.lastName}`.trim(),
+      employeeId: employee.employeeId,
+      department: employee.department,
+      checkIn: attendance?.checkIn || '',
+      lateStatus: attendance?.lateStatus || 'Late'
+    }));
 
     const columns: TableColumn[] = [
       { key: 'employeeName', label: pack.tableHeaders.employee },
@@ -759,7 +787,7 @@ export function executeHRMSQuery(
     const absentCount = attendanceReport.absent.length;
 
     return {
-      responseText: pack.attendanceFound(dateLabel),
+      responseText: `${pack.attendanceFound(dateLabel)} Total ${totalEmployees} staff: ${presentCount} present (incl. ${lateCount} late), ${leaveCount} on leave, ${absentCount} absent.`,
       payload: {
         type: 'chart',
         title: `Attendance Breakdown (${dateLabel})`,
@@ -848,7 +876,7 @@ export function executeHRMSQuery(
 
   // 10. GET_EMPLOYEE_LIST: General staff directory
   if (intent === 'GET_EMPLOYEE_LIST') {
-    let empList = [...data.employees];
+    let empList = [...workforceEmployees];
     if (entities.department) {
       empList = empList.filter(e => e.department.toLowerCase().includes(entities.department!.toLowerCase()));
     }
@@ -896,8 +924,8 @@ export function executeHRMSQuery(
 
   // 11. GREETING_CASUAL ("dai eppadi iruka", "how are you", "kaisa hai")
   if (intent === 'GREETING_CASUAL') {
-    const totalCount = data.employees.length;
-    const activeCount = data.employees.filter(e => e.status === 'Active').length;
+    const totalCount = workforceEmployees.length;
+    const activeCount = workforceEmployees.filter(e => e.status === 'Active').length;
     const todayLeave = data.leaveRequests.filter(l => l.status === 'Approved').length;
 
     let reply = (pack as any).casualGreeting || 'I am doing great, thank you! 😊 How can I assist you with your VRM HRMS today?';
@@ -1167,8 +1195,8 @@ export function executeHRMSQuery(
 
   // 13. GREETING_HELLO ("hi", "hello", "vanakkam")
   if (intent === 'GREETING_HELLO') {
-    const total = data.employees.length;
-    const active = data.employees.filter(e => e.status === 'Active').length;
+    const total = workforceEmployees.length;
+    const active = workforceEmployees.filter(e => e.status === 'Active').length;
     const reply = lang === 'ta'
       ? `வணக்கம் / Hello! 👋 BUSINZ Chat Bot தயாராக உள்ளார். நிறுவனத்தில் மொத்தம் ${total} ஊழியர்கள் பதிவு செய்யப்பட்டுள்ளனர் (${active} பேர் Active). உங்களுக்கு என்ன விபரம் வேண்டும்?`
       : `Hello! 👋 I am your BUSINZ Chat Bot. Currently ${total} staff are registered. How can I assist you with HR operations today?`;
@@ -1219,13 +1247,13 @@ export function executeHRMSQuery(
 
   // 16. GET_EMPLOYEE_COUNT: Headcount & department distribution
   if (intent === 'GET_EMPLOYEE_COUNT') {
-    const total = data.employees.length;
-    const active = data.employees.filter(e => e.status === 'Active').length;
+    const total = workforceEmployees.length;
+    const active = workforceEmployees.filter(e => e.status === 'Active').length;
     const inactive = total - active;
 
     // Group by department
     const deptMap: Record<string, number> = {};
-    data.employees.forEach(e => {
+    workforceEmployees.forEach(e => {
       const d = e.department || 'General';
       deptMap[d] = (deptMap[d] || 0) + 1;
     });

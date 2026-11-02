@@ -12,6 +12,7 @@ import {
   getLocalizedPack 
 } from '../../services/aiLanguageEngine';
 import { executeHRMSQuery } from '../../services/aiDataQueryService';
+import { buildAttendanceReport } from '../../services/attendanceReportService';
 import { executeVerifiedHRMSQuery } from '../../services/aiBackendQueryService';
 import { exportToExcel, exportToPDF, exportToCSV } from '../../services/aiExportService';
 import {
@@ -506,8 +507,49 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
       ]);
       let queryResult: any;
       let geminiModelUsed: string | null = null;
+
+      // Live HRMS context: the same data + logic the Dashboard uses (guarantees bot == dashboard numbers)
+      const liveCtx = {
+        currentUser, role, employees: employees || [], attendanceRecords: attendanceRecords || [],
+        leaveRequests: leaveRequests || [], enhancedTasks: enhancedTasks || [],
+        performanceScores: performanceScores || [], payrollRecords: payrollRecords || [],
+        departments: departments || [], holidayPolicies: holidayPolicies || [], leavePolicies: leavePolicies || [],
+        attendancePolicies: attendancePolicies || [], weeklySchedules: weeklySchedules || [],
+        attendanceConfig: (attendanceConfig || {}) as any, policyDocuments: policyDocuments || [],
+        businessSettings: (businessSettings || {}) as any, shifts: shifts || [], fieldAssignments: fieldAssignments || []
+      };
+      // Intents answered from the live dashboard data (identical to Dashboard cards)
+      const liveDataIntents = new Set(['GET_ATTENDANCE', 'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST']);
+      const useLiveData = liveDataIntents.has(intent) && liveCtx.employees.length > 0;
+
+      // Compact real-time snapshot given to Gemini so free-form questions are answered with real numbers
+      const buildLiveSnapshot = (): string => {
+        try {
+          if (!liveCtx.employees.length) return '';
+          const report = buildAttendanceReport({
+            currentUser, role, employees: liveCtx.employees, attendanceRecords: liveCtx.attendanceRecords,
+            leaveRequests: liveCtx.leaveRequests, shifts: liveCtx.shifts, fieldAssignments: liveCtx.fieldAssignments,
+            weeklySchedules: liveCtx.weeklySchedules, holidayPolicies: liveCtx.holidayPolicies
+          });
+          const names = (rows: { employee: any }[]) => rows.slice(0, 40)
+            .map(r => `${`${r.employee.firstName} ${r.employee.lastName}`.trim()} (${r.employee.employeeId})`).join(', ') || 'none';
+          return [
+            `Live HRMS snapshot for ${report.date} (same figures as the Dashboard):`,
+            `Total staff: ${report.rows.length}`,
+            `Present today (incl. late): ${report.present.length}`,
+            `Late today: ${report.late.length}`,
+            `On leave today: ${report.onLeave.length}`,
+            `Absent today: ${report.absent.length}`,
+            `Absent employees: ${names(report.absent)}`,
+            `Late employees: ${names(report.late)}`,
+            `On leave employees: ${names(report.onLeave)}`
+          ].join('\n');
+        } catch { return ''; }
+      };
       try {
-        if (verifiedIntents.has(intent)) {
+        if (useLiveData) {
+          queryResult = executeHRMSQuery(intent, entities, activeLang, convState, liveCtx, queryText);
+        } else if (verifiedIntents.has(intent)) {
           queryResult = await executeVerifiedHRMSQuery(intent, entities);
           const explanationIntent = ['GET_LEAVE_POLICIES', 'GET_SANDWICH_POLICY', 'GET_ATTENDANCE_POLICIES', 'GET_COMPANY_POLICIES'].includes(intent);
           if (explanationIntent && hasGeminiKey && queryResult.verifiedFacts) {
@@ -519,9 +561,9 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
             } catch { /* verified backend response remains authoritative */ }
           }
         } else {
-          if (hasGeminiKey) {
+          if (hasGeminiKey && intent !== 'GREETING_HELLO' && intent !== 'GREETING_CASUAL' && intent !== 'WHO_ARE_YOU' && intent !== 'THANK_YOU') {
             try {
-              const explained = await callGeminiGenerateContent(queryText, {}, activeLang, convState.conversationHistory);
+              const explained = await callGeminiGenerateContent(queryText, { verifiedFacts: buildLiveSnapshot() }, activeLang, convState.conversationHistory);
               queryResult = {
                 responseText: explained.text,
                 payload: { type: 'none' },
@@ -532,24 +574,16 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
               geminiModelUsed = explained.modelUsed;
             } catch (geminiErr: any) {
               console.warn('Gemini chat fallback error:', geminiErr);
-              queryResult = executeHRMSQuery(intent, entities, activeLang, convState, {
-                currentUser, role, employees: [], attendanceRecords: [], leaveRequests: [], enhancedTasks: [],
-                performanceScores: [], payrollRecords: [], departments: [], holidayPolicies: [], leavePolicies: [],
-                attendancePolicies: [], weeklySchedules: [], attendanceConfig: {} as any, policyDocuments: [], businessSettings: {} as any, shifts: [], fieldAssignments: []
-              }, queryText);
+              queryResult = executeHRMSQuery(intent, entities, activeLang, convState, liveCtx, queryText);
             }
           } else {
-            queryResult = executeHRMSQuery(intent, entities, activeLang, convState, {
-              currentUser, role, employees: [], attendanceRecords: [], leaveRequests: [], enhancedTasks: [],
-              performanceScores: [], payrollRecords: [], departments: [], holidayPolicies: [], leavePolicies: [],
-              attendancePolicies: [], weeklySchedules: [], attendanceConfig: {} as any, policyDocuments: [], businessSettings: {} as any, shifts: [], fieldAssignments: []
-            }, queryText);
+            queryResult = executeHRMSQuery(intent, entities, activeLang, convState, liveCtx, queryText);
           }
         }
       } catch (error: any) {
         if (hasGeminiKey) {
           try {
-            const explained = await callGeminiGenerateContent(queryText, {}, activeLang, convState.conversationHistory);
+            const explained = await callGeminiGenerateContent(queryText, { verifiedFacts: buildLiveSnapshot() }, activeLang, convState.conversationHistory);
             queryResult = {
               responseText: explained.text,
               payload: { type: 'none' },
@@ -579,7 +613,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
         followUpSuggestions: queryResult.followUpSuggestions,
         isError: queryResult.isError,
         geminiModel: geminiModelUsed || undefined,
-        dataSource: verifiedIntents.has(intent) ? 'postgresql' : 'local',
+        dataSource: (verifiedIntents.has(intent) || useLiveData) ? 'postgresql' : 'local',
         timingMs: queryResult.timings?.totalMs
       };
 

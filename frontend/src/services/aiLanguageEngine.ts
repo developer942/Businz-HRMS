@@ -568,6 +568,15 @@ export function normalizeIntent(
     return 'GET_ABSENT_EMPLOYEES';
   }
 
+  // Present count / list (typo tolerant: "peresent", "prsent", "presant", "present count")
+  if (
+    /\b(p+e?r+e?s+e?[ae]?n+t+|prsnt|presnt|prasent|hajir|haziri)\b/i.test(lower) &&
+    !/\b(my|en|ennoda|mera|naa|meri)\b/i.test(lower) &&
+    !/\b(late|policy|policies|rule|rules)\b/i.test(lower)
+  ) {
+    return 'GET_ATTENDANCE';
+  }
+
   // Late Employees
   if (
     /\b(late|latecomers|late vandhavanga|late aana|deri se|late vacchina|தாமதம்|देरी)\b/i.test(lower) ||
