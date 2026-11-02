@@ -1584,7 +1584,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                 </div>
               )}
               <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '6px' }}>
-                Collected by {duplicateWarning.collectedByName} on {duplicateWarning.collectedDate}
+                Collected by {duplicateWarning.collectedByName} on {formatDateDDMMYYYY(duplicateWarning.collectedDate) || duplicateWarning.collectedDate}
               </div>
             </div>
 

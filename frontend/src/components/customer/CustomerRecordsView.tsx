@@ -3,6 +3,7 @@ import { CustomerContact } from '../../types/customer';
 import { customerService } from '../../services/customerService';
 import { useHRMS } from '../../context/HRMSContext';
 import { downloadExcel, ExportColumn } from '../../utils/exportUtils';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { SendWhatsAppModal } from './SendWhatsAppModal';
 import { 
   Search, 
@@ -146,7 +147,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
       full_address: c.address || '-',
       website: c.website || '-',
       collected_by: c.collectedByName,
-      collected_date: c.collectedDate,
+      collected_date: formatDateDDMMYYYY(c.collectedDate) || c.collectedDate || '',
       whatsapp_consent_status: c.consentStatus,
       last_whatsapp_status: c.lastMessageStatus || 'No Message'
     }));
@@ -491,7 +492,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                       </td>
 
                       <td style={{ padding: '14px 16px', color: '#64748B', whiteSpace: 'nowrap' }}>
-                        {c.collectedDate}
+                        {formatDateDDMMYYYY(c.collectedDate) || c.collectedDate || '-'}
                       </td>
 
                       <td style={{ padding: '14px 16px' }}>
@@ -895,7 +896,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
               </div>
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Collected Date</span>
-                <strong>{viewCustomer.collectedDate}</strong>
+                <strong>{formatDateDDMMYYYY(viewCustomer.collectedDate) || viewCustomer.collectedDate || '-'}</strong>
               </div>
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>WhatsApp Consent</span>
