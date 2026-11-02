@@ -456,65 +456,6 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box' }}>
-      {/* Top Banner Card */}
-      <div className="customer-card-box">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', width: '100%' }}>
-          <div style={{ minWidth: 0, flex: '1 1 240px' }}>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0', lineHeight: 1.25 }}>
-              Add New Customer
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: '#64748B', margin: 0, wordBreak: 'break-word' }}>
-              Capture customer visiting card via camera or file upload with instant AI OCR, or enter details manually.
-            </p>
-          </div>
-
-          {/* Mode Selector Segmented Tabs */}
-          <div className="customer-mode-selector">
-            <button
-              type="button"
-              onClick={() => { setCaptureMode('camera'); handleOpenScanner('camera'); }}
-              className="customer-mode-btn"
-              style={{
-                backgroundColor: captureMode === 'camera' ? '#0E7490' : 'transparent',
-                color: captureMode === 'camera' ? '#FFFFFF' : '#475569',
-                boxShadow: captureMode === 'camera' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none'
-              }}
-            >
-              <Camera size={14} style={{ flexShrink: 0 }} />
-              <span>Scan Card</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setCaptureMode('upload'); handleOpenScanner('upload'); }}
-              className="customer-mode-btn"
-              style={{
-                backgroundColor: captureMode === 'upload' ? '#0E7490' : 'transparent',
-                color: captureMode === 'upload' ? '#FFFFFF' : '#475569',
-                boxShadow: captureMode === 'upload' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none'
-              }}
-            >
-              <Upload size={14} style={{ flexShrink: 0 }} />
-              <span>Upload Photo</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setCaptureMode('manual'); }}
-              className="customer-mode-btn"
-              style={{
-                backgroundColor: captureMode === 'manual' ? '#0E7490' : 'transparent',
-                color: captureMode === 'manual' ? '#FFFFFF' : '#475569',
-                boxShadow: captureMode === 'manual' ? '0 1px 3px rgba(14, 116, 144, 0.35)' : 'none'
-              }}
-            >
-              <FileText size={14} style={{ flexShrink: 0 }} />
-              <span>Manual Entry</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Success Notification Banner */}
       {savedSuccess && (
         <div style={{
