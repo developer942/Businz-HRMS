@@ -127,7 +127,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
   const { currentUser } = useHRMS();
 
   // Mode Selection: 'camera' | 'upload' | 'manual'
-  const [captureMode, setCaptureMode] = useState<'camera' | 'upload' | 'manual'>('manual');
+  const [captureMode, setCaptureMode] = useState<'camera' | 'upload' | 'manual'>('camera');
 
   // Visiting Card Image state
   const [originalImageBase64, setOriginalImageBase64] = useState<string | null>(null);
@@ -446,7 +446,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
     setOcrSuccess(false);
     setSavedSuccess(null);
     setDuplicateWarning(null);
-    setCaptureMode('manual');
+    setCaptureMode('camera');
     setFieldErrors({});
     setTouchedFields({});
     ocrRequestIdRef.current += 1;
@@ -655,10 +655,65 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
 
         {/* Right Column: Main Customer Form */}
         <div className="customer-card-box">
-          <div style={{ marginBottom: '18px' }}>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#1E293B', margin: 0 }}>
-              Customer Details
-            </h3>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            marginBottom: '18px'
+          }}>
+            <div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1E293B', margin: '0 0 2px 0' }}>
+                Customer Details
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
+                Scan visiting card with AI OCR or enter details manually
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => { setCaptureMode('camera'); handleOpenScanner('camera'); }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '9px 18px',
+                  borderRadius: '10px',
+                  backgroundColor: '#0E7490',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(14, 116, 144, 0.25)'
+                }}
+              >
+                <Camera size={16} /> Scan Card
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setCaptureMode('upload'); handleOpenScanner('upload'); }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '9px 18px',
+                  borderRadius: '10px',
+                  backgroundColor: '#ECFEFF',
+                  color: '#0E7490',
+                  border: '1px solid #A5F3FC',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                <Upload size={16} /> Upload Photo
+              </button>
+            </div>
           </div>
 
           {/* Active Mode Banner: Camera Scanner */}
