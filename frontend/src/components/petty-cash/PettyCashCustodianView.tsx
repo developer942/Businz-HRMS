@@ -12,7 +12,10 @@ import {
   Search,
   BellRing,
   ArrowRight,
+  RotateCcw,
+  X,
 } from 'lucide-react';
+import { pettyCashService } from '../../services/pettyCashService';
 import type {
   PettyCashAccount,
   PettyCashRequest,
@@ -54,6 +57,63 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Resubmit Reversed Expense State
+  const [selectedExpenseForResubmit, setSelectedExpenseForResubmit] = useState<PettyCashExpense | null>(null);
+  const [resubmitReason, setResubmitReason] = useState<string>('');
+  const [resubmitFile, setResubmitFile] = useState<File | null>(null);
+  const [resubmitting, setResubmitting] = useState<boolean>(false);
+  const [resubmitError, setResubmitError] = useState<string | null>(null);
+
+  const handleOpenResubmitModal = (expense: PettyCashExpense) => {
+    setSelectedExpenseForResubmit(expense);
+    setResubmitReason('');
+    setResubmitFile(null);
+    setResubmitError(null);
+  };
+
+  const handleResubmitExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedExpenseForResubmit) return;
+
+    if (!resubmitReason.trim() || resubmitReason.trim().length < 3) {
+      setResubmitError('Please provide a valid, detailed business reason (at least 3 characters).');
+      return;
+    }
+
+    if (currentBalance < Number(selectedExpenseForResubmit.amount)) {
+      setResubmitError(`Insufficient available balance (₹${currentBalance.toFixed(2)}) to resubmit expense of ₹${Number(selectedExpenseForResubmit.amount).toFixed(2)}.`);
+      return;
+    }
+
+    setResubmitting(true);
+    setResubmitError(null);
+
+    try {
+      let attachmentUrl = selectedExpenseForResubmit.bill_attachment_url;
+      if (resubmitFile) {
+        const uploadRes = await pettyCashService.uploadAttachment(resubmitFile, 'EXPENSE');
+        if (uploadRes?.fileUrl) {
+          attachmentUrl = uploadRes.fileUrl;
+        }
+      }
+
+      await pettyCashService.resubmitExpense(selectedExpenseForResubmit.id, {
+        reason: resubmitReason.trim(),
+        billAttachmentUrl: attachmentUrl,
+        paymentMode: selectedExpenseForResubmit.payment_mode,
+      });
+
+      setSelectedExpenseForResubmit(null);
+      setResubmitReason('');
+      setResubmitFile(null);
+      onRefresh();
+    } catch (err: any) {
+      setResubmitError(err?.message || 'Failed to resubmit expense. Please check balance and try again.');
+    } finally {
+      setResubmitting(false);
+    }
+  };
 
   const currentBalance = Number(activeAccount?.current_balance || 0);
 
@@ -408,12 +468,13 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                     <th style={{ textAlign: 'right' }}>Amount (₹)</th>
                     <th>Bill Proof</th>
                     <th>Status</th>
+                    <th style={{ textAlign: 'center' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
+                      <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
                         No daily expenses recorded yet. Click <strong>"+ Add Daily Expense"</strong> above to record an expense.
                       </td>
                     </tr>
@@ -425,7 +486,14 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                         <td>
                           <span className="status-pill neutral">{exp.category_name}</span>
                         </td>
-                        <td style={{ maxWidth: '260px' }}>{exp.reason}</td>
+                        <td style={{ maxWidth: '280px' }}>
+                          <div style={{ fontWeight: 600, color: '#1E293B' }}>{exp.reason}</div>
+                          {exp.is_reversed && exp.reversal_reason && (
+                            <div style={{ marginTop: '4px', fontSize: '0.74rem', color: '#B91C1C', backgroundColor: '#FEF2F2', padding: '3px 8px', borderRadius: '4px', border: '1px solid #FECACA', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <AlertTriangle size={11} /> <strong>CEO Reversal Reason:</strong> {exp.reversal_reason}
+                            </div>
+                          )}
+                        </td>
                         <td>{exp.payment_mode || 'Cash'}</td>
                         <td style={{ textAlign: 'right', fontWeight: 800, color: exp.is_reversed ? '#94A3B8' : '#B91C1C' }}>
                           {exp.is_reversed ? <del>₹{Number(exp.amount).toFixed(2)}</del> : `₹${Number(exp.amount).toFixed(2)}`}
@@ -454,6 +522,30 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                             </span>
                           ) : (
                             <span className="status-pill success">DEDUCTED</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {exp.is_reversed ? (
+                            <button
+                              type="button"
+                              className="btn-primary btn-sm"
+                              style={{ 
+                                backgroundColor: '#0E7490', 
+                                borderColor: '#0E7490', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                padding: '4px 10px',
+                                fontSize: '0.78rem',
+                                borderRadius: '6px'
+                              }}
+                              onClick={() => handleOpenResubmitModal(exp)}
+                              title="Enter corrected reason and resubmit this expense"
+                            >
+                              <RotateCcw size={12} /> Add Reason & Resubmit
+                            </button>
+                          ) : (
+                            <span style={{ color: '#94A3B8', fontSize: '0.78rem' }}>—</span>
                           )}
                         </td>
                       </tr>
@@ -573,6 +665,127 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Resubmit Reversed Expense Modal */}
+      {selectedExpenseForResubmit && (
+        <div className="petty-cash-modal-overlay" onClick={() => !resubmitting && setSelectedExpenseForResubmit(null)}>
+          <div className="petty-cash-modal" style={{ maxWidth: '540px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ color: '#0E7490', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <RotateCcw size={20} />
+                Rectify & Resubmit Expense
+              </h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => !resubmitting && setSelectedExpenseForResubmit(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleResubmitExpense}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* Alert regarding Reversal */}
+                <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px', fontSize: '0.82rem', color: '#991B1B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, marginBottom: '4px' }}>
+                    <AlertTriangle size={15} color="#DC2626" /> CEO Reversal Feedback
+                  </div>
+                  <div style={{ marginLeft: '21px' }}>
+                    <strong>Reason for rejection:</strong> "{selectedExpenseForResubmit.reversal_reason || 'Reversed by CEO'}"
+                  </div>
+                  <div style={{ marginLeft: '21px', marginTop: '4px', fontSize: '0.76rem', color: '#B91C1C' }}>
+                    Please provide the corrected business purpose / justification to resubmit and deduct this expense.
+                  </div>
+                </div>
+
+                {/* Expense Details Card */}
+                <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '0.82rem' }}>
+                  <div>
+                    <span style={{ color: '#64748B' }}>Expense #:</span>{' '}
+                    <strong style={{ fontFamily: 'monospace' }}>{selectedExpenseForResubmit.expense_number}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748B' }}>Amount:</span>{' '}
+                    <strong style={{ color: '#B91C1C', fontSize: '0.95rem' }}>₹{Number(selectedExpenseForResubmit.amount).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748B' }}>Category:</span>{' '}
+                    <strong>{selectedExpenseForResubmit.category_name}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748B' }}>Date:</span>{' '}
+                    <strong>{formatDateDDMMYYYY(selectedExpenseForResubmit.expense_date)}</strong>
+                  </div>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <span style={{ color: '#64748B' }}>Previous Reason:</span>{' '}
+                    <span style={{ fontStyle: 'italic', color: '#475569' }}>"{selectedExpenseForResubmit.reason}"</span>
+                  </div>
+                </div>
+
+                {/* New Reason Input */}
+                <div>
+                  <label className="petty-cash-label">
+                    Corrected / Updated Reason <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    className="petty-cash-textarea"
+                    placeholder="Enter full, detailed business reason for this expense..."
+                    value={resubmitReason}
+                    onChange={(e) => setResubmitReason(e.target.value)}
+                    required
+                    style={{ width: '100%', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                {/* Proof Upload */}
+                <div>
+                  <label className="petty-cash-label">
+                    Updated Bill / Receipt Proof (Optional)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => e.target.files && setResubmitFile(e.target.files[0])}
+                    style={{ fontSize: '0.82rem' }}
+                  />
+                  {selectedExpenseForResubmit.bill_attachment_url && !resubmitFile && (
+                    <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+                      Existing proof attached. Uploading a new file will replace it.
+                    </div>
+                  )}
+                </div>
+
+                {resubmitError && (
+                  <div style={{ color: '#DC2626', fontSize: '0.82rem', backgroundColor: '#FEF2F2', padding: '8px 12px', borderRadius: '6px' }}>
+                    {resubmitError}
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={resubmitting}
+                  onClick={() => setSelectedExpenseForResubmit(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={resubmitting || !resubmitReason.trim()}
+                  style={{ backgroundColor: '#0E7490', borderColor: '#0E7490' }}
+                >
+                  {resubmitting ? 'Resubmitting...' : 'Update Reason & Resubmit'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

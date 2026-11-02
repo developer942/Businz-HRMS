@@ -1,5 +1,5 @@
 import { pettyCashService } from '../services/pettyCashService.js';
-import { assignCustodianSchema, reassignCustodianSchema, requestPettyCashSchema, ceoApprovalSchema, accountsDisbursementSchema, custodianReceiptConfirmationSchema, addDailyExpenseSchema, reverseExpenseSchema, flagExpenseSchema, categorySchema, } from '../validators/pettyCashValidators.js';
+import { assignCustodianSchema, reassignCustodianSchema, requestPettyCashSchema, ceoApprovalSchema, accountsDisbursementSchema, custodianReceiptConfirmationSchema, addDailyExpenseSchema, reverseExpenseSchema, resubmitExpenseSchema, flagExpenseSchema, categorySchema, } from '../validators/pettyCashValidators.js';
 export class PettyCashController {
     // 1. Assign Custodian (CEO Only)
     async assignCustodian(req, res, next) {
@@ -304,6 +304,33 @@ export class PettyCashController {
                 success: true,
                 data: result,
                 message: `Expense reversed successfully. Amount ₹${result.expense.amount.toFixed(2)} credited back to balance. New balance: ₹${result.newBalance.toFixed(2)}`,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    // 12b. Resubmit Reversed Expense (Custodian Adds Updated Reason)
+    async resubmitExpense(req, res, next) {
+        try {
+            const id = String(req.params.id);
+            const parsed = resubmitExpenseSchema.parse({ expenseId: id, ...req.body });
+            const user = req.user;
+            const companyId = user.company_id || 'company-a';
+            const result = await pettyCashService.resubmitExpense({
+                companyId,
+                expenseId: id,
+                resubmittedById: user.id,
+                resubmittedByName: user.name || user.email,
+                resubmittedByRole: user.role,
+                reason: parsed.reason,
+                billAttachmentUrl: parsed.billAttachmentUrl,
+                paymentMode: parsed.paymentMode,
+            });
+            res.status(200).json({
+                success: true,
+                data: result,
+                message: `Expense resubmitted with updated reason! ₹${result.expense.amount.toFixed(2)} deducted. Available balance: ₹${result.newBalance.toFixed(2)}`,
             });
         }
         catch (err) {

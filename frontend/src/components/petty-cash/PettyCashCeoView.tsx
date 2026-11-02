@@ -460,7 +460,14 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
                     <td>
                       <span className="status-pill neutral">{exp.category_name}</span>
                     </td>
-                    <td style={{ maxWidth: '240px' }}>{exp.reason}</td>
+                    <td style={{ maxWidth: '260px' }}>
+                      <div style={{ fontWeight: 600, color: '#1E293B' }}>{exp.reason}</div>
+                      {exp.is_reversed && exp.reversal_reason && (
+                        <div style={{ marginTop: '4px', fontSize: '0.74rem', color: '#B91C1C', backgroundColor: '#FEF2F2', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FECACA', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <AlertTriangle size={11} /> <strong>CEO Reversal Reason:</strong> {exp.reversal_reason}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'right', fontWeight: 800, color: exp.is_reversed ? '#94A3B8' : '#B91C1C' }}>
                       {exp.is_reversed ? <del>₹{Number(exp.amount).toFixed(2)}</del> : `₹${Number(exp.amount).toFixed(2)}`}
                     </td>
@@ -487,7 +494,7 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
                       )}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      {!exp.is_reversed && (
+                      {!exp.is_reversed ? (
                         <button
                           className="btn-secondary btn-sm"
                           style={{ color: '#EF4444', borderColor: '#FCA5A5' }}
@@ -499,6 +506,10 @@ export const PettyCashCeoView: React.FC<PettyCashCeoViewProps> = ({
                         >
                           Reverse & Restore
                         </button>
+                      ) : (
+                        <span style={{ fontSize: '0.76rem', color: '#94A3B8', fontWeight: 600 }}>
+                          Reversed & Restored
+                        </span>
                       )}
                     </td>
                   </tr>

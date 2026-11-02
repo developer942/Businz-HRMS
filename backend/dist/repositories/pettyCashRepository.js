@@ -1201,6 +1201,100 @@ export class PettyCashRepository {
         }
         return expense;
     }
+    async resubmitExpense(params) {
+        return this.acquireLock(async () => {
+            const expense = await this.getExpenseById(params.expenseId);
+            if (!expense)
+                throw new Error('Expense record not found');
+            const account = await this.getAccountById(expense.account_id);
+            if (!account)
+                throw new Error('Associated petty cash account not found');
+            const expenseAmount = new Decimal(expense.amount);
+            const balanceBefore = new Decimal(account.current_balance);
+            if (balanceBefore.lessThan(expenseAmount)) {
+                throw new Error(`Insufficient available balance (₹${balanceBefore.toFixed(2)}) to resubmit expense of ₹${expenseAmount.toFixed(2)}`);
+            }
+            const balanceAfter = balanceBefore.minus(expenseAmount);
+            account.current_balance = balanceAfter.toNumber();
+            account.updated_at = new Date().toISOString();
+            const oldReason = expense.reason;
+            expense.reason = params.reason;
+            expense.is_reversed = false;
+            expense.status = 'RECORDED';
+            if (params.billAttachmentUrl) {
+                expense.bill_attachment_url = params.billAttachmentUrl;
+            }
+            if (params.paymentMode) {
+                expense.payment_mode = params.paymentMode;
+            }
+            expense.updated_at = new Date().toISOString();
+            // Create ledger debit entry
+            const ledgerEntry = {
+                id: crypto.randomUUID(),
+                company_id: account.company_id,
+                account_id: account.id,
+                transaction_type: 'DEBIT',
+                reference_type: 'EXPENSE_RECORD',
+                reference_id: expense.id,
+                amount: expenseAmount.toNumber(),
+                balance_before: balanceBefore.toNumber(),
+                balance_after: balanceAfter.toNumber(),
+                description: `Expense ${expense.expense_number} resubmitted with updated reason (${expense.category_name}): ${params.reason}`,
+                created_by_id: params.resubmittedById,
+                created_by_name: params.resubmittedByName,
+                created_at: new Date().toISOString(),
+            };
+            this.expenses.set(expense.id, expense);
+            this.accounts.set(account.id, account);
+            this.ledger.unshift(ledgerEntry);
+            // Persist to PostgreSQL
+            try {
+                await query(`UPDATE public.petty_cash_accounts 
+           SET current_balance = $1, updated_at = NOW() 
+           WHERE id = $2`, [balanceAfter.toNumber(), account.id]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB balance update on resubmit fallback:', dbErr);
+            }
+            try {
+                await query(`UPDATE public.petty_cash_expenses 
+           SET is_reversed = false, status = 'RECORDED', reason = $1, 
+               bill_attachment_url = COALESCE($2, bill_attachment_url),
+               payment_mode = COALESCE($3, payment_mode),
+               updated_at = NOW() 
+           WHERE id = $4`, [params.reason, params.billAttachmentUrl || null, params.paymentMode || null, expense.id]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB expense update on resubmit fallback:', dbErr);
+            }
+            try {
+                await query(`INSERT INTO public.petty_cash_ledger (
+            id, company_id, account_id, transaction_type, reference_type,
+            reference_id, amount, balance_before, balance_after,
+            description, idempotency_key, created_by_id, created_by_name, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+          ON CONFLICT DO NOTHING`, [
+                    ledgerEntry.id,
+                    ledgerEntry.company_id,
+                    ledgerEntry.account_id,
+                    ledgerEntry.transaction_type,
+                    ledgerEntry.reference_type,
+                    ledgerEntry.reference_id,
+                    ledgerEntry.amount,
+                    ledgerEntry.balance_before,
+                    ledgerEntry.balance_after,
+                    ledgerEntry.description,
+                    null,
+                    ledgerEntry.created_by_id,
+                    ledgerEntry.created_by_name,
+                ]);
+            }
+            catch (dbErr) {
+                console.warn('[PettyCashRepository] DB ledger insert on resubmit fallback:', dbErr);
+            }
+            return { expense, newBalance: balanceAfter.toNumber(), oldReason };
+        });
+    }
     // ============================================================
     // 6. LEDGER TRANSACTIONS & AUDIT TRAIL
     // ============================================================

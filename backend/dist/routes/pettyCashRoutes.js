@@ -36,6 +36,7 @@ pettyCashRouter.post('/receipts/confirm', (req, res, next) => pettyCashControlle
 pettyCashRouter.post('/expenses', (req, res, next) => pettyCashController.recordDailyExpense(req, res, next));
 pettyCashRouter.get('/expenses', (req, res, next) => pettyCashController.getExpenses(req, res, next));
 pettyCashRouter.post('/expenses/:id/reverse', requireRoles(['CEO', 'Super Admin', 'Finance Manager', 'Admin']), (req, res, next) => pettyCashController.reverseExpense(req, res, next));
+pettyCashRouter.post('/expenses/:id/resubmit', (req, res, next) => pettyCashController.resubmitExpense(req, res, next));
 pettyCashRouter.post('/expenses/:id/flag', requireRoles(['CEO', 'Super Admin', 'Finance Manager', 'Admin']), (req, res, next) => pettyCashController.flagExpense(req, res, next));
 // ============================================================
 // 6. Immutable Financial Ledger & Audit Trail

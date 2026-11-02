@@ -320,6 +320,41 @@ export class PettyCashService {
         });
         return result;
     }
+    async resubmitExpense(params) {
+        const result = await pettyCashRepository.resubmitExpense({
+            companyId: params.companyId,
+            expenseId: params.expenseId,
+            resubmittedById: params.resubmittedById,
+            resubmittedByName: params.resubmittedByName,
+            reason: params.reason,
+            billAttachmentUrl: params.billAttachmentUrl,
+            paymentMode: params.paymentMode,
+        });
+        await pettyCashRepository.createAuditLog({
+            companyId: params.companyId,
+            accountId: result.expense.account_id,
+            action: 'EXPENSE_RESUBMITTED',
+            performedById: params.resubmittedById,
+            performedByName: params.resubmittedByName,
+            performedByRole: params.resubmittedByRole,
+            entityType: 'EXPENSE',
+            entityId: result.expense.id,
+            details: {
+                expenseNumber: result.expense.expense_number,
+                oldReason: result.oldReason,
+                newReason: params.reason,
+                amount: result.expense.amount,
+                newBalance: result.newBalance,
+            },
+        });
+        const activeAccount = await pettyCashRepository.getActiveAccount(params.companyId);
+        const isLowBalance = activeAccount ? result.newBalance <= activeAccount.low_balance_threshold : false;
+        return {
+            expense: result.expense,
+            newBalance: result.newBalance,
+            isLowBalance,
+        };
+    }
     async flagExpense(params) {
         const expense = await pettyCashRepository.flagExpense({
             expenseId: params.expenseId,

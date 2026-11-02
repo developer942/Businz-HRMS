@@ -98,6 +98,11 @@ pettyCashRouter.post(
 );
 
 pettyCashRouter.post(
+  '/expenses/:id/resubmit',
+  (req, res, next) => pettyCashController.resubmitExpense(req, res, next)
+);
+
+pettyCashRouter.post(
   '/expenses/:id/flag',
   requireRoles(['CEO', 'Super Admin', 'Finance Manager', 'Admin']),
   (req, res, next) => pettyCashController.flagExpense(req, res, next)

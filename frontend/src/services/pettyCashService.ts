@@ -186,6 +186,16 @@ export const pettyCashService = {
     });
   },
 
+  async resubmitExpense(
+    expenseId: string,
+    data: { reason: string; billAttachmentUrl?: string; paymentMode?: string }
+  ): Promise<{ expense: PettyCashExpense; newBalance: number }> {
+    return request<{ expense: PettyCashExpense; newBalance: number }>(`/expenses/${expenseId}/resubmit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   async flagExpense(expenseId: string, reviewNotes?: string): Promise<PettyCashExpense> {
     return request<PettyCashExpense>(`/expenses/${expenseId}/flag`, {
       method: 'POST',

@@ -119,6 +119,14 @@ export const reverseExpenseSchema = z.object({
   path: ['reversalReason'],
 });
 
+// 8b. Resubmit Reversed Expense
+export const resubmitExpenseSchema = z.object({
+  expenseId: z.string().min(1, { message: 'Valid Expense ID is required' }),
+  reason: meaningfulTextSchema,
+  billAttachmentUrl: z.string().optional(),
+  paymentMode: z.enum(['Cash', 'UPI', 'Card', 'Other']).optional(),
+});
+
 // 9. Flag Expense
 export const flagExpenseSchema = z.object({
   expenseId: z.string().min(1, { message: 'Valid Expense ID is required' }),
