@@ -560,6 +560,29 @@ export function normalizeIntent(
     return 'FILTER_CURRENT_RESULT';
   }
 
+  // Early punch-out (Attendance Management "Early Punch Out" report)
+  if (
+    /\b(early\s*-?\s*(punch|check|clock)?\s*-?\s*out|early\s*(leave|leaving|go|going|exit)|munnadi\s*(poitanga|poga|poitu)|munnadiye\s*(poitanga|poga))\b/i.test(lower) &&
+    !/\b(policy|policies|rule|rules)\b/i.test(lower)
+  ) {
+    return 'GET_EARLY_PUNCHOUT';
+  }
+
+  // Missed punch / no check-out
+  if (
+    /\b(miss(ed|ing)?\s*-?\s*(punch|clock|check)\s*-?\s*(in|out)?|no\s*(evening|check\s*-?\s*out|punch\s*-?\s*out)|forgot\s*(to\s*)?(punch|check)|punch\s*-?\s*out\s*(pannala|panala|illa|aagala)|punch\s*pannala)\b/i.test(lower)
+  ) {
+    return 'GET_MISSED_PUNCH';
+  }
+
+  // Overtime hours list
+  if (
+    /\b(overtime|over\s*time|ot\s*(hours|list|report|hrs))\b/i.test(lower) &&
+    !/\b(policy|policies|rule|rules|calculation|calculate|formula)\b/i.test(lower)
+  ) {
+    return 'GET_OVERTIME';
+  }
+
   // Absent Employees
   if (
     /\b(absent|absentees|not come|varala|vandhavanga|varavillai|anupasthit|nahi aaye|raledu|రాలేదు|வரவில்லை|अनुपस्थित)\b/i.test(lower) ||
@@ -574,6 +597,10 @@ export function normalizeIntent(
     !/\b(my|en|ennoda|mera|naa|meri)\b/i.test(lower) &&
     !/\b(late|policy|policies|rule|rules)\b/i.test(lower)
   ) {
+    // "present list / who is present / present employees" -> list, otherwise count summary
+    if (/\b(list|who|yaru|kaun|names?|employees?|staff|show|display|yaaru|peru)\b/i.test(lower)) {
+      return 'GET_PRESENT_EMPLOYEES';
+    }
     return 'GET_ATTENDANCE';
   }
 

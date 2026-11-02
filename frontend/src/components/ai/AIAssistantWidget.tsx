@@ -11,8 +11,7 @@ import {
   LANGUAGE_NAMES,
   getLocalizedPack 
 } from '../../services/aiLanguageEngine';
-import { executeHRMSQuery } from '../../services/aiDataQueryService';
-import { buildAttendanceReport } from '../../services/attendanceReportService';
+import { executeHRMSQuery, computeDashboardAttendance } from '../../services/aiDataQueryService';
 import { executeVerifiedHRMSQuery } from '../../services/aiBackendQueryService';
 import { exportToExcel, exportToPDF, exportToCSV } from '../../services/aiExportService';
 import {
@@ -519,30 +518,37 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
         businessSettings: (businessSettings || {}) as any, shifts: shifts || [], fieldAssignments: fieldAssignments || []
       };
       // Intents answered from the live dashboard data (identical to Dashboard cards)
-      const liveDataIntents = new Set(['GET_ATTENDANCE', 'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST']);
+      const liveDataIntents = new Set([
+        'GET_ATTENDANCE', 'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_PRESENT_EMPLOYEES',
+        'GET_EARLY_PUNCHOUT', 'GET_MISSED_PUNCH', 'GET_OVERTIME', 'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST'
+      ]);
       const useLiveData = liveDataIntents.has(intent) && liveCtx.employees.length > 0;
 
       // Compact real-time snapshot given to Gemini so free-form questions are answered with real numbers
       const buildLiveSnapshot = (): string => {
         try {
           if (!liveCtx.employees.length) return '';
-          const report = buildAttendanceReport({
-            currentUser, role, employees: liveCtx.employees, attendanceRecords: liveCtx.attendanceRecords,
-            leaveRequests: liveCtx.leaveRequests, shifts: liveCtx.shifts, fieldAssignments: liveCtx.fieldAssignments,
-            weeklySchedules: liveCtx.weeklySchedules, holidayPolicies: liveCtx.holidayPolicies
-          });
+          const dash = computeDashboardAttendance(liveCtx, entities.resolvedDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()));
+          const report = dash.report;
           const names = (rows: { employee: any }[]) => rows.slice(0, 40)
             .map(r => `${`${r.employee.firstName} ${r.employee.lastName}`.trim()} (${r.employee.employeeId})`).join(', ') || 'none';
+          const namesEmp = (rows: { emp: any }[]) => rows.slice(0, 40)
+            .map(r => `${`${r.emp.firstName} ${r.emp.lastName}`.trim()} (${r.emp.employeeId})`).join(', ') || 'none';
           return [
-            `Live HRMS snapshot for ${report.date} (same figures as the Dashboard):`,
-            `Total staff: ${report.rows.length}`,
-            `Present today (incl. late): ${report.present.length}`,
-            `Late today: ${report.late.length}`,
-            `On leave today: ${report.onLeave.length}`,
-            `Absent today: ${report.absent.length}`,
+            `Live HRMS snapshot for ${report.date} (same figures as the Dashboard and Attendance Management):`,
+            `Total staff: ${dash.workforce.length}`,
+            `Present (incl. late): ${report.present.length}`,
+            `Late: ${report.late.length}`,
+            `On leave: ${report.onLeave.length}`,
+            `Absent: ${report.absent.length}`,
+            `Early punch-out: ${dash.early.length}`,
+            `Missed punch-out (checked in, no check-out): ${dash.missed.length}`,
+            `Overtime today: ${dash.overtime.length}`,
             `Absent employees: ${names(report.absent)}`,
             `Late employees: ${names(report.late)}`,
-            `On leave employees: ${names(report.onLeave)}`
+            `On leave employees: ${names(report.onLeave)}`,
+            `Early punch-out employees: ${namesEmp(dash.early)}`,
+            `Missed punch-out employees: ${namesEmp(dash.missed)}`
           ].join('\n');
         } catch { return ''; }
       };

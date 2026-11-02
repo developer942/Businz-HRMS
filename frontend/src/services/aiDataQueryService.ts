@@ -26,9 +26,9 @@ import { getLocalizedPack } from './aiLanguageEngine';
 import { formatCurrency } from '../utils/numbers';
 import { buildAttendanceReport } from './attendanceReportService';
 import { isAttendanceExemptEmployee } from '../data/hrmsInitialData';
-import { formatDateDDMMYYYY } from '../utils/dateUtils';
+import { formatDateDDMMYYYY, formatTimeDisplay } from '../utils/dateUtils';
 
-interface QueryContextData {
+export interface QueryContextData {
   currentUser: any;
   role: Role;
   employees: Employee[];
@@ -67,6 +67,50 @@ const DEFAULT_LEAVE_POLICIES: LeavePolicyItem[] = [
   { id: 'lp4', name: 'Maternity & Paternity Leave', code: 'ML', quotaDays: 182, monthlyAccrual: 'Lump Sum', carryForward: 'N/A', color: '#DB2777', status: 'Active', description: '26 Weeks for maternity or 15 days paternity leave as per statutory guidelines.' },
   { id: 'lp5', name: 'Compensatory Off (Comp-Off)', code: 'CO', quotaDays: 6, monthlyAccrual: 'Earned upon holiday work', carryForward: '60 Days Validity', color: '#7C3AED', status: 'Active', description: 'Compensatory day-off credited when working on Sundays or statutory holidays.' }
 ];
+
+const normKey = (value?: string | null) => (value || '').trim().toLowerCase();
+const attendanceRecordDay = (record: AttendanceRecord) => (record.shiftDate || record.date || '').slice(0, 10);
+
+/**
+ * Single source of truth for chat bot attendance numbers.
+ * Mirrors the Dashboard / Attendance Management rules exactly so the bot never disagrees with the UI.
+ */
+export function computeDashboardAttendance(data: QueryContextData, date: string, department?: string) {
+  const workforce = data.employees.filter(e =>
+    !isAttendanceExemptEmployee(e) &&
+    (!department || (e.department || '').toLowerCase().includes(department.toLowerCase()))
+  );
+  const report = buildAttendanceReport({
+    currentUser: data.currentUser,
+    role: data.role,
+    employees: data.employees,
+    attendanceRecords: data.attendanceRecords,
+    leaveRequests: data.leaveRequests,
+    shifts: data.shifts,
+    fieldAssignments: data.fieldAssignments,
+    weeklySchedules: data.weeklySchedules,
+    holidayPolicies: data.holidayPolicies,
+    date,
+    department
+  });
+  const dayRecords = data.attendanceRecords.filter(r => attendanceRecordDay(r) === date);
+  const matches = (record: AttendanceRecord, emp: Employee) => {
+    const recId = normKey(record.employeeId);
+    if (recId && (recId === normKey(emp.employeeId) || recId === normKey(emp.id))) return true;
+    const recName = normKey(record.employeeName);
+    const fullName = normKey(`${emp.firstName} ${emp.lastName}`);
+    return !!recName && !!fullName && recName === fullName;
+  };
+  const withAttendance = workforce
+    .map(emp => ({ emp, att: dayRecords.find(r => matches(r, emp)) }))
+    .filter((x): x is { emp: Employee; att: AttendanceRecord } => Boolean(x.att));
+  const early = withAttendance.filter(({ att }) =>
+    Boolean(att.checkOut) && ((att.workingHours > 0 && att.workingHours < 7.5) || att.status === 'Half Day'));
+  const missed = withAttendance.filter(({ att }) => Boolean(att.checkIn) && !att.checkOut);
+  const otHours = (att: AttendanceRecord) => Number(att.approvedOtHours ?? att.otHours ?? att.calculatedOtHours ?? 0) || 0;
+  const overtime = withAttendance.filter(({ att }) => otHours(att) > 0);
+  return { report, workforce, early, missed, overtime, otHours };
+}
 
 export function executeHRMSQuery(
   intent: CanonicalIntent,
@@ -558,6 +602,88 @@ export function executeHRMSQuery(
     };
   }
 
+  // 4b. Present list / Early punch-out / Missed punch / Overtime (Dashboard + Attendance Management parity)
+  if (intent === 'GET_PRESENT_EMPLOYEES' || intent === 'GET_EARLY_PUNCHOUT' || intent === 'GET_MISSED_PUNCH' || intent === 'GET_OVERTIME') {
+    if (workforceEmployees.length === 0) {
+      return {
+        responseText: 'Attendance data is currently unavailable. Please retry after the employee directory finishes loading.',
+        payload: { type: 'none' },
+        newFilters: { date: resolvedDate, module: 'attendance' },
+        followUpSuggestions: ['Retry attendance report'],
+        isError: true
+      };
+    }
+    const dash = computeDashboardAttendance(data, resolvedDate, entities.department);
+    type AttRow = { emp: Employee; att?: AttendanceRecord };
+    let list: AttRow[] = [];
+    let title = '';
+    let summary = '';
+    let detailLabel = 'Details';
+    let detailOf: (r: AttRow) => string = () => '';
+
+    if (intent === 'GET_PRESENT_EMPLOYEES') {
+      list = dash.report.present.map(r => ({ emp: r.employee, att: r.attendance }));
+      title = `Present Employees (${dateLabel})`;
+      summary = `${list.length} employees are present ${dateLabel} (including ${dash.report.late.length} late) out of ${dash.workforce.length} staff.`;
+      detailLabel = 'Status';
+      detailOf = r => r.att?.status === 'Late' ? (r.att?.lateStatus && r.att.lateStatus !== 'N/A' ? r.att.lateStatus : 'Late') : 'On Time';
+    } else if (intent === 'GET_EARLY_PUNCHOUT') {
+      list = dash.early;
+      title = `Early Punch Out (${dateLabel})`;
+      summary = `${list.length} employee(s) punched out early ${dateLabel} (worked less than 7.5 hours or half day).`;
+      detailLabel = 'Hours Worked';
+      detailOf = r => r.att ? `${Number(r.att.workingHours || 0).toFixed(2)} hrs` : '—';
+    } else if (intent === 'GET_MISSED_PUNCH') {
+      list = dash.missed;
+      title = `Missed Punch-Out (${dateLabel})`;
+      summary = `${list.length} employee(s) checked in ${dateLabel} but have no check-out recorded yet.`;
+      detailLabel = 'Issue';
+      detailOf = () => 'No check-out';
+    } else {
+      list = dash.overtime;
+      title = `Overtime (${dateLabel})`;
+      summary = `${list.length} employee(s) have overtime recorded ${dateLabel}.`;
+      detailLabel = 'OT Hours';
+      detailOf = r => r.att ? `${dash.otHours(r.att).toFixed(2)} hrs` : '—';
+    }
+
+    const columns: TableColumn[] = [
+      { key: 'employeeName', label: pack.tableHeaders.employee },
+      { key: 'employeeId', label: pack.tableHeaders.id },
+      { key: 'department', label: pack.tableHeaders.department },
+      { key: 'checkIn', label: pack.tableHeaders.checkIn },
+      { key: 'checkOut', label: 'Check Out' },
+      { key: 'detail', label: detailLabel }
+    ];
+    const rows = list.map(({ emp, att }) => ({
+      id: att?.id || `ATT-${intent}-${emp.employeeId}`,
+      employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+      employeeId: emp.employeeId,
+      department: emp.department,
+      checkIn: att?.checkIn ? formatTimeDisplay(att.checkIn, '—') : '—',
+      checkOut: att?.checkOut ? formatTimeDisplay(att.checkOut, '—') : '—',
+      detail: detailOf({ emp, att })
+    }));
+
+    return {
+      responseText: summary,
+      payload: {
+        type: 'table',
+        title,
+        columns,
+        rows,
+        metrics: [
+          { label: 'Matching Employees', value: rows.length, color: intent === 'GET_PRESENT_EMPLOYEES' ? 'success' : 'warning' },
+          { label: 'Total Staff', value: dash.workforce.length, color: 'primary' }
+        ],
+        exportAvailable: true,
+        navigationTarget: 'attendance'
+      },
+      newFilters: { date: resolvedDate, department: entities.department, module: 'attendance' },
+      followUpSuggestions: ['Inniku absent yaru?', 'Late vandhavanga yaru?', 'Excel-la kudu', 'Give in English']
+    };
+  }
+
   // 5. GET_LATE_EMPLOYEES: Employees who arrived late
   if (intent === 'GET_LATE_EMPLOYEES') {
     if (workforceEmployees.length === 0) {
@@ -780,14 +906,17 @@ export function executeHRMSQuery(
       holidayPolicies: data.holidayPolicies,
       date: resolvedDate
     });
-    const totalEmployees = attendanceReport.rows.length;
+    const dashSummary = computeDashboardAttendance(data, resolvedDate);
+    const totalEmployees = dashSummary.workforce.length;
     const presentCount = attendanceReport.present.length;
     const lateCount = attendanceReport.late.length;
     const leaveCount = attendanceReport.onLeave.length;
     const absentCount = attendanceReport.absent.length;
+    const earlyCount = dashSummary.early.length;
+    const missedCount = dashSummary.missed.length;
 
     return {
-      responseText: `${pack.attendanceFound(dateLabel)} Total ${totalEmployees} staff: ${presentCount} present (incl. ${lateCount} late), ${leaveCount} on leave, ${absentCount} absent.`,
+      responseText: `${pack.attendanceFound(dateLabel)} Total ${totalEmployees} staff: ${presentCount} present (incl. ${lateCount} late), ${leaveCount} on leave, ${absentCount} absent. Early punch-out: ${earlyCount}, missed punch-out: ${missedCount}.`,
       payload: {
         type: 'chart',
         title: `Attendance Breakdown (${dateLabel})`,
@@ -796,7 +925,9 @@ export function executeHRMSQuery(
           { label: 'Present', value: presentCount, color: 'success' },
           { label: 'Late (<30m)', value: lateCount, color: 'warning' },
           { label: 'On Leave', value: leaveCount, color: 'info' },
-          { label: 'Absent', value: absentCount, color: 'danger' }
+          { label: 'Absent', value: absentCount, color: 'danger' },
+          { label: 'Early Punch Out', value: earlyCount, color: 'warning' },
+          { label: 'Missed Punch Out', value: missedCount, color: 'info' }
         ],
         chartData: [
           { label: 'Present', count: presentCount, percentage: Math.round((presentCount / (totalEmployees || 1)) * 100), color: '#22C55E' },
