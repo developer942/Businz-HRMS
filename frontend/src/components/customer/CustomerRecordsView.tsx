@@ -551,32 +551,6 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                               <CreditCard size={15} />
                             </button>
                           )}
-
-                          <button
-                            onClick={() => {
-                              if (onOpenSendWhatsApp) {
-                                onOpenSendWhatsApp(c);
-                              } else {
-                                setSendWhatsAppCustomer(c);
-                              }
-                            }}
-                            title="Send WhatsApp Message"
-                            style={{
-                              border: 'none',
-                              backgroundColor: '#DCFCE7',
-                              color: '#15803D',
-                              padding: '6px 10px',
-                              borderRadius: '8px',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontWeight: 600,
-                              fontSize: '0.75rem'
-                            }}
-                          >
-                            <Send size={13} /> Send
-                          </button>
                         </div>
                       </td>
                     </tr>
