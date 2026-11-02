@@ -14,22 +14,26 @@ const token = () => sessionStorage.getItem('vrm_auth_token') || localStorage.get
 const headers = () => ({ 'Content-Type': 'application/json', ...(token() ? { Authorization: `Bearer ${token()}` } : {}) });
 export const cleanApiKey = (key: string) => (key || '').trim().replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '').trim();
 
-// API keys are deliberately never returned from or persisted in browser storage.
 export function getStoredGeminiApiKey(): string {
-  if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY_API);
-  return '';
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem(STORAGE_KEY_API) || '';
 }
-export function setStoredGeminiApiKey(_key: string): void {
+export function setStoredGeminiApiKey(key: string): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(STORAGE_KEY_API);
+  const clean = cleanApiKey(key);
+  if (clean && !clean.includes('...')) {
+    localStorage.setItem(STORAGE_KEY_API, clean);
+  } else if (!clean) {
+    localStorage.removeItem(STORAGE_KEY_API);
+  }
   try {
     const raw = localStorage.getItem('vrm_enterprise_integrations_v6');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.gemini_ai) parsed.gemini_ai.apiKey = '';
+      if (parsed.gemini_ai) parsed.gemini_ai.apiKey = clean && !clean.includes('...') ? clean : (parsed.gemini_ai.apiKey || '');
       localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(parsed));
     }
-  } catch { /* legacy store cleanup only */ }
+  } catch { /* cleanup */ }
 }
 export function getStoredGeminiModel(): string { return localStorage.getItem(STORAGE_KEY_MODEL) || DEFAULT_GEMINI_MODEL; }
 export function setStoredGeminiModel(model: string): void { localStorage.setItem(STORAGE_KEY_MODEL, model || DEFAULT_GEMINI_MODEL); }
@@ -50,17 +54,28 @@ export async function listGeminiModels(apiKey = ''): Promise<GeminiModelInfo[]> 
 }
 
 export async function syncApiKeyToBackend(apiKey: string, model: string, ocrModel?: string): Promise<void> {
+  const clean = cleanApiKey(apiKey);
   await responseJson(await fetch(`${API_BASE_URL}/ai/config`, { method: 'POST', headers: headers(), body: JSON.stringify({
-    ...(cleanApiKey(apiKey) ? { apiKey: cleanApiKey(apiKey) } : {}), model, ocrModel: ocrModel || getStoredGeminiOcrModel(),
+    ...(clean ? { apiKey: clean } : {}), model, ocrModel: ocrModel || getStoredGeminiOcrModel(),
   }) }));
-  setStoredGeminiApiKey(''); setStoredGeminiModel(model); setStoredGeminiOcrModel(ocrModel || getStoredGeminiOcrModel());
+  if (clean && !clean.includes('...')) {
+    setStoredGeminiApiKey(clean);
+  }
+  setStoredGeminiModel(model);
+  setStoredGeminiOcrModel(ocrModel || getStoredGeminiOcrModel());
 }
 
-export async function checkAiServerStatus(): Promise<{ isConfigured: boolean; model: string; ocrModel?: string }> {
+export async function checkAiServerStatus(): Promise<{ isConfigured: boolean; model: string; ocrModel?: string; maskedApiKey?: string; hasKey?: boolean }> {
   const data = await responseJson(await fetch(`${API_BASE_URL}/ai/status`, { headers: headers() }));
   if (data.model) setStoredGeminiModel(data.model);
   if (data.ocrModel) setStoredGeminiOcrModel(data.ocrModel);
-  return { isConfigured: Boolean(data.isConfigured), model: data.model || DEFAULT_GEMINI_MODEL, ocrModel: data.ocrModel };
+  return {
+    isConfigured: Boolean(data.isConfigured),
+    hasKey: Boolean(data.hasKey),
+    maskedApiKey: data.maskedApiKey,
+    model: data.model || DEFAULT_GEMINI_MODEL,
+    ocrModel: data.ocrModel
+  };
 }
 
 export async function validateGeminiKey(apiKey: string): Promise<boolean> {

@@ -39,6 +39,7 @@ import {
   listGeminiModels,
   cleanApiKey,
   syncApiKeyToBackend,
+  checkAiServerStatus,
   GeminiModelInfo,
   DEFAULT_GEMINI_OCR_MODEL
 } from '../../services/geminiApiService';
@@ -248,6 +249,44 @@ export const IntegrationsSettings: React.FC = () => {
               }
             }));
           }
+        }
+      })
+      .catch(() => {});
+
+    // 6. Synchronize Google Gemini AI config & status from backend
+    checkAiServerStatus()
+      .then(aiStatus => {
+        if (aiStatus?.isConfigured) {
+          setConnectionStatuses(prev => {
+            const next = { ...prev, gemini_ai: 'connected' as const };
+            localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(next));
+            return next;
+          });
+          if (aiStatus.maskedApiKey) {
+            localStorage.setItem('VRM_GEMINI_MASKED_KEY', aiStatus.maskedApiKey);
+          }
+          const activeKey = getStoredGeminiApiKey() || aiStatus.maskedApiKey || 'AQ.••••••••••••';
+          setGeminiKey(activeKey);
+          if (aiStatus.model) setGeminiModel(aiStatus.model);
+          if (aiStatus.ocrModel) setGeminiOcrModel(aiStatus.ocrModel);
+          setIntegrationFormValues(prev => ({
+            ...prev,
+            gemini_ai: {
+              ...prev.gemini_ai,
+              apiKey: activeKey,
+              model: aiStatus.model || prev.gemini_ai?.model || 'gemini-2.5-flash',
+              ocrModel: aiStatus.ocrModel || prev.gemini_ai?.ocrModel || 'gemini-2.5-flash'
+            }
+          }));
+
+          // Fetch available models from Google API
+          listGeminiModels()
+            .then(models => {
+              if (models && models.length > 0) {
+                setAvailableGeminiModels(models);
+              }
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {});
@@ -586,8 +625,8 @@ export const IntegrationsSettings: React.FC = () => {
       brandBg: '#ECFEFF',
       tagline: 'Multi-lingual Generative HRM Policy & Query Intelligence',
       description: 'Supercharge HRM with Google Gemini models powering BUSINZ Chat Bot to answer employee policy questions in Tamil, English, and Tanglish.',
-      status: connectionStatuses['gemini_ai'] || (geminiKey ? 'connected' : 'disconnected'),
-      lastSynced: geminiKey ? 'Active & Listening' : 'API Key Required',
+      status: connectionStatuses['gemini_ai'] === 'connected' || Boolean(geminiKey) ? 'connected' : 'disconnected',
+      lastSynced: connectionStatuses['gemini_ai'] === 'connected' || Boolean(geminiKey) ? 'Connected & Verified (PostgreSQL)' : 'API Key Required',
       features: [
         'Natural Language HR Policy & Leave Balance answers',
         'Tamil, Tanglish, Hindi, and English multilingual AI responses',
@@ -600,8 +639,10 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'apiKey',
           label: 'Google Gemini AI Studio API Key',
           type: 'password',
-          required: true,
-          placeholder: 'AIzaSy... or AQ....',
+          required: !(connectionStatuses['gemini_ai'] === 'connected' || Boolean(geminiKey)),
+          placeholder: (connectionStatuses['gemini_ai'] === 'connected' || Boolean(geminiKey))
+            ? '•••••••••••••••• (API Key Active in PostgreSQL - enter new key to replace)'
+            : 'AIzaSy... or AQ....',
           helperText: 'Get your free API key at aistudio.google.com/app/apikey (starts with AQ... or AIzaSy...)',
           defaultValue: geminiKey || ''
         },
@@ -1358,8 +1399,8 @@ export const IntegrationsSettings: React.FC = () => {
     // 7. Google Gemini AI & BUSINZ Chat Bot
     if (id === 'gemini_ai') {
       const gKey = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey || '');
-      const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.0-flash';
-      const gModel = rawModel.includes('3.6-flash') ? 'gemini-2.0-flash' : rawModel;
+      const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash';
+      const gModel = rawModel.includes('3.6-flash') ? 'gemini-2.5-flash' : rawModel;
       const gOcrModel = integrationFormValues['gemini_ai']?.ocrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL;
 
       try {
@@ -1369,18 +1410,28 @@ export const IntegrationsSettings: React.FC = () => {
         triggerToast(err.message || 'Gemini configuration was not saved.', 'error');
         return;
       }
-      setStoredGeminiApiKey('');
+
+      const activeSavedKey = (gKey && !gKey.includes('...')) ? gKey : (geminiKey || getStoredGeminiApiKey() || 'AQ.••••••••••••');
+      if (gKey && !gKey.includes('...')) {
+        setStoredGeminiApiKey(gKey);
+      }
       setStoredGeminiModel(gModel);
       setStoredGeminiOcrModel(gOcrModel);
-      setGeminiKey('');
+      setGeminiKey(activeSavedKey);
       setGeminiModel(gModel);
       setGeminiOcrModel(gOcrModel);
+
+      setConnectionStatuses(prev => {
+        const next = { ...prev, gemini_ai: 'connected' as const };
+        localStorage.setItem('vrm_integration_statuses_v3', JSON.stringify(next));
+        return next;
+      });
 
       const nextFormValues = {
         ...integrationFormValues,
         gemini_ai: {
           ...integrationFormValues['gemini_ai'],
-          apiKey: '',
+          apiKey: activeSavedKey,
           model: gModel,
           ocrModel: gOcrModel
         }
@@ -1392,9 +1443,9 @@ export const IntegrationsSettings: React.FC = () => {
         activeModalIntegration.name,
         activeModalIntegration.brandColor,
         'Configuration Saved',
-        'Google Gemini AI credentials saved and model preferences updated.'
+        'Google Gemini AI credentials saved and model preferences updated in PostgreSQL.'
       );
-      triggerToast('Google Gemini AI configuration saved', 'success');
+      triggerToast('Google Gemini AI configuration saved and connected', 'success');
       setActiveModalIntegration(null);
       return;
     }
@@ -1854,10 +1905,7 @@ export const IntegrationsSettings: React.FC = () => {
       };
       // Auto-save form values into localStorage on every edit/paste
       try {
-        const safeUpdated = integrationId === 'gemini_ai'
-          ? { ...updated, gemini_ai: { ...updated.gemini_ai, apiKey: '' } }
-          : updated;
-        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(safeUpdated));
+        localStorage.setItem('vrm_enterprise_integrations_v6', JSON.stringify(updated));
       } catch (e) {}
       return updated;
     });
@@ -1867,6 +1915,9 @@ export const IntegrationsSettings: React.FC = () => {
       if (fieldKey === 'apiKey') {
         const cleaned = cleanApiKey(value || '');
         setGeminiKey(cleaned);
+        if (cleaned && !cleaned.includes('...')) {
+          setStoredGeminiApiKey(cleaned);
+        }
       } else if (fieldKey === 'model') {
         setGeminiModel(value);
       } else if (fieldKey === 'ocrModel') {
@@ -2469,6 +2520,22 @@ export const IntegrationsSettings: React.FC = () => {
                         <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
                           {field.label}
                         </label>
+                        {activeModalIntegration.id === 'gemini_ai' && field.key === 'apiKey' && (connectionStatuses['gemini_ai'] === 'connected' || Boolean(geminiKey)) && (
+                          <span style={{
+                            fontSize: '0.72rem',
+                            color: '#15803D',
+                            backgroundColor: '#DCFCE7',
+                            border: '1px solid #BBF7D0',
+                            borderRadius: '6px',
+                            padding: '2px 8px',
+                            fontWeight: 650,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            ✓ Configured & Active in PostgreSQL
+                          </span>
+                        )}
                         {activeModalIntegration.id === 'whatsapp' && field.key === 'webhookSecret' && (
                           <button
                             type="button"

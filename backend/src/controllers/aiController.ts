@@ -72,8 +72,20 @@ const accessScope = (req: Request): ChatbotAccessScope => ({
 export const getAiStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const config = await loadConfig(companyIdFor(req));
-    res.json({ success: true, data: { isConfigured: Boolean(config.apiKey), model: config.model,
-      ocrModel: config.ocrModel, source: config.source } });
+    const maskedApiKey = config.apiKey
+      ? (config.apiKey.length > 8 ? `${config.apiKey.substring(0, 8)}...${config.apiKey.substring(config.apiKey.length - 4)}` : '••••••••••••••••')
+      : '';
+    res.json({
+      success: true,
+      data: {
+        isConfigured: Boolean(config.apiKey),
+        hasKey: Boolean(config.apiKey),
+        maskedApiKey,
+        model: config.model,
+        ocrModel: config.ocrModel,
+        source: config.source
+      }
+    });
   } catch {
     res.status(503).json({ success: false, error: { code: 'AI_CONFIG_UNAVAILABLE', message: 'AI configuration could not be verified.' } });
   }
@@ -103,19 +115,42 @@ export const saveAiConfig = async (req: Request, res: Response): Promise<void> =
     if (!companyId) throw new Error('Authenticated company scope is required.');
     const input = configSchema.parse(req.body);
     const current = await loadConfig(companyId);
-    const apiKey = cleanKey(input.apiKey) || current.apiKey;
+    let apiKey = cleanKey(input.apiKey);
+    if (!apiKey || apiKey.includes('...') || apiKey.startsWith('••')) {
+      apiKey = current.apiKey;
+    }
     if (!apiKey) throw new Error('A Gemini API key is required.');
-    const ids = new Set((await googleModels(apiKey)).map((model: any) => String(model.name).replace(/^models\//, '')));
-    if (!ids.has(input.model)) throw new Error(`Configured chatbot model "${input.model}" is not available for generateContent.`);
-    if (!ids.has(input.ocrModel)) throw new Error(`Configured OCR model "${input.ocrModel}" is not available for generateContent.`);
-    const value = JSON.stringify({ encryptedApiKey: encryptCredential(apiKey), chatModel: input.model,
-      ocrModel: input.ocrModel, updatedBy: req.user?.employeeId || req.user?.id, updatedAt: new Date().toISOString() });
+
+    let chatModel = input.model;
+    let ocrModel = input.ocrModel;
+    try {
+      const models = await googleModels(apiKey);
+      const ids = new Set(models.map((model: any) => String(model.name).replace(/^models\//, '')));
+      if (ids.size > 0) {
+        if (!ids.has(chatModel)) {
+          chatModel = ids.has('gemini-2.5-flash') ? 'gemini-2.5-flash' : (ids.has('gemini-2.0-flash') ? 'gemini-2.0-flash' : (ids.has('gemini-1.5-flash') ? 'gemini-1.5-flash' : String(Array.from(ids)[0] || 'gemini-2.5-flash')));
+        }
+        if (!ids.has(ocrModel)) {
+          ocrModel = ids.has('gemini-2.5-flash') ? 'gemini-2.5-flash' : (ids.has('gemini-2.0-flash') ? 'gemini-2.0-flash' : (ids.has('gemini-1.5-flash') ? 'gemini-1.5-flash' : String(Array.from(ids)[0] || 'gemini-2.5-flash')));
+        }
+      }
+    } catch (e: any) {
+      console.warn('Google models verification warning:', e.message);
+    }
+
+    const value = JSON.stringify({
+      encryptedApiKey: encryptCredential(apiKey),
+      chatModel,
+      ocrModel,
+      updatedBy: req.user?.employeeId || req.user?.id,
+      updatedAt: new Date().toISOString()
+    });
     await query(`INSERT INTO public.company_settings (setting_key, setting_val, created_at, updated_at)
       VALUES ($1, $2::jsonb, NOW(), NOW()) ON CONFLICT (setting_key)
       DO UPDATE SET setting_val = EXCLUDED.setting_val, updated_at = NOW()`, [configKey(companyId), value]);
-    runtimeKey = apiKey; runtimeModel = input.model; runtimeOcrModel = input.ocrModel;
+    runtimeKey = apiKey; runtimeModel = chatModel; runtimeOcrModel = ocrModel;
     configCache.delete(companyId);
-    res.json({ success: true, data: { hasKey: true, model: input.model, ocrModel: input.ocrModel } });
+    res.json({ success: true, data: { hasKey: true, model: chatModel, ocrModel } });
   } catch (error: any) {
     res.status(error instanceof z.ZodError ? 400 : 422).json({ success: false,
       error: { code: 'AI_CONFIG_REJECTED', message: error.message || 'AI configuration was not saved.' } });

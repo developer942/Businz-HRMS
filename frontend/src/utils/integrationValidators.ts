@@ -241,7 +241,20 @@ export function validateIntegrationField(
   // ========================================================================
   if (integrationId === 'gemini_ai') {
     if (fieldKey === 'apiKey') {
-      if (!trimmed) return 'Google Gemini AI Studio API Key is required.';
+      if (trimmed.includes('...') || trimmed.startsWith('••')) {
+        return '';
+      }
+      if (!trimmed) {
+        const hasExisting = Boolean(
+          (typeof window !== 'undefined' && (
+            localStorage.getItem('VRM_GEMINI_API_KEY') ||
+            localStorage.getItem('VRM_GEMINI_MASKED_KEY') ||
+            localStorage.getItem('vrm_integration_statuses_v3')?.includes('"gemini_ai":"connected"')
+          ))
+        );
+        if (hasExisting) return '';
+        return 'Google Gemini AI Studio API Key is required.';
+      }
       if (trimmed.startsWith('ya29.') || trimmed.startsWith('GOCSPX-') || trimmed.includes('.apps.googleusercontent.com')) {
         return 'Invalid key format: OAuth client secrets are rejected. Enter an API key (starts with "AQ." or "AIzaSy...").';
       }
