@@ -415,14 +415,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Search Box */}
-          <div className="sidebar-mobile-search-box">
-            <Search size={16} color="#64748B" />
+          <div className="sidebar-mobile-search-box" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <Search 
+              size={16} 
+              color="#64748B" 
+              style={{
+                position: 'absolute',
+                left: '14px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                pointerEvents: 'none',
+                zIndex: 2
+              }}
+            />
             <input 
               type="text"
               placeholder="Search menu..."
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
               className="sidebar-mobile-search-input"
+              style={{
+                paddingLeft: '42px',
+                paddingRight: searchFilter ? '36px' : '14px',
+                boxSizing: 'border-box'
+              }}
             />
             {searchFilter && (
               <button 
@@ -430,6 +446,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => setSearchFilter('')} 
                 className="sidebar-mobile-search-clear"
                 aria-label="Clear Search"
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 2
+                }}
               >
                 <X size={14} />
               </button>

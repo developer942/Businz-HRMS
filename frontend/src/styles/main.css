@@ -4691,30 +4691,36 @@ input:-webkit-autofill:active {
   }
 
   .sidebar-mobile-search-box {
-    position: relative;
-    display: flex;
-    align-items: center;
-    margin-bottom: 14px;
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    margin-bottom: 14px !important;
   }
 
   .sidebar-mobile-search-box svg {
-    position: absolute;
-    left: 14px;
-    pointer-events: none;
+    position: absolute !important;
+    left: 14px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    pointer-events: none !important;
+    z-index: 2 !important;
   }
 
   .sidebar-mobile-search-input {
-    width: 100%;
-    height: 44px;
-    padding: 0 36px 0 40px;
-    background: #F8FAFC;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    font-size: 0.9rem;
-    color: #1E293B;
-    font-family: inherit;
-    -webkit-appearance: none;
-    box-sizing: border-box;
+    width: 100% !important;
+    height: 44px !important;
+    padding-left: 42px !important;
+    padding-right: 36px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    background: #F8FAFC !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 12px !important;
+    font-size: 0.9rem !important;
+    color: #1E293B !important;
+    font-family: inherit !important;
+    -webkit-appearance: none !important;
+    box-sizing: border-box !important;
   }
 
   .sidebar-mobile-search-input:focus {
@@ -5598,10 +5604,51 @@ div[style*="overflow-x: auto"] {
   align-items: stretch;
 }
 
+.performance-hero-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.performance-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 900px) {
   .performance-analytics-grid {
     grid-template-columns: 1fr !important;
     gap: 16px !important;
+  }
+  .performance-hero-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .performance-header-controls {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+  .performance-header-controls > div,
+  .performance-header-controls > select,
+  .performance-header-controls > button {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+  .performance-header-controls select {
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }
+  .performance-header-controls button {
+    justify-content: center !important;
   }
 }
 

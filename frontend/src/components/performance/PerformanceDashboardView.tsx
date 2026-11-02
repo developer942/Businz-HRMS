@@ -184,7 +184,7 @@ export const PerformanceDashboardView: React.FC<Props> = ({
         </div>
 
         {/* Action Controls Right: Period Selector, Export & Filters */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="performance-header-controls">
           {/* Time Selector Dropdown */}
           <div style={{ position: 'relative' }}>
             <select
@@ -310,11 +310,7 @@ export const PerformanceDashboardView: React.FC<Props> = ({
       {/* ======================================================== */}
       {/* 4 HERO KPI CARDS (Compact Sizing)                        */}
       {/* ======================================================== */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-        gap: '12px'
-      }}>
+      <div className="performance-hero-cards-grid">
         {/* CARD 1: PRIMARY TEAL HERO CARD (Matching Blue Hero Card in Image) */}
         <div style={{
           background: 'linear-gradient(135deg, #0E7490 0%, #0891B2 100%)',
@@ -526,12 +522,7 @@ export const PerformanceDashboardView: React.FC<Props> = ({
       {/* ======================================================== */}
       {/* TWO-COLUMN ANALYTICS GRID (Matching Reference Layout)     */}
       {/* ======================================================== */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.15fr)',
-        gap: '20px',
-        alignItems: 'stretch'
-      }}>
+      <div className="performance-analytics-grid">
         {/* Left Column: Rounded Pillar Bar Chart with Tooltip */}
         <div style={{ minHeight: '340px' }}>
           <PerformancePillarBarChart
