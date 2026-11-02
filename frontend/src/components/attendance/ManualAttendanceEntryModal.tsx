@@ -106,7 +106,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   const [error, setError] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string>('');
-  const [autoAdvanceOnSave, setAutoAdvanceOnSave] = useState<boolean>(true);
   const successTimeoutRef = React.useRef<any>(null);
   const initializedRecordKey = React.useRef<string>('');
 
@@ -288,22 +287,23 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     'Card reader unreadable / scanner fail regularization'
   ];
 
-  const executeSave = (mode: 'next' | 'close') => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     setError('');
 
     if (!selectedEmpId) {
       setError('Please select an employee.');
-      return false;
+      return;
     }
 
     if (!date) {
       setError('Please select an attendance date.');
-      return false;
+      return;
     }
 
     if (!reason.trim()) {
       setError('Administrative authorization reason is mandatory.');
-      return false;
+      return;
     }
 
     const finalCheckIn = isMissedCheckIn ? null : (normalizeTimeString(checkInTime) || checkInTime);
@@ -334,42 +334,16 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
         clearTimeout(successTimeoutRef.current);
       }
 
-      if (mode === 'close') {
-        setIsSuccess(true);
-        setSaveSuccessMessage(`Attendance saved for ${savedName}. Closing...`);
-        successTimeoutRef.current = setTimeout(() => {
-          setIsSuccess(false);
-          setSaveSuccessMessage('');
-          onClose();
-        }, 1000);
-      } else {
-        const isLast = currentEmpIndex >= employees.length - 1;
-        const nextIndex = isLast ? 0 : currentEmpIndex + 1;
-        const nextEmp = employees[nextIndex];
-        setIsSuccess(true);
-        setSaveSuccessMessage(
-          isLast
-            ? `Saved for ${savedName}! All employees covered (looped back to first).`
-            : `Saved for ${savedName}! Switched to ${nextEmp ? `${nextEmp.firstName} ${nextEmp.lastName}` : 'next employee'}.`
-        );
-        if (nextEmp) {
-          setSelectedEmpId(nextEmp.id);
-        }
-        successTimeoutRef.current = setTimeout(() => {
-          setIsSuccess(false);
-          setSaveSuccessMessage('');
-        }, 4000);
-      }
-      return true;
+      setIsSuccess(true);
+      setSaveSuccessMessage(`Attendance record for ${savedName} successfully saved!`);
+      // Never auto-close on save: modal remains open until user explicitly clicks top-right 'X' or Cancel
+      successTimeoutRef.current = setTimeout(() => {
+        setIsSuccess(false);
+        setSaveSuccessMessage('');
+      }, 3500);
     } else {
       setError(res.message);
-      return false;
     }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    executeSave(autoAdvanceOnSave ? 'next' : 'close');
   };
 
   return (
@@ -1038,102 +1012,51 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               borderTop: '1px solid #E2E8F0',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
+              justifyContent: 'flex-end',
               gap: '12px',
-              backgroundColor: '#F8FAFC',
-              flexWrap: 'wrap'
+              backgroundColor: '#F8FAFC'
             }}
           >
-            {/* Auto-advance toggle checkbox */}
-            <label
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onClose}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '0.82rem',
+                padding: '8px 18px',
+                borderRadius: '10px',
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #CBD5E1',
                 color: '#475569',
-                cursor: 'pointer',
-                userSelect: 'none'
+                cursor: 'pointer'
               }}
             >
-              <input
-                type="checkbox"
-                checked={autoAdvanceOnSave}
-                onChange={e => setAutoAdvanceOnSave(e.target.checked)}
-                style={{
-                  accentColor: '#0E7490',
-                  width: '16px',
-                  height: '16px',
-                  cursor: 'pointer'
-                }}
-              />
-              <span>Keep open & advance to next employee</span>
-            </label>
+              Cancel
+            </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={onClose}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '10px',
-                  fontSize: '0.84rem',
-                  fontWeight: 600,
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #CBD5E1',
-                  color: '#475569',
-                  cursor: 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={() => executeSave('close')}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '10px',
-                  fontSize: '0.84rem',
-                  fontWeight: 600,
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #0E7490',
-                  color: '#0E7490',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer'
-                }}
-                title="Save this employee and close window"
-              >
-                <CheckCircle2 size={15} />
-                <span>Save & Close</span>
-              </button>
-
-              <button
-                type="submit"
-                className="btn btn-primary"
-                style={{
-                  padding: '8px 20px',
-                  borderRadius: '10px',
-                  fontSize: '0.84rem',
-                  fontWeight: 700,
-                  backgroundColor: '#0E7490',
-                  borderColor: '#0E7490',
-                  color: '#FFFFFF',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
-                }}
-                title="Save and advance to next employee"
-              >
-                <UserCheck size={15} strokeWidth={2.5} />
-                <span>Save & Next Employee ›</span>
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{
+                padding: '9px 22px',
+                borderRadius: '10px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                backgroundColor: '#0E7490',
+                borderColor: '#0E7490',
+                color: '#FFFFFF',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
+              }}
+              title="Save attendance record (window remains open until you click ✕)"
+            >
+              <UserCheck size={15} strokeWidth={2.5} />
+              <span>Save Attendance Record</span>
+            </button>
           </div>
         </form>
       </div>
