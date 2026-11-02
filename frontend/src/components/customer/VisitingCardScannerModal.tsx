@@ -1080,46 +1080,7 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
                         </button>
                       </div>
 
-                      {/* Bottom Shutter Button (iPhone Document Scanner Style) */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          bottom: '24px',
-                          left: '50%',
-                          transform: 'translateX(-50%)'
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={handleCapturePhoto}
-                          style={{
-                            width: '72px',
-                            height: '72px',
-                            borderRadius: '9999px',
-                            backgroundColor: '#FFFFFF',
-                            border: '4px solid #0E7490',
-                            padding: '4px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-                            transition: 'transform 0.1s ease-in-out'
-                          }}
-                          onMouseDown={e => (e.currentTarget.style.transform = 'scale(0.92)')}
-                          onMouseUp={e => (e.currentTarget.style.transform = 'scale(1)')}
-                          title="Capture Document Photo"
-                        >
-                          <div
-                            style={{
-                              width: '54px',
-                              height: '54px',
-                              borderRadius: '9999px',
-                              backgroundColor: '#0E7490'
-                            }}
-                          />
-                        </button>
-                      </div>
+
                     </>
                   )}
                 </div>
