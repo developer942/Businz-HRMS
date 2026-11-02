@@ -1038,9 +1038,8 @@ export const Dashboard: React.FC = () => {
 
             {/* 3. Pending Approvals Card List */}
             <div className="ceo-mobile-section-card">
-              <div className="ceo-mobile-section-header" onClick={() => setActiveModule('leaves')}>
+              <div className="ceo-mobile-section-header">
                 <span className="ceo-mobile-section-title">Pending Approvals</span>
-                <ChevronRight size={18} color="#0E7490" />
               </div>
               <div className="ceo-approvals-list">
                 <div className="ceo-approval-item" onClick={() => setActiveModule('leaves')}>
