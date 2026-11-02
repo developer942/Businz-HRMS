@@ -1562,7 +1562,6 @@ export const Dashboard: React.FC = () => {
             absent={donutAbsent}
             leave={donutLeave}
             late={donutLate}
-            weekOff={donutWeekOff}
             onSelectCategory={(cat) => setSelectedCategory(cat)}
             onOpenLeaves={() => setActiveModule('leaves')}
           />
