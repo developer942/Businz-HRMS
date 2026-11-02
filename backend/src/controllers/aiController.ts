@@ -6,8 +6,8 @@ import { hrmsDataService, ChatbotAccessScope } from '../services/hrmsDataService
 import { rbacRepository } from '../repositories/rbacRepository.js';
 
 const CONFIG_PREFIX = 'gemini_ai_config:';
-const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const DEFAULT_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-2.5-flash';
+const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+const DEFAULT_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.5-flash-lite';
 let runtimeKey = (process.env.GEMINI_API_KEY || '').trim();
 let runtimeModel = DEFAULT_MODEL;
 let runtimeOcrModel = DEFAULT_OCR_MODEL;
@@ -32,6 +32,12 @@ const loadConfig = async (companyId: string): Promise<AiConfig> => {
       runtimeKey = apiKey || runtimeKey;
       runtimeModel = String(stored.chatModel || DEFAULT_MODEL);
       runtimeOcrModel = String(stored.ocrModel || DEFAULT_OCR_MODEL);
+      if (['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'].includes(runtimeModel)) {
+        runtimeModel = 'gemini-3.5-flash-lite';
+      }
+      if (['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'].includes(runtimeOcrModel)) {
+        runtimeOcrModel = 'gemini-3.5-flash-lite';
+      }
       const value: AiConfig = { apiKey, model: runtimeModel, ocrModel: runtimeOcrModel, source: 'database' };
       configCache.set(companyId, { value, expiresAt: Date.now() + 60_000 });
       return value;
@@ -127,11 +133,12 @@ export const saveAiConfig = async (req: Request, res: Response): Promise<void> =
       const models = await googleModels(apiKey);
       const ids = new Set(models.map((model: any) => String(model.name).replace(/^models\//, '')));
       if (ids.size > 0) {
-        if (!ids.has(chatModel)) {
-          chatModel = ids.has('gemini-2.5-flash') ? 'gemini-2.5-flash' : (ids.has('gemini-2.0-flash') ? 'gemini-2.0-flash' : (ids.has('gemini-1.5-flash') ? 'gemini-1.5-flash' : String(Array.from(ids)[0] || 'gemini-2.5-flash')));
+        const deprecatedList = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        if (!ids.has(chatModel) || deprecatedList.includes(chatModel)) {
+          chatModel = ids.has('gemini-3.5-flash-lite') ? 'gemini-3.5-flash-lite' : (ids.has('gemini-3.8-flash') ? 'gemini-3.8-flash' : String(Array.from(ids)[0] || 'gemini-3.5-flash-lite'));
         }
-        if (!ids.has(ocrModel)) {
-          ocrModel = ids.has('gemini-2.5-flash') ? 'gemini-2.5-flash' : (ids.has('gemini-2.0-flash') ? 'gemini-2.0-flash' : (ids.has('gemini-1.5-flash') ? 'gemini-1.5-flash' : String(Array.from(ids)[0] || 'gemini-2.5-flash')));
+        if (!ids.has(ocrModel) || deprecatedList.includes(ocrModel)) {
+          ocrModel = ids.has('gemini-3.5-flash-lite') ? 'gemini-3.5-flash-lite' : (ids.has('gemini-3.8-flash') ? 'gemini-3.8-flash' : String(Array.from(ids)[0] || 'gemini-3.5-flash-lite'));
         }
       }
     } catch (e: any) {
@@ -165,23 +172,54 @@ export const generateAiContent = async (req: Request, res: Response): Promise<vo
     const input = generateSchema.parse(req.body);
     const config = await loadConfig(companyIdFor(req));
     if (!config.apiKey) throw new Error('Gemini is not configured.');
-    const instruction = `You are the BUSINZ HRMS assistant. Explain only verified facts supplied by the server. Never invent employee, payroll, attendance, leave, or policy facts. If facts are unavailable, say exactly: "I couldn't verify this information from the HRMS database." Respond in ${input.language || 'the user language'}.`;
+
+    let modelToUse = config.model || DEFAULT_MODEL;
+    if (['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(modelToUse)) {
+      modelToUse = 'gemini-3.5-flash-lite';
+    }
+
+    const instruction = `You are the intelligent BUSINZ HRMS Assistant (BUSINZ Chat Bot).
+You assist employees, managers, and HR administrators with HRMS questions, company guidelines, leave rules, attendance, workplace culture, and greetings.
+You communicate fluently and naturally in the user's language: English, Tamil (தமிழ்), Tanglish (Tamil written in English script), Hindi, or Telugu.
+
+Guidelines:
+1. If specific verified HRMS facts (e.g. employee details, attendance stats, leave balances, policy clauses) are provided below in VERIFIED FACTS, cite and explain them accurately and clearly.
+2. If the user is greeting you (e.g. "Hi", "Hello", "Vanakkam", "வணக்கம்", "Eppadi irukeenga"), greet them warmly and politely, and let them know how you can help them in BUSINZ HRMS.
+3. If the user asks general HR, workplace, career, productivity, or business questions, provide helpful, polite, and practical guidance.
+4. If the user asks for specific private data about a particular employee, salary, or database record that is not in the VERIFIED FACTS, explain politely that you can only share verified data recorded in the system.
+5. Match the language, tone, and script of the user (e.g. reply in Tamil if asked in Tamil, in Tanglish if asked in Tanglish, in English if asked in English).`;
+
     const contents = [...(input.history || []).map(item => ({ role: item.role, parts: [{ text: item.text }] })),
-      { role: 'user', parts: [{ text: `${instruction}\n\nVERIFIED FACTS:\n${input.verifiedFacts || 'No verified HRMS facts were supplied.'}\n\nQUESTION:\n${input.prompt}` }] }];
+      { role: 'user', parts: [{ text: `${instruction}\n\nVERIFIED FACTS:\n${input.verifiedFacts || 'No specific database query was attached.'}\n\nUSER MESSAGE:\n${input.prompt}` }] }];
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12_000);
     let response: globalThis.Response;
     try {
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelToUse)}:generateContent`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey }, signal: controller.signal,
-        body: JSON.stringify({ contents, generationConfig: { temperature: 0.2, maxOutputTokens: 1000 } }),
+        body: JSON.stringify({ contents, generationConfig: { temperature: 0.3, maxOutputTokens: 1000 } }),
       });
     } finally { clearTimeout(timer); }
+
+    // Fallback retry if model is 404
+    if (response.status === 404 && modelToUse !== 'gemini-3.5-flash-lite') {
+      const fbController = new AbortController();
+      const fbTimer = setTimeout(() => fbController.abort(), 10_000);
+      try {
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey }, signal: fbController.signal,
+          body: JSON.stringify({ contents, generationConfig: { temperature: 0.3, maxOutputTokens: 1000 } }),
+        });
+        modelToUse = 'gemini-3.5-flash-lite';
+      } finally { clearTimeout(fbTimer); }
+    }
+
     const body: any = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error?.message || `Gemini returned HTTP ${response.status}`);
     const text = body.candidates?.[0]?.content?.parts?.map((part: any) => part.text || '').join('').trim();
     if (!text) throw new Error('Gemini returned an empty response.');
-    res.json({ success: true, data: { text, modelUsed: config.model, fallbackUsed: false,
+    res.json({ success: true, data: { text, modelUsed: modelToUse, fallbackUsed: modelToUse !== config.model,
       timingMs: { gemini: Math.round(performance.now() - started) } } });
   } catch (error: any) {
     const timedOut = error?.name === 'AbortError';

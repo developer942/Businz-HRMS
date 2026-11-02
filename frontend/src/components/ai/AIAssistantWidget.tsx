@@ -519,15 +519,53 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
             } catch { /* verified backend response remains authoritative */ }
           }
         } else {
-          queryResult = executeHRMSQuery(intent, entities, activeLang, convState, {
-            currentUser, role, employees: [], attendanceRecords: [], leaveRequests: [], enhancedTasks: [],
-            performanceScores: [], payrollRecords: [], departments: [], holidayPolicies: [], leavePolicies: [],
-            attendancePolicies: [], weeklySchedules: [], attendanceConfig: {} as any, policyDocuments: [], businessSettings: {} as any, shifts: [], fieldAssignments: []
-          }, queryText);
+          if (hasGeminiKey) {
+            try {
+              const explained = await callGeminiGenerateContent(queryText, {}, activeLang, convState.conversationHistory);
+              queryResult = {
+                responseText: explained.text,
+                payload: { type: 'none' },
+                followUpSuggestions: ['Inniku absent yaru?', 'Total employees evlo peru?', 'Leave policy enna?'],
+                isError: false,
+                newFilters: {}
+              };
+              geminiModelUsed = explained.modelUsed;
+            } catch (geminiErr: any) {
+              console.warn('Gemini chat fallback error:', geminiErr);
+              queryResult = executeHRMSQuery(intent, entities, activeLang, convState, {
+                currentUser, role, employees: [], attendanceRecords: [], leaveRequests: [], enhancedTasks: [],
+                performanceScores: [], payrollRecords: [], departments: [], holidayPolicies: [], leavePolicies: [],
+                attendancePolicies: [], weeklySchedules: [], attendanceConfig: {} as any, policyDocuments: [], businessSettings: {} as any, shifts: [], fieldAssignments: []
+              }, queryText);
+            }
+          } else {
+            queryResult = executeHRMSQuery(intent, entities, activeLang, convState, {
+              currentUser, role, employees: [], attendanceRecords: [], leaveRequests: [], enhancedTasks: [],
+              performanceScores: [], payrollRecords: [], departments: [], holidayPolicies: [], leavePolicies: [],
+              attendancePolicies: [], weeklySchedules: [], attendanceConfig: {} as any, policyDocuments: [], businessSettings: {} as any, shifts: [], fieldAssignments: []
+            }, queryText);
+          }
         }
       } catch (error: any) {
-        queryResult = { responseText: error?.status === 403 ? error.message : "I couldn't verify this information from the HRMS database.",
-          payload: { type: 'none' }, followUpSuggestions: [], isError: true, newFilters: {} };
+        if (hasGeminiKey) {
+          try {
+            const explained = await callGeminiGenerateContent(queryText, {}, activeLang, convState.conversationHistory);
+            queryResult = {
+              responseText: explained.text,
+              payload: { type: 'none' },
+              followUpSuggestions: ['Inniku absent yaru?', 'Total employees evlo peru?'],
+              isError: false,
+              newFilters: {}
+            };
+            geminiModelUsed = explained.modelUsed;
+          } catch {
+            queryResult = { responseText: error?.status === 403 ? error.message : "I couldn't verify this information from the HRMS database.",
+              payload: { type: 'none' }, followUpSuggestions: [], isError: true, newFilters: {} };
+          }
+        } else {
+          queryResult = { responseText: error?.status === 403 ? error.message : "I couldn't verify this information from the HRMS database.",
+            payload: { type: 'none' }, followUpSuggestions: [], isError: true, newFilters: {} };
+        }
       }
 
       const assistantMsg: AIMessage = {
@@ -1123,10 +1161,8 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
                       ))
                     ) : (
                       <>
-                        <option value="gemini-2.0-flash">gemini-2.0-flash (Fast & Recommended)</option>
-                        <option value="gemini-1.5-flash">gemini-1.5-flash (Standard & Reliable)</option>
-                        <option value="gemini-1.5-pro">gemini-1.5-pro (Deep Reasoning)</option>
-                        <option value="gemini-2.5-flash">gemini-2.5-flash (Next Gen Preview)</option>
+                        <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra Fast & Recommended)</option>
+                        <option value="gemini-3.8-flash">gemini-3.8-flash (Advanced Reasoning)</option>
                       </>
                     )}
                   </select>

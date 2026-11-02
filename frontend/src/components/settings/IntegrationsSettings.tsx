@@ -109,17 +109,17 @@ export const IntegrationsSettings: React.FC = () => {
   useEffect(() => {
     try {
       const storedModel = localStorage.getItem('VRM_GEMINI_MODEL');
-      if (storedModel && (storedModel.includes('3.6-flash') || storedModel === 'gemini-flash-latest')) {
-        localStorage.setItem('VRM_GEMINI_MODEL', 'gemini-2.0-flash');
-        setGeminiModel('gemini-2.0-flash');
+      if (storedModel && (['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-flash-latest'].includes(storedModel) || storedModel.includes('3.6-flash'))) {
+        localStorage.setItem('VRM_GEMINI_MODEL', 'gemini-3.5-flash-lite');
+        setGeminiModel('gemini-3.5-flash-lite');
       }
       const savedInts = localStorage.getItem('vrm_enterprise_integrations_v6');
       if (savedInts) {
         const parsed = JSON.parse(savedInts);
         let changed = false;
         if (parsed.gemini_ai) {
-          if (parsed.gemini_ai.model && (parsed.gemini_ai.model.includes('3.6-flash') || parsed.gemini_ai.model === 'gemini-flash-latest')) {
-            parsed.gemini_ai.model = 'gemini-2.0-flash';
+          if (parsed.gemini_ai.model && (['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-flash-latest'].includes(parsed.gemini_ai.model) || parsed.gemini_ai.model.includes('3.6-flash'))) {
+            parsed.gemini_ai.model = 'gemini-3.5-flash-lite';
             changed = true;
           }
         }
@@ -130,7 +130,7 @@ export const IntegrationsSettings: React.FC = () => {
             gemini_ai: {
               ...prev.gemini_ai,
               apiKey: parsed.gemini_ai?.apiKey || '',
-              model: parsed.gemini_ai?.model || 'gemini-2.0-flash'
+              model: parsed.gemini_ai?.model || 'gemini-3.5-flash-lite'
             }
           }));
         }
@@ -274,8 +274,8 @@ export const IntegrationsSettings: React.FC = () => {
             gemini_ai: {
               ...prev.gemini_ai,
               apiKey: activeKey,
-              model: aiStatus.model || prev.gemini_ai?.model || 'gemini-2.5-flash',
-              ocrModel: aiStatus.ocrModel || prev.gemini_ai?.ocrModel || 'gemini-2.5-flash'
+              model: aiStatus.model || prev.gemini_ai?.model || 'gemini-3.5-flash-lite',
+              ocrModel: aiStatus.ocrModel || prev.gemini_ai?.ocrModel || 'gemini-3.5-flash-lite'
             }
           }));
 
@@ -652,8 +652,11 @@ export const IntegrationsSettings: React.FC = () => {
           type: 'select',
           options: availableGeminiModels.length
             ? availableGeminiModels.map(model => ({ label: model.displayName, value: model.name }))
-            : [{ label: geminiModel || 'Load models to select', value: geminiModel || 'gemini-2.5-flash' }],
-          defaultValue: (geminiModel && !geminiModel.includes('3.6-flash')) ? geminiModel : 'gemini-2.5-flash'
+            : [
+                { label: 'Gemini 3.5 Flash Lite (Fast & Recommended)', value: 'gemini-3.5-flash-lite' },
+                { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' }
+              ],
+          defaultValue: (geminiModel && !['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(geminiModel)) ? geminiModel : 'gemini-3.5-flash-lite'
         },
         {
           key: 'ocrModel',
@@ -661,9 +664,12 @@ export const IntegrationsSettings: React.FC = () => {
           type: 'select',
           options: availableGeminiModels.length
             ? availableGeminiModels.filter(model => model.isVisionCapable !== false).map(model => ({ label: model.displayName, value: model.name }))
-            : [{ label: geminiOcrModel || 'Load models to select', value: geminiOcrModel || 'gemini-2.5-flash' }],
+            : [
+                { label: 'Gemini 3.5 Flash Lite (Fast & Recommended)', value: 'gemini-3.5-flash-lite' },
+                { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' }
+              ],
           helperText: 'Independent multimodal vision model used for visiting card extraction. Separate from BUSINZ Chat Bot model.',
-          defaultValue: geminiOcrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL
+          defaultValue: (geminiOcrModel && !['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(geminiOcrModel)) ? geminiOcrModel : 'gemini-3.5-flash-lite'
         }
       ]
     },
@@ -1399,8 +1405,8 @@ export const IntegrationsSettings: React.FC = () => {
     // 7. Google Gemini AI & BUSINZ Chat Bot
     if (id === 'gemini_ai') {
       const gKey = cleanApiKey(integrationFormValues['gemini_ai']?.apiKey || geminiKey || '');
-      const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash';
-      const gModel = rawModel.includes('3.6-flash') ? 'gemini-2.5-flash' : rawModel;
+      const rawModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-3.5-flash-lite';
+      const gModel = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(rawModel) || rawModel.includes('3.6-flash') ? 'gemini-3.5-flash-lite' : rawModel;
       const gOcrModel = integrationFormValues['gemini_ai']?.ocrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL;
 
       try {
@@ -1566,10 +1572,10 @@ export const IntegrationsSettings: React.FC = () => {
         const noteMsg = '';
         setAvailableGeminiModels(models);
         setIsTestingConnection(false);
-        const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-2.5-flash';
+        const currentModel = integrationFormValues['gemini_ai']?.model || geminiModel || 'gemini-3.5-flash-lite';
         const currentOcrModel = integrationFormValues['gemini_ai']?.ocrModel || geminiOcrModel || getStoredGeminiOcrModel() || DEFAULT_GEMINI_OCR_MODEL;
         
-        const validModel = models.some(m => m.name === currentModel) ? currentModel : models[0]?.name;
+        const validModel = models.some(m => m.name === currentModel) ? currentModel : (models.find(m => m.name === 'gemini-3.5-flash-lite')?.name || models[0]?.name || 'gemini-3.5-flash-lite');
         if (!validModel) throw new Error('Google returned no generateContent-capable models for this key.');
 
         setStoredGeminiModel(validModel);

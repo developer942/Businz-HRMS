@@ -4,8 +4,8 @@ import { API_BASE_URL } from '../config/api';
 const STORAGE_KEY_API = 'VRM_GEMINI_API_KEY';
 const STORAGE_KEY_MODEL = 'VRM_GEMINI_MODEL';
 const STORAGE_KEY_OCR_MODEL = 'VRM_GEMINI_OCR_MODEL';
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
-export const DEFAULT_GEMINI_OCR_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+export const DEFAULT_GEMINI_OCR_MODEL = 'gemini-3.5-flash-lite';
 export const DEFAULT_GEMINI_API_KEY = '';
 
 export interface GeminiModelInfo { name: string; displayName: string; description: string; supportedGenerationMethods: string[]; isVisionCapable?: boolean }
@@ -13,6 +13,8 @@ export interface GeminiModelInfo { name: string; displayName: string; descriptio
 const token = () => sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
 const headers = () => ({ 'Content-Type': 'application/json', ...(token() ? { Authorization: `Bearer ${token()}` } : {}) });
 export const cleanApiKey = (key: string) => (key || '').trim().replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '').trim();
+
+const isDeprecatedModel = (m?: string | null) => !m || ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(m);
 
 export function getStoredGeminiApiKey(): string {
   if (typeof window === 'undefined') return '';
@@ -35,10 +37,22 @@ export function setStoredGeminiApiKey(key: string): void {
     }
   } catch { /* cleanup */ }
 }
-export function getStoredGeminiModel(): string { return localStorage.getItem(STORAGE_KEY_MODEL) || DEFAULT_GEMINI_MODEL; }
-export function setStoredGeminiModel(model: string): void { localStorage.setItem(STORAGE_KEY_MODEL, model || DEFAULT_GEMINI_MODEL); }
-export function getStoredGeminiOcrModel(): string { return localStorage.getItem(STORAGE_KEY_OCR_MODEL) || DEFAULT_GEMINI_OCR_MODEL; }
-export function setStoredGeminiOcrModel(model: string): void { localStorage.setItem(STORAGE_KEY_OCR_MODEL, model || DEFAULT_GEMINI_OCR_MODEL); }
+export function getStoredGeminiModel(): string {
+  const m = localStorage.getItem(STORAGE_KEY_MODEL);
+  return isDeprecatedModel(m) ? DEFAULT_GEMINI_MODEL : (m || DEFAULT_GEMINI_MODEL);
+}
+export function setStoredGeminiModel(model: string): void {
+  const m = isDeprecatedModel(model) ? DEFAULT_GEMINI_MODEL : model;
+  localStorage.setItem(STORAGE_KEY_MODEL, m);
+}
+export function getStoredGeminiOcrModel(): string {
+  const m = localStorage.getItem(STORAGE_KEY_OCR_MODEL);
+  return isDeprecatedModel(m) ? DEFAULT_GEMINI_OCR_MODEL : (m || DEFAULT_GEMINI_OCR_MODEL);
+}
+export function setStoredGeminiOcrModel(model: string): void {
+  const m = isDeprecatedModel(model) ? DEFAULT_GEMINI_OCR_MODEL : model;
+  localStorage.setItem(STORAGE_KEY_OCR_MODEL, m);
+}
 
 const responseJson = async (response: Response) => {
   const body = await response.json().catch(() => ({}));
