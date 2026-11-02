@@ -105,7 +105,8 @@ export const listModels = async (req: Request, res: Response): Promise<void> => 
     const models = (await googleModels(apiKey)).map((model: any) => ({
       name: String(model.name).replace(/^models\//, ''), displayName: model.displayName || model.name,
       description: model.description || '', supportedGenerationMethods: model.supportedGenerationMethods || [],
-      isVisionCapable: Array.isArray(model.inputModalities) && model.inputModalities.includes('IMAGE'),
+      isVisionCapable: (Array.isArray(model.inputModalities) && model.inputModalities.includes('IMAGE'))
+        || (/^models\/gemini-/i.test(String(model.name)) && !/embedding|tts|aqa|imagen|veo|live|audio/i.test(String(model.name))),
     }));
     res.json({ success: true, data: { models, count: models.length } });
   } catch (error: any) {

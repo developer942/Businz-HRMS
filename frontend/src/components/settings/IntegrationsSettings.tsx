@@ -662,12 +662,19 @@ export const IntegrationsSettings: React.FC = () => {
           key: 'ocrModel',
           label: 'Visiting Card Scanner OCR Model (Vision Multimodal)',
           type: 'select',
-          options: availableGeminiModels.length
-            ? availableGeminiModels.filter(model => model.isVisionCapable !== false).map(model => ({ label: model.displayName, value: model.name }))
-            : [
-                { label: 'Gemini 3.5 Flash Lite (Fast & Recommended)', value: 'gemini-3.5-flash-lite' },
-                { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' }
-              ],
+          options: (() => {
+            const toOpt = (model: GeminiModelInfo) => ({ label: model.displayName, value: model.name });
+            const visionModels = availableGeminiModels.filter(model => model.isVisionCapable !== false);
+            // Never leave the OCR dropdown empty: fall back to every Gemini model, then to built-in defaults
+            const source = visionModels.length ? visionModels : availableGeminiModels.filter(m => /gemini/i.test(m.name));
+            const opts = source.length ? source.map(toOpt) : [
+              { label: 'Gemini 3.5 Flash Lite (Fast & Recommended)', value: 'gemini-3.5-flash-lite' },
+              { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' }
+            ];
+            const current = geminiOcrModel || getStoredGeminiOcrModel();
+            if (current && !opts.some(o => o.value === current)) opts.unshift({ label: current, value: current });
+            return opts;
+          })(),
           helperText: 'Independent multimodal vision model used for visiting card extraction. Separate from BUSINZ Chat Bot model.',
           defaultValue: (geminiOcrModel && !['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(geminiOcrModel)) ? geminiOcrModel : 'gemini-3.5-flash-lite'
         }
