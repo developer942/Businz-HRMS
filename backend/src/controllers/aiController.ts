@@ -273,13 +273,13 @@ export const executeVerifiedHrmsQuery = async (req: Request, res: Response): Pro
             { key: 'status', label: 'Status' }, { key: 'late_status', label: 'Late Status' }], exportAvailable: true,
           navigationTarget: 'attendance' };
       }
-    } else if (input.intent === 'GET_LEAVE_RECORDS') {
-      if (!can(req, 'leave', 'view')) throw Object.assign(new Error('You are not authorized to view leave requests.'), { status: 403 });
+    } else if (input.intent === 'GET_LEAVE_RECORDS' || input.intent === 'GET_PENDING_APPROVALS') {
+      if (!can(req, 'leave', 'view')) throw Object.assign(new Error('You are not authorized to view leave and approval requests.'), { status: 403 });
       data = await hrmsDataService.getPendingLeaveRequests(scope, input.pageSize);
-      text = `${data.length} verified pending leave request(s) found in your authorized scope.`;
-      payload = { type: 'table', title: 'Pending Leave Requests', rows: data, columns: [
+      text = `${data.length} verified pending approval request(s) found in your authorized scope.`;
+      payload = { type: 'table', title: 'Pending Approval Requests', rows: data, columns: [
         { key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' }, { key: 'department', label: 'Department' },
-        { key: 'leave_type', label: 'Leave Type' }, { key: 'start_date', label: 'Start' }, { key: 'end_date', label: 'End' }, { key: 'status', label: 'Status' } ] };
+        { key: 'leave_type', label: 'Request Type' }, { key: 'start_date', label: 'Start' }, { key: 'end_date', label: 'End' }, { key: 'status', label: 'Status' } ] };
     } else if (input.intent === 'GET_MY_LEAVE_BALANCE') {
       if (!can(req, 'leave', 'view')) throw Object.assign(new Error('You are not authorized to view leave balances.'), { status: 403 });
       const employeeId = scope.level === 'own' ? scope.employeeId : (input.entities.employeeId || scope.employeeId);

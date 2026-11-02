@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { CustomerContact, ExtractedCardDetails, WhatsAppConsentStatus, FieldVerificationStatus } from '../../types/customer';
 import { customerService } from '../../services/customerService';
 import { getStoredGeminiOcrModel } from '../../services/geminiApiService';
+import { prepareImageForOcr } from '../../utils/cardImageProcessor';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { useHRMS } from '../../context/HRMSContext';
 import { VisitingCardScannerModal, ScanResult } from './VisitingCardScannerModal';
@@ -268,10 +269,18 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setCardImageBase64(result);
-      triggerOcr(result, file.type);
+    reader.onload = async () => {
+      const raw = reader.result as string;
+      try {
+        // Upright (EXIF) + <=2000px: ~10x smaller upload and no sideways cards
+        const prepared = await prepareImageForOcr(raw);
+        setCardImageBase64(prepared.dataUrl);
+        setOriginalImageBase64(prepared.dataUrl);
+        triggerOcr(prepared.dataUrl, 'image/jpeg');
+      } catch {
+        setCardImageBase64(raw);
+        triggerOcr(raw, file.type);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -832,10 +841,17 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                     return;
                   }
                   const reader = new FileReader();
-                  reader.onload = () => {
-                    const result = reader.result as string;
-                    setCardImageBase64(result);
-                    triggerOcr(result, file.type);
+                  reader.onload = async () => {
+                    const raw = reader.result as string;
+                    try {
+                      const prepared = await prepareImageForOcr(raw);
+                      setCardImageBase64(prepared.dataUrl);
+                      setOriginalImageBase64(prepared.dataUrl);
+                      triggerOcr(prepared.dataUrl, 'image/jpeg');
+                    } catch {
+                      setCardImageBase64(raw);
+                      triggerOcr(raw, file.type);
+                    }
                   };
                   reader.readAsDataURL(file);
                 }

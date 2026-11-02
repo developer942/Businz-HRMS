@@ -131,6 +131,11 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
     holidayPolicies,
     leavePolicies,
     attendancePolicies,
+    masterAttendancePolicies,
+    masterLeavePolicies,
+    loanRecords,
+    expenses,
+    attendanceCorrections,
     weeklySchedules,
     attendanceConfig,
     policyDocuments,
@@ -499,7 +504,8 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
     setTimeout(async () => {
       const verifiedIntents = new Set([
         'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST', 'GET_EMPLOYEE_DETAILS', 'GET_ATTENDANCE',
-        'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_MY_ATTENDANCE', 'GET_LEAVE_RECORDS',
+        'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_PRESENT_EMPLOYEES', 'GET_EARLY_PUNCHOUT',
+        'GET_MISSED_PUNCH', 'GET_OVERTIME', 'GET_MY_ATTENDANCE', 'GET_LEAVE_RECORDS', 'GET_PENDING_APPROVALS',
         'GET_MY_LEAVE_BALANCE', 'GET_LEAVE_POLICIES', 'GET_SANDWICH_POLICY',
         'GET_ATTENDANCE_POLICIES', 'GET_COMPANY_POLICIES', 'GET_PAYROLL', 'GET_SALARY_STRUCTURE', 'GET_MY_SHIFT',
         'GET_TASKS', 'GET_OVERDUE_TASKS', 'GET_PERFORMANCE', 'GET_KPA', 'GET_KPI', 'GET_PIP', 'GET_REPORT'
@@ -513,14 +519,21 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
         leaveRequests: leaveRequests || [], enhancedTasks: enhancedTasks || [],
         performanceScores: performanceScores || [], payrollRecords: payrollRecords || [],
         departments: departments || [], holidayPolicies: holidayPolicies || [], leavePolicies: leavePolicies || [],
-        attendancePolicies: attendancePolicies || [], weeklySchedules: weeklySchedules || [],
+        attendancePolicies: attendancePolicies || [],
+        masterAttendancePolicies: masterAttendancePolicies || [],
+        masterLeavePolicies: masterLeavePolicies || [],
+        loanRecords: loanRecords || [],
+        expenses: expenses || [],
+        attendanceCorrections: attendanceCorrections || [],
+        weeklySchedules: weeklySchedules || [],
         attendanceConfig: (attendanceConfig || {}) as any, policyDocuments: policyDocuments || [],
         businessSettings: (businessSettings || {}) as any, shifts: shifts || [], fieldAssignments: fieldAssignments || []
       };
       // Intents answered from the live dashboard data (identical to Dashboard cards)
       const liveDataIntents = new Set([
         'GET_ATTENDANCE', 'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_PRESENT_EMPLOYEES',
-        'GET_EARLY_PUNCHOUT', 'GET_MISSED_PUNCH', 'GET_OVERTIME', 'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST'
+        'GET_EARLY_PUNCHOUT', 'GET_MISSED_PUNCH', 'GET_OVERTIME', 'GET_EMPLOYEE_COUNT', 'GET_EMPLOYEE_LIST',
+        'GET_PENDING_APPROVALS', 'GET_ATTENDANCE_POLICIES', 'GET_LEAVE_POLICIES', 'GET_SANDWICH_POLICY'
       ]);
       const useLiveData = liveDataIntents.has(intent) && liveCtx.employees.length > 0;
 

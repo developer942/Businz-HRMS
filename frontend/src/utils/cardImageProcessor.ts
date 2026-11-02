@@ -183,8 +183,8 @@ export function warpPerspective(
   const rightHeight = distance(tr, br);
   let rawHeight = Math.max(120, Math.round(Math.max(leftHeight, rightHeight)));
 
-  // Cap dimensions to max 1200px to maintain crisp OCR clarity while reducing payload by 90% (from ~5MB to ~150KB)
-  const maxDim = 1200;
+  // Cap dimensions to 2000px: keeps small printed digits crisp for OCR while keeping the upload ~200-300KB
+  const maxDim = 2000;
   let destWidth = rawWidth;
   let destHeight = rawHeight;
   if (destWidth > maxDim || destHeight > maxDim) {
@@ -397,3 +397,48 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
     img.src = src;
   });
 }
+
+/** Longest edge sent to the OCR engine: sharp enough for 8-10pt phone digits, small enough to upload in <1s. */
+export const OCR_MAX_DIMENSION = 2000;
+export const OCR_JPEG_QUALITY = 0.9;
+
+export interface PreparedOcrImage {
+  dataUrl: string;
+  width: number;
+  height: number;
+  canvas: HTMLCanvasElement;
+}
+
+/**
+ * Fast, lossless-looking preparation for OCR (the "iPhone scanner" path):
+ * - bakes in EXIF orientation (browsers apply it when drawing, so sideways phone photos become upright)
+ * - downsizes huge 12MP+ photos to OCR_MAX_DIMENSION (10x smaller upload, no loss of printed detail)
+ * - keeps the whole frame (no destructive crop), so no text can be cut off by a bad edge detection
+ */
+export async function prepareImageForOcr(
+  src: string | HTMLImageElement | HTMLCanvasElement,
+  maxDim: number = OCR_MAX_DIMENSION,
+  quality: number = OCR_JPEG_QUALITY
+): Promise<PreparedOcrImage> {
+  const source: HTMLImageElement | HTMLCanvasElement = typeof src === 'string' ? await loadImage(src) : src;
+  const srcW = source instanceof HTMLImageElement ? source.naturalWidth : source.width;
+  const srcH = source instanceof HTMLImageElement ? source.naturalHeight : source.height;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const width = Math.max(1, Math.round(srcW * scale));
+  const height = Math.max(1, Math.round(srcH * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas is not available in this browser.');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  // White backdrop so transparent PNG/WEBP cards do not turn black when encoded as JPEG
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(source, 0, 0, width, height);
+
+  return { dataUrl: canvas.toDataURL('image/jpeg', quality), width, height, canvas };
+}
+

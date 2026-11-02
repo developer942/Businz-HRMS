@@ -125,11 +125,12 @@ export function validateCompanyName(
     return { value: null, evidence: ev, status: 'not_found' };
   }
 
-  // Strip leading OCR artifacts like "2 -=5", bullets, dashes
+  // Strip only genuine OCR artifacts at the edges (e.g. "2 -=5 Apex" or trailing "|"),
+  // never real letters/digits of the name (keeps "3M India", "20th Century Ltd", "Pvt Ltd").
   let cleaned = text
-    .replace(/^[0-9\s\-=_•|*~:]+/, '')
-    .replace(/\s*\.?\s*[a-z]{1,2}$/, '')
-    .replace(/[0-9\s\-=_•|*~:]+$/, '')
+    .replace(/^(?:\d{1,2}\s*[-=_•|*~:]+\s*\d*\s*)+/, '')
+    .replace(/^[\s\-=_•|*~:]+/, '')
+    .replace(/[\s\-=_•|*~:]+$/, '')
     .trim();
 
   // If cleaning stripped everything
@@ -251,7 +252,8 @@ export function validateWebsite(
   // Pattern for valid web domains
   const domainPattern = /^(https?:\/\/)?(www\.)?[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+(\/[^\s]*)?$/i;
   if (domainPattern.test(cleaned)) {
-    const formatted = cleaned.startsWith('http') ? cleaned : (cleaned.startsWith('www.') ? cleaned : `www.${cleaned}`);
+    // Keep the website exactly as printed on the card (do not invent a "www." prefix)
+    const formatted = cleaned;
     return { value: formatted, evidence: ev, status: 'valid' };
   }
 

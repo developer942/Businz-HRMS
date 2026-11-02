@@ -288,14 +288,14 @@ export const executeVerifiedHrmsQuery = async (req, res) => {
                     navigationTarget: 'attendance' };
             }
         }
-        else if (input.intent === 'GET_LEAVE_RECORDS') {
+        else if (input.intent === 'GET_LEAVE_RECORDS' || input.intent === 'GET_PENDING_APPROVALS') {
             if (!can(req, 'leave', 'view'))
-                throw Object.assign(new Error('You are not authorized to view leave requests.'), { status: 403 });
+                throw Object.assign(new Error('You are not authorized to view leave and approval requests.'), { status: 403 });
             data = await hrmsDataService.getPendingLeaveRequests(scope, input.pageSize);
-            text = `${data.length} verified pending leave request(s) found in your authorized scope.`;
-            payload = { type: 'table', title: 'Pending Leave Requests', rows: data, columns: [
+            text = `${data.length} verified pending approval request(s) found in your authorized scope.`;
+            payload = { type: 'table', title: 'Pending Approval Requests', rows: data, columns: [
                     { key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' }, { key: 'department', label: 'Department' },
-                    { key: 'leave_type', label: 'Leave Type' }, { key: 'start_date', label: 'Start' }, { key: 'end_date', label: 'End' }, { key: 'status', label: 'Status' }
+                    { key: 'leave_type', label: 'Request Type' }, { key: 'start_date', label: 'Start' }, { key: 'end_date', label: 'End' }, { key: 'status', label: 'Status' }
                 ] };
         }
         else if (input.intent === 'GET_MY_LEAVE_BALANCE') {

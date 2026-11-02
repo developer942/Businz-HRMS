@@ -597,8 +597,8 @@ export function normalizeIntent(
     !/\b(my|en|ennoda|mera|naa|meri)\b/i.test(lower) &&
     !/\b(late|policy|policies|rule|rules)\b/i.test(lower)
   ) {
-    // "present list / who is present / present employees" -> list, otherwise count summary
-    if (/\b(list|who|yaru|kaun|names?|employees?|staff|show|display|yaaru|peru)\b/i.test(lower)) {
+    // "present list / who is present" -> list, otherwise count summary
+    if (/\b(list|who|yaru|kaun|names?|show|display|yaaru)\b/i.test(lower) && !/\b(count|total|evalavu|evlo|ethana)\b/i.test(lower)) {
       return 'GET_PRESENT_EMPLOYEES';
     }
     return 'GET_ATTENDANCE';
@@ -661,12 +661,21 @@ export function normalizeIntent(
     return 'GET_LEAVE_POLICIES';
   }
 
-  // Attendance Policies, Shift Regulations & Punch Rules
+  // Attendance Policies, Late Rules, Grace Time & Shift Regulations
   if (
+    /\b(grace\s*time|grace\s*period|grace\s*minutes|grace\s*timing|grace\s*evlo|grace\s*enna|late\s*policy|late\s*policies|late\s*rules?|late\s*penalty|half\s*day\s*rule|lop\s*rule|loss\s*of\s*pay\s*rule|attendance\s*policy|attendance\s*policies|attendance\s*rules?|punch\s*policy|punch\s*rules?|geofence\s*radius|face\s*attendance|shift\s*timings?|shift\s*schedule)\b/i.test(lower) ||
     (/\b(attendance|punch|punches|varugai|haziri)\b/i.test(lower) && /\b(policy|policies|rule|rules|grace|late mark|late penalty|penalty|geofence|overtime|ot|regulation|regulations|working days|working hours)\b/i.test(lower)) ||
-    /\b(attendance policy|attendance policies|attendance rules|punch policy|working hours|shift timings|late policy|overtime policy|face attendance|geofence radius)\b/i.test(lower)
+    /\b(grace time enna|grace evlo|grace period evlo|late rule enna|late aana enna aagum|late penalty evlo|attendance rules enna|shift timing enna)\b/i.test(lower)
   ) {
     return 'GET_ATTENDANCE_POLICIES';
+  }
+
+  // Pending Approvals & Requests (Leaves, Advance Salary, Expenses, Attendance Adjustments)
+  if (
+    /\b(pending approvals?|approvals?|approvel|pending requests?|requests?|requst|leave requests?|leave approvals?|leave approvel|advance salary requests?|advance requests?|salary advance|loan requests?|expense requests?|expense claims?|expense approvals?|attendance corrections?|regularization requests?|pending leave|pending advance|pending expense)\b/i.test(lower) ||
+    /\b(approval edhavadhu irukka|pending approval evlo|leave request yaru potruka|pending request list|approvel enna irukku|ethana approval irukku|approvals evlo|requst evlo|approval list|request list|yar yar request potruka)\b/i.test(lower)
+  ) {
+    return 'GET_PENDING_APPROVALS';
   }
 
   // General Enterprise Policies, POSH, Code of Conduct & Safety

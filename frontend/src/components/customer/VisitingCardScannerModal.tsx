@@ -24,7 +24,8 @@ import {
   rotateCanvas,
   analyzeImageQuality,
   ImageQualityReport,
-  loadImage
+  loadImage,
+  prepareImageForOcr
 } from '../../utils/cardImageProcessor';
 
 export interface ScanResult {
@@ -194,7 +195,9 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
       // 1. Mobile or Explicit Facing Request: prioritize facingMode ('environment' = Back, 'user' = Front)
       if (isFacingSwitch) {
         const mobileCandidates: MediaStreamConstraints[] = [
-          // 1. Exact facing mode with high resolution
+          // 1. Exact facing mode with the highest resolution the camera offers (sharper small print = better OCR)
+          { video: { facingMode: { exact: facing }, width: { ideal: 3840 }, height: { ideal: 2160 } } },
+          // 2. Exact facing mode with full HD
           { video: { facingMode: { exact: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
           // 2. Ideal facing mode with high resolution
           { video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
@@ -247,7 +250,7 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
 
         if (!stream) {
           const desktopCandidates: MediaStreamConstraints[] = [
-            { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+            { video: { width: { ideal: 1920 }, height: { ideal: 1080 } } },
             { video: { facingMode: 'user' } },
             { video: true }
           ];
@@ -444,31 +447,79 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     await startCamera(undefined, nextFacing);
   };
 
-  // 2. Shutter Capture
-  const handleCapturePhoto = () => {
-    if (!videoRef.current) return;
+  // 2. Shutter Capture (iPhone-style: capture -> scan immediately, no manual crop step)
+  const isFinishingRef = useRef(false);
+
+  const finishWithFullFrame = async (source: string | HTMLImageElement | HTMLCanvasElement) => {
+    if (isFinishingRef.current) return;
+    isFinishingRef.current = true;
+    try {
+      // Whole frame, EXIF-upright, <= 2000px: fastest upload and nothing can be cropped away
+      const prepared = await prepareImageForOcr(source);
+      const report = analyzeImageQuality(prepared.canvas);
+      stopCamera();
+      onScanComplete({
+        originalImageBase64: prepared.dataUrl,
+        croppedImageBase64: prepared.dataUrl,
+        mimeType: 'image/jpeg',
+        qualityReport: report
+      });
+      onClose();
+    } catch (err) {
+      console.warn('Fast scan preparation failed, falling back to manual crop:', err);
+      if (typeof source === 'string') {
+        const img = await loadImage(source);
+        setImageMime('image/jpeg');
+        setOriginalImageBase64(source);
+        setImageNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+        setCorners(detectCardCorners(img, img.naturalWidth, img.naturalHeight));
+        stopCamera();
+        setStep('crop');
+      }
+    } finally {
+      isFinishingRef.current = false;
+    }
+  };
+
+  const handleCapturePhoto = async () => {
+    if (!videoRef.current || isFinishingRef.current) return;
     const video = videoRef.current;
+
+    // Prefer the camera's full-resolution, auto-focused still photo (Chrome/Android); fall back to the video frame
+    try {
+      const track = streamRef.current?.getVideoTracks()[0];
+      const ImageCaptureCtor = (window as any).ImageCapture;
+      if (track && ImageCaptureCtor) {
+        const capture = new ImageCaptureCtor(track);
+        const blob: Blob = await Promise.race([
+          capture.takePhoto(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('takePhoto timeout')), 2500))
+        ]);
+        if (blob && blob.size > 0) {
+          const url = URL.createObjectURL(blob);
+          try {
+            const img = await loadImage(url);
+            await finishWithFullFrame(img);
+            return;
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('takePhoto unavailable, using video frame:', e);
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth || 1920;
     canvas.height = video.videoHeight || 1080;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-
-    setImageMime('image/jpeg');
-    setOriginalImageBase64(dataUrl);
-    setImageNaturalSize({ width: canvas.width, height: canvas.height });
-
-    // Initialize auto corners
-    const detected = detectCardCorners(canvas, canvas.width, canvas.height);
-    setCorners(detected);
-    stopCamera();
-    setStep('crop');
+    await finishWithFullFrame(canvas);
   };
 
-  // 3. File Upload Handler
+  // 3. File Upload Handler (scan immediately after choosing the photo)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -478,20 +529,17 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      const img = await loadImage(dataUrl);
-
-      setImageMime(file.type);
-      setOriginalImageBase64(dataUrl);
-      setImageNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
-
-      const detected = detectCardCorners(img, img.naturalWidth, img.naturalHeight);
-      setCorners(detected);
-      setStep('crop');
-    };
-    reader.readAsDataURL(file);
+    const url = URL.createObjectURL(file);
+    loadImage(url)
+      .then(img => finishWithFullFrame(img))
+      .catch(err => {
+        console.warn('Could not read selected image:', err);
+        alert('Could not read this image. Please try another photo.');
+      })
+      .finally(() => {
+        URL.revokeObjectURL(url);
+        e.target.value = '';
+      });
   };
 
   // 4. Interactive Corner Dragging with Magnifying Loupe

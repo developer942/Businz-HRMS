@@ -2511,8 +2511,9 @@ export const IntegrationsSettings: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {activeModalIntegration.configFields.map(field => {
                   const currentIntegrationVals = integrationFormValues[activeModalIntegration.id] || {};
-                  const fieldVal = (currentIntegrationVals[field.key] !== undefined && currentIntegrationVals[field.key] !== null)
-                    ? currentIntegrationVals[field.key] 
+                  const rawVal = currentIntegrationVals[field.key];
+                  const fieldVal = (rawVal !== undefined && rawVal !== null && rawVal !== '')
+                    ? rawVal 
                     : (field.defaultValue !== undefined && field.defaultValue !== null ? field.defaultValue : '');
 
                   const isPasswordType = field.type === 'password';
@@ -2622,7 +2623,7 @@ export const IntegrationsSettings: React.FC = () => {
                         <select
                           name={`cfg_${activeModalIntegration.id}_${field.key}`}
                           id={`cfg_${activeModalIntegration.id}_${field.key}`}
-                          value={fieldVal}
+                          value={fieldVal || (activeModalIntegration.id === 'gemini_ai' ? 'gemini-3.5-flash-lite' : (field.options?.[0]?.value || ''))}
                           onChange={e => handleFieldChange(activeModalIntegration.id, field.key, e.target.value)}
                           style={{
                             width: '100%',
@@ -2639,6 +2640,15 @@ export const IntegrationsSettings: React.FC = () => {
                             availableGeminiModels.map(m => (
                               <option key={m.name} value={m.name}>
                                 {m.displayName || m.name} ({m.name})
+                              </option>
+                            ))
+                          ) : (activeModalIntegration.id === 'gemini_ai' && field.key === 'ocrModel') ? (
+                            (field.options && field.options.length > 0 ? field.options : [
+                              { label: 'Gemini 3.5 Flash Lite (Fast & Recommended)', value: 'gemini-3.5-flash-lite' },
+                              { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' }
+                            ]).map(opt => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
                               </option>
                             ))
                           ) : (

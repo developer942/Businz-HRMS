@@ -41,6 +41,11 @@ export interface QueryContextData {
   holidayPolicies?: HolidayItem[];
   leavePolicies?: LeavePolicyItem[];
   attendancePolicies?: AttendancePolicyItem[];
+  masterAttendancePolicies?: any[];
+  masterLeavePolicies?: any[];
+  loanRecords?: any[];
+  expenses?: any[];
+  attendanceCorrections?: any[];
   weeklySchedules?: WeeklyScheduleItem[];
   attendanceConfig?: GlobalAttendanceConfig;
   policyDocuments?: PolicyDocumentItem[];
@@ -734,6 +739,9 @@ export function executeHRMSQuery(
       lateStatus: r.lateStatus || 'Late'
     }));
 
+    const activeMasterPolicy = (data.masterAttendancePolicies || []).find((p: any) => p.status === 'Active' || p.isDefault) || data.masterAttendancePolicies?.[0];
+    const graceMins = activeMasterPolicy?.graceTimeMinutes ?? activeMasterPolicy?.gracePeriodMinutes ?? (data.attendanceConfig as any)?.lateGracePeriodMins ?? data.shifts?.[0]?.gracePeriodMins ?? 40;
+
     return {
       responseText: pack.lateFound(rows.length, dateLabel),
       payload: {
@@ -743,7 +751,7 @@ export function executeHRMSQuery(
         rows,
         metrics: [
           { label: 'Late Punch Count', value: rows.length, color: 'warning' },
-          { label: 'Grace Period', value: '15 Mins', color: 'info' }
+          { label: 'Grace Period', value: `+${graceMins} Mins`, color: 'info' }
         ],
         exportAvailable: true,
         navigationTarget: 'attendance'
@@ -915,6 +923,9 @@ export function executeHRMSQuery(
     const earlyCount = dashSummary.early.length;
     const missedCount = dashSummary.missed.length;
 
+    const activeMasterPolicy = (data.masterAttendancePolicies || []).find((p: any) => p.status === 'Active' || p.isDefault) || data.masterAttendancePolicies?.[0];
+    const graceMins = activeMasterPolicy?.graceTimeMinutes ?? activeMasterPolicy?.gracePeriodMinutes ?? (data.attendanceConfig as any)?.lateGracePeriodMins ?? data.shifts?.[0]?.gracePeriodMins ?? 40;
+
     return {
       responseText: `${pack.attendanceFound(dateLabel)} Total ${totalEmployees} staff: ${presentCount} present (incl. ${lateCount} late), ${leaveCount} on leave, ${absentCount} absent. Early punch-out: ${earlyCount}, missed punch-out: ${missedCount}.`,
       payload: {
@@ -923,7 +934,7 @@ export function executeHRMSQuery(
         metrics: [
           { label: 'Total Employees', value: totalEmployees, color: 'primary' },
           { label: 'Present', value: presentCount, color: 'success' },
-          { label: 'Late (<30m)', value: lateCount, color: 'warning' },
+          { label: `Late (>${graceMins}m)`, value: lateCount, color: 'warning' },
           { label: 'On Leave', value: leaveCount, color: 'info' },
           { label: 'Absent', value: absentCount, color: 'danger' },
           { label: 'Early Punch Out', value: earlyCount, color: 'warning' },
@@ -1546,55 +1557,218 @@ export function executeHRMSQuery(
     };
   }
 
-  // 19. GET_ATTENDANCE_POLICIES: Attendance capture modes, shift regulations, late marks
+  // 19. GET_ATTENDANCE_POLICIES: Attendance capture modes, shift regulations, late marks & dynamic grace time
   if (intent === 'GET_ATTENDANCE_POLICIES') {
-    const attPolicies = (data.attendancePolicies && data.attendancePolicies.length > 0)
-      ? data.attendancePolicies
-      : [
-          { id: 'ap1', name: 'HQ Corporate Staff (Face Scan & Web)', mode: 'Selfie & AI Face Scan', status: 'Active', description: 'Dual verification through AI face recognition on arrival' },
-          { id: 'ap2', name: 'Madhavaram Site Engineers (Geofence GPS)', mode: 'Geofenced Mobile', status: 'Active', description: 'GPS coordinates checked within 200m radius of industrial yard' },
-          { id: 'ap3', name: 'Guindy Plant & Yard Crew (Biometric)', mode: 'Biometric Fingerprint', status: 'Active', description: 'Hardware terminal biometric sensor integrated with local controller' },
-          { id: 'ap4', name: 'Fabrication Shift (Strict Punch)', mode: 'Face Scan + Punch Out', status: 'Active', description: 'Both punch-in and punch-out mandatory with biometric validation' }
-        ];
+    const activeMasterPolicy = (data.masterAttendancePolicies || []).find((p: any) => p.status === 'Active' || p.isDefault) || data.masterAttendancePolicies?.[0];
+    const graceMins = activeMasterPolicy?.graceTimeMinutes ?? activeMasterPolicy?.gracePeriodMinutes ?? (data.attendanceConfig as any)?.lateGracePeriodMins ?? data.shifts?.[0]?.gracePeriodMins ?? 40;
+    const allowedCount = activeMasterPolicy?.allowedLateCount ?? 3;
+    const halfDayCount = activeMasterPolicy?.halfDayRuleEnabled !== false ? (activeMasterPolicy?.halfDayThresholdCount ?? 4) : null;
+    const lopCount = activeMasterPolicy?.lopRuleEnabled !== false ? (activeMasterPolicy?.lopThresholdCount ?? 6) : null;
+    const warningEnabled = activeMasterPolicy?.warningSystemEnabled !== false;
+    const policyName = activeMasterPolicy?.policyName || 'Standard Policy';
 
     const columns: TableColumn[] = [
-      { key: 'name', label: 'Policy / Site Group' },
-      { key: 'mode', label: 'Verification Mode' },
+      { key: 'rule', label: 'Policy Parameter / Rule' },
+      { key: 'value', label: 'Current Configuration' },
       { key: 'status', label: 'Status' },
-      { key: 'description', label: 'Enforcement Rules & Notes' }
+      { key: 'notes', label: 'Enforcement Details' }
     ];
 
-    const rows = attPolicies.map((ap, idx) => ({
-      id: ap.id || idx + 1,
-      name: ap.name,
-      mode: ap.mode,
-      status: ap.status,
-      description: ap.description || 'Active attendance tracking policy'
-    }));
+    const rows = [
+      {
+        id: 'rule-name',
+        rule: 'Active Late Policy Name',
+        value: policyName,
+        status: activeMasterPolicy?.status || 'Active',
+        notes: activeMasterPolicy?.applicableEmployees === 'ALL' ? 'Scope: All Employees & Shifts' : 'Custom Employee / Shift Scope'
+      },
+      {
+        id: 'rule-grace',
+        rule: 'Grace Period',
+        value: `+${graceMins} Mins Grace`,
+        status: 'Active',
+        notes: `Employees arriving within +${graceMins} minutes of shift start are marked On-Time.`
+      },
+      {
+        id: 'rule-allowed',
+        rule: 'Allowed Late Count',
+        value: `${allowedCount} Free / Month`,
+        status: 'Active',
+        notes: `Up to ${allowedCount} late clock-ins per calendar month forgiven with no financial penalty.`
+      },
+      {
+        id: 'rule-warning',
+        rule: 'Warning System',
+        value: warningEnabled ? '✓ Enabled' : 'Disabled',
+        status: warningEnabled ? 'Active' : 'Inactive',
+        notes: warningEnabled ? 'Automated in-app and email alert sent to employee upon reaching grace threshold.' : 'No automated notifications.'
+      },
+      {
+        id: 'rule-halfday',
+        rule: 'Half-Day Penalty Rule',
+        value: halfDayCount ? `Trigger @ ${halfDayCount}th Late` : 'Disabled',
+        status: halfDayCount ? 'Active' : 'Inactive',
+        notes: halfDayCount ? `Upon the ${halfDayCount}th late punch in a month, 0.5 Day wage is automatically deducted.` : 'No half-day deductions.'
+      },
+      {
+        id: 'rule-lop',
+        rule: 'Loss of Pay (LOP) Rule',
+        value: lopCount ? `Trigger @ ${lopCount}th Late (1 Day LOP)` : 'Disabled',
+        status: lopCount ? 'Active' : 'Inactive',
+        notes: lopCount ? `Upon the ${lopCount}th late punch in a month, 1 full day Loss of Pay is deducted from monthly salary.` : 'No LOP penalty configured.'
+      },
+      {
+        id: 'rule-modes',
+        rule: 'Biometric & Punch Capture Modes',
+        value: 'Face Scan + Mobile GPS + Web Punch',
+        status: 'Active',
+        notes: 'Dual verification through AI face recognition on arrival, mobile geofence perimeter (200m), and web portal.'
+      }
+    ];
 
     const responseText = lang === 'ta'
-      ? `நமது நிறுவனத்தின் வருகைப்பதிவு கொள்கைகள், பயோமெட்ரிக் விதிகள் மற்றும் தாமத வருகை அபராத விதிமுறைகள் (Attendance Policies & Shift Rules):`
-      : `Here are the attendance verification modes, grace periods, and late penalty policies in our company:`;
+      ? `நமது நிறுவனத்தின் வருகைப்பதிவு மற்றும் தாமத வருகை கொள்கை விவரங்கள் (Attendance & Late Policy - ${policyName}):\n• Grace Period: +${graceMins} Mins Grace\n• Allowed Late Count: ${allowedCount} Free / Month\n• Warning System: ${warningEnabled ? 'Enabled' : 'Disabled'}\n• Half-Day Rule: ${halfDayCount ? `Trigger @ ${halfDayCount}th Late` : 'None'}\n• LOP Rule: ${lopCount ? `Trigger @ ${lopCount}th Late (1 Day LOP)` : 'None'}`
+      : `Here are the active attendance regulations and late policy specifications (${policyName}):\n• Grace Period: +${graceMins} Mins Grace\n• Allowed Late Count: ${allowedCount} Free / Month\n• Warning System: ${warningEnabled ? 'Enabled' : 'Disabled'}\n• Half-Day Deduction: ${halfDayCount ? `Trigger @ ${halfDayCount}th Late` : 'Disabled'}\n• Loss of Pay (LOP): ${lopCount ? `Trigger @ ${lopCount}th Late (1 Day LOP)` : 'Disabled'}`;
 
     return {
       responseText,
       payload: {
         type: 'table',
-        title: 'Attendance Policies & Verification Standards',
+        title: `Attendance & Late Policy (${policyName})`,
         columns,
         rows,
         metrics: [
-          { label: 'Grace Period', value: '15 Mins', color: 'warning' },
-          { label: 'Max Late Marks', value: '3 / Month', color: 'danger' },
-          { label: 'Overtime Multiplier', value: '1.5x / 2.0x', color: 'primary' }
+          { label: 'Grace Period', value: `+${graceMins} Mins`, color: 'info' },
+          { label: 'Allowed Lates', value: `${allowedCount} Free/Mo`, color: 'success' },
+          { label: 'Half-Day Rule', value: halfDayCount ? `@ ${halfDayCount}th Late` : 'Off', color: 'warning' },
+          { label: 'LOP Rule', value: lopCount ? `@ ${lopCount}th Late` : 'Off', color: 'danger' }
         ],
         exportAvailable: true,
-        navigationTarget: 'attendance'
+        navigationTarget: 'settings'
       },
-      newFilters: { module: 'attendance' },
+      newFilters: { module: 'settings' },
       followUpSuggestions: [
-        'Holiday policy enna?',
+        'Late vandhavanga yaru?',
         'Leave policy enna?',
+        'Holiday policy enna?',
+        'Excel-la kudu'
+      ]
+    };
+  }
+
+  // 19b. GET_PENDING_APPROVALS: Comprehensive HRMS Requests & Approvals
+  if (intent === 'GET_PENDING_APPROVALS') {
+    const pendingLeaves = (data.leaveRequests || []).filter(r => r.status === 'Pending');
+    const pendingLoans = (data.loanRecords || []).filter(r => r.status === 'Pending');
+    const pendingExpenses = (data.expenses || []).filter(e => e.status === 'Pending');
+    const pendingCorrections = (data.attendanceCorrections || []).filter(c => c.status === 'Pending');
+
+    const totalPending = pendingLeaves.length + pendingLoans.length + pendingExpenses.length + pendingCorrections.length;
+
+    type ApprovalRow = {
+      id: string;
+      employeeName: string;
+      employeeId: string;
+      requestType: string;
+      requestDate: string;
+      details: string;
+      status: string;
+    };
+
+    const rows: ApprovalRow[] = [];
+
+    const findEmpName = (empId: string, fallbackName?: string) => {
+      if (fallbackName && fallbackName !== empId) return fallbackName;
+      const emp = (data.employees || []).find(e => e.employeeId === empId || e.id === empId);
+      return emp ? `${emp.firstName} ${emp.lastName}`.trim() : empId;
+    };
+
+    pendingLeaves.forEach(l => {
+      rows.push({
+        id: l.id || `LEV-${Math.random()}`,
+        employeeName: findEmpName(l.employeeId, (l as any).employeeName),
+        employeeId: l.employeeId,
+        requestType: `Leave (${l.leaveType || (l as any).type || 'Standard'})`,
+        requestDate: formatDateDDMMYYYY(l.startDate),
+        details: `${l.daysCount || 1} day(s) (${l.reason || 'Personal'})`,
+        status: 'Pending Approval'
+      });
+    });
+
+    pendingLoans.forEach(l => {
+      rows.push({
+        id: l.id || `LOAN-${Math.random()}`,
+        employeeName: findEmpName(l.employeeId, (l as any).employeeName),
+        employeeId: l.employeeId,
+        requestType: l.requestType || 'Advance Salary',
+        requestDate: formatDateDDMMYYYY(l.requestDate || (l as any).createdAt || ''),
+        details: `₹${Number(l.requestedAmount || 0).toLocaleString('en-IN')}`,
+        status: 'Pending Approval'
+      });
+    });
+
+    pendingExpenses.forEach(e => {
+      rows.push({
+        id: e.id || `EXP-${Math.random()}`,
+        employeeName: findEmpName(e.employeeId, (e as any).employeeName),
+        employeeId: e.employeeId,
+        requestType: `Expense (${e.category || 'General'})`,
+        requestDate: formatDateDDMMYYYY(e.date || (e as any).createdAt || ''),
+        details: `₹${Number(e.amount || 0).toLocaleString('en-IN')} (${e.description || (e as any).title || 'Claim'})`,
+        status: 'Pending Approval'
+      });
+    });
+
+    pendingCorrections.forEach(c => {
+      rows.push({
+        id: c.id || `CORR-${Math.random()}`,
+        employeeName: findEmpName(c.employeeId, (c as any).employeeName),
+        employeeId: c.employeeId,
+        requestType: 'Attendance Regularization',
+        requestDate: formatDateDDMMYYYY(c.attendanceDate || c.date || (c as any).createdAt || ''),
+        details: c.reason || c.correctionType || 'Punch Adjustment',
+        status: 'Pending Approval'
+      });
+    });
+
+    const columns: TableColumn[] = [
+      { key: 'employeeName', label: 'Employee Name' },
+      { key: 'employeeId', label: 'Employee ID' },
+      { key: 'requestType', label: 'Request Type' },
+      { key: 'requestDate', label: 'Date' },
+      { key: 'details', label: 'Amount / Details' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    const responseText = totalPending > 0
+      ? (lang === 'ta'
+          ? `தற்போது ஒப்புதலுக்காக காத்திருக்கும் கோரிக்கைகள் மொத்தம் ${totalPending} (Pending Approvals):\n• Leave Requests: ${pendingLeaves.length}\n• Advance Salary: ${pendingLoans.length}\n• Expense Claims: ${pendingExpenses.length}\n• Attendance Adjustments: ${pendingCorrections.length}`
+          : `There are ${totalPending} pending request(s) awaiting approval in the system:\n• Leave Requests: ${pendingLeaves.length}\n• Advance Salary: ${pendingLoans.length}\n• Expense Claims: ${pendingExpenses.length}\n• Attendance Regularizations: ${pendingCorrections.length}`)
+      : (lang === 'ta'
+          ? `தற்போது நிலுவையில் உள்ள ஒப்புதல் கோரிக்கைகள் எதுவும் இல்லை. அனைத்து Leave, Advance Salary, Expense கோரிக்கைகளும் பரிசீலிக்கப்பட்டுவிட்டன.`
+          : `All clear! There are currently 0 pending requests awaiting approval in the system.`);
+
+    return {
+      responseText,
+      payload: {
+        type: 'table',
+        title: `Pending Approvals & Requests (${totalPending})`,
+        columns,
+        rows,
+        metrics: [
+          { label: 'Total Pending', value: totalPending, color: totalPending > 0 ? 'warning' : 'success' },
+          { label: 'Pending Leaves', value: pendingLeaves.length, color: 'info' },
+          { label: 'Advance Salary', value: pendingLoans.length, color: 'primary' },
+          { label: 'Expense Claims', value: pendingExpenses.length, color: 'warning' },
+          { label: 'Attendance Fixes', value: pendingCorrections.length, color: 'danger' }
+        ],
+        exportAvailable: true,
+        navigationTarget: 'leave'
+      },
+      newFilters: { module: 'approvals' },
+      followUpSuggestions: [
+        'Leave requests mattum kudu',
+        'Advance salary requests evlo?',
         'Inniku absent yaru?',
         'Excel-la kudu'
       ]
