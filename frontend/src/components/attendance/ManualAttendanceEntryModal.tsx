@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   Info,
   Timer,
-  Building2
+  Building2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
@@ -103,7 +105,26 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   
   const [error, setError] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string>('');
+  const [autoAdvanceOnSave, setAutoAdvanceOnSave] = useState<boolean>(true);
+  const successTimeoutRef = React.useRef<any>(null);
   const initializedRecordKey = React.useRef<string>('');
+
+  const currentEmpIndex = useMemo(() => {
+    return employees.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
+  }, [employees, selectedEmpId]);
+
+  const handlePrevEmployee = () => {
+    if (employees.length === 0) return;
+    const prevIndex = currentEmpIndex > 0 ? currentEmpIndex - 1 : employees.length - 1;
+    setSelectedEmpId(employees[prevIndex].id);
+  };
+
+  const handleNextEmployee = () => {
+    if (employees.length === 0) return;
+    const nextIndex = currentEmpIndex < employees.length - 1 ? currentEmpIndex + 1 : 0;
+    setSelectedEmpId(employees[nextIndex].id);
+  };
 
   // Sync selectedEmpId when defaultEmployeeId changes or on open
   useEffect(() => {
@@ -267,23 +288,22 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     'Card reader unreadable / scanner fail regularization'
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeSave = (mode: 'next' | 'close') => {
     setError('');
 
     if (!selectedEmpId) {
       setError('Please select an employee.');
-      return;
+      return false;
     }
 
     if (!date) {
       setError('Please select an attendance date.');
-      return;
+      return false;
     }
 
     if (!reason.trim()) {
       setError('Administrative authorization reason is mandatory.');
-      return;
+      return false;
     }
 
     const finalCheckIn = isMissedCheckIn ? null : (normalizeTimeString(checkInTime) || checkInTime);
@@ -309,14 +329,47 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     });
 
     if (res.success) {
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-      }, 1200);
+      const savedName = selectedEmployee ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}` : 'Employee';
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+
+      if (mode === 'close') {
+        setIsSuccess(true);
+        setSaveSuccessMessage(`Attendance saved for ${savedName}. Closing...`);
+        successTimeoutRef.current = setTimeout(() => {
+          setIsSuccess(false);
+          setSaveSuccessMessage('');
+          onClose();
+        }, 1000);
+      } else {
+        const isLast = currentEmpIndex >= employees.length - 1;
+        const nextIndex = isLast ? 0 : currentEmpIndex + 1;
+        const nextEmp = employees[nextIndex];
+        setIsSuccess(true);
+        setSaveSuccessMessage(
+          isLast
+            ? `Saved for ${savedName}! All employees covered (looped back to first).`
+            : `Saved for ${savedName}! Switched to ${nextEmp ? `${nextEmp.firstName} ${nextEmp.lastName}` : 'next employee'}.`
+        );
+        if (nextEmp) {
+          setSelectedEmpId(nextEmp.id);
+        }
+        successTimeoutRef.current = setTimeout(() => {
+          setIsSuccess(false);
+          setSaveSuccessMessage('');
+        }, 4000);
+      }
+      return true;
     } else {
       setError(res.message);
+      return false;
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeSave(autoAdvanceOnSave ? 'next' : 'close');
   };
 
   return (
@@ -440,24 +493,68 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                 }}
               >
                 <CheckCircle2 size={16} color="#059669" style={{ flexShrink: 0 }} />
-                <span>Attendance record successfully saved and audit log generated!</span>
+                <span>{saveSuccessMessage || 'Attendance record successfully saved and audit log generated!'}</span>
               </div>
             )}
 
 
             {/* Employee Selection */}
             <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  color: '#1E293B',
-                  marginBottom: '6px'
-                }}
-              >
-                Select Employee <span style={{ color: '#EF4444' }}>*</span>
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label
+                  style={{
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    color: '#1E293B',
+                    margin: 0
+                  }}
+                >
+                  Select Employee <span style={{ color: '#EF4444' }}>*</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748B' }}>
+                    Employee {currentEmpIndex >= 0 ? currentEmpIndex + 1 : 1} of {employees.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handlePrevEmployee}
+                    title="Previous Employee"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#475569',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextEmployee}
+                    title="Next Employee"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#475569',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
               <select
                 value={selectedEmpId}
                 onChange={e => setSelectedEmpId(e.target.value)}
@@ -941,43 +1038,102 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               borderTop: '1px solid #E2E8F0',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
               gap: '12px',
-              backgroundColor: '#F8FAFC'
+              backgroundColor: '#F8FAFC',
+              flexWrap: 'wrap'
             }}
           >
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onClose}
+            {/* Auto-advance toggle checkbox */}
+            <label
               style={{
-                padding: '8px 16px',
-                borderRadius: '10px',
-                fontSize: '0.84rem',
-                fontWeight: 600
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{
-                padding: '8px 20px',
-                borderRadius: '10px',
-                fontSize: '0.84rem',
-                fontWeight: 700,
-                backgroundColor: '#0E7490',
-                borderColor: '#0E7490',
-                display: 'inline-flex',
+                display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
+                gap: '8px',
+                fontSize: '0.82rem',
+                color: '#475569',
+                cursor: 'pointer',
+                userSelect: 'none'
               }}
             >
-              <UserCheck size={15} strokeWidth={2.5} />
-              <span>Save Attendance Record</span>
-            </button>
+              <input
+                type="checkbox"
+                checked={autoAdvanceOnSave}
+                onChange={e => setAutoAdvanceOnSave(e.target.checked)}
+                style={{
+                  accentColor: '#0E7490',
+                  width: '16px',
+                  height: '16px',
+                  cursor: 'pointer'
+                }}
+              />
+              <span>Keep open & advance to next employee</span>
+            </label>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onClose}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #CBD5E1',
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => executeSave('close')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #0E7490',
+                  color: '#0E7490',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer'
+                }}
+                title="Save this employee and close window"
+              >
+                <CheckCircle2 size={15} />
+                <span>Save & Close</span>
+              </button>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '10px',
+                  fontSize: '0.84rem',
+                  fontWeight: 700,
+                  backgroundColor: '#0E7490',
+                  borderColor: '#0E7490',
+                  color: '#FFFFFF',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
+                }}
+                title="Save and advance to next employee"
+              >
+                <UserCheck size={15} strokeWidth={2.5} />
+                <span>Save & Next Employee ›</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>
