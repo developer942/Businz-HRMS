@@ -5154,6 +5154,9 @@ input:-webkit-autofill:active {
     border-radius: 16px !important;
     margin: auto 0 !important;
     overflow-y: auto !important;
+    overflow-x: hidden !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
     -webkit-overflow-scrolling: touch !important;
     overscroll-behavior: contain !important;
   }
@@ -5169,6 +5172,10 @@ input:-webkit-autofill:active {
 
   .modal-body {
     padding: 14px !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
   }
 
   .modal-footer {
@@ -5603,9 +5610,84 @@ div[style*="overflow-x: auto"] {
    ========================================================================== */
 
 /* 1. Official Payslip Modal & Document Parts */
+.payslip-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.payslip-modal-header-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.payslip-modal-header-top h2 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin: 0;
+  color: var(--color-text-primary);
+}
+.payslip-close-mobile {
+  display: none !important;
+}
+.payslip-close-desktop {
+  display: inline-flex !important;
+}
+.payslip-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.payslip-table-desktop {
+  display: block;
+}
+.payslip-tables-mobile {
+  display: none;
+}
+
 @media (max-width: 640px) {
+  .payslip-modal-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding: 14px 16px !important;
+  }
+  .payslip-modal-header-top {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+  }
+  .payslip-modal-header-top h2 {
+    font-size: 1.05rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .payslip-close-mobile {
+    display: inline-flex !important;
+    width: 32px !important;
+    height: 32px !important;
+  }
+  .payslip-close-desktop {
+    display: none !important;
+  }
+  .payslip-modal-actions {
+    display: flex !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+  .payslip-modal-actions .btn {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 8px 12px !important;
+    font-size: 0.8rem !important;
+  }
   .payslip-container {
     padding: 16px 12px !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
   }
   .company-doc-header-row {
     flex-direction: column !important;
@@ -5639,6 +5721,24 @@ div[style*="overflow-x: auto"] {
     gap: 8px !important;
     padding: 10px 12px !important;
   }
+  .payslip-table-desktop {
+    display: none !important;
+  }
+  .payslip-tables-mobile {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    margin-bottom: 16px !important;
+    width: 100% !important;
+  }
+  .payslip-tables-mobile .payslip-table {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .payslip-tables-mobile .payslip-table-wrapper {
+    overflow-x: visible !important;
+    margin-bottom: 8px !important;
+  }
   .payslip-table-wrapper {
     width: 100% !important;
     overflow-x: auto !important;
@@ -5650,6 +5750,30 @@ div[style*="overflow-x: auto"] {
   }
   .payslip-table th, .payslip-table td {
     padding: 8px 10px !important;
+  }
+  .company-netpay-section {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding-top: 10px !important;
+  }
+  .company-authorized-signatory {
+    justify-content: center !important;
+    width: 100% !important;
+    margin-top: 20px !important;
+  }
+  .company-authorized-signatory .company-signatory-box {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+}
+
+@media print {
+  .payslip-table-desktop {
+    display: block !important;
+  }
+  .payslip-tables-mobile {
+    display: none !important;
   }
 }
 
@@ -5665,7 +5789,106 @@ div[style*="overflow-x: auto"] {
   }
 }
 
-/* 3. Task Management Mobile Polish */
+/* 3. Task Management & Detail Modal Mobile Polish */
+.task-detail-modal-content {
+  width: 100% !important;
+  max-width: 860px;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+.task-detail-modal-body {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+}
+.task-detail-section-card {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+}
+.task-scope-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  min-width: 0 !important;
+}
+.task-detail-attachment-link {
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 768px) {
+  .task-detail-modal-header {
+    padding: 12px 14px !important;
+    gap: 8px !important;
+  }
+  .task-detail-modal-header h2 {
+    font-size: 1.05rem !important;
+  }
+  .task-detail-modal-body {
+    padding: 12px 10px !important;
+    gap: 12px !important;
+  }
+  .task-detail-section-card {
+    padding: 14px 12px !important;
+    border-radius: 12px !important;
+  }
+  .task-scope-meta-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px 10px !important;
+  }
+  .task-detail-edit-grid-top,
+  .task-detail-edit-grid-bottom {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .task-detail-modal-footer {
+    padding: 12px 14px !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .task-detail-modal-footer .btn {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 8px 14px !important;
+    font-size: 0.82rem !important;
+  }
+  .new-task-grid-4col {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .new-task-grid-3col,
+  .new-task-grid-2col {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .new-task-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .new-task-header div:last-child {
+    display: flex !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+  .new-task-header .btn {
+    flex: 1 !important;
+    justify-content: center !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .task-scope-meta-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px 8px !important;
+    font-size: 0.78rem !important;
+  }
+  .new-task-grid-4col {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 @media (max-width: 640px) {
   .task-filter-chips-bar {
     display: flex !important;

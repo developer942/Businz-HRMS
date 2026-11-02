@@ -465,14 +465,14 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
 
   return (
     <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="new-task-form-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className="new-task-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}>{isCEO ? 'Assign New Task' : 'Create New Task'}</h2>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>{isCEO ? 'Assign New Task' : 'Create New Task'}</h2>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
             Define task details, assignees, deadlines, and deliverables.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-secondary" onClick={onCancel} style={{ fontSize: '0.85rem' }}>
             Cancel
           </button>
@@ -488,7 +488,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>1. Task Identification</h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+        <div className="new-task-grid-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
           <div>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Task Date <span style={{ color: '#EF4444' }}>*</span></label>
             <DateInput
@@ -536,7 +536,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>2. Ownership & Department</h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+        <div className="new-task-grid-3col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
           <div>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Assigned By</label>
             <input 
@@ -596,7 +596,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>3. Planning & Schedule</h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '16px' }}>
+        <div className="new-task-grid-4col" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '16px' }}>
           <div>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Priority <span style={{ color: '#EF4444' }}>*</span></label>
             <select 

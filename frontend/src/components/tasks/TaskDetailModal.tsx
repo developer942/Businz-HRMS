@@ -402,14 +402,14 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
 
   return (
     <div className="modal-overlay" style={{ zIndex: 20000, backdropFilter: 'blur(4px)', backgroundColor: 'rgba(15, 23, 42, 0.6)' }}>
-      <div className="modal-content" style={{ maxWidth: '860px', maxHeight: 'calc(100dvh - 24px)', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 45px rgba(14, 116, 144, 0.15)', border: '1px solid #E7ECF3' }}>
+      <div className="modal-content task-detail-modal-content" style={{ maxWidth: '860px', width: '100%', maxHeight: 'calc(100dvh - 24px)', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 45px rgba(14, 116, 144, 0.15)', border: '1px solid #E7ECF3', minWidth: 0 }}>
         
         {/* ======================================================== */}
         {/* HEADER: Software Theme Color (#0E7490 Deep Teal)         */}
         {/* ======================================================== */}
-        <div style={{ background: '#0E7490', color: '#FFFFFF', padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ flex: 1, marginRight: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+        <div className="task-detail-modal-header" style={{ background: '#0E7490', color: '#FFFFFF', padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, marginRight: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
               <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.78rem', color: '#FFFFFF', background: 'rgba(255, 255, 255, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
                 {task.taskNumber}
               </span>
@@ -419,12 +419,12 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                 </span>
               )}
             </div>
-            <h2 style={{ fontSize: '1.18rem', fontWeight: 700, margin: 0, color: '#FFFFFF', lineHeight: 1.3 }}>
+            <h2 style={{ fontSize: '1.18rem', fontWeight: 700, margin: 0, color: '#FFFFFF', lineHeight: 1.3, wordBreak: 'break-word' }}>
               {task.title}
             </h2>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             {canEditTaskDetails && (
               <button 
                 type="button"
@@ -458,7 +458,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
         {/* ======================================================== */}
         {/* UNIFIED SINGLE PAGE BODY (1, 2, 3, 4 IN SINGLE SHEET)    */}
         {/* ======================================================== */}
-        <div style={{ overflowY: 'auto', padding: '22px', flex: 1, background: '#F7F9FC', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="task-detail-modal-body" style={{ overflowY: 'auto', overflowX: 'hidden', padding: '22px', flex: 1, background: '#F7F9FC', display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
 
           {/* Submission Success Banner */}
           {submitSuccessMsg && (
@@ -480,8 +480,8 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
           )}
 
           {isEditingTask && canEditTaskDetails && (
-            <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #CFFAFE', boxShadow: '0 1px 3px rgba(14,116,144,0.08)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 150px 150px', gap: '12px', marginBottom: '12px' }}>
+            <div className="task-detail-section-card" style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #CFFAFE', boxShadow: '0 1px 3px rgba(14,116,144,0.08)', minWidth: 0, boxSizing: 'border-box' }}>
+              <div className="task-detail-edit-grid-top" style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 150px 150px', gap: '12px', marginBottom: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Task Title</label>
                   <input className="form-control" value={editTaskForm.title} onChange={e => setEditTaskForm(prev => ({ ...prev, title: e.target.value }))} />
@@ -500,7 +500,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="task-detail-edit-grid-bottom" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Description</label>
                   <textarea className="form-control" rows={3} value={editTaskForm.description} onChange={e => setEditTaskForm(prev => ({ ...prev, description: e.target.value }))} onKeyDown={preventSpaceEnterPropagation} />
@@ -522,15 +522,15 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
           {/* ------------------------------------------------------ */}
           {/* 1. TASK ASSIGNMENT & SCOPE (SINGLE CLEAN BOX)          */}
           {/* ------------------------------------------------------ */}
-          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+          <div className="task-detail-section-card" style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)', minWidth: 0, boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #F1F5F9' }}>
-              <span style={{ background: '#0E7490', color: '#FFFFFF', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 800 }}>1</span>
+              <span style={{ background: '#0E7490', color: '#FFFFFF', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 800, flexShrink: 0 }}>1</span>
               <h3 style={{ fontSize: '0.92rem', fontWeight: 700, color: '#1E293B', margin: 0 }}>
                 Task Assignment &amp; Scope
               </h3>
             </div>
 
-            {/* 4-Column Metadata Grid directly inside single box */}
+            {/* 4-Column Metadata Grid directly inside single box (responsive on mobile) */}
             {(() => {
               const rawBy = (task.assignedBy || task.createdBy || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
               const isSelfAssigned = task.assignees.some(a => {
@@ -540,29 +540,29 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
               const displayAssignedBy = isSelfAssigned ? 'Velmurugan (CEO)' : (task.assignedBy || task.createdBy || 'HR/CEO');
 
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', paddingBottom: '14px', borderBottom: '1px solid #F1F5F9' }}>
-                  <div>
+                <div className="task-scope-meta-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', paddingBottom: '14px', borderBottom: '1px solid #F1F5F9', minWidth: 0 }}>
+                  <div style={{ minWidth: 0, overflowWrap: 'break-word' }}>
                     <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', display: 'block' }}>Assigned By</span>
-                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E293B', marginTop: '2px' }}>{displayAssignedBy}</div>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E293B', marginTop: '2px', wordBreak: 'break-word' }}>{displayAssignedBy}</div>
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0, overflowWrap: 'break-word' }}>
                     <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', display: 'block' }}>Assigned To</span>
-                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E293B', marginTop: '2px' }}>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E293B', marginTop: '2px', wordBreak: 'break-word' }}>
                       {task.assignees.map(a => a.employeeName).join(', ') || 'Assigned Person'}
                     </div>
                     <span style={{ fontSize: '0.68rem', color: '#16A34A', fontWeight: 600 }}>{task.department} Dept</span>
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0, overflowWrap: 'break-word' }}>
                     <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', display: 'block' }}>Due Date</span>
                     <div style={{ fontSize: '0.84rem', fontWeight: 700, color: dueStatus === 'Overdue' ? '#DC2626' : '#1E293B', marginTop: '2px' }}>{formatDateDDMMYYYY(task.dueDate)}</div>
                     <span style={{ fontSize: '0.68rem', color: '#64748B' }}>Status: {dueStatus}</span>
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0, overflowWrap: 'break-word' }}>
                     <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', display: 'block' }}>Task Category</span>
-                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E293B', marginTop: '2px' }}>{task.taskCategory}</div>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E293B', marginTop: '2px', wordBreak: 'break-word' }}>{task.taskCategory}</div>
                     <span style={{ fontSize: '0.68rem', color: '#64748B' }}>Start: {formatDateDDMMYYYY(task.startDate || task.taskDate)}</span>
                   </div>
                 </div>
@@ -572,26 +572,27 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
             {/* Description directly inside single box */}
             <div style={{ paddingTop: '12px' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Description:</span>
-              <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#334155', lineHeight: 1.5 }}>
+              <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#334155', lineHeight: 1.5, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                 {task.description || 'No description provided.'}
               </p>
             </div>
 
             {/* Reference attachments directly inside single box */}
             {task.attachments && task.attachments.length > 0 && (
-              <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #F1F5F9' }}>
+              <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #F1F5F9', minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                  <Paperclip size={14} color="#0E7490" />
+                  <Paperclip size={14} color="#0E7490" style={{ flexShrink: 0 }} />
                   <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#0E7490', textTransform: 'uppercase' }}>
                     Task Reference Attachments ({task.attachments.length})
                   </span>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxWidth: '100%' }}>
                   {task.attachments.map(att => (
                     <a
                       key={att.id}
                       href={att.fileUrl}
                       download={att.fileName}
+                      className="task-detail-attachment-link"
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -604,13 +605,17 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
                         color: '#1E293B',
                         fontSize: '0.82rem',
                         fontWeight: 600,
-                        transition: 'all 0.15s ease'
+                        transition: 'all 0.15s ease',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box'
                       }}
                       title={`Download ${att.fileName}`}
                     >
-                      <FileText size={15} color="#0E7490" />
-                      <span>{att.fileName}</span>
-                      <Download size={14} color="#0E7490" />
+                      <FileText size={15} color="#0E7490" style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 46px)', minWidth: 0 }}>
+                        {att.fileName}
+                      </span>
+                      <Download size={14} color="#0E7490" style={{ flexShrink: 0, marginLeft: 'auto' }} />
                     </a>
                   ))}
                 </div>
@@ -621,7 +626,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
           {/* ------------------------------------------------------ */}
           {/* 2. PROCESS STAGE & INDEPENDENT ASSIGNEE STATUSES        */}
           {/* ------------------------------------------------------ */}
-          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+          <div className="task-detail-section-card" style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)', minWidth: 0, boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', paddingBottom: '14px', borderBottom: '1px solid #F1F5F9' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ background: '#0E7490', color: '#FFFFFF', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 800 }}>2</span>
@@ -809,7 +814,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
           {/* ------------------------------------------------------ */}
           {/* 3. DAILY REPORTS (SINGLE NEAT & CLEAN BOX)             */}
           {/* ------------------------------------------------------ */}
-          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+          <div className="task-detail-section-card" style={{ background: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)', minWidth: 0, boxSizing: 'border-box' }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid #E2E8F0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1190,7 +1195,7 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
           {/* ------------------------------------------------------ */}
           {/* 5. LINKS                                               */}
           {/* ------------------------------------------------------ */}
-          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '16px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+          <div className="task-detail-section-card" style={{ background: '#FFFFFF', borderRadius: '14px', padding: '16px 20px', border: '1px solid #E7ECF3', boxShadow: '0 1px 3px rgba(0,0,0,0.03)', minWidth: 0, boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ background: '#0E7490', color: '#FFFFFF', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 800 }}>5</span>
@@ -1482,14 +1487,16 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
         {/* ======================================================== */}
         {/* MODAL FOOTER WITH SUBMIT BUTTON                          */}
         {/* ======================================================== */}
-        <div style={{
+        <div className="task-detail-modal-footer" style={{
           padding: '16px 24px',
           background: '#FFFFFF',
           borderTop: '1px solid #E7ECF3',
           display: 'flex',
           justifyContent: 'flex-end',
           alignItems: 'center',
-          gap: '10px'
+          gap: '10px',
+          minWidth: 0,
+          boxSizing: 'border-box'
         }}>
           <button
             type="button"

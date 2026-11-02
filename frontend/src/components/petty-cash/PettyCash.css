@@ -749,6 +749,19 @@
 }
 
 /* Mobile Responsive Adjustments (320px - 768px) */
+.petty-cash-tabs-wrapper {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.petty-cash-tabs-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .petty-cash-container {
     padding: 16px 12px;
@@ -757,11 +770,67 @@
   .petty-cash-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
   }
 
   .petty-cash-actions-group {
     width: 100%;
-    justify-content: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .petty-cash-actions-group button,
+  .petty-cash-actions-group .export-dropdown {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 120px;
+    justify-content: center;
+    font-size: 0.8rem;
+    padding: 8px 10px;
+  }
+
+  .petty-cash-actions-group .export-dropdown {
+    flex: 1 1 100%;
+  }
+
+  .petty-cash-section-card {
+    padding: 14px 10px !important;
+    border-radius: 12px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .section-card-header {
+    margin-bottom: 12px !important;
+    padding-bottom: 10px !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .petty-cash-tabs-wrapper {
+    width: 100% !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .petty-cash-tab-btn {
+    padding: 7px 12px !important;
+    font-size: 0.78rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .petty-cash-header-actions {
+    width: 100% !important;
+    justify-content: flex-end !important;
+  }
+
+  .section-filters-bar {
+    width: 100% !important;
+  }
+
+  .section-filters-bar > div {
+    max-width: 100% !important;
+    width: 100% !important;
   }
 
   .form-row {
@@ -775,7 +844,8 @@
 
   .petty-cash-table th,
   .petty-cash-table td {
-    padding: 10px 12px;
+    padding: 8px 10px;
+    font-size: 0.78rem;
   }
 
   .petty-cash-floating-action-bar {

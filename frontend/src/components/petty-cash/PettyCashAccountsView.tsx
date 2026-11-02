@@ -254,7 +254,7 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
       {/* Secondary Tabs: Disbursements History vs Expenses Oversight */}
       <div className="petty-cash-section-card">
         <div className="section-card-header">
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="petty-cash-tabs-wrapper" style={{ display: 'flex', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', scrollbarWidth: 'none', paddingBottom: '2px' }}>
             <button
               className={`petty-cash-tab-btn ${activeSubTab === 'DISBURSEMENTS' ? 'active' : ''}`}
               onClick={() => setActiveSubTab('DISBURSEMENTS')}

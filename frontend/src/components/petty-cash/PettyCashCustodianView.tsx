@@ -336,7 +336,7 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
       {/* Main Operations Section Card */}
       <div className="petty-cash-section-card">
         <div className="section-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="petty-cash-tabs-wrapper" style={{ display: 'flex', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', scrollbarWidth: 'none', paddingBottom: '2px' }}>
             <button
               className={`petty-cash-tab-btn ${activeTab === 'EXPENSES' ? 'active' : ''}`}
               onClick={() => {
@@ -357,13 +357,15 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
             </button>
           </div>
 
-          <ExportDropdown
-            onExportExcel={handleExportExcel}
-            onExportPDF={handleExportPDF}
-            onExportCSV={handleExportCSV}
-            label="Download"
-            variant="secondary"
-          />
+          <div className="petty-cash-header-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <ExportDropdown
+              onExportExcel={handleExportExcel}
+              onExportPDF={handleExportPDF}
+              onExportCSV={handleExportCSV}
+              label="Download"
+              variant="secondary"
+            />
+          </div>
         </div>
 
         {activeTab === 'EXPENSES' ? (

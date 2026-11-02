@@ -1077,10 +1077,15 @@ export const PayrollManagement: React.FC = () => {
 
         return (
           <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '780px' }}>
-              <div className="modal-header">
-                <h2>Official Employee Payslip</h2>
-                <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="modal-content" style={{ maxWidth: '780px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}>
+              <div className="modal-header payslip-modal-header">
+                <div className="payslip-modal-header-top">
+                  <h2>Official Employee Payslip</h2>
+                  <button type="button" className="close-btn payslip-close-mobile" onClick={() => setSelectedPayslip(null)} aria-label="Close">
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="payslip-modal-actions">
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
@@ -1097,10 +1102,12 @@ export const PayrollManagement: React.FC = () => {
                   >
                     <Download size={14} /> Download PDF
                   </button>
-                  <button onClick={() => setSelectedPayslip(null)}><X size={20} /></button>
+                  <button type="button" className="close-btn payslip-close-desktop" onClick={() => setSelectedPayslip(null)} aria-label="Close">
+                    <X size={20} />
+                  </button>
                 </div>
               </div>
-              <div className="modal-body">
+              <div className="modal-body" style={{ minWidth: 0, boxSizing: 'border-box' }}>
                 <div className="payslip-container" id="printable-payslip-content">
                   <CompanyHeader
                     profile={documentProfile}
