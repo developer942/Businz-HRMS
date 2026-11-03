@@ -6168,7 +6168,7 @@ div[style*="overflow-x: auto"] {
 
 .customer-search-input {
   width: 100%;
-  padding: 9px 32px 9px 36px;
+  padding: 9px 36px 9px 40px !important;
   border-radius: 10px;
   border: 1px solid #CBD5E1;
   font-size: 0.86rem;
@@ -6186,10 +6186,10 @@ div[style*="overflow-x: auto"] {
 
 .customer-search-icon {
   position: absolute;
-  left: 11px;
+  left: 13px !important;
   top: 50%;
   transform: translateY(-50%);
-  color: #94A3B8;
+  color: #64748B;
   pointer-events: none;
 }
 

@@ -684,7 +684,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => { setCaptureMode('camera'); handleOpenScanner('camera'); }}
+                onClick={() => handleOpenScanner('camera')}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -705,7 +705,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => { setCaptureMode('upload'); handleOpenScanner('upload'); }}
+                onClick={() => handleOpenScanner('upload')}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -724,208 +724,6 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
               </button>
             </div>
           </div>
-
-          {/* Active Mode Banner: Camera Scanner */}
-          {!cardImageBase64 && captureMode === 'camera' && (
-            <div style={{
-              backgroundColor: '#ECFEFF',
-              border: '1px solid #A5F3FC',
-              borderRadius: '12px',
-              padding: '14px 16px',
-              display: 'flex',
-              alignItems: 'stretch',
-              justifyContent: 'space-between',
-              flexDirection: 'column',
-              gap: '12px',
-              marginBottom: '20px',
-              width: '100%',
-              boxSizing: 'border-box'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                <div style={{
-                  width: '38px',
-                  height: '38px',
-                  borderRadius: '10px',
-                  backgroundColor: '#0E7490',
-                  color: '#FFFFFF',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <Camera size={20} />
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: '#0E7490', fontSize: '0.95rem' }}>
-                    Camera Card Scanner Mode
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#155E75', marginTop: '2px', wordBreak: 'break-word' }}>
-                    Capture visiting card via camera with automatic edge detection & AI text extraction.
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
-                <button
-                  type="button"
-                  onClick={() => handleOpenScanner('camera')}
-                  style={{
-                    flex: '1 1 140px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    backgroundColor: '#0E7490',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '0.825rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 4px rgba(14, 116, 144, 0.25)'
-                  }}
-                >
-                  <Camera size={14} /> Open Camera Scanner
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setCaptureMode('upload'); handleOpenScanner('upload'); }}
-                  style={{
-                    flex: '1 1 140px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    backgroundColor: '#FFFFFF',
-                    color: '#0E7490',
-                    border: '1px solid #A5F3FC',
-                    borderRadius: '8px',
-                    fontSize: '0.825rem',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Upload size={14} /> Upload Photo Instead
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Active Mode Banner: File Upload Dropzone */}
-          {!cardImageBase64 && captureMode === 'upload' && (
-            <div
-              onClick={() => pageFileInputRef.current?.click()}
-              style={{
-                backgroundColor: '#F8FAFC',
-                border: '2px dashed #CBD5E1',
-                borderRadius: '12px',
-                padding: '24px 20px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '10px',
-                marginBottom: '20px',
-                cursor: 'pointer',
-                textAlign: 'center',
-                transition: 'border-color 0.15s ease'
-              }}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => {
-                e.preventDefault();
-                const file = e.dataTransfer.files?.[0];
-                if (file) {
-                  if (!file.type.match(/^image\/(jpeg|jpg|png|webp)$/i)) {
-                    setErrorMessage('Please upload a valid image file (JPG, PNG, or WEBP).');
-                    return;
-                  }
-                  const reader = new FileReader();
-                  reader.onload = async () => {
-                    const raw = reader.result as string;
-                    try {
-                      const prepared = await prepareImageForOcr(raw);
-                      setCardImageBase64(prepared.dataUrl);
-                      setOriginalImageBase64(prepared.dataUrl);
-                      triggerOcr(prepared.dataUrl, 'image/jpeg');
-                    } catch {
-                      setCardImageBase64(raw);
-                      triggerOcr(raw, file.type);
-                    }
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }}
-            >
-              <input
-                ref={pageFileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                style={{ display: 'none' }}
-                onChange={handleFileUpload}
-              />
-              <div style={{
-                width: '42px',
-                height: '42px',
-                borderRadius: '10px',
-                backgroundColor: '#ECFEFF',
-                color: '#0E7490',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <Upload size={22} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 600, color: '#1E293B', fontSize: '0.95rem' }}>
-                  Click to Browse or Drag & Drop Visiting Card Photo
-                </div>
-                <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
-                  Supports JPG, PNG, WEBP. Fast AI OCR will automatically populate fields.
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); pageFileInputRef.current?.click(); }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 16px',
-                    backgroundColor: '#0E7490',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Upload size={14} /> Select File
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); handleOpenScanner('upload'); }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    backgroundColor: '#FFFFFF',
-                    color: '#475569',
-                    border: '1px solid #CBD5E1',
-                    borderRadius: '8px',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Crop size={14} /> Open Scanner & Cropper
-                </button>
-              </div>
-            </div>
-          )}
 
           {errorMessage && (
             <div style={{

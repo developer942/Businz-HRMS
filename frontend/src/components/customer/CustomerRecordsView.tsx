@@ -305,14 +305,22 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
         {/* Integrated Card Header Toolbar */}
         <div className="customer-card-toolbar">
           <div className="customer-toolbar-left">
-            <div className="customer-search-wrap">
-              <Search size={16} className="customer-search-icon" />
+            <div className="customer-search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search size={16} className="customer-search-icon" style={{ position: 'absolute', left: '13px', color: '#64748B', pointerEvents: 'none', zIndex: 1 }} />
               <input
                 type="text"
                 placeholder="Search by Name, Company, Phone, or Email..."
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
                 className="customer-search-input"
+                style={{
+                  width: '100%',
+                  paddingLeft: '40px',
+                  paddingRight: searchQuery ? '36px' : '14px',
+                  paddingTop: '9px',
+                  paddingBottom: '9px',
+                  boxSizing: 'border-box'
+                }}
               />
               {searchQuery && (
                 <button
@@ -320,6 +328,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                   onClick={() => { setSearchQuery(''); setPage(1); }}
                   className="customer-search-clear"
                   title="Clear search"
+                  style={{ position: 'absolute', right: '10px', zIndex: 2 }}
                 >
                   <X size={14} />
                 </button>
