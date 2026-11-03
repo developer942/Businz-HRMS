@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Employee } from '../../types/hrms';
+import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import { AddEmployeeModal } from './AddEmployeeModal';
 import { EmployeeProfile } from './EmployeeProfile';
 import { OfferLetterModal } from './OfferLetterModal';
@@ -103,7 +104,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
     e.employeeId !== 'EMP-000' && 
     e.email?.toLowerCase() !== 'admin@businz.com' && 
     e.email?.toLowerCase() !== 'developer@businz.com' && 
-    e.designation !== 'Super Administrator'
+    e.designation !== 'Super Administrator' &&
+    !isOwnerOrCEO(e)
   );
 
   const getEmployeeDepartmentDisplay = (emp: Employee): string => {
@@ -131,7 +133,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
       return 'Self / Board of Directors';
     }
 
-    const owner = roleScopedEmployees.find(e => {
+    const owner = employees.find(e => {
       const ownerDesignation = (e.designation || '').trim().toLowerCase();
       return ownerDesignation === 'ceo' || ownerDesignation.includes('chief executive') || ownerDesignation.includes('owner');
     });

@@ -38,6 +38,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
+import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { AttendanceRecord, AttendanceAuditLog } from '../../types/hrms';
 import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { AttendanceDetailsDrawer } from './AttendanceDetailsDrawer';
@@ -137,7 +138,7 @@ export const AttendanceManagementModule: React.FC = () => {
 
   const isCeoOrExemptEmp = (empId: string) => {
     const emp = employees.find(e => e.employeeId === empId || e.id === empId);
-    return emp?.designation?.toLowerCase().includes('ceo') || emp?.role === 'CEO' || emp?.attendanceMethod === 'Exempt';
+    return isAttendanceExemptEmployee(emp) || isOwnerOrCEO(emp);
   };
 
   // KPI Calculations
@@ -194,6 +195,7 @@ export const AttendanceManagementModule: React.FC = () => {
   // Filtered attendance records for Register
   const filteredRecords = useMemo(() => {
     return attendanceRecords.filter(rec => {
+      if (isCeoOrExemptEmp(rec.employeeId) || rec.employeeId === 'VRM-001' || rec.employeeName?.toLowerCase().includes('velmurugan')) return false;
       if (selectedStatus !== 'All' && rec.status !== selectedStatus) return false;
       if (selectedDept !== 'All' && rec.department !== selectedDept) return false;
       if (selectedDate && rec.date !== selectedDate) return false;
@@ -626,7 +628,7 @@ export const AttendanceManagementModule: React.FC = () => {
                 style={{ fontWeight: 700, minWidth: '220px', border: '1.5px solid #0E7490' }}
               >
                 <option value="ALL">All Staff (Combined Logs)</option>
-                {employees.map(emp => (
+                {employees.filter(emp => !isOwnerOrCEO(emp) && !isAttendanceExemptEmployee(emp)).map(emp => (
                   <option key={emp.employeeId || emp.id} value={emp.employeeId || emp.id}>
                     {emp.firstName} {emp.lastName} ({emp.designation})
                   </option>

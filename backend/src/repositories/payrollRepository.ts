@@ -356,7 +356,7 @@ export class PayrollRepository {
              LEFT JOIN public.payroll_attendance pa ON pa.payroll_record_id=pr.id
             WHERE pr.payroll_run_id=$1 ORDER BY e.employee_id`, [runId]
         );
-        return result.rows.map(mapPayrollRecord);
+        return result.rows.map(mapPayrollRecord).filter(r => r.employeeId !== 'VRM-001' && r.employeeId !== 'EMP-000');
       } catch (err) {
         throw err;
       }
@@ -375,7 +375,7 @@ export class PayrollRepository {
             WHERE pr.status IN ('PROCESSED','APPROVED','PAID')
             ORDER BY pr.payroll_year DESC,pr.payroll_month DESC,e.employee_id`
         );
-        return result.rows.map(mapPayrollRecord);
+        return result.rows.map(mapPayrollRecord).filter(r => r.employeeId !== 'VRM-001' && r.employeeId !== 'EMP-000');
       } catch (err) {
         throw err;
       }

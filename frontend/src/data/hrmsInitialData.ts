@@ -41,29 +41,60 @@ export const isSystemAdmin = (emp?: {
   );
 };
 
-export const isAttendanceExemptEmployee = (emp?: {
+export const isOwnerOrCEO = (emp?: {
+  id?: string;
   employeeId?: string;
-  email?: string;
-  designation?: string;
   role?: string | { name?: string; key?: string };
-  attendanceMethod?: string;
+  designation?: string;
+  department?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
 } | null): boolean => {
   if (!emp) return false;
 
-  const designation = (emp.designation || '').trim().toLowerCase();
   const roleValue = typeof emp.role === 'string'
     ? emp.role
     : emp.role?.key || emp.role?.name || '';
-  const role = roleValue.trim().toLowerCase();
+  const role = roleValue.trim().toUpperCase();
+  const desig = (emp.designation || '').trim().toUpperCase();
+  const dept = (emp.department || '').trim().toUpperCase();
+  const empId = (emp.employeeId || emp.id || '').trim().toUpperCase();
+  const email = (emp.email || '').trim().toLowerCase();
+  const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim().toLowerCase();
+
+  return (
+    empId === 'VRM-001' ||
+    empId === 'EMP-000' ||
+    role === 'CEO' ||
+    role === 'OWNER' ||
+    dept === 'CEO' ||
+    desig === 'CEO' ||
+    desig.includes('CHIEF EXECUTIVE') ||
+    desig.includes('OWNER') ||
+    desig.includes('MANAGING DIRECTOR') ||
+    email === 'velmurugan@vrmstructures.in' ||
+    fullName.includes('velmurugan')
+  );
+};
+
+export const isAttendanceExemptEmployee = (emp?: {
+  id?: string;
+  employeeId?: string;
+  email?: string;
+  designation?: string;
+  department?: string;
+  role?: string | { name?: string; key?: string };
+  attendanceMethod?: string;
+  firstName?: string;
+  lastName?: string;
+} | null): boolean => {
+  if (!emp) return false;
 
   return (
     isSystemAdmin(emp) ||
-    emp.attendanceMethod === 'Exempt' ||
-    designation === 'ceo' ||
-    designation.includes('chief executive officer') ||
-    designation.includes('owner') ||
-    role === 'ceo' ||
-    role === 'owner'
+    isOwnerOrCEO(emp) ||
+    emp.attendanceMethod === 'Exempt'
   );
 };
 

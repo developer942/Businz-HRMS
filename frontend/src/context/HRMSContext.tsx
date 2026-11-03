@@ -168,6 +168,7 @@ import {
 import {
   isSystemAdmin,
   INITIAL_EMPLOYEES,
+  isOwnerOrCEO,
   INITIAL_ATTENDANCE,
   INITIAL_FACE_LOGS,
   INITIAL_ATTENDANCE_AUDIT_LOGS,
@@ -9668,7 +9669,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('[Payroll] Backend calculation offline, using local engine fallback:', apiErr);
     }
 
-    const updatedRecords: PayrollRecord[] = employees.map(emp => {
+    const updatedRecords: PayrollRecord[] = employees.filter(emp => !isOwnerOrCEO(emp)).map(emp => {
       const isEmpProvisional = (emp.employmentType as string) === 'Provisional' || (emp.employmentType as string) === 'Probation' || (emp as any).status === 'Probation';
       const empLeavePolicy = masterLeavePolicies.find(p => {
         if (p.status !== 'Active') return false;

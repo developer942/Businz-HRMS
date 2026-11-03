@@ -181,6 +181,18 @@ export class PayrollService {
     const processedRecords: FullPayrollCalculationResult[] = [];
 
     for (const emp of employees) {
+      if (
+        emp.employeeId === 'EMP-000' ||
+        emp.employeeId === 'VRM-001' ||
+        emp.designation?.toLowerCase() === 'ceo' ||
+        emp.department?.toLowerCase() === 'ceo' ||
+        (emp as any).role?.toLowerCase() === 'ceo' ||
+        emp.designation?.toLowerCase().includes('chief executive') ||
+        emp.designation?.toLowerCase().includes('owner') ||
+        emp.designation?.toLowerCase().includes('managing director')
+      ) {
+        continue;
+      }
       const structure = await employeeRepository.getSalaryStructure(
         emp.employeeId,
         `${run.payrollYear}-${String(run.payrollMonth).padStart(2, '0')}-01`

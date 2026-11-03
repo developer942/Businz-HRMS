@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { AttendanceList } from './AttendanceList';
 import { FilterReportsModal, FilterReportsState, initialFilterReportsState } from '../common/FilterReportsModal';
 import { 
@@ -103,6 +104,7 @@ export const AttendanceHub: React.FC = () => {
 
   // Dynamically filter employees according to active filter criteria
   const activeEmployees = baseEmployees.filter(emp => {
+    if (isAttendanceExemptEmployee(emp) || isOwnerOrCEO(emp)) return false;
     // 1. Branch filter
     if (filterReports.branches && filterReports.branches.length > 0) {
       const empBranch = (emp.workLocation || (emp as any).branch || '').toLowerCase().trim();

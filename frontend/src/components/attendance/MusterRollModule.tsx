@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { Employee, AttendanceRecord } from '../../types/hrms';
 import { 
   Calendar as CalendarIcon, 
@@ -269,7 +270,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   // Extract unique departments & locations for filter dropdowns
   const availableDepartments = useMemo(() => {
     const set = new Set<string>();
-    employees.forEach(e => { if (e.department) set.add(e.department); });
+    employees.filter(e => !isOwnerOrCEO(e)).forEach(e => { if (e.department) set.add(e.department); });
     return Array.from(set).sort();
   }, [employees]);
 
@@ -428,6 +429,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   // ---------------------------------------------------------------------------
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
+      if (isOwnerOrCEO(emp) || isAttendanceExemptEmployee(emp)) return false;
       // Department Filter
       if (selectedDepartment !== 'All' && emp.department !== selectedDepartment) {
         return false;

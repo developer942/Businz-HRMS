@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { CreditCard, IndianRupee, CheckCircle2, FileText, Download, X, Edit3, ShieldAlert, ShieldCheck, Printer } from 'lucide-react';
 import { PayrollRecord, Employee } from '../../types/hrms';
+import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import { SalaryComponentConfig } from '../../types/settings';
 import { toNum, formatCurrency } from '../../utils/numbers';
 import { downloadElementAsPDF, downloadElementAsDirectPdf, printElement, downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
@@ -136,6 +137,20 @@ export const PayrollManagement: React.FC = () => {
           if (myEmployeeId) return recEmpId === myEmployeeId;
           return (p.employeeName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
         });
+
+    // Exclude CEO / Owner records from payroll registers and payouts
+    records = records.filter(p => {
+      const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
+      if (emp && isOwnerOrCEO(emp)) return false;
+      const desig = (p.designation || '').toUpperCase();
+      const dept = (p.department || '').toUpperCase();
+      const empId = (p.employeeId || '').toUpperCase();
+      const empName = (p.employeeName || '').toLowerCase();
+      if (empId === 'VRM-001' || empId === 'EMP-000') return false;
+      if (desig === 'CEO' || dept === 'CEO' || desig.includes('CHIEF EXECUTIVE') || desig.includes('OWNER') || desig.includes('MANAGING DIRECTOR')) return false;
+      if (empName.includes('velmurugan')) return false;
+      return true;
+    });
 
     // 2. Filter to active batch month and year for full payroll view
     if (canViewAllPayroll && activeBatch) {

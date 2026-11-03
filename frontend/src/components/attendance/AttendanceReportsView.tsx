@@ -31,7 +31,7 @@ import { ExportDropdown } from '../common/ExportDropdown';
 import { MusterRollModule } from './MusterRollModule';
 import { ManualAttendanceEntryModal } from './ManualAttendanceEntryModal';
 import { AttendanceRecord } from '../../types/hrms';
-import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
+import { isAttendanceExemptEmployee, isOwnerOrCEO } from '../../data/hrmsInitialData';
 
 export type ReportTypeKey = 
   | 'muster' 
@@ -156,7 +156,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
   // Filtered employees based on Scope Filters
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
-      if (isAttendanceExemptEmployee(emp)) return false;
+      if (isAttendanceExemptEmployee(emp) || isOwnerOrCEO(emp)) return false;
 
       // Scope filters: branch
       if (activeFilters.branches && activeFilters.branches.length > 0) {

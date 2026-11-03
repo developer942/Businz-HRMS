@@ -130,6 +130,16 @@ export class PayrollService {
         const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
         const processedRecords = [];
         for (const emp of employees) {
+            if (emp.employeeId === 'EMP-000' ||
+                emp.employeeId === 'VRM-001' ||
+                emp.designation?.toLowerCase() === 'ceo' ||
+                emp.department?.toLowerCase() === 'ceo' ||
+                emp.role?.toLowerCase() === 'ceo' ||
+                emp.designation?.toLowerCase().includes('chief executive') ||
+                emp.designation?.toLowerCase().includes('owner') ||
+                emp.designation?.toLowerCase().includes('managing director')) {
+                continue;
+            }
             const structure = await employeeRepository.getSalaryStructure(emp.employeeId, `${run.payrollYear}-${String(run.payrollMonth).padStart(2, '0')}-01`);
             if (!structure)
                 continue;

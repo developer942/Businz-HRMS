@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
+import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { AttendanceRecord } from '../../types/hrms';
 import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { 
@@ -158,12 +159,24 @@ export const AttendanceList: React.FC<AttendanceListProps> = ({ onBackToInsights
       : isManagerRole
       ? attendanceRecords.filter(a => isDepartmentMatch(a.department, currentUser.department))
       : attendanceRecords
-  ).filter(a => a.employeeId !== 'EMP-000');
+  ).filter(a => {
+    if (a.employeeId === 'EMP-000' || a.employeeId === 'VRM-001') return false;
+    if (a.employeeName?.toLowerCase().includes('velmurugan')) return false;
+    if (a.department?.toLowerCase() === 'ceo') return false;
+    return true;
+  });
 
   const todayStr = new Date().toISOString().split('T')[0];
   const targetDateRecords = roleScopedAttendance.filter(a => !selectedDate || a.date === selectedDate);
 
-  const countTotal = employees.filter(e => e.employeeId !== 'EMP-000' && e.email?.toLowerCase() !== 'admin@businz.com' && e.email?.toLowerCase() !== 'developer@businz.com' && e.designation !== 'Super Administrator').length;
+  const countTotal = employees.filter(e => 
+    e.employeeId !== 'EMP-000' && 
+    e.email?.toLowerCase() !== 'admin@businz.com' && 
+    e.email?.toLowerCase() !== 'developer@businz.com' && 
+    e.designation !== 'Super Administrator' &&
+    !isOwnerOrCEO(e) &&
+    !isAttendanceExemptEmployee(e)
+  ).length;
   const countPresent = targetDateRecords.filter(a => a.status === 'Present' || a.status === 'Late').length;
   const countLate = targetDateRecords.filter(a => a.status === 'Late').length;
   const countAbsent = targetDateRecords.filter(a => a.status === 'Absent').length;
