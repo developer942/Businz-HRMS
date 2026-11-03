@@ -1,18 +1,18 @@
-import { 
-  CanonicalIntent, 
-  ExtractedEntities, 
-  SupportedLanguage, 
-  ConversationState, 
-  AIMessage, 
+import {
+  CanonicalIntent,
+  ExtractedEntities,
+  SupportedLanguage,
+  ConversationState,
+  AIMessage,
   RichPayload,
   TableColumn
 } from '../types/aiAssistant';
-import { 
-  Employee, 
-  AttendanceRecord, 
-  LeaveRequest, 
-  TaskItemEnhanced, 
-  PerformanceScore, 
+import {
+  Employee,
+  AttendanceRecord,
+  LeaveRequest,
+  TaskItemEnhanced,
+  PerformanceScore,
   PayrollRecord,
   Role,
   HolidayItem,
@@ -156,7 +156,7 @@ export function executeHRMSQuery(
     let filterAppliedName = '';
 
     if (entities.department) {
-      filtered = filtered.filter(row => 
+      filtered = filtered.filter(row =>
         (row.department || '').toLowerCase().includes(entities.department!.toLowerCase()) ||
         (row.departmentName || '').toLowerCase().includes(entities.department!.toLowerCase())
       );
@@ -164,7 +164,7 @@ export function executeHRMSQuery(
     }
 
     if (entities.status) {
-      filtered = filtered.filter(row => 
+      filtered = filtered.filter(row =>
         (row.status || '').toLowerCase() === entities.status!.toLowerCase()
       );
       filterAppliedName = filterAppliedName ? `${filterAppliedName} (${entities.status})` : entities.status;
@@ -201,13 +201,13 @@ export function executeHRMSQuery(
     const targetLang = entities.targetLanguage || 'en';
     const newPack = getLocalizedPack(targetLang);
     const prevCount = state.lastResultData ? state.lastResultData.length : 0;
-    
+
     return {
       responseText: targetLang === 'ta'
         ? `மொழி தமிழுக்கு மாற்றப்பட்டுள்ளது. உங்கள் முந்தைய விபரங்கள் (${prevCount}) தொடர்ந்து காட்டப்படுகின்றன.`
         : targetLang === 'hi'
-        ? `भाषा बदलकर हिंदी कर दी गई है। आपके पिछले (${prevCount}) रिकॉर्ड्स सुरक्षित हैं।`
-        : `Language switched to English. Your active dataset (${prevCount} records) is preserved.`,
+          ? `भाषा बदलकर हिंदी कर दी गई है। आपके पिछले (${prevCount}) रिकॉर्ड्स सुरक्षित हैं।`
+          : `Language switched to English. Your active dataset (${prevCount} records) is preserved.`,
       payload: {
         type: state.lastResultData && state.lastResultData.length > 0 ? 'table' : 'none',
         title: 'HRMS Query Result',
@@ -231,10 +231,10 @@ export function executeHRMSQuery(
     const targetEmp = data.employees.find(e => e.employeeId === targetEmpId || e.id === targetEmpId) || data.currentUser;
     const empName = targetEmp ? `${targetEmp.firstName || ''} ${targetEmp.lastName || ''}`.trim() : targetEmpId;
 
-    const approvedLeaves = data.leaveRequests.filter(l => 
+    const approvedLeaves = data.leaveRequests.filter(l =>
       (l.employeeId === targetEmpId || l.employeeName === empName) && l.status === 'Approved'
     );
-    const pendingLeaves = data.leaveRequests.filter(l => 
+    const pendingLeaves = data.leaveRequests.filter(l =>
       (l.employeeId === targetEmpId || l.employeeName === empName) && l.status === 'Pending'
     );
 
@@ -277,8 +277,8 @@ export function executeHRMSQuery(
     const responseText = lang === 'ta'
       ? `உங்கள் (${targetEmpId}) விடுப்பு இருப்பு விபரம் (Leave Balance Summary):\n• Casual Leave: ${clRemaining} நாட்கள் இருப்பு (${casualUsed} பயன்படுத்தப்பட்டது)\n• Sick Leave: ${slRemaining} நாட்கள் இருப்பு (${sickUsed} பயன்படுத்தப்பட்டது)\n• Earned Leave: ${elRemaining} நாட்கள் இருப்பு\n• மொத்தம் கிடைக்கும் ஊதியத்துடன் கூடிய விடுப்புகள்: ${totalRemaining} நாட்கள்`
       : lang === 'hi'
-      ? `आपका (${targetEmpId}) लीव बैलेंस विवरण:\n• आकस्मिक अवकाश (CL): ${clRemaining} शेष (उपयोग: ${casualUsed})\n• चिकित्सा अवकाश (SL): ${slRemaining} शेष (उपयोग: ${sickUsed})\n• अर्जित अवकाश (EL): ${elRemaining} शेष\n• कुल उपलब्ध सवेतन छुट्टियाँ: ${totalRemaining} दिन`
-      : `Here is your verified leave balance summary (${targetEmpId}):\n• Casual Leave (CL): ${clRemaining} remaining (${casualUsed} used of ${clQuota})\n• Sick Leave (SL): ${slRemaining} remaining (${sickUsed} used of ${slQuota})\n• Earned Leave (EL): ${elRemaining} remaining (${earnedUsed} used of ${elQuota})\n• Total Paid Leaves Available: ${totalRemaining} days`;
+        ? `आपका (${targetEmpId}) लीव बैलेंस विवरण:\n• आकस्मिक अवकाश (CL): ${clRemaining} शेष (उपयोग: ${casualUsed})\n• चिकित्सा अवकाश (SL): ${slRemaining} शेष (उपयोग: ${sickUsed})\n• अर्जित अवकाश (EL): ${elRemaining} शेष\n• कुल उपलब्ध सवेतन छुट्टियाँ: ${totalRemaining} दिन`
+        : `Here is your verified leave balance summary (${targetEmpId}):\n• Casual Leave (CL): ${clRemaining} remaining (${casualUsed} used of ${clQuota})\n• Sick Leave (SL): ${slRemaining} remaining (${sickUsed} used of ${slQuota})\n• Earned Leave (EL): ${elRemaining} remaining (${earnedUsed} used of ${elQuota})\n• Total Paid Leaves Available: ${totalRemaining} days`;
 
     return {
       responseText,
@@ -310,7 +310,7 @@ export function executeHRMSQuery(
   if (intent === 'GET_MY_ATTENDANCE') {
     const targetEmpId = data.currentUser?.employeeId || data.currentUser?.id || 'EMP-001';
     const currentMonth = new Date().toISOString().substring(0, 7);
-    const myLogs = data.attendanceRecords.filter(a => 
+    const myLogs = data.attendanceRecords.filter(a =>
       (a.employeeId === targetEmpId) && (a.date || '').startsWith(currentMonth)
     );
 
@@ -336,11 +336,11 @@ export function executeHRMSQuery(
 
     const responseText = myLogs.length === 0
       ? (lang === 'ta'
-          ? `இந்த மாதத்திற்கு (${currentMonth}) உங்களுக்கான வருகைப்பதிவு (Attendance Punches) எதுவும் இன்னும் பதிவாகவில்லை.`
-          : `No attendance punch records found for your account (${targetEmpId}) in the current month (${currentMonth}).`)
+        ? `இந்த மாதத்திற்கு (${currentMonth}) உங்களுக்கான வருகைப்பதிவு (Attendance Punches) எதுவும் இன்னும் பதிவாகவில்லை.`
+        : `No attendance punch records found for your account (${targetEmpId}) in the current month (${currentMonth}).`)
       : (lang === 'ta'
-          ? `இந்த மாதத்தில் (${currentMonth}) உங்கள் வருகைப்பதிவு விபரம்:\n• Present: ${presentDays} நாட்கள்\n• Late: ${lateDays} நாட்கள்\n• On Leave: ${onLeaveDays} நாட்கள்\n• Absent: ${absentDays} நாட்கள்\n• மொத்த வேலை நேரம்: ${totalWorkingHours} மணிநேரம்`
-          : `Your attendance record for the current month (${currentMonth}):\n• Present: ${presentDays} days\n• Late: ${lateDays} days\n• On Leave: ${onLeaveDays} days\n• Absent: ${absentDays} days\n• Total Hours Worked: ${totalWorkingHours} hrs`);
+        ? `இந்த மாதத்தில் (${currentMonth}) உங்கள் வருகைப்பதிவு விபரம்:\n• Present: ${presentDays} நாட்கள்\n• Late: ${lateDays} நாட்கள்\n• On Leave: ${onLeaveDays} நாட்கள்\n• Absent: ${absentDays} நாட்கள்\n• மொத்த வேலை நேரம்: ${totalWorkingHours} மணிநேரம்`
+        : `Your attendance record for the current month (${currentMonth}):\n• Present: ${presentDays} days\n• Late: ${lateDays} days\n• On Leave: ${onLeaveDays} days\n• Absent: ${absentDays} days\n• Total Hours Worked: ${totalWorkingHours} hrs`);
 
     return {
       responseText,
@@ -441,11 +441,11 @@ export function executeHRMSQuery(
 
     const responseText = isAccepted
       ? (lang === 'ta'
-          ? `உங்கள் லாகின் Credential மின்னஞ்சல் வெற்றிகரமாக அனுப்பப்பட்டு (${emailSentAt}) உறுதிப்படுத்தப்பட்டுள்ளது.`
-          : `Your HRMS portal credential email was verified as sent and accepted by the mail service on ${emailSentAt}.`)
+        ? `உங்கள் லாகின் Credential மின்னஞ்சல் வெற்றிகரமாக அனுப்பப்பட்டு (${emailSentAt}) உறுதிப்படுத்தப்பட்டுள்ளது.`
+        : `Your HRMS portal credential email was verified as sent and accepted by the mail service on ${emailSentAt}.`)
       : (lang === 'ta'
-          ? `உங்கள் லாகின் Credential மின்னஞ்சல் இன்னும் Mail Service-ஆல் ஏற்றுக்கொள்ளப்படவில்லை அல்லது அனுப்பப்படவில்லை (நிலை: ${emailStatus}). தேவைப்பட்டால் HR குழுவை தொடர்பு கொள்ளவும்.`
-          : `Credential email has not been accepted or dispatched by the backend mail service (Status: ${emailStatus}). Please contact HR to re-trigger credentials.`);
+        ? `உங்கள் லாகின் Credential மின்னஞ்சல் இன்னும் Mail Service-ஆல் ஏற்றுக்கொள்ளப்படவில்லை அல்லது அனுப்பப்படவில்லை (நிலை: ${emailStatus}). தேவைப்பட்டால் HR குழுவை தொடர்பு கொள்ளவும்.`
+        : `Credential email has not been accepted or dispatched by the backend mail service (Status: ${emailStatus}). Please contact HR to re-trigger credentials.`);
 
     return {
       responseText,
@@ -475,7 +475,7 @@ export function executeHRMSQuery(
     let leaves = data.leaveRequests.filter(l => {
       // Check if resolvedDate falls within startDate and endDate
       const matchDate = (l.startDate <= resolvedDate && l.endDate >= resolvedDate) ||
-                        l.startDate === resolvedDate || l.endDate === resolvedDate;
+        l.startDate === resolvedDate || l.endDate === resolvedDate;
       const matchStatus = entities.status ? l.status === entities.status : (l.status === 'Approved' || l.status === 'Pending');
       return matchDate && matchStatus;
     });
@@ -505,7 +505,7 @@ export function executeHRMSQuery(
       reason: l.reason
     }));
 
-    const responseText = rows.length > 0 
+    const responseText = rows.length > 0
       ? pack.leaveFound(rows.length, dateLabel)
       : pack.noLeaveFound(dateLabel);
 
@@ -1472,8 +1472,8 @@ export function executeHRMSQuery(
     const responseText = lang === 'ta'
       ? `நமது நிறுவனத்தின் அதிகாரப்பூர்வ விடுமுறை கொள்கைகள் மற்றும் ${holidays.length} விடுமுறை நாட்கள் (Official Company Holiday Calendar 2026) விபரம்:`
       : lang === 'hi'
-      ? `हमारी कंपनी की आधिकारिक छुट्टियों की नीतियां और ${holidays.length} छुट्टियों का कैलेंडर (Company Holiday Policies 2026):`
-      : `Here are the official company holiday policies and scheduled holidays for our organization (${holidays.length} holidays, ${totalDays} paid off-days):`;
+        ? `हमारी कंपनी की आधिकारिक छुट्टियों की नीतियां और ${holidays.length} छुट्टियों का कैलेंडर (Company Holiday Policies 2026):`
+        : `Here are the official company holiday policies and scheduled holidays for our organization (${holidays.length} holidays, ${totalDays} paid off-days):`;
 
     return {
       responseText,
@@ -1529,8 +1529,8 @@ export function executeHRMSQuery(
     const responseText = lang === 'ta'
       ? `நமது நிறுவனத்தின் விடுப்பு கொள்கைகள், வகைகள் மற்றும் வருடாந்திர ஒதுக்கீடுகள் (Company Leave Policies & Quotas):`
       : lang === 'hi'
-      ? `कंपनी की छुट्टी नीतियां, प्रकार और वार्षिक कोटा (Leave Policies & Quotas):`
-      : `Here are the official leave policies, annual quotas, and accrual rules for our company:`;
+        ? `कंपनी की छुट्टी नीतियां, प्रकार और वार्षिक कोटा (Leave Policies & Quotas):`
+        : `Here are the official leave policies, annual quotas, and accrual rules for our company:`;
 
     return {
       responseText,
@@ -1742,11 +1742,11 @@ export function executeHRMSQuery(
 
     const responseText = totalPending > 0
       ? (lang === 'ta'
-          ? `தற்போது ஒப்புதலுக்காக காத்திருக்கும் கோரிக்கைகள் மொத்தம் ${totalPending} (Pending Approvals):\n• Leave Requests: ${pendingLeaves.length}\n• Advance Salary: ${pendingLoans.length}\n• Expense Claims: ${pendingExpenses.length}\n• Attendance Adjustments: ${pendingCorrections.length}`
-          : `There are ${totalPending} pending request(s) awaiting approval in the system:\n• Leave Requests: ${pendingLeaves.length}\n• Advance Salary: ${pendingLoans.length}\n• Expense Claims: ${pendingExpenses.length}\n• Attendance Regularizations: ${pendingCorrections.length}`)
+        ? `தற்போது ஒப்புதலுக்காக காத்திருக்கும் கோரிக்கைகள் மொத்தம் ${totalPending} (Pending Approvals):\n• Leave Requests: ${pendingLeaves.length}\n• Advance Salary: ${pendingLoans.length}\n• Expense Claims: ${pendingExpenses.length}\n• Attendance Adjustments: ${pendingCorrections.length}`
+        : `There are ${totalPending} pending request(s) awaiting approval in the system:\n• Leave Requests: ${pendingLeaves.length}\n• Advance Salary: ${pendingLoans.length}\n• Expense Claims: ${pendingExpenses.length}\n• Attendance Regularizations: ${pendingCorrections.length}`)
       : (lang === 'ta'
-          ? `தற்போது நிலுவையில் உள்ள ஒப்புதல் கோரிக்கைகள் எதுவும் இல்லை. அனைத்து Leave, Advance Salary, Expense கோரிக்கைகளும் பரிசீலிக்கப்பட்டுவிட்டன.`
-          : `All clear! There are currently 0 pending requests awaiting approval in the system.`);
+        ? `தற்போது நிலுவையில் உள்ள ஒப்புதல் கோரிக்கைகள் எதுவும் இல்லை. அனைத்து Leave, Advance Salary, Expense கோரிக்கைகளும் பரிசீலிக்கப்பட்டுவிட்டன.`
+        : `All clear! There are currently 0 pending requests awaiting approval in the system.`);
 
     return {
       responseText,
@@ -1780,11 +1780,11 @@ export function executeHRMSQuery(
     const docs = (data.policyDocuments && data.policyDocuments.length > 0)
       ? data.policyDocuments
       : [
-          { id: 'p1', title: 'VRM Corporate Code of Conduct & Ethics', category: 'Corporate Governance', version: 'v3.2', updated: 'Jan 2026', status: 'Active', description: 'Core principles of professional behavior, anti-bribery, conflict of interest, and corporate ethics.' },
-          { id: 'p2', title: 'POSH (Prevention of Sexual Harassment) Policy', category: 'Legal Compliance', version: 'v2.0', updated: 'Dec 2025', status: 'Active', description: 'Internal Complaints Committee guidelines and zero-tolerance policy against workplace harassment.' },
-          { id: 'p3', title: 'Construction Site Safety & EHS Norms', category: 'Health & Safety', version: 'v4.1', updated: 'Feb 2026', status: 'Active', description: 'PPE regulations, heavy machinery protocols, site fall protection, and accident reporting.' },
-          { id: 'p4', title: 'Employee Travel & TA/DA Reimbursement Policy', category: 'Finance & HR', version: 'v2.4', updated: 'Jan 2026', status: 'Active', description: 'Mileage rates per km, daily food allowances, lodging caps, and expense reconciliation rules.' }
-        ];
+        { id: 'p1', title: 'VRM Corporate Code of Conduct & Ethics', category: 'Corporate Governance', version: 'v3.2', updated: 'Jan 2026', status: 'Active', description: 'Core principles of professional behavior, anti-bribery, conflict of interest, and corporate ethics.' },
+        { id: 'p2', title: 'POSH (Prevention of Sexual Harassment) Policy', category: 'Legal Compliance', version: 'v2.0', updated: 'Dec 2025', status: 'Active', description: 'Internal Complaints Committee guidelines and zero-tolerance policy against workplace harassment.' },
+        { id: 'p3', title: 'Construction Site Safety & EHS Norms', category: 'Health & Safety', version: 'v4.1', updated: 'Feb 2026', status: 'Active', description: 'PPE regulations, heavy machinery protocols, site fall protection, and accident reporting.' },
+        { id: 'p4', title: 'Employee Travel & TA/DA Reimbursement Policy', category: 'Finance & HR', version: 'v2.4', updated: 'Jan 2026', status: 'Active', description: 'Mileage rates per km, daily food allowances, lodging caps, and expense reconciliation rules.' }
+      ];
 
     const columns: TableColumn[] = [
       { key: 'title', label: 'Policy Document' },
@@ -1827,7 +1827,7 @@ export function executeHRMSQuery(
 
   // 21. GET_EMPLOYEE_DETAILS: Search specific employee ONLY when specifically asked
   const lowerQuery = (rawQuery || '').toLowerCase();
-  const isEmployeeInquiry = intent === 'GET_EMPLOYEE_DETAILS' || 
+  const isEmployeeInquiry = intent === 'GET_EMPLOYEE_DETAILS' ||
     /\b(who is|profile of|employee details|details of|about employee|emp-\d+|yaru|kaun hai)\b/i.test(lowerQuery);
 
   let matchedEmp: Employee | undefined = undefined;
@@ -1892,26 +1892,26 @@ export function executeHRMSQuery(
       responseText: lang === 'ta'
         ? `${emp.firstName} ${emp.lastName} (${emp.employeeId}) அவர்களின் முழு விபரங்கள்:`
         : `Profile and employment records for ${emp.firstName} ${emp.lastName} (${emp.employeeId}):`,
-        payload: {
-          type: 'table',
-          title: `Employee Profile: ${emp.firstName} ${emp.lastName}`,
-          columns,
-          rows,
-          metrics: [
-            { label: 'Status', value: emp.status, color: emp.status === 'Active' ? 'success' : 'danger' },
-            { label: 'Role', value: (emp as any).role || emp.designation, color: 'primary' },
-            { label: 'Department', value: emp.department, color: 'info' }
-          ],
-          exportAvailable: true,
-          navigationTarget: 'employees'
-        },
-        newFilters: { module: 'employees' },
-        followUpSuggestions: [
-          'Inniku absent yaru?',
-          'Nethu yaru leave?',
-          'Total employees evlo peru?'
-        ]
-      };
+      payload: {
+        type: 'table',
+        title: `Employee Profile: ${emp.firstName} ${emp.lastName}`,
+        columns,
+        rows,
+        metrics: [
+          { label: 'Status', value: emp.status, color: emp.status === 'Active' ? 'success' : 'danger' },
+          { label: 'Role', value: (emp as any).role || emp.designation, color: 'primary' },
+          { label: 'Department', value: emp.department, color: 'info' }
+        ],
+        exportAvailable: true,
+        navigationTarget: 'employees'
+      },
+      newFilters: { module: 'employees' },
+      followUpSuggestions: [
+        'Inniku absent yaru?',
+        'Nethu yaru leave?',
+        'Total employees evlo peru?'
+      ]
+    };
   }
 
   // 18. GENERAL_HELP or SMART CONVERSATIONAL FALLBACK

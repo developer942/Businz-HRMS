@@ -43,74 +43,10 @@ import {
   FileSpreadsheet,
   FileText,
   Search,
-  Users,
-  Calendar,
-  CalendarX,
-  CheckSquare,
-  DollarSign,
-  Bot,
   User,
   ExternalLink
 } from 'lucide-react';
 import './AIAssistantWidget.css';
-
-// Quick action cards for modern welcome screen
-const QUICK_ACTIONS = [
-  {
-    id: 'att-today',
-    icon: Calendar,
-    color: '#0E7490',
-    bg: '#ECFEFF',
-    label: "Today's Attendance",
-    query: 'Inniku absent yaru?',
-    desc: 'Absent, late & present count'
-  },
-  {
-    id: 'leave-yesterday',
-    icon: CalendarX,
-    color: '#F59E0B',
-    bg: '#FEF3C7',
-    label: 'Leave Status',
-    query: 'Nethu yaru leave?',
-    desc: "Yesterday's leaves & approvals"
-  },
-  {
-    id: 'overdue-tasks',
-    icon: CheckSquare,
-    color: '#EF4444',
-    bg: '#FEE2E2',
-    label: 'Overdue Tasks',
-    query: 'En team-la overdue task yaruku irukku?',
-    desc: 'Delayed assignments & team status'
-  },
-  {
-    id: 'emp-count',
-    icon: Users,
-    color: '#3B82F6',
-    bg: '#EFF6FF',
-    label: 'Employee Directory',
-    query: 'Total employees evlo peru?',
-    desc: 'Active staff & departments'
-  },
-  {
-    id: 'payroll-status',
-    icon: DollarSign,
-    color: '#10B981',
-    bg: '#D1FAE5',
-    label: 'Payroll Overview',
-    query: 'Show payroll overview',
-    desc: 'Salary disbursement & net payout'
-  },
-  {
-    id: 'excel-export',
-    icon: FileSpreadsheet,
-    color: '#8B5CF6',
-    bg: '#EDE9FE',
-    label: 'Export Report',
-    query: 'Monthly attendance report excel-la kudu',
-    desc: 'Instant CSV & Excel spreadsheet'
-  }
-];
 
 interface AIAssistantWidgetProps {
   hideDesktopTrigger?: boolean;
@@ -707,8 +643,6 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
     });
   };
 
-  const isInitialState = convState.conversationHistory.length <= 1;
-
   // AI Assistant is strictly restricted to CEO and HR roles (Super Admin, CEO, HR Manager, HR Admin)
   if (!isCeoOrHrUser(currentUser)) {
     return null;
@@ -788,48 +722,8 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
 
           {/* Messages Feed */}
           <div className="vrm-ai-messages">
-            {/* Interactive Welcome Hub shown when conversation starts */}
-            {isInitialState && (
-              <div className="vrm-ai-welcome-hub">
-                <div className="vrm-ai-welcome-hero">
-                  <div className="vrm-ai-welcome-avatar">
-                    <img src="/seri-bot-logo.png?v=teal" alt="BUSINZ Chat Bot" />
-                  </div>
-                  <h4 className="vrm-ai-welcome-title">How can I assist you today?</h4>
-                </div>
-
-
-                <div className="vrm-ai-quick-grid">
-                  {QUICK_ACTIONS.map(action => {
-                    const ActionIcon = action.icon;
-                    return (
-                      <button
-                        key={action.id}
-                        className="vrm-ai-quick-card"
-                        onClick={() => handleSendMessage(action.query)}
-                      >
-                        <div
-                          className="vrm-ai-quick-card-icon"
-                          style={{ backgroundColor: action.bg, color: action.color }}
-                        >
-                          <ActionIcon size={16} />
-                        </div>
-                        <div className="vrm-ai-quick-card-content">
-                          <span className="vrm-ai-quick-card-label">{action.label}</span>
-                          <span className="vrm-ai-quick-card-desc">{action.desc}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             {/* Conversation History Messages */}
-            {convState.conversationHistory.map((msg, mIndex) => {
-              // Skip rendering redundant initial plain hello if we are showing the rich welcome hub
-              if (isInitialState && mIndex === 0) return null;
-
+            {convState.conversationHistory.map((msg) => {
               return (
                 <div key={msg.id} className={`vrm-ai-msg-row ${msg.sender}`}>
                   <div className={`vrm-ai-avatar ${msg.sender}`}>

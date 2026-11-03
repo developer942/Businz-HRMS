@@ -110,8 +110,10 @@ export const listModels = async (req: Request, res: Response): Promise<void> => 
     }));
     res.json({ success: true, data: { models, count: models.length } });
   } catch (error: any) {
-    res.status(error?.name === 'AbortError' ? 504 : 400).json({ success: false,
-      error: { code: error?.name === 'AbortError' ? 'GEMINI_TIMEOUT' : 'MODEL_LIST_FAILED', message: error.message || 'Unable to list Gemini models.' } });
+    res.status(error?.name === 'AbortError' ? 504 : 400).json({
+      success: false,
+      error: { code: error?.name === 'AbortError' ? 'GEMINI_TIMEOUT' : 'MODEL_LIST_FAILED', message: error.message || 'Unable to list Gemini models.' }
+    });
   }
 };
 
@@ -160,13 +162,17 @@ export const saveAiConfig = async (req: Request, res: Response): Promise<void> =
     configCache.delete(companyId);
     res.json({ success: true, data: { hasKey: true, model: chatModel, ocrModel } });
   } catch (error: any) {
-    res.status(error instanceof z.ZodError ? 400 : 422).json({ success: false,
-      error: { code: 'AI_CONFIG_REJECTED', message: error.message || 'AI configuration was not saved.' } });
+    res.status(error instanceof z.ZodError ? 400 : 422).json({
+      success: false,
+      error: { code: 'AI_CONFIG_REJECTED', message: error.message || 'AI configuration was not saved.' }
+    });
   }
 };
 
-const generateSchema = z.object({ prompt: z.string().trim().min(1).max(8000), verifiedFacts: z.string().max(12000).optional(),
-  language: z.string().max(20).optional(), history: z.array(z.object({ role: z.enum(['user', 'model']), text: z.string().max(2000) })).max(4).optional() });
+const generateSchema = z.object({
+  prompt: z.string().trim().min(1).max(8000), verifiedFacts: z.string().max(12000).optional(),
+  language: z.string().max(20).optional(), history: z.array(z.object({ role: z.enum(['user', 'model']), text: z.string().max(2000) })).max(4).optional()
+});
 export const generateAiContent = async (req: Request, res: Response): Promise<void> => {
   const started = performance.now();
   try {
@@ -191,7 +197,7 @@ Guidelines:
 5. Match the language, tone, and script of the user (e.g. reply in Tamil if asked in Tamil, in Tanglish if asked in Tanglish, in English if asked in English).`;
 
     const contents = [...(input.history || []).map(item => ({ role: item.role, parts: [{ text: item.text }] })),
-      { role: 'user', parts: [{ text: `${instruction}\n\nVERIFIED FACTS:\n${input.verifiedFacts || 'No specific database query was attached.'}\n\nUSER MESSAGE:\n${input.prompt}` }] }];
+    { role: 'user', parts: [{ text: `${instruction}\n\nVERIFIED FACTS:\n${input.verifiedFacts || 'No specific database query was attached.'}\n\nUSER MESSAGE:\n${input.prompt}` }] }];
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12_000);
@@ -220,18 +226,30 @@ Guidelines:
     if (!response.ok) throw new Error(body.error?.message || `Gemini returned HTTP ${response.status}`);
     const text = body.candidates?.[0]?.content?.parts?.map((part: any) => part.text || '').join('').trim();
     if (!text) throw new Error('Gemini returned an empty response.');
-    res.json({ success: true, data: { text, modelUsed: modelToUse, fallbackUsed: modelToUse !== config.model,
-      timingMs: { gemini: Math.round(performance.now() - started) } } });
+    res.json({
+      success: true, data: {
+        text, modelUsed: modelToUse, fallbackUsed: modelToUse !== config.model,
+        timingMs: { gemini: Math.round(performance.now() - started) }
+      }
+    });
   } catch (error: any) {
     const timedOut = error?.name === 'AbortError';
-    res.status(timedOut ? 504 : 502).json({ success: false, error: { code: timedOut ? 'GEMINI_TIMEOUT' : 'GENERATION_FAILED',
-      message: error.message || 'Gemini generation failed.', modelUsed: runtimeModel, fallbackUsed: false } });
+    res.status(timedOut ? 504 : 502).json({
+      success: false, error: {
+        code: timedOut ? 'GEMINI_TIMEOUT' : 'GENERATION_FAILED',
+        message: error.message || 'Gemini generation failed.', modelUsed: runtimeModel, fallbackUsed: false
+      }
+    });
   }
 };
 
-const querySchema = z.object({ intent: z.string().trim().min(1), entities: z.object({ employeeId: z.string().optional(),
-  employeeName: z.string().optional(), department: z.string().optional(), status: z.string().optional(), resolvedDate: z.string().optional() }).passthrough().default({}),
-  search: z.string().max(100).optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(10) });
+const querySchema = z.object({
+  intent: z.string().trim().min(1), entities: z.object({
+    employeeId: z.string().optional(),
+    employeeName: z.string().optional(), department: z.string().optional(), status: z.string().optional(), resolvedDate: z.string().optional()
+  }).passthrough().default({}),
+  search: z.string().max(100).optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(10)
+});
 
 export const executeVerifiedHrmsQuery = async (req: Request, res: Response): Promise<void> => {
   const started = performance.now();
@@ -245,41 +263,55 @@ export const executeVerifiedHrmsQuery = async (req: Request, res: Response): Pro
       if (!can(req, 'employees', 'view')) throw Object.assign(new Error('You are not authorized to view employee counts.'), { status: 403 });
       data = await hrmsDataService.getEmployeeCounts(scope);
       text = `Verified employee count: ${data.totalRegistered} total, ${data.activeCount} active, and ${data.inactiveCount} inactive.`;
-      payload = { type: 'cards', title: 'Employee Count', metrics: [
-        { label: 'Total', value: data.totalRegistered }, { label: 'Active', value: data.activeCount }, { label: 'Inactive', value: data.inactiveCount } ] };
+      payload = {
+        type: 'cards', title: 'Employee Count', metrics: [
+          { label: 'Total', value: data.totalRegistered }, { label: 'Active', value: data.activeCount }, { label: 'Inactive', value: data.inactiveCount }]
+      };
     } else if (input.intent === 'GET_EMPLOYEE_LIST' || input.intent === 'GET_EMPLOYEE_DETAILS') {
       if (!can(req, 'employees', 'view')) throw Object.assign(new Error('You are not authorized to view the employee directory.'), { status: 403 });
       const search = input.search || input.entities.employeeId || input.entities.employeeName;
-      data = await hrmsDataService.searchEmployees(scope, { search, department: input.entities.department,
-        status: input.entities.status, limit: input.pageSize, offset: (input.page - 1) * input.pageSize });
+      data = await hrmsDataService.searchEmployees(scope, {
+        search, department: input.entities.department,
+        status: input.entities.status, limit: input.pageSize, offset: (input.page - 1) * input.pageSize
+      });
       text = data.total ? `Showing ${data.employees.length} of ${data.total} authorized employees.` : 'No authorized employee records matched your search.';
-      payload = { type: 'table', title: 'Employee Directory', columns: [
-        { key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' },
-        { key: 'department', label: 'Department' }, { key: 'designation', label: 'Designation' }, { key: 'status', label: 'Status' }],
+      payload = {
+        type: 'table', title: 'Employee Directory', columns: [
+          { key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' },
+          { key: 'department', label: 'Department' }, { key: 'designation', label: 'Designation' }, { key: 'status', label: 'Status' }],
         rows: data.employees, exportAvailable: true, navigationTarget: 'employees',
-        pagination: { page: input.page, pageSize: input.pageSize, total: data.total, hasMore: data.hasMore, serverSearch: true, search: search || '' } };
+        pagination: { page: input.page, pageSize: input.pageSize, total: data.total, hasMore: data.hasMore, serverSearch: true, search: search || '' }
+      };
     } else if (['GET_ATTENDANCE', 'GET_ABSENT_EMPLOYEES', 'GET_LATE_EMPLOYEES', 'GET_MY_ATTENDANCE'].includes(input.intent)) {
       if (!can(req, 'attendance', 'view')) throw Object.assign(new Error('You are not authorized to view attendance.'), { status: 403 });
       data = await hrmsDataService.getAttendanceSummary(scope, date);
       text = `Verified attendance for ${date}: ${data.presentCount} present, ${data.lateCount} late, ${data.absentCount} explicitly absent, ${data.onLeaveCount} on leave, and ${data.unrecordedCount} without a recorded attendance row.`;
-      payload = { type: 'cards', title: `Attendance ${date}`, metrics: Object.entries({ Present: data.presentCount, Late: data.lateCount,
-        Absent: data.absentCount, 'On Leave': data.onLeaveCount, Unrecorded: data.unrecordedCount }).map(([label, value]) => ({ label, value })) };
+      payload = {
+        type: 'cards', title: `Attendance ${date}`, metrics: Object.entries({
+          Present: data.presentCount, Late: data.lateCount,
+          Absent: data.absentCount, 'On Leave': data.onLeaveCount, Unrecorded: data.unrecordedCount
+        }).map(([label, value]) => ({ label, value }))
+      };
       if (input.intent === 'GET_ABSENT_EMPLOYEES' || input.intent === 'GET_LATE_EMPLOYEES') {
         const rows = await hrmsDataService.getAttendanceEmployees(scope, date, input.intent === 'GET_LATE_EMPLOYEES' ? 'late' : 'absent');
         text += ` ${rows.length} matching employee record(s) are shown.`;
-        payload = { type: 'table', title: input.intent === 'GET_LATE_EMPLOYEES' ? 'Late Employees' : 'Absent Employees', rows,
+        payload = {
+          type: 'table', title: input.intent === 'GET_LATE_EMPLOYEES' ? 'Late Employees' : 'Absent Employees', rows,
           columns: [{ key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' },
-            { key: 'department', label: 'Department' }, { key: 'designation', label: 'Designation' },
-            { key: 'status', label: 'Status' }, { key: 'late_status', label: 'Late Status' }], exportAvailable: true,
-          navigationTarget: 'attendance' };
+          { key: 'department', label: 'Department' }, { key: 'designation', label: 'Designation' },
+          { key: 'status', label: 'Status' }, { key: 'late_status', label: 'Late Status' }], exportAvailable: true,
+          navigationTarget: 'attendance'
+        };
       }
     } else if (input.intent === 'GET_LEAVE_RECORDS' || input.intent === 'GET_PENDING_APPROVALS') {
       if (!can(req, 'leave', 'view')) throw Object.assign(new Error('You are not authorized to view leave and approval requests.'), { status: 403 });
       data = await hrmsDataService.getPendingLeaveRequests(scope, input.pageSize);
       text = `${data.length} verified pending approval request(s) found in your authorized scope.`;
-      payload = { type: 'table', title: 'Pending Approval Requests', rows: data, columns: [
-        { key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' }, { key: 'department', label: 'Department' },
-        { key: 'leave_type', label: 'Request Type' }, { key: 'start_date', label: 'Start' }, { key: 'end_date', label: 'End' }, { key: 'status', label: 'Status' } ] };
+      payload = {
+        type: 'table', title: 'Pending Approval Requests', rows: data, columns: [
+          { key: 'employee_id', label: 'Employee ID' }, { key: 'employee_name', label: 'Employee Name' }, { key: 'department', label: 'Department' },
+          { key: 'leave_type', label: 'Request Type' }, { key: 'start_date', label: 'Start' }, { key: 'end_date', label: 'End' }, { key: 'status', label: 'Status' }]
+      };
     } else if (input.intent === 'GET_MY_LEAVE_BALANCE') {
       if (!can(req, 'leave', 'view')) throw Object.assign(new Error('You are not authorized to view leave balances.'), { status: 403 });
       const employeeId = scope.level === 'own' ? scope.employeeId : (input.entities.employeeId || scope.employeeId);
@@ -295,23 +327,31 @@ export const executeVerifiedHrmsQuery = async (req: Request, res: Response): Pro
       if (!can(req, 'payroll', 'view')) throw Object.assign(new Error('You are not authorized to view payroll information.'), { status: 403 });
       data = await hrmsDataService.getPayrollSummary(scope);
       text = data.length ? `${data.length} verified payroll summary row(s) found for your authorized scope.` : 'No verified payroll records were found for your authorized scope.';
-      payload = { type: 'table', title: 'Payroll Summary', rows: data, columns: [
-        { key: 'payroll_month', label: 'Month' }, { key: 'payroll_year', label: 'Year' }, { key: 'status', label: 'Status' },
-        { key: 'employee_count', label: 'Employees' }, { key: 'gross_total', label: 'Gross' },
-        { key: 'deduction_total', label: 'Deductions' }, { key: 'net_total', label: 'Net' }], exportAvailable: true, navigationTarget: 'payroll' };
+      payload = {
+        type: 'table', title: 'Payroll Summary', rows: data, columns: [
+          { key: 'payroll_month', label: 'Month' }, { key: 'payroll_year', label: 'Year' }, { key: 'status', label: 'Status' },
+          { key: 'employee_count', label: 'Employees' }, { key: 'gross_total', label: 'Gross' },
+          { key: 'deduction_total', label: 'Deductions' }, { key: 'net_total', label: 'Net' }], exportAvailable: true, navigationTarget: 'payroll'
+      };
     } else if (['GET_LEAVE_POLICIES', 'GET_SANDWICH_POLICY', 'GET_ATTENDANCE_POLICIES', 'GET_COMPANY_POLICIES'].includes(input.intent)) {
       data = await hrmsDataService.getApprovedHrPolicy(scope, input.intent.includes('ATTENDANCE') ? 'attendance' : 'leave');
       text = data.verified ? `Verified approved policy data: ${JSON.stringify(data.policies)}` : "I couldn't verify this information from the HRMS database.";
     } else { res.status(400).json({ success: false, error: { code: 'UNSUPPORTED_VERIFIED_INTENT', message: 'This request is not mapped to an authoritative HRMS data function.' } }); return; }
     const totalMs = Math.round(performance.now() - started);
-    console.info(JSON.stringify({ event: 'pavi_hrms_query', requestId: req.headers['x-request-id'] || null, companyId: scope.companyId,
-      actorId: req.user?.employeeId || req.user?.id, intent: input.intent, totalMs, outcome: 'success' }));
+    console.info(JSON.stringify({
+      event: 'pavi_hrms_query', requestId: req.headers['x-request-id'] || null, companyId: scope.companyId,
+      actorId: req.user?.employeeId || req.user?.id, intent: input.intent, totalMs, outcome: 'success'
+    }));
     res.json({ success: true, data: { text, payload, verifiedFacts: text, source: 'postgresql', verified: true, timings: { totalMs }, raw: data } });
   } catch (error: any) {
     const status = error?.status || (error instanceof z.ZodError ? 400 : 503);
     console.warn(JSON.stringify({ event: 'pavi_hrms_query', intent: req.body?.intent, totalMs: Math.round(performance.now() - started), outcome: 'error' }));
-    res.status(status).json({ success: false, error: { code: status === 403 ? 'FORBIDDEN' : 'HRMS_DATA_UNAVAILABLE',
-      message: status === 403 ? error.message : "I couldn't verify this information from the HRMS database." } });
+    res.status(status).json({
+      success: false, error: {
+        code: status === 403 ? 'FORBIDDEN' : 'HRMS_DATA_UNAVAILABLE',
+        message: status === 403 ? error.message : "I couldn't verify this information from the HRMS database."
+      }
+    });
   }
 };
 
