@@ -462,13 +462,6 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
     setSelectedRowIds([]);
   };
 
-  const handleBatchDelete = () => {
-    if (!canApprove) return;
-    if (!window.confirm(`Are you sure you want to delete ${selectedRowIds.length} selected claim(s)?`)) return;
-    selectedRowIds.forEach(id => deleteExpense(id));
-    setSelectedRowIds([]);
-  };
-
   const selectedPendingCount = expenses.filter(e => selectedRowIds.includes(e.id) && isPendingStatus(e.status)).length;
   const selectedApprovedCount = expenses.filter(e => selectedRowIds.includes(e.id) && e.status === 'Approved').length;
 
@@ -1035,32 +1028,6 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                             </button>
                           )}
 
-                          {/* HR/CEO Delete Action */}
-                          {canApprove && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (window.confirm(`Are you sure you want to delete claim ${exp.id}?`)) {
-                                  deleteExpense(exp.id);
-                                }
-                              }}
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#94A3B8',
-                                cursor: 'pointer',
-                                padding: '4px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                borderRadius: '6px'
-                              }}
-                              onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
-                              onMouseLeave={e => e.currentTarget.style.color = '#94A3B8'}
-                              title="Delete claim"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -1412,28 +1379,6 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               title="Mark selected HR/CEO-approved claims as paid"
             >
               <IndianRupee size={14} /> Mark as Paid ({selectedApprovedCount})
-            </button>
-          )}
-
-          {canApprove && (
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              onClick={handleBatchDelete}
-              style={{
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                backgroundColor: '#DC2626',
-                border: '1px solid #EF4444',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}
-              title="Delete selected claims permanently"
-            >
-              <Trash2 size={13} /> Delete Selected ({selectedRowIds.length})
             </button>
           )}
 
@@ -2174,22 +2119,6 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                {canApprove && (
-                  <button
-                    type="button"
-                    className="btn btn-danger btn-sm"
-                    onClick={() => {
-                      if (window.confirm(`Are you sure you want to delete claim ${viewingReceiptExpense.id}?`)) {
-                        deleteExpense(viewingReceiptExpense.id);
-                        setViewingReceiptExpense(null);
-                      }
-                    }}
-                    style={{ borderRadius: '10px', padding: '8px 14px', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                    title="Delete claim permanently"
-                  >
-                    <Trash2 size={14} /> Delete Claim
-                  </button>
-                )}
                 {canApprove && (viewingReceiptExpense.status === 'Pending Finance' || viewingReceiptExpense.status === 'Pending Manager') && (
                   <>
                     <button
