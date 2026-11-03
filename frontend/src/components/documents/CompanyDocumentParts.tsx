@@ -54,6 +54,19 @@ const formatAddress = (branch?: CompanyBranch) => {
 
 const withoutProtocol = (url: string) => url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
 
+export const formatAddressSpacing = (text?: string): string => {
+  if (!text) return '';
+  return text
+    // Ensure comma is followed by a space
+    .replace(/,([^\s])/g, ', $1')
+    // Correct OCR/user typos in address like "Nagappa I ndustialn"
+    .replace(/Nagappa\s+I\s+ndustialn/gi, 'Nagappa Industrial')
+    .replace(/ndustialn/gi, 'Industrial')
+    .replace(/Industialn/gi, 'Industrial')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 export const buildCompanyDocumentProfile = (
   companyInfo: CompanyInfo | undefined,
   businessSettings: BusinessProfileSettings | undefined,
@@ -64,8 +77,10 @@ export const buildCompanyDocumentProfile = (
   const companyName = firstText(companyInfo?.companyName, businessSettings?.businessName, 'Businz');
   const ownerName = firstText(companyInfo?.ownerName, businessSettings?.administrator);
   const signatoryName = firstText(companyInfo?.authorizedSignatoryName, ownerName, businessSettings?.administrator, 'Authorized Signatory');
-  const regAddr = firstText(companyInfo?.registeredAddress, formatAddress(registeredBranch), businessSettings?.address);
-  const branchAddr = firstText(companyInfo?.branchAddress, formatAddress(secondaryBranch));
+  const rawRegAddr = firstText(companyInfo?.registeredAddress, formatAddress(registeredBranch), businessSettings?.address);
+  const rawBranchAddr = firstText(companyInfo?.branchAddress, formatAddress(secondaryBranch));
+  const regAddr = formatAddressSpacing(rawRegAddr);
+  const branchAddr = formatAddressSpacing(rawBranchAddr);
   const fullAddress = [regAddr, branchAddr ? `Branch: ${branchAddr}` : ''].filter(Boolean).join(' | ');
 
   const compId = firstText(companyInfo?.company_id, companyInfo?.id, 'company-a');
@@ -101,70 +116,135 @@ export const CompanyHeader: React.FC<{
   title?: string;
   subtitle?: string;
   rightMeta?: DetailRow[];
-}> = ({ profile, title, subtitle, rightMeta = [] }) => (
-  <div className="company-doc-header-root" style={{ borderBottom: '2px solid #0E7490', paddingBottom: '16px', marginBottom: '18px' }}>
-    <div className="company-doc-header-row" style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
-      <div className="company-doc-header-left" style={{ display: 'flex', gap: '16px', minWidth: 0, flex: 1, alignItems: 'center' }}>
-        {profile.logoUrl && (
-          <img
-            src={profile.logoUrl}
-            alt={`${profile.companyName} logo`}
-            className="company-doc-header-logo"
-            style={{ width: 'auto', height: 'auto', maxWidth: '240px', maxHeight: '80px', objectFit: 'contain', flexShrink: 0 }}
-            onError={event => { event.currentTarget.style.display = 'none'; }}
-          />
+}> = ({ profile, title, subtitle, rightMeta = [] }) => {
+  const regAddr = formatAddressSpacing(profile.registeredAddress || profile.address);
+  const branchAddr = formatAddressSpacing(profile.branchAddress);
+
+  return (
+    <div className="company-doc-header-root" style={{ borderBottom: '2.5px solid #0E7490', paddingBottom: '16px', marginBottom: '18px' }}>
+      {/* Top Bar: Company Logo on Left, Document Title & Meta on Right */}
+      <div
+        className="company-doc-header-top-bar"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '16px',
+          marginBottom: '10px'
+        }}
+      >
+        <div className="company-doc-header-logo-wrap" style={{ display: 'flex', alignItems: 'center' }}>
+          {profile.logoUrl && (
+            <img
+              src={profile.logoUrl}
+              alt={`${profile.companyName} logo`}
+              className="company-doc-header-logo"
+              style={{
+                width: 'auto',
+                height: 'auto',
+                maxWidth: '200px',
+                maxHeight: '62px',
+                objectFit: 'contain',
+                display: 'block'
+              }}
+              onError={event => { event.currentTarget.style.display = 'none'; }}
+            />
+          )}
+        </div>
+
+        {(title || rightMeta.length > 0) && (
+          <div className="company-doc-header-right" style={{ textAlign: 'right', flexShrink: 0 }}>
+            {title && (
+              <div
+                style={{
+                  fontSize: '1.05rem',
+                  fontWeight: 800,
+                  color: '#0E7490',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em'
+                }}
+              >
+                {title}
+              </div>
+            )}
+            {subtitle && (
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                {subtitle}
+              </div>
+            )}
+            {rightMeta.map(row => (
+              <div key={row.label} style={{ fontSize: '0.78rem', color: '#475569', marginTop: '3px' }}>
+                <strong style={{ color: '#334155' }}>{row.label}:</strong>{' '}
+                <span
+                  style={{
+                    fontWeight: 700,
+                    color: row.value === 'Paid' || row.value === 'Processed' || row.value === 'Approved' ? '#0E7490' : '#475569'
+                  }}
+                >
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
-        <div className="company-doc-header-text" style={{ minWidth: 0 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: '1.05rem', color: '#0f172a', fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.25 }}>
-            {profile.companyName}
-          </h2>
-          {profile.registeredAddress && (
-            <div style={headerLineStyle}>
-              <strong>Regd:</strong> {profile.registeredAddress}
-            </div>
-          )}
-          {!profile.registeredAddress && profile.address && (
-            <div style={headerLineStyle}>{profile.address}</div>
-          )}
-          {profile.branchAddress && (
-            <div style={headerLineStyle}>
-              <strong>Branch:</strong> {profile.branchAddress}
-            </div>
-          )}
-          {[profile.email, profile.phone, profile.website].filter(Boolean).length > 0 && (
-            <div style={headerLineStyle}>
-              {[profile.email, profile.phone, profile.website].filter(Boolean).join(' | ')}
-            </div>
-          )}
+      </div>
+
+      {/* Company Name & Full Address Details: Full width with clean typography, no horizontal cramping */}
+      <div className="company-doc-header-text" style={{ width: '100%', minWidth: 0 }}>
+        <h2
+          style={{
+            margin: '0 0 4px',
+            fontSize: '1.12rem',
+            color: '#0f172a',
+            fontWeight: 800,
+            letterSpacing: '-0.01em',
+            lineHeight: 1.3
+          }}
+        >
+          {profile.companyName}
+        </h2>
+
+        {regAddr && (
+          <div style={headerLineStyle}>
+            <strong style={{ color: '#334155' }}>Regd:</strong> {regAddr}
+          </div>
+        )}
+
+        {branchAddr && (
+          <div style={headerLineStyle}>
+            <strong style={{ color: '#334155' }}>Branch:</strong> {branchAddr}
+          </div>
+        )}
+
+        {/* Contact Coordinates & Statutory Registration Meta */}
+        <div
+          style={{
+            ...headerLineStyle,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '4px 14px',
+            marginTop: '3px',
+            alignItems: 'center'
+          }}
+        >
           {[
+            profile.phone ? `Phone: ${profile.phone}` : '',
+            profile.email ? `Email: ${profile.email}` : '',
+            profile.website ? `Web: ${profile.website}` : '',
             profile.gstNumber ? `GST: ${profile.gstNumber}` : '',
             profile.cinNumber ? `CIN: ${profile.cinNumber}` : '',
             profile.registrationNumber ? `Reg: ${profile.registrationNumber}` : ''
-          ].filter(Boolean).length > 0 && (
-            <div style={headerLineStyle}>
-              {[
-                profile.gstNumber ? `GST: ${profile.gstNumber}` : '',
-                profile.cinNumber ? `CIN: ${profile.cinNumber}` : '',
-                profile.registrationNumber ? `Reg: ${profile.registrationNumber}` : ''
-              ].filter(Boolean).join(' | ')}
-            </div>
-          )}
-        </div>
-      </div>
-      {(title || rightMeta.length > 0) && (
-        <div className="company-doc-header-right" style={{ textAlign: 'right', minWidth: '180px', flexShrink: 0 }}>
-          {title && <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title}</div>}
-          {subtitle && <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>{subtitle}</div>}
-          {rightMeta.map(row => (
-            <div key={row.label} style={{ fontSize: '0.75rem', color: '#475569', marginTop: '4px' }}>
-              <strong>{row.label}:</strong> {row.value}
-            </div>
+          ].filter(Boolean).map((item, idx) => (
+            <span key={idx} style={{ whiteSpace: 'nowrap' }}>
+              {idx > 0 && <span style={{ color: '#cbd5e1', marginRight: '10px' }}>|</span>}
+              {item}
+            </span>
           ))}
         </div>
-      )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const EmployeeDetailsGrid: React.FC<{ rows: DetailRow[]; columns?: number }> = ({ rows, columns = 2 }) => (
   <div 

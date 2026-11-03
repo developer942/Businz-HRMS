@@ -1117,22 +1117,34 @@ export const PayrollManagement: React.FC = () => {
                     ]}
                   />
 
-                  <EmployeeDetailsGrid
-                    rows={[
-                      { label: 'Employee Name', value: selectedPayslip.employeeName },
-                      { label: 'Employee ID', value: selectedPayslip.employeeId },
-                      { label: 'Department', value: resolveDepartmentName(selectedPayslip.department, emp) },
-                      { label: 'Designation', value: selectedPayslip.designation },
-                      { label: 'Date of Joining', value: formatDateDDMMYYYY(emp?.joiningDate || emp?.dateOfJoining) || '—' },
-                      { label: 'Bank Account', value: emp?.bankDetails?.accountNumber },
-                      { label: 'PAN', value: emp?.salaryDetails?.panNumber },
-                      { label: 'UAN', value: emp?.salaryDetails?.uanNumber },
-                      { label: 'Working Days', value: selectedPayslip.workingDays },
-                      { label: 'Paid Days', value: paidDays },
-                      { label: 'Payroll Month', value: monthLabel },
-                      { label: 'Payment Status', value: selectedPayslip.status }
-                    ]}
-                  />
+                  {(() => {
+                    const basicAmt = toNum(selectedPayslip.basicSalary) || (emp ? toNum(emp.basicSalary) : 0);
+                    const basicComp = activeEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
+                    const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
+                    const computedCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc || emp?.grossSalary) ||
+                      (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 0) ||
+                      (paidDays > 0 && toNum(selectedPayslip.workingDays) > 0 ? Math.round((toNum(rows.grossEarnings) / paidDays) * toNum(selectedPayslip.workingDays)) : 0);
+
+                    return (
+                      <EmployeeDetailsGrid
+                        rows={[
+                          { label: 'Employee Name', value: selectedPayslip.employeeName },
+                          { label: 'Employee ID', value: selectedPayslip.employeeId },
+                          { label: 'Department', value: resolveDepartmentName(selectedPayslip.department, emp) },
+                          { label: 'Designation', value: selectedPayslip.designation },
+                          { label: 'Date of Joining', value: formatDateDDMMYYYY(emp?.joiningDate || emp?.dateOfJoining) || '—' },
+                          { label: 'Employee CTC', value: computedCtc > 0 ? formatCurrency(computedCtc) : '—' },
+                          { label: 'Bank Account', value: emp?.bankDetails?.accountNumber },
+                          { label: 'PAN', value: emp?.salaryDetails?.panNumber },
+                          { label: 'UAN', value: emp?.salaryDetails?.uanNumber },
+                          { label: 'Working Days', value: selectedPayslip.workingDays },
+                          { label: 'Paid Days', value: paidDays },
+                          { label: 'Payroll Month', value: monthLabel },
+                          { label: 'Payment Status', value: selectedPayslip.status }
+                        ]}
+                      />
+                    );
+                  })()}
 
                   <DynamicAmountTable
                     earnings={rows.earnings}

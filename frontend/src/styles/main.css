@@ -5736,7 +5736,8 @@ div[style*="overflow-x: auto"] {
     box-sizing: border-box !important;
     overflow-x: hidden !important;
   }
-  .company-doc-header-row {
+  .company-doc-header-row,
+  .company-doc-header-top-bar {
     flex-direction: column !important;
     align-items: flex-start !important;
     gap: 12px !important;
