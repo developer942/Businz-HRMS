@@ -94,10 +94,19 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
   // Form State
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [expForm, setExpForm] = useState({
+  const [expForm, setExpForm] = useState<{
+    employeeId: string;
+    category: Expense['category'];
+    amount: number | string;
+    date: string;
+    description: string;
+    receiptUrl: string;
+    fileName: string;
+    fileSize: string;
+  }>({
     employeeId: currentUser.employeeId || '',
     category: 'Travel' as Expense['category'],
-    amount: 1500,
+    amount: '',
     date: getTodayKolkata(),
     description: '',
     receiptUrl: '',
@@ -250,7 +259,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       setExpForm({
         employeeId: currentUser.employeeId || 'EMP-001',
         category: 'Travel',
-        amount: 1500,
+        amount: '',
         date: getTodayKolkata(),
         description: '',
         receiptUrl: '',
@@ -1590,8 +1599,19 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                         min="1" 
                         max={MAX_EXPENSE_CLAIM_AMOUNT}
                         step="0.01" 
-                        value={expForm.amount} 
-                        onChange={e => setExpForm({ ...expForm, amount: Number(e.target.value) })} 
+                        placeholder="0.00"
+                        value={expForm.amount === 0 ? '' : expForm.amount} 
+                        onChange={e => {
+                          const val = e.target.value;
+                          setExpForm(prev => ({ ...prev, amount: val }));
+                        }} 
+                        onFocus={e => {
+                          if (e.target.value === '0' || expForm.amount === 0) {
+                            setExpForm(prev => ({ ...prev, amount: '' }));
+                          } else {
+                            e.target.select();
+                          }
+                        }}
                         style={{ paddingLeft: '34px', borderRadius: '10px', fontWeight: 700, color: '#0F172A' }}
                         required 
                       />
@@ -1718,7 +1738,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
                           </span>
                         </div>
                         <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
-                          {expForm.fileSize || 'Image Document'} • Proof for {formatCurrency(expForm.amount)}
+                          {expForm.fileSize || 'Image Document'} • Proof for {formatCurrency(Number(expForm.amount) || 0)}
                         </div>
                       </div>
 
