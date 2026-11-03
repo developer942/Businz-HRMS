@@ -61,76 +61,46 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
 
   return (
     <div className="customer-module-wrapper">
-      {/* Module Title Header Card */}
-      <div className="customer-header-card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flex: '1 1 auto' }}>
-          <div style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: '12px',
-            backgroundColor: '#ECFEFF',
-            color: '#0E7490',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <Contact2 size={24} />
+      {/* Sleek Page Header with Integrated Pill Tabs */}
+      <div className="customer-unified-header">
+        <div className="customer-header-left">
+          <div className="customer-header-icon-box">
+            <Contact2 size={22} />
           </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <h1 style={{ fontSize: '1.45rem', fontWeight: 700, color: '#1E293B', margin: '0 0 4px 0', wordBreak: 'break-word', lineHeight: 1.25 }}>
-              Contact Card Scanner
-            </h1>
-            
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <h1 className="customer-header-title">Contact Card Scanner</h1>
+              {isWhatsAppConfigured && (
+                <span className="customer-whatsapp-badge">
+                  <CheckCircle2 size={13} />
+                  <span>WhatsApp Connected {configuredSender ? `(${configuredSender})` : ''}</span>
+                </span>
+              )}
+            </div>
+            <p className="customer-header-subtitle">
+              Digitize visiting cards with AI OCR, manage verified customer contacts, and initiate direct communications
+            </p>
           </div>
         </div>
 
-        {/* WhatsApp Cloud API Connection Status Indicator */}
-        {isWhatsAppConfigured && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '100%', flexWrap: 'wrap' }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              backgroundColor: '#DCFCE7',
-              border: '1px solid #BBF7D0',
-              color: '#15803D',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              maxWidth: '100%',
-              wordBreak: 'break-word'
-            }}>
-              <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
-              <span>Meta WhatsApp Connected {configuredSender ? `(${configuredSender})` : ''}</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Modern Segmented Navigation Tabs */}
-      <div className="customer-tabs-scroll-container">
-        {tabs.map(tab => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className="customer-tab-btn"
-              style={{
-                backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-                color: isActive ? '#0E7490' : '#64748B',
-                fontWeight: isActive ? 700 : 500,
-                borderBottom: isActive ? '3px solid #0E7490' : '3px solid transparent'
-              }}
-            >
-              <Icon size={17} color={isActive ? '#0E7490' : '#64748B'} style={{ flexShrink: 0 }} />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
+        {/* Modern Segmented Navigation Tabs */}
+        <div className="customer-segmented-tabs">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`customer-segment-tab ${isActive ? 'active' : ''}`}
+              >
+                <Icon size={16} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Render Active View */}

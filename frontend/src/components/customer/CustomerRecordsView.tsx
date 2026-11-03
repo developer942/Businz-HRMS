@@ -299,105 +299,68 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
   const isAllSelected = customers.length > 0 && customers.every(c => selectedIds.has(c.id));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
-      {/* Search & Filter Toolbar Card */}
-      <div className="customer-card-box" style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '12px',
-          width: '100%'
-        }}>
-          <div style={{ minWidth: 0, flex: '1 1 240px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B', lineHeight: 1.25 }}>
-              Customer Records Directory
-            </h3>
-            <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B', wordBreak: 'break-word' }}>
-              Search, filter, export customer contacts and initiate approved WhatsApp communications.
-            </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
+      {/* Unified Table Card Housing Search, Filters, Record Actions & Directory Table */}
+      <div className="customer-unified-table-card">
+        {/* Integrated Card Header Toolbar */}
+        <div className="customer-card-toolbar">
+          <div className="customer-toolbar-left">
+            <div className="customer-search-wrap">
+              <Search size={16} className="customer-search-icon" />
+              <input
+                type="text"
+                placeholder="Search by Name, Company, Phone, or Email..."
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+                className="customer-search-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchQuery(''); setPage(1); }}
+                  className="customer-search-clear"
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Consent Filter */}
+            <select
+              value={consentFilter}
+              onChange={e => { setConsentFilter(e.target.value); setPage(1); }}
+              className="customer-filter-select"
+            >
+              <option value="">All Consent Status</option>
+              <option value="Opted In">Opted In</option>
+              <option value="Not Opted In">Not Opted In</option>
+            </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div className="customer-toolbar-right">
+            <div className="customer-count-pill">
+              <UserCheck size={14} />
+              <span>{totalRecords} {totalRecords === 1 ? 'Contact' : 'Contacts'}</span>
+            </div>
+
             <button
               onClick={handleExportExcel}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '10px',
-                border: '1px solid #CBD5E1',
-                backgroundColor: '#FFFFFF',
-                color: '#1E293B',
-                fontSize: '0.825rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
+              className="customer-btn-secondary"
             >
-              <Download size={15} /> Export Excel (.xlsx)
+              <Download size={15} /> Export Excel
             </button>
 
             {onNavigateToAddCustomer && (
               <button
                 onClick={onNavigateToAddCustomer}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 16px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  backgroundColor: '#0E7490',
-                  color: '#FFFFFF',
-                  fontSize: '0.825rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)',
-                  whiteSpace: 'nowrap'
-                }}
+                className="customer-btn-primary"
               >
-                <Camera size={14} /> Scan / Add Card
+                <Camera size={15} /> Scan / Add Card
               </button>
             )}
           </div>
         </div>
-
-        {/* Quick Search */}
-        <div style={{ position: 'relative', width: '100%', maxWidth: '460px', boxSizing: 'border-box' }}>
-          <input
-            type="text"
-            placeholder="Search by Name, Company, or Phone..."
-            value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-            style={{
-              width: '100%',
-              padding: '9px 12px 9px 36px',
-              borderRadius: '10px',
-              border: '1px solid #CBD5E1',
-              fontSize: '0.875rem',
-              outline: 'none',
-              boxSizing: 'border-box'
-            }}
-          />
-          <Search size={16} color="#94A3B8" style={{ position: 'absolute', left: '12px', top: '11px' }} />
-        </div>
-      </div>
-
-      {/* Main Standardized Table Card */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        border: '1px solid #E7ECF3',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-        overflow: 'hidden'
-      }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
             <thead>
