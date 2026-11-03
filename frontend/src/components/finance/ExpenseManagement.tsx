@@ -466,8 +466,11 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   const selectedApprovedCount = expenses.filter(e => selectedRowIds.includes(e.id) && e.status === 'Approved').length;
 
   // Metric cards calculations: Scoped to employee's own claims for Employee role; company-wide for HR/CEO
+  // Exclude rejected claims from active claimed amount per standard finance audit rules
   const scopedExpenses = isEmployeeRole ? expenses.filter(isUserExpense) : expenses;
-  const totalClaimed = scopedExpenses.reduce((acc, curr) => acc + toNum(curr.amount), 0);
+  const activeValidExpenses = scopedExpenses.filter(e => e.status !== 'Rejected');
+  const rejectedCount = scopedExpenses.filter(e => e.status === 'Rejected').length;
+  const totalClaimed = activeValidExpenses.reduce((acc, curr) => acc + toNum(curr.amount), 0);
   const pendingFinance = scopedExpenses.filter(e => e.status === 'Pending Finance' || e.status === 'Pending Manager').length;
   const totalReimbursed = scopedExpenses.filter(e => e.status === 'Reimbursed').reduce((acc, curr) => acc + toNum(curr.amount), 0);
 
@@ -528,8 +531,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isEmployeeRole 
-                ? `Across ${scopedExpenses.length} personal claims submitted` 
-                : `Across ${expenses.length} claims submitted`}
+                ? `Across ${activeValidExpenses.length} personal claims${rejectedCount > 0 ? ` (${rejectedCount} rejected excluded)` : ''}` 
+                : `Across ${activeValidExpenses.length} active claims${rejectedCount > 0 ? ` (${rejectedCount} rejected excluded)` : ''}`}
             </div>
           </div>
         </div>
