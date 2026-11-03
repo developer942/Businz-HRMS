@@ -565,9 +565,9 @@ input[type="number"] {
   color: #0B1A2D;
 }
 
-/* Nav Item Count Badge (Matches Dispatch Orders '4' Badge in Reference) */
+/* Nav Item Count Badge (High-contrast notification badge in deep teal / brand cyan) */
 .nav-item-badge {
-  background-color: #0B1329;
+  background-color: #0E7490;
   color: #FFFFFF;
   border-radius: 999px;
   font-size: 11px;
@@ -580,7 +580,18 @@ input[type="number"] {
   justify-content: center;
   margin-left: auto;
   letter-spacing: 0;
-  box-shadow: 0 1px 3px rgba(11, 19, 41, 0.3);
+  box-shadow: 0 2px 5px rgba(14, 116, 144, 0.35);
+  transition: all 0.15s ease;
+}
+
+.nav-item.active .nav-item-badge {
+  background-color: #0E7490;
+  color: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(14, 116, 144, 0.45);
+}
+
+.nav-item:hover .nav-item-badge {
+  transform: scale(1.08);
 }
 
 /* Collapsed Navigation Adjustments */

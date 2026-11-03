@@ -100,11 +100,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentUser,
     businessSettings,
     tasks = [],
+    enhancedTasks = [],
     notifications = [],
     leaveRequests = [],
     loanRecords = [],
     expenses = [],
     overtimeRequests = [],
+    missedPunchRequests = [],
+    shiftRequests = [],
+    candidates = [],
     trackingAlerts = []
   } = useHRMS();
 
@@ -256,52 +260,159 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings', label: 'Settings', icon: SettingsIcon, section: 'SYSTEM & CONFIG' },
   ];
 
-  // Dynamic live count calculations for badges (mirroring reference badge style)
-  const pendingTasksCount = tasks.filter(t => t.status !== 'Completed').length;
-  const unreadNotificationsCount = notifications.filter(n => !n.read).length;
-  const pendingLeavesCount = (currentUser.role === 'Super Admin' || currentUser.role === 'HR Admin')
-    ? leaveRequests.filter(l => l.status === 'Pending').length
-    : 0;
-  const pendingLoansCount = (currentUser.role === 'Super Admin' || currentUser.role === 'HR Admin')
-    ? loanRecords.filter(l => l.status === 'Pending').length
-    : 0;
-  const pendingDisbursementsCount = (isAccountsStaff || currentUser.role === 'CEO' || currentUser.role === 'Super Admin')
-    ? (
-        (expenses || []).filter(e => e.status === 'Approved').length +
-        (loanRecords || []).filter(l => l.status === 'Approved').length
-      )
-    : 0;
-  const isManagerOrAdmin = 
-    currentUser.role === 'Super Admin' || 
-    currentUser.role === 'HR Admin' || 
-    currentUser.role === 'HR Manager' || 
-    currentUser.role === 'CEO' || 
-    currentUser.role === 'Department Manager' || 
-    currentUser.role === 'Department Head';
-  const pendingOtCount = isManagerOrAdmin
-    ? overtimeRequests.filter(r => r.status === 'Pending Approval').length
-    : 0;
-
-  const getItemBadge = (id: ModuleName): number | null => {
-    if (id === 'tasks' && pendingTasksCount > 0) return pendingTasksCount;
-    if (id === 'notifications' && unreadNotificationsCount > 0) return unreadNotificationsCount;
-    if (id === 'leaves' && pendingLeavesCount > 0) return pendingLeavesCount;
-    if (id === 'advance_salary' && pendingLoansCount > 0) return pendingLoansCount;
-    if (id === 'accounts_payment' && pendingDisbursementsCount > 0) return pendingDisbursementsCount;
-    if (id === 'overtime' && pendingOtCount > 0) return pendingOtCount;
-    if (id === 'tracking') {
-      const openAlerts = trackingAlerts.filter(a => a.status === 'Open').length;
-      return openAlerts > 0 ? openAlerts : null;
-    }
-    return null;
-  };
-
   const isCEO = 
     currentUser.role === 'CEO' || 
     currentUser.role === 'Super Admin' || 
     currentUser.designation === 'CEO' || 
     (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) || 
-    currentUser.employeeId === 'EMP-000';
+    currentUser.employeeId === 'EMP-000' ||
+    currentUser.employeeId === 'VRM-001';
+
+  const myEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
+  const myEmail = (currentUser.email || '').trim().toLowerCase();
+  const isDeptManager = currentUser.role === 'Department Manager' || currentUser.role === 'Department Head';
+
+  // Dynamic live count calculations for badges across Tasks, Requests & Operations
+  // 1. Tasks: Unfinished/active tasks (assigned to user, or company-wide for management)
+  const allAvailableTasks = (enhancedTasks && enhancedTasks.length > 0) ? enhancedTasks : (tasks as any[]);
+  const pendingTasksCount = (() => {
+    if (!allAvailableTasks || allAvailableTasks.length === 0) return 0;
+    if (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin) {
+      return allAvailableTasks.filter(t => {
+        const status = (t as any).overallStatus || (t as any).status || '';
+        return status !== 'Completed' && status !== 'COMPLETED' && status !== 'CLOSED' && status !== 'Cancelled' && status !== 'CANCELLED';
+      }).length;
+    }
+    if (isDeptManager && currentUser.department) {
+      const myDept = currentUser.department.toLowerCase();
+      return allAvailableTasks.filter(t => {
+        const status = (t as any).overallStatus || (t as any).status || '';
+        const matchesDept = ((t as any).department || '').toLowerCase() === myDept || (t as any).responsiblePersonId?.toLowerCase() === myEmpId;
+        return matchesDept && status !== 'Completed' && status !== 'COMPLETED' && status !== 'CLOSED';
+      }).length;
+    }
+    // Employee role: Tasks where user is an assignee or responsible person
+    return allAvailableTasks.filter(t => {
+      const status = (t as any).overallStatus || (t as any).status || '';
+      if (status === 'Completed' || status === 'COMPLETED' || status === 'CLOSED' || status === 'CANCELLED') return false;
+      const isResponsible = (t as any).responsiblePersonId?.toLowerCase() === myEmpId;
+      const isAssignee = (t as any).assignees?.some((a: any) => 
+        (a.employeeId?.toLowerCase() === myEmpId || a.employeeEmail?.toLowerCase() === myEmail) &&
+        a.individualStatus !== 'Completed'
+      );
+      const isLegacyAssigned = (t as any).assignedEmployeeId?.toLowerCase() === myEmpId || (t as any).assignedTo?.toLowerCase() === myEmpId;
+      return isResponsible || isAssignee || isLegacyAssigned;
+    }).length;
+  })();
+
+  // 2. Leaves: Pending leave requests requiring action / awaiting decision
+  const pendingLeavesCount = (() => {
+    if (!leaveRequests || leaveRequests.length === 0) return 0;
+    if (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin) {
+      return leaveRequests.filter(l => l.status === 'Pending').length;
+    }
+    if (isDeptManager && currentUser.department) {
+      const myDept = currentUser.department.toLowerCase();
+      return leaveRequests.filter(l => 
+        l.status === 'Pending' && 
+        ((l.department || '').toLowerCase() === myDept || (l as any).reportingManagerId?.toLowerCase() === myEmpId)
+      ).length;
+    }
+    // Employee: their own pending submitted requests
+    return leaveRequests.filter(l => 
+      l.status === 'Pending' && 
+      (l.employeeId?.toLowerCase() === myEmpId || (l as any).employeeEmail?.toLowerCase() === myEmail)
+    ).length;
+  })();
+
+  // 3. Attendance: Pending attendance regularisations (missed punch) + overtime claims
+  const pendingAttendanceCount = (() => {
+    const pendingMissed = (missedPunchRequests || []).filter(r => r.status === 'Pending');
+    const pendingOt = (overtimeRequests || []).filter(r => r.status === 'Pending Approval');
+    
+    if (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin) {
+      return pendingMissed.length + pendingOt.length;
+    }
+    if (isDeptManager && currentUser.department) {
+      const myDept = currentUser.department.toLowerCase();
+      return pendingMissed.filter(r => (r.department || '').toLowerCase() === myDept).length +
+             pendingOt.filter(r => (r.department || '').toLowerCase() === myDept).length;
+    }
+    return pendingMissed.filter(r => r.employeeId?.toLowerCase() === myEmpId).length +
+           pendingOt.filter(r => r.employeeId?.toLowerCase() === myEmpId).length;
+  })();
+
+  // 4. Shifts: Pending shift change / swap requests
+  const pendingShiftsCount = (() => {
+    if (!shiftRequests || shiftRequests.length === 0) return 0;
+    if (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin) {
+      return shiftRequests.filter(s => s.status === 'Pending').length;
+    }
+    return shiftRequests.filter(s => s.status === 'Pending' && s.employeeId?.toLowerCase() === myEmpId).length;
+  })();
+
+  // 5. Finance & Expenses: Pending expense claims
+  const pendingExpensesCount = (() => {
+    if (!expenses || expenses.length === 0) return 0;
+    if (isCEO || currentUser.role === 'Super Admin' || isAccountsStaff || isHRorAdmin) {
+      return expenses.filter(e => 
+        e.status === 'Pending Manager' || 
+        e.status === 'Pending Finance'
+      ).length;
+    }
+    if (isDeptManager && currentUser.department) {
+      const myDept = currentUser.department.toLowerCase();
+      return expenses.filter(e => 
+        e.status === 'Pending Manager' && 
+        (e.department || '').toLowerCase() === myDept
+      ).length;
+    }
+    return expenses.filter(e => 
+      (e.status === 'Pending Manager' || e.status === 'Pending Finance') &&
+      e.employeeId?.toLowerCase() === myEmpId
+    ).length;
+  })();
+
+  // 6. Payment Disbursement: Approved claims/loans awaiting disbursement
+  const pendingDisbursementsCount = (isAccountsStaff || isCEO || currentUser.role === 'Super Admin')
+    ? (
+        (expenses || []).filter(e => e.status === 'Approved').length +
+        (loanRecords || []).filter(l => l.status === 'Approved').length
+      )
+    : 0;
+
+  // 7. Advance Salary: Pending loan/advance requests
+  const pendingLoansCount = (() => {
+    if (!loanRecords || loanRecords.length === 0) return 0;
+    if (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin || isAccountsStaff) {
+      return loanRecords.filter(l => l.status === 'Pending').length;
+    }
+    return loanRecords.filter(l => l.status === 'Pending' && l.employeeId?.toLowerCase() === myEmpId).length;
+  })();
+
+  // 8. Recruitment: Active candidates in pipeline (applied/screening/interview)
+  const pendingRecruitmentCount = (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin)
+    ? (candidates || []).filter(c => c.stage === 'Applied' || c.stage === 'Screening' || c.stage === 'Interview').length
+    : 0;
+
+  // 9. Tracking: Open tracking alerts
+  const openTrackingAlertsCount = (trackingAlerts || []).filter(a => a.status === 'Open').length;
+
+  const unreadNotificationsCount = notifications.filter(n => !n.read).length;
+
+  const getItemBadge = (id: ModuleName): number | null => {
+    if (id === 'tasks' && pendingTasksCount > 0) return pendingTasksCount;
+    if (id === 'leaves' && pendingLeavesCount > 0) return pendingLeavesCount;
+    if (id === 'attendance' && pendingAttendanceCount > 0) return pendingAttendanceCount;
+    if (id === 'shifts' && pendingShiftsCount > 0) return pendingShiftsCount;
+    if (id === 'finance' && pendingExpensesCount > 0) return pendingExpensesCount;
+    if (id === 'accounts_payment' && pendingDisbursementsCount > 0) return pendingDisbursementsCount;
+    if (id === 'advance_salary' && pendingLoansCount > 0) return pendingLoansCount;
+    if (id === 'recruitment' && pendingRecruitmentCount > 0) return pendingRecruitmentCount;
+    if (id === 'tracking' && openTrackingAlertsCount > 0) return openTrackingAlertsCount;
+    if (id === 'notifications' && unreadNotificationsCount > 0) return unreadNotificationsCount;
+    return null;
+  };
 
   // Filter menu items by search query and RBAC permissions
   const filteredItems = menuStructure.filter(item => {
