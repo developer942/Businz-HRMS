@@ -4,7 +4,7 @@ import { CreditCard, IndianRupee, CheckCircle2, FileText, Download, X, Edit3, Sh
 import { PayrollRecord, Employee } from '../../types/hrms';
 import { SalaryComponentConfig } from '../../types/settings';
 import { toNum, formatCurrency } from '../../utils/numbers';
-import { downloadElementAsPDF, downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
+import { downloadElementAsPDF, downloadElementAsDirectPdf, printElement, downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
@@ -46,6 +46,7 @@ export const PayrollManagement: React.FC = () => {
   } = useHRMS();
 
   const [selectedPayslip, setSelectedPayslip] = useState<PayrollRecord | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
 
   // Multi-row selection state
   const [selectedPayslipIds, setSelectedPayslipIds] = useState<string[]>([]);
@@ -1089,7 +1090,7 @@ export const PayrollManagement: React.FC = () => {
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    onClick={() => downloadElementAsPDF('printable-payslip-content', `Payslip_${selectedPayslip.employeeName.replace(/\s+/g, '_')}_${fileMonth}`, documentProfile.companyName)}
+                    onClick={() => printElement('printable-payslip-content', `Payslip_${selectedPayslip.employeeName.replace(/\s+/g, '_')}_${fileMonth}`, documentProfile.companyName)}
                     style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
                     <Printer size={14} /> Print
@@ -1097,10 +1098,20 @@ export const PayrollManagement: React.FC = () => {
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
-                    onClick={() => downloadElementAsPDF('printable-payslip-content', `Payslip_${selectedPayslip.employeeName.replace(/\s+/g, '_')}_${fileMonth}`, documentProfile.companyName)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#0E7490', border: 'none' }}
+                    onClick={async () => {
+                      setIsDownloadingPdf(true);
+                      try {
+                        await downloadElementAsDirectPdf('printable-payslip-content', `Payslip_${selectedPayslip.employeeName.replace(/\s+/g, '_')}_${fileMonth}`, documentProfile.companyName);
+                      } catch (err) {
+                        console.error('Direct PDF download error:', err);
+                      } finally {
+                        setIsDownloadingPdf(false);
+                      }
+                    }}
+                    disabled={isDownloadingPdf}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#0E7490', border: 'none', opacity: isDownloadingPdf ? 0.75 : 1 }}
                   >
-                    <Download size={14} /> Download PDF
+                    <Download size={14} /> {isDownloadingPdf ? 'Downloading PDF...' : 'Download PDF'}
                   </button>
                   <button type="button" className="close-btn payslip-close-desktop" onClick={() => setSelectedPayslip(null)} aria-label="Close">
                     <X size={20} />

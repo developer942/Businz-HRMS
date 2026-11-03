@@ -1,3 +1,5 @@
+// @ts-ignore
+import html2canvas from 'html2canvas';
 /**
  * Universal Cross-Platform Export Utilities for Businz Enterprise HRM
  * Fully compatible with Apple Mac (macOS, Safari, Apple Numbers), Windows (Microsoft Excel, Acrobat), iOS, and Android.
@@ -251,10 +253,84 @@ export function downloadPDF(
 }
 
 /**
- * Downloads a specific styled DOM element (like Payslip, Offer Letter, Attendance Slip) as PDF
- * Built with hidden iframe to bypass Apple Mac Safari pop-up blockers seamlessly.
+ * Directly downloads an HTML element (e.g. Payslip) as a PDF file
+ * without opening the browser print dialog.
  */
-export function downloadElementAsPDF(
+export async function downloadElementAsDirectPdf(
+  elementId: string,
+  filename: string,
+  companyName: string = 'Businz'
+): Promise<void> {
+  const elem = document.getElementById(elementId);
+  if (!elem) {
+    console.error(`Document content "${elementId}" not found.`);
+    return;
+  }
+
+  try {
+    const canvas = await html2canvas(elem, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+      windowWidth: elem.scrollWidth || 780
+    });
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+    // Standard A4 dimensions in points: 595.28 x 841.89
+    const pdfWidth = 595.28;
+    const pdfHeight = 841.89;
+    const margin = 20;
+    const printableWidth = pdfWidth - (margin * 2);
+    const printableHeight = (canvas.height * printableWidth) / canvas.width;
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'pt',
+      format: 'a4'
+    });
+
+    if (printableHeight <= pdfHeight - (margin * 2)) {
+      doc.addImage(imgData, 'JPEG', margin, margin, printableWidth, printableHeight, undefined, 'FAST');
+    } else {
+      let heightLeft = printableHeight;
+      let position = margin;
+
+      doc.addImage(imgData, 'JPEG', margin, position, printableWidth, printableHeight, undefined, 'FAST');
+      heightLeft -= (pdfHeight - (margin * 2));
+
+      while (heightLeft > 0) {
+        position = heightLeft - printableHeight + margin;
+        doc.addPage();
+        doc.addImage(imgData, 'JPEG', margin, position, printableWidth, printableHeight, undefined, 'FAST');
+        heightLeft -= (pdfHeight - (margin * 2));
+      }
+    }
+
+    const cleanFilename = (filename || 'Document').replace(/\.pdf$/i, '') + '.pdf';
+    doc.save(cleanFilename);
+  } catch (err) {
+    console.warn('html2canvas direct PDF download failed, falling back to print dialog:', err);
+    printElement(elementId, filename, companyName);
+  }
+}
+
+/**
+ * Downloads element as a direct PDF binary file (never opens print dialog).
+ */
+export async function downloadElementAsPDF(
+  elementId: string,
+  filename: string,
+  companyName: string = 'Businz'
+): Promise<void> {
+  return downloadElementAsDirectPdf(elementId, filename, companyName);
+}
+
+/**
+ * Opens native browser print dialog for an element.
+ */
+export function printElement(
   elementId: string,
   title: string,
   companyName: string = 'Businz'
@@ -380,8 +456,6 @@ export function downloadElementAsPDF(
     alert('Pop-up was blocked. Please allow pop-ups in Safari / Chrome to save as PDF.');
   }
 }
-
-export const printElement = downloadElementAsPDF;
 
 function escapeHtml(unsafe: string): string {
   return String(unsafe).replace(/[<>&'"]/g, c => {
