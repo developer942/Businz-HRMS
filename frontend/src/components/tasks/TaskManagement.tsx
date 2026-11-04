@@ -3,7 +3,8 @@ import { useHRMS } from '../../context/HRMSContext';
 import { 
   ListTodo, 
   UserCheck, 
-  Users, 
+  Users,
+  User, 
   PlusCircle, 
   Plus,
   BarChart3, 
@@ -266,27 +267,35 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
   return (
     <div className="task-management-module" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
       {/* Standard Page Header */}
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: '16px' }}>
         <div className="page-title-group">
           <h1>
-            {activeTab === 'assigned_tasks'
-              ? 'Assigned Tasks'
-              : activeTab === 'team_tasks'
-                ? 'Team Tasks'
-                : isEmployee 
-                  ? (activeTab === 'daily_reports' ? 'Daily Task Reports' : 'My Tasks') 
-                  : 'Task Management'}
+            <span className="mobile-only-inline">Tasks</span>
+            <span className="desktop-only-inline">
+              {activeTab === 'assigned_tasks'
+                ? 'Assigned Tasks'
+                : activeTab === 'team_tasks'
+                  ? 'Team Tasks'
+                  : isEmployee 
+                    ? (activeTab === 'daily_reports' ? 'Daily Task Reports' : 'My Tasks') 
+                    : 'Task Management'}
+            </span>
           </h1>
+          <div className="mobile-only-block" style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '2px', fontWeight: 500 }}>
+            Keep track of work items &amp; team progress
+          </div>
         </div>
         <div className="header-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
           {!isEmployee && activeTab !== 'new_task' && (
-            <ExportDropdown 
-              onExportExcel={handleExportExcel}
-              onExportPDF={handleExportPDF}
-              onExportCSV={handleExportCSV}
-              label="Download"
-              size="sm"
-            />
+            <div className="desktop-only-inline">
+              <ExportDropdown 
+                onExportExcel={handleExportExcel}
+                onExportPDF={handleExportPDF}
+                onExportCSV={handleExportCSV}
+                label="Download"
+                size="sm"
+              />
+            </div>
           )}
           {activeTab === 'new_task' ? (
             <button
@@ -295,16 +304,26 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
               onClick={() => handleTabChange(isEmployee ? 'my_tasks' : 'register')}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
             >
-              <ListTodo size={16} /> {isEmployee ? 'My Tasks' : 'Task Register'}
+              <ListTodo size={16} /> <span className="desktop-only-inline">{isEmployee ? 'My Tasks' : 'Task Register'}</span><span className="mobile-only-inline">Tasks</span>
             </button>
           ) : (
             <button
               type="button"
               className="btn btn-primary btn-sm"
               onClick={() => handleTabChange('new_task')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700, background: '#0E7490', borderColor: '#0E7490' }}
+              style={{ 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: '6px', 
+                fontWeight: 700, 
+                background: '#0E7490', 
+                borderColor: '#0E7490',
+                borderRadius: '10px',
+                height: '38px',
+                padding: '0 14px'
+              }}
             >
-              <Plus size={16} /> Assign Task
+              <Plus size={16} /> <span>Assign Task</span>
             </button>
           )}
         </div>
@@ -312,23 +331,134 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
 
       {/* Top Module Navigation Bar for Managers / CEO / HR */}
       {!isEmployee && (
-        <div style={{ 
-          padding: '8px 16px', 
-          marginBottom: '20px', 
-          borderRadius: '16px', 
-          background: '#ffffff',
-          border: '1px solid #E7ECF3',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div className="task-module-tabs-bar">
+        <>
+          {/* Desktop Navigation (>= 768px) */}
+          <div className="desktop-only-block" style={{ 
+            padding: '8px 16px', 
+            marginBottom: '20px', 
+            borderRadius: '16px', 
+            background: '#ffffff',
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div className="task-module-tabs-bar">
+                {[
+                  { id: 'register', label: 'Task Register', icon: ListTodo },
+                  { id: 'my_tasks', label: 'My Tasks', icon: UserCheck, badge: myTasksCount },
+                  { id: 'assigned_tasks', label: 'Assigned Tasks', icon: CheckSquare, badge: assignedTasksCount },
+                  { id: 'team_tasks', label: 'Team Tasks', icon: Users, badge: teamTasksCount },
+                  { id: 'daily_reports', label: 'Daily Reports', icon: FileCheck, badge: dailyReportsCount },
+                  { id: 'reports', label: 'Reports', icon: BarChart3 }
+                ].map(t => {
+                  const Icon = t.icon;
+                  const isActive = activeTab === t.id;
+
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => handleTabChange(t.id as any)}
+                      style={{ 
+                        fontSize: '0.82rem', 
+                        padding: '8px 16px', 
+                        borderRadius: '10px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '7px',
+                        fontWeight: isActive ? 700 : 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        border: isActive ? '1px solid #0E7490' : '1px solid transparent',
+                        background: isActive ? '#0E7490' : 'transparent',
+                        color: isActive ? '#ffffff' : '#475569',
+                        boxShadow: isActive ? '0 2px 6px rgba(14, 116, 144, 0.25)' : 'none'
+                      }}
+                      onMouseEnter={e => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = '#F8FAFC';
+                          e.currentTarget.style.color = '#1E293B';
+                        }
+                      }}
+                      onMouseLeave={e => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = '#475569';
+                        }
+                      }}
+                    >
+                      <Icon size={16} />
+                      <span>{t.label}</span>
+                      {t.badge !== undefined && t.badge > 0 && (
+                        <span style={{ 
+                          background: isActive ? 'rgba(255, 255, 255, 0.25)' : '#EF4444', 
+                          color: '#ffffff', 
+                          fontSize: '0.7rem', 
+                          fontWeight: 700, 
+                          padding: '1px 7px', 
+                          borderRadius: '9999px',
+                          marginLeft: '2px'
+                        }}>
+                          {t.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Apple-Inspired Segmented Tab Bar (< 768px): My Tasks | Assigned | Team | Reports */}
+          <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
+            <div className="mobile-segmented-tab-bar">
               {[
-                { id: 'register', label: 'Task Register', icon: ListTodo },
+                { id: 'my_tasks', label: 'My Tasks', badge: myTasksCount },
+                { id: 'assigned_tasks', label: 'Assigned', badge: assignedTasksCount },
+                { id: 'team_tasks', label: 'Team', badge: teamTasksCount },
+                { id: 'daily_reports', label: 'Reports', badge: dailyReportsCount },
+                { id: 'register', label: 'Register' },
+                { id: 'reports', label: 'Analytics' }
+              ].map(t => {
+                const isActive = activeTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`mobile-segmented-tab-btn ${isActive ? 'active' : ''}`}
+                    onClick={() => handleTabChange(t.id as any)}
+                  >
+                    <span>{t.label}</span>
+                    {t.badge !== undefined && t.badge > 0 && (
+                      <span className="mobile-tab-badge">
+                        {t.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Top Navigation for Employees: My Tasks, Assigned Tasks, Team Tasks & Daily Reports */}
+      {isEmployee && (
+        <>
+          {/* Desktop Navigation (>= 768px) */}
+          <div className="desktop-only-block" style={{ 
+            padding: '8px 16px', 
+            marginBottom: '20px', 
+            borderRadius: '16px', 
+            background: '#ffffff',
+            border: '1px solid #E7ECF3',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
+          }}>
+            <div className="employee-task-tabs-row" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {[
                 { id: 'my_tasks', label: 'My Tasks', icon: UserCheck, badge: myTasksCount },
                 { id: 'assigned_tasks', label: 'Assigned Tasks', icon: CheckSquare, badge: assignedTasksCount },
                 { id: 'team_tasks', label: 'Team Tasks', icon: Users, badge: teamTasksCount },
-                { id: 'daily_reports', label: 'Daily Reports', icon: FileCheck, badge: dailyReportsCount },
-                { id: 'reports', label: 'Reports', icon: BarChart3 }
+                { id: 'daily_reports', label: 'Daily Reports', icon: FileCheck, badge: dailyReportsCount }
               ].map(t => {
                 const Icon = t.icon;
                 const isActive = activeTab === t.id;
@@ -352,24 +482,12 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
                       color: isActive ? '#ffffff' : '#475569',
                       boxShadow: isActive ? '0 2px 6px rgba(14, 116, 144, 0.25)' : 'none'
                     }}
-                    onMouseEnter={e => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = '#F8FAFC';
-                        e.currentTarget.style.color = '#1E293B';
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = '#475569';
-                      }
-                    }}
                   >
                     <Icon size={16} />
                     <span>{t.label}</span>
                     {t.badge !== undefined && t.badge > 0 && (
                       <span style={{ 
-                        background: isActive ? 'rgba(255, 255, 255, 0.25)' : '#EF4444', 
+                        background: isActive ? 'rgba(255, 255, 255, 0.25)' : '#0E7490', 
                         color: '#ffffff', 
                         fontSize: '0.7rem', 
                         fontWeight: 700, 
@@ -385,69 +503,38 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
               })}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Top Navigation for Employees: My Tasks, Assigned Tasks, Team Tasks & Daily Reports */}
-      {isEmployee && (
-        <div style={{ 
-          padding: '8px 16px', 
-          marginBottom: '20px', 
-          borderRadius: '16px', 
-          background: '#ffffff',
-          border: '1px solid #E7ECF3',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
-        }}>
-          <div className="employee-task-tabs-row" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            {[
-              { id: 'my_tasks', label: 'My Tasks', icon: UserCheck, badge: myTasksCount },
-              { id: 'assigned_tasks', label: 'Assigned Tasks', icon: CheckSquare, badge: assignedTasksCount },
-              { id: 'team_tasks', label: 'Team Tasks', icon: Users, badge: teamTasksCount },
-              { id: 'daily_reports', label: 'Daily Reports', icon: FileCheck, badge: dailyReportsCount }
-            ].map(t => {
-              const Icon = t.icon;
-              const isActive = activeTab === t.id;
-
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => handleTabChange(t.id as any)}
-                  style={{ 
-                    fontSize: '0.82rem', 
-                    padding: '8px 16px', 
-                    borderRadius: '10px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '7px',
-                    fontWeight: isActive ? 700 : 500,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    border: isActive ? '1px solid #0E7490' : '1px solid transparent',
-                    background: isActive ? '#0E7490' : 'transparent',
-                    color: isActive ? '#ffffff' : '#475569',
-                    boxShadow: isActive ? '0 2px 6px rgba(14, 116, 144, 0.25)' : 'none'
-                  }}
-                >
-                  <Icon size={16} />
-                  <span>{t.label}</span>
-                  {t.badge !== undefined && t.badge > 0 && (
-                    <span style={{ 
-                      background: isActive ? 'rgba(255, 255, 255, 0.25)' : '#0E7490', 
-                      color: '#ffffff', 
-                      fontSize: '0.7rem', 
-                      fontWeight: 700, 
-                      padding: '1px 7px', 
-                      borderRadius: '9999px',
-                      marginLeft: '2px'
-                    }}>
-                      {t.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+          {/* Mobile Segmented Tab Bar (< 768px): My Tasks | Assigned | Team | Reports */}
+          <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
+            <div className="mobile-segmented-tab-bar">
+              {[
+                { id: 'my_tasks', label: 'My Tasks', icon: User, badge: myTasksCount },
+                { id: 'assigned_tasks', label: 'Assigned', icon: CheckSquare, badge: assignedTasksCount },
+                { id: 'team_tasks', label: 'Team', icon: Users, badge: teamTasksCount },
+                { id: 'daily_reports', label: 'Reports', icon: FileCheck, badge: dailyReportsCount }
+              ].map(t => {
+                const Icon = t.icon;
+                const isActive = activeTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`mobile-segmented-tab-btn ${isActive ? 'active' : ''}`}
+                    onClick={() => handleTabChange(t.id as any)}
+                  >
+                    <Icon size={14} />
+                    <span>{t.label}</span>
+                    {t.badge !== undefined && t.badge > 0 && (
+                      <span className="mobile-tab-badge">
+                        {t.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Sub-View Dispatcher */}

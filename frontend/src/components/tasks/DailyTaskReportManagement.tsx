@@ -16,6 +16,8 @@ import {
 import { TaskAssigneeStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
+import { MobileFilterSheet } from '../common/MobileFilterSheet';
+import { X } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 interface DailyTaskReportManagementProps {
@@ -71,6 +73,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [selectedReportIds, setSelectedReportIds] = useState<string[]>([]);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
 
   // Flatten reports from enhanced tasks
   const allReports: FlatDailyReportItem[] = useMemo(() => {
@@ -375,7 +378,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="desktop-only-block" style={{ overflowX: 'auto' }}>
             <table className="table" style={{ width: '100%', borderCollapse: 'collapse', margin: 0, fontSize: '0.84rem' }}>
               <thead>
                 <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', textAlign: 'left' }}>
@@ -635,6 +638,87 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
           </table>
         </div>
       )}
+
+        {/* Mobile Reports Cards List (< 768px): Exact Apple-Style Reference Cards */}
+        <div className="mobile-only-block" style={{ padding: '0 2px' }}>
+          {paginatedReports.map(item => {
+            const isCompleted = item.processStatus === 'Completed';
+            const isInProgress = item.processStatus === 'In Process' || item.processStatus === 'In Progress';
+            const isReview = item.processStatus === 'Under Review';
+            const statusConfig = isCompleted
+              ? { label: 'Completed', dotColor: '#16A34A', bg: '#DCFCE7', text: '#15803D' }
+              : isInProgress
+              ? { label: 'In Progress', dotColor: '#0E7490', bg: '#ECFEFF', text: '#0E7490' }
+              : isReview
+              ? { label: 'Under Review', dotColor: '#7C3AED', bg: '#F5F3FF', text: '#7C3AED' }
+              : { label: item.processStatus || 'Pending', dotColor: '#F59E0B', bg: '#FFFBEB', text: '#D97706' };
+
+            const initialLetter = (item.employeeName || 'U').charAt(0).toUpperCase();
+
+            return (
+              <div 
+                key={item.id} 
+                className="mobile-ref-task-card"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelectTask(item.taskId)}
+              >
+                <div className="mobile-ref-card-header">
+                  <div className="mobile-ref-card-tags">
+                    <span 
+                      className="mobile-ref-priority-tag"
+                      style={{
+                        backgroundColor: '#ECFEFF',
+                        color: '#0E7490'
+                      }}
+                    >
+                      {item.taskNumber}
+                    </span>
+                    {item.department && (
+                      <span className="mobile-ref-dept-tag">
+                        {item.department}
+                      </span>
+                    )}
+                  </div>
+
+                  <span 
+                    className="mobile-ref-status-pill"
+                    style={{
+                      backgroundColor: statusConfig.bg,
+                      color: statusConfig.text
+                    }}
+                  >
+                    <span 
+                      className="ref-status-dot"
+                      style={{ backgroundColor: statusConfig.dotColor }}
+                    />
+                    {statusConfig.label}
+                  </span>
+                </div>
+
+                <div className="mobile-ref-card-title">
+                  {item.taskTitle}
+                </div>
+
+                <div className="mobile-ref-card-desc">
+                  {item.workDoneToday}
+                </div>
+
+                <div className="mobile-ref-card-footer">
+                  <div className="mobile-ref-due-date">
+                    <Calendar size={14} color="#64748B" />
+                    <span>{formatDateDDMMYYYY(item.reportDate)}</span>
+                  </div>
+
+                  <div className="mobile-ref-avatars-cluster">
+                    <div className="mobile-ref-avatar-circle" title={item.employeeName}>
+                      {initialLetter}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
         {/* Standardized AGENTS.md Pagination Footer */}
         {filteredReports.length > 0 && (

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { 
-  CheckCircle2, 
+  CheckCircle2,
+  Calendar, 
   Sliders, 
   User,
   Search,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { TaskItemEnhanced, TaskAssigneeStatus, computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
+import { MobileFilterSheet } from '../common/MobileFilterSheet';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
@@ -29,6 +31,7 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
 
   // Multi-row selection state
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
 
   const handleToggleTask = (id: string) => {
     setSelectedTaskIds(prev => 
@@ -140,6 +143,56 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
   }, [myAssignedTasks, activeSection, currentEmpId, today, searchTerm]);
 
   // Paginated tasks (on mobile screens, show all section tasks without pagination slicing)
+  
+  // Helper for friendly due text (e.g. "Due Tomorrow", "Due Today", "Oct 28, 2024")
+  const getFriendlyDueText = (dueDateStr: string, overallStatus: string) => {
+    if (!dueDateStr) return 'No due date';
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrowObj = new Date();
+    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+    const tomorrow = tomorrowObj.toISOString().split('T')[0];
+    const isCompleted = overallStatus === 'COMPLETED' || overallStatus === 'CLOSED';
+
+    if (dueDateStr === today) return 'Due Today';
+    if (dueDateStr === tomorrow) return 'Due Tomorrow';
+    if (dueDateStr < today && !isCompleted) return `Overdue (${formatDateDDMMYYYY(dueDateStr)})`;
+
+    try {
+      const parts = dueDateStr.split('-');
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    } catch (e) {}
+
+    return formatDateDDMMYYYY(dueDateStr);
+  };
+
+  const getPriorityConfig = (priority: string) => {
+    const p = (priority || 'Normal').toLowerCase();
+    if (p === 'urgent' || p === 'high') {
+      return { label: p === 'urgent' ? 'Urgent' : 'High Priority', bg: '#FEE2E2', text: '#EF4444' };
+    }
+    if (p === 'medium') {
+      return { label: 'Medium', bg: '#FEF3C7', text: '#D97706' };
+    }
+    return { label: 'Normal', bg: '#DCFCE7', text: '#16A34A' };
+  };
+
+  const getStatusConfig = (status: string) => {
+    const s = (status || 'Pending').toLowerCase();
+    if (s.includes('completed') || s.includes('closed')) {
+      return { label: 'Completed', dotColor: '#16A34A', bg: '#DCFCE7', text: '#15803D' };
+    }
+    if (s.includes('progress') || s.includes('process')) {
+      return { label: 'In Progress', dotColor: '#2563EB', bg: '#EFF6FF', text: '#2563EB' };
+    }
+    if (s.includes('review')) {
+      return { label: 'In Review', dotColor: '#7C3AED', bg: '#FAF5FF', text: '#7C3AED' };
+    }
+    return { label: 'To Do', dotColor: '#D97706', bg: '#FEF3C7', text: '#B45309' };
+  };
+
   const paginatedTasks = useMemo(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
       return sectionTasks;
@@ -267,6 +320,162 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
           )}
         </div>
       </div>
+
+      {/* Mobile Compact Search & Filter Toolbar (< 768px) */}
+      <div className="mobile-only-block" style={{ marginBottom: '6px' }}>
+        <div className="mobile-search-filter-bar">
+          <div className="mobile-search-input-wrap">
+            <Search 
+              size={15} 
+              style={{ 
+                position: 'absolute', 
+                left: '12px', 
+                top: '50%', 
+                transform: 'translateY(-50%)', 
+                color: '#94A3B8' 
+              }} 
+            />
+            <input
+              type="text"
+              placeholder="Search my tasks..."
+              value={searchTerm}
+              onChange={e => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="mobile-search-input"
+              style={{ borderRadius: '12px', height: '40px', paddingLeft: '34px' }}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCurrentPage(1);
+                }}
+                aria-label="Clear search"
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#94A3B8',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  padding: 0
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className={`mobile-filter-trigger-btn ${activeSection !== 'all' ? 'has-filters' : ''}`}
+            onClick={() => setIsFilterSheetOpen(true)}
+            aria-label="Open filter options"
+            style={{ borderRadius: '12px', height: '40px', padding: '0 14px' }}
+          >
+            <Filter size={15} />
+            <span>Filters</span>
+            {activeSection !== 'all' && (
+              <span className="mobile-tab-badge" style={{ background: '#0E7490', color: '#FFFFFF', padding: '1px 6px', fontSize: '0.68rem' }}>
+                1
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Active Filter Chips & Reset All */}
+        {activeSection !== 'all' && (
+          <div className="mobile-active-filter-chips-row">
+            <span className="mobile-ref-filter-chip">
+              <span>Status: {
+                activeSection === 'pending' ? 'To Do' :
+                activeSection === 'in_progress' ? 'In Progress' :
+                activeSection === 'today' ? "Today's Tasks" :
+                activeSection === 'completed' ? 'Completed' :
+                activeSection === 'overdue' ? 'Overdue' : 'All'
+              }</span>
+              <button
+                type="button"
+                className="mobile-ref-filter-chip-clear"
+                onClick={() => {
+                  setActiveSection('all');
+                  setCurrentPage(1);
+                }}
+                aria-label="Remove status filter"
+              >
+                <X size={12} />
+              </button>
+            </span>
+            <button
+              type="button"
+              className="mobile-filter-reset-all-btn"
+              onClick={() => {
+                setActiveSection('all');
+                setSearchTerm('');
+                setCurrentPage(1);
+              }}
+            >
+              Reset all
+            </button>
+          </div>
+        )}
+
+        {/* Current Tasks Section Header */}
+        <div className="mobile-task-section-header">
+          <span className="mobile-task-section-title">
+            CURRENT TASKS ({sectionTasks.length})
+          </span>
+          <span className="mobile-task-section-sort">
+            Sort by Due Date
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile Filter Bottom Sheet */}
+      <MobileFilterSheet
+        isOpen={isFilterSheetOpen}
+        onClose={() => setIsFilterSheetOpen(false)}
+        title="Filter Tasks by Status"
+        onReset={() => {
+          setActiveSection('all');
+          setCurrentPage(1);
+        }}
+        onApply={() => {
+          setCurrentPage(1);
+        }}
+      >
+        <div>
+          <div className="mobile-filter-group-title">Status Option</div>
+          <div className="mobile-filter-chips-grid">
+            {[
+              { id: 'pending', label: `To Do (${sectionCounts.pending})` },
+              { id: 'in_progress', label: `In Progress (${sectionCounts.in_progress})` },
+              { id: 'today', label: `Today's Tasks (${sectionCounts.today})` },
+              { id: 'completed', label: `Completed (${sectionCounts.completed})` },
+              { id: 'overdue', label: `Overdue (${sectionCounts.overdue})` },
+              { id: 'all', label: `All Tasks (${sectionCounts.all})` }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                className={`mobile-filter-select-chip ${activeSection === opt.id ? 'selected' : ''}`}
+                onClick={() => {
+                  setActiveSection(opt.id as any);
+                  setCurrentPage(1);
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </MobileFilterSheet>
 
       {/* TASKS LIST VIEW */}
       <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
@@ -448,80 +657,86 @@ export const MyTasks: React.FC<MyTasksProps> = ({ onSelectTask, onSwitchToAssign
               </div>
             </div>
 
-            {/* Mobile Cards View (< 768px) */}
-            <div className="task-mobile-cards">
+            {/* Mobile Cards View (< 768px): Exact Apple-Style Reference Cards */}
+            <div className="task-mobile-cards" style={{ padding: '0 2px' }}>
               {paginatedTasks.map(task => {
                 const myAssignee = getAssigneeForTask(task);
                 const myStatus = myAssignee?.individualStatus || 'Pending';
-                const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
                 const isSelected = selectedTaskIds.includes(task.id);
-                const isOverdue = dueStatus === 'Overdue';
+                const priorityConfig = getPriorityConfig(task.priority);
+                const statusConfig = getStatusConfig(myStatus);
+                const friendlyDue = getFriendlyDueText(task.dueDate, task.overallStatus);
+                const initialLetter = (currentUser.name || task.responsiblePersonName || 'U').charAt(0).toUpperCase();
 
                 return (
                   <div
                     key={task.id}
-                    className={`mobile-task-card ${isSelected ? 'selected' : ''}`}
+                    className="mobile-ref-task-card"
                     onClick={() => onSelectTask(task.id)}
                   >
-                    <div className="mobile-task-card-header">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleTask(task.id)}
-                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '18px', height: '18px' }}
-                          aria-label={`Select task ${task.taskNumber}`}
+                    {/* Header: Priority + Department | Status Pill with Dot */}
+                    <div className="mobile-ref-card-header">
+                      <div className="mobile-ref-card-tags">
+                        <span 
+                          className="mobile-ref-priority-tag"
+                          style={{
+                            backgroundColor: priorityConfig.bg,
+                            color: priorityConfig.text
+                          }}
+                        >
+                          {priorityConfig.label}
+                        </span>
+                        {task.department && (
+                          <span className="mobile-ref-dept-tag">
+                            {task.department}
+                          </span>
+                        )}
+                      </div>
+
+                      <span 
+                        className="mobile-ref-status-pill"
+                        style={{
+                          backgroundColor: statusConfig.bg,
+                          color: statusConfig.text
+                        }}
+                      >
+                        <span 
+                          className="ref-status-dot"
+                          style={{ backgroundColor: statusConfig.dotColor }}
                         />
-                        <span className="mobile-task-number">{task.taskNumber}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
-                          {task.priority}
-                        </span>
-                        <span className={`status-pill ${
-                          myStatus === 'Completed' ? 'present' :
-                          myStatus === 'In Progress' || myStatus === 'In Process' ? 'late' :
-                          myStatus === 'Under Review' ? 'pending' : 'half-day'
-                        }`} style={{ fontSize: '0.72rem', fontWeight: 700 }}>
-                          {myStatus}
-                        </span>
-                      </div>
+                        {statusConfig.label}
+                      </span>
                     </div>
 
-                    <div className="mobile-task-card-title">
+                    {/* Card Title */}
+                    <div className="mobile-ref-card-title">
                       {task.title}
                     </div>
 
+                    {/* Card Description */}
                     {task.description && (
-                      <div className="mobile-task-card-desc">
-                        {task.description.length > 90 ? `${task.description.slice(0, 90)}...` : task.description}
+                      <div className="mobile-ref-card-desc">
+                        {task.description}
                       </div>
                     )}
 
-                    <div className="mobile-task-card-meta">
-                      <div className="mobile-task-meta-item">
-                        <span className="meta-label">Lead:</span>
-                        <span className="meta-val">{task.responsiblePersonName}</span>
+                    {/* Card Footer: Due Date | Assignee Avatar Circle */}
+                    <div className="mobile-ref-card-footer">
+                      <div className="mobile-ref-due-date">
+                        <Calendar size={14} color="#64748B" />
+                        <span>{friendlyDue}</span>
                       </div>
-                      <div className="mobile-task-meta-item">
-                        <span className="meta-label">Due:</span>
-                        <span className="meta-val" style={{ color: isOverdue ? '#DC2626' : '#1E293B', fontWeight: isOverdue ? 700 : 500 }}>
-                          {formatDateDDMMYYYY(task.dueDate)}
-                        </span>
-                      </div>
-                    </div>
 
-                    <div className="mobile-task-card-actions" onClick={e => e.stopPropagation()}>
-                      <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                        {task.department}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm mobile-task-action-btn"
-                        onClick={() => onSelectTask(task.id)}
-                      >
-                        Update Status →
-                      </button>
+                      <div className="mobile-ref-avatars-cluster">
+                        {task.assignees.length > 1 && (
+                          <div className="mobile-ref-avatar-circle secondary" title={task.assignees[1]?.employeeName}>
+                            {(task.assignees[1]?.employeeName || 'A').charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="mobile-ref-avatar-circle" title={task.responsiblePersonName || currentUser.name}>
+                          {initialLetter}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );

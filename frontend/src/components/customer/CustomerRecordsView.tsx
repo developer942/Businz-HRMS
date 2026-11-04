@@ -370,7 +370,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
             )}
           </div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="customer-desktop-table" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E7ECF3' }}>
@@ -532,6 +532,108 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile-Only Contact Card List View (< 768px) */}
+        <div className="customer-mobile-list">
+          {loading ? (
+            <div style={{ padding: '30px 16px', textAlign: 'center', color: '#64748B' }}>
+              Loading customer records...
+            </div>
+          ) : customers.length === 0 ? (
+            <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748B' }}>
+              <div style={{ fontSize: '0.95rem', fontWeight: 750, color: '#1E293B', marginBottom: '4px' }}>
+                No Customer Records Found
+              </div>
+              <div style={{ fontSize: '0.8rem' }}>
+                Try adjusting your search filters or tap "+ Scan / Add Card" to capture a new record.
+              </div>
+            </div>
+          ) : (
+            customers.map(c => {
+              const isSelected = selectedIds.has(c.id);
+              return (
+                <div
+                  key={c.id}
+                  className={`customer-mobile-card ${isSelected ? 'selected' : ''}`}
+                >
+                  <div className="customer-mobile-card-top">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleSelectRow(c.id)}
+                        style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                      />
+                      <span className="customer-mobile-id">{c.customerId}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {renderConsentBadge(c.consentStatus)}
+                      {renderMessageStatusBadge(c.lastMessageStatus)}
+                    </div>
+                  </div>
+
+                  <div className="customer-mobile-card-body">
+                    <div className="customer-mobile-name">{c.customerName}</div>
+                    {(c.companyName || c.designation) && (
+                      <div className="customer-mobile-sub">
+                        {c.designation ? c.designation : ''}
+                        {c.designation && c.companyName ? ' • ' : ''}
+                        {c.companyName ? c.companyName : ''}
+                      </div>
+                    )}
+
+                    <div className="customer-mobile-contact-row">
+                      <div className="customer-mobile-contact-item">
+                        <Phone size={13} color="#0E7490" />
+                        <span style={{ fontWeight: 600, color: '#0F172A' }}>{c.contactNumber}</span>
+                      </div>
+                      {c.email && (
+                        <div className="customer-mobile-contact-item">
+                          <Mail size={13} color="#64748B" />
+                          <span style={{ color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="customer-mobile-meta-row">
+                      <span>By: {c.collectedByName}</span>
+                      <span>{formatDateDDMMYYYY(c.collectedDate) || c.collectedDate}</span>
+                    </div>
+                  </div>
+
+                  <div className="customer-mobile-card-actions">
+                    <button
+                      type="button"
+                      onClick={() => setViewCustomer(c)}
+                      className="customer-mobile-action-btn"
+                      title="View Details"
+                    >
+                      <Eye size={14} /> View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(c)}
+                      className="customer-mobile-action-btn"
+                      title="Edit Customer"
+                    >
+                      <Edit3 size={14} /> Edit
+                    </button>
+                    {c.visitingCardUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setCardModalUrl(c.visitingCardUrl || null)}
+                        className="customer-mobile-action-btn card"
+                        title="View Visiting Card"
+                      >
+                        <CreditCard size={14} /> Card
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Standardized Pagination Footer (Phase 4 & AGENTS.md) */}

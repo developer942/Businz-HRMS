@@ -321,26 +321,27 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = () => {
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = isItemActive(item);
+          const isCenterPunch = item.targetModule === 'face_attendance';
 
           return (
             <button
               key={item.key}
               type="button"
-              className={`mobile-bottom-nav-item ${active ? 'active' : ''}`}
+              className={`mobile-bottom-nav-item ${isCenterPunch ? 'center-punch-item' : ''} ${active ? 'active' : ''}`}
               onClick={() => handleNavClick(item)}
               aria-current={active ? 'page' : undefined}
               aria-label={item.title || item.label}
               title={item.title || item.label}
             >
-              <div className="mobile-bottom-nav-icon-wrapper">
-                <Icon size={19} strokeWidth={active ? 2.4 : 2} />
+              <div className={`mobile-bottom-nav-icon-wrapper ${isCenterPunch ? 'center-punch-circle' : ''}`}>
+                <Icon size={isCenterPunch ? 21 : 19} strokeWidth={active ? 2.4 : 2} color={isCenterPunch ? '#FFFFFF' : undefined} />
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className="mobile-bottom-nav-badge">
                     {item.badge > 99 ? '99+' : item.badge}
                   </span>
                 )}
               </div>
-              <span className="mobile-bottom-nav-label">{item.label}</span>
+              <span className="mobile-bottom-nav-label">{isCenterPunch ? 'Punch In/Out' : item.label}</span>
             </button>
           );
         })}

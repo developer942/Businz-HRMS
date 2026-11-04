@@ -37,7 +37,12 @@ import {
   Banknote,
   Wallet,
   FileText,
-  User
+  User,
+  Receipt,
+  Navigation,
+  ScanLine,
+  MessageCircle,
+  Coins
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -61,7 +66,8 @@ export const Dashboard: React.FC = () => {
     fieldAssignments,
     weeklySchedules,
     expenses = [],
-    loanRecords = []
+    loanRecords = [],
+    overtimeRequests = []
   } = useHRMS();
 
   const isCEO = 
@@ -82,7 +88,48 @@ export const Dashboard: React.FC = () => {
   const [profileModalEmployee, setProfileModalEmployee] = useState<Employee | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AttendanceCategoryType | null>(null);
   const [pendingPettyCashCount, setPendingPettyCashCount] = useState<number>(0);
+  const [activeCustodianId, setActiveCustodianId] = useState<string | null>(null);
   const todayStr = getLocalDateStr();
+
+  // Active Petty Cash Custodian detection for Quick Actions
+  useEffect(() => {
+    let active = true;
+    pettyCashService
+      .getActiveCustodianAccount()
+      .then(acc => {
+        if (active && acc) {
+          setActiveCustodianId(acc.custodian_id || acc.custodian_employee_id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const isCustodian = Boolean(activeCustodianId) && (
+    currentUser.id === activeCustodianId || 
+    currentUser.employeeId === activeCustodianId
+  );
+
+  // Current month's approved overtime hours for the logged-in employee (Apple-inspired Mobile KPI Card)
+  const employeeOtHours = useMemo(() => {
+    const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
+    const userName = (currentUser.name || '').trim().toLowerCase();
+    const month = getMonthInfo();
+
+    return (overtimeRequests || [])
+      .filter(req => {
+        const rEmpId = (req.employeeId || '').trim().toLowerCase();
+        const rName = (req.employeeName || '').trim().toLowerCase();
+        const matchEmp = (userEmpId && rEmpId === userEmpId) || (userName && rName === userName);
+        if (!matchEmp) return false;
+        const isApproved = req.status === 'Approved' || req.status === 'Partially Approved';
+        if (!isApproved) return false;
+        return isDateInMonth(req.date, month);
+      })
+      .reduce((sum, req) => sum + (Number(req.approvedOtHours) || 0), 0);
+  }, [overtimeRequests, currentUser]);
 
   useEffect(() => {
     if (isEmployee) return;
@@ -725,80 +772,92 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. 2x2 Personal KPI Metric Cards (Identical Data Source to Desktop Employee KPI Cards) */}
+            {/* 2. 2x2 Personal KPI Metric Cards (Uniform 3-Tier Layout, Identical Height & Alignment) */}
             <div className="mobile-kpi-grid" data-testid="mobile-personal-kpi-grid">
-              <div
-                className="mobile-kpi-card"
-                data-testid="mobile-kpi-monthly-attendance"
-                onClick={() => setActiveModule('attendance_log')}
-              >
-                <div className="mobile-kpi-top">
-                  <div className="mobile-kpi-icon-box green">
-                    <CalendarCheck size={16} color="#0E7490" />
+                {/* 1. Top-Left: Present Days */}
+                <div
+                  className="mobile-kpi-card"
+                  data-testid="mobile-kpi-present-days"
+                  onClick={() => setActiveModule('attendance_log')}
+                >
+                  <div className="mobile-kpi-top">
+                    <div className="mobile-kpi-icon-box green">
+                      <CheckCircle2 size={14} color="#16A34A" />
+                    </div>
+                    <span className="mobile-kpi-label">Present Days</span>
                   </div>
-                  <span className="mobile-kpi-label">Monthly Attendance</span>
+                  <div className="mobile-kpi-metric-main">
+                    <span className="mobile-kpi-value">
+                      {employeeAttendanceStats.adjPresent} / {employeeAttendanceStats.totalWorkingDays}
+                    </span>
+                  </div>
+                  <div className="mobile-kpi-badge-wrap">
+                    <span className="mobile-kpi-trend green">Days On Duty</span>
+                  </div>
                 </div>
-                <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">{employeeAttendanceStats.attendanceRate}%</span>
-                  <span className="mobile-kpi-trend green">{employeeAttendanceStats.monthLabel}</span>
-                </div>
-              </div>
 
-              <div
-                className="mobile-kpi-card"
-                data-testid="mobile-kpi-present-days"
-                onClick={() => setActiveModule('attendance_log')}
-              >
-                <div className="mobile-kpi-top">
-                  <div className="mobile-kpi-icon-box green">
-                    <CheckCircle2 size={16} color="#16A34A" />
+                {/* 2. Top-Right: My Shift */}
+                <div
+                  className="mobile-kpi-card"
+                  data-testid="mobile-kpi-shift-timings"
+                  onClick={() => setActiveModule('shifts')}
+                >
+                  <div className="mobile-kpi-top">
+                    <div className="mobile-kpi-icon-box amber">
+                      <Clock size={14} color="#D97706" />
+                    </div>
+                    <span className="mobile-kpi-label">My Shift</span>
                   </div>
-                  <span className="mobile-kpi-label">Present Days</span>
+                  <div className="mobile-kpi-metric-main">
+                    <span className="mobile-kpi-value shift">
+                      {employeeAttendanceStats.shiftTimes}
+                    </span>
+                  </div>
+                  <div className="mobile-kpi-badge-wrap">
+                    <span className="mobile-kpi-trend neutral">{employeeAttendanceStats.shiftName || 'NORMAL SHIFT'}</span>
+                  </div>
                 </div>
-                <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">
-                    {employeeAttendanceStats.adjPresent} / {employeeAttendanceStats.totalWorkingDays}
-                  </span>
-                  <span className="mobile-kpi-trend green">Days On Duty</span>
-                </div>
-              </div>
 
-              <div
-                className="mobile-kpi-card"
-                data-testid="mobile-kpi-shift-timings"
-                onClick={() => setActiveModule('shifts')}
-              >
-                <div className="mobile-kpi-top">
-                  <div className="mobile-kpi-icon-box amber">
-                    <Clock size={16} color="#D97706" />
+                {/* 3. Bottom-Left: Leave Balance */}
+                <div
+                  className="mobile-kpi-card"
+                  data-testid="mobile-kpi-leave-balance"
+                  onClick={() => setActiveModule('leaves')}
+                >
+                  <div className="mobile-kpi-top">
+                    <div className="mobile-kpi-icon-box purple">
+                      <CalendarDays size={14} color="#7C3AED" />
+                    </div>
+                    <span className="mobile-kpi-label">Leave Balance</span>
                   </div>
-                  <span className="mobile-kpi-label">My Shift Timings</span>
+                  <div className="mobile-kpi-metric-main">
+                    <span className="mobile-kpi-value">{employeeAttendanceStats.remainingLeaves} Days</span>
+                  </div>
+                  <div className="mobile-kpi-badge-wrap">
+                    <span className="mobile-kpi-trend purple">{employeeAttendanceStats.adjLeave} Days Taken</span>
+                  </div>
                 </div>
-                <div className="mobile-kpi-value-row" style={{ flexWrap: 'wrap', gap: '4px' }}>
-                  <span className="mobile-kpi-value" style={{ fontSize: '0.95rem' }}>
-                    {employeeAttendanceStats.shiftTimes}
-                  </span>
-                  <span className="mobile-kpi-trend neutral">{employeeAttendanceStats.shiftName}</span>
-                </div>
-              </div>
 
-              <div
-                className="mobile-kpi-card"
-                data-testid="mobile-kpi-leave-balance"
-                onClick={() => setActiveModule('leaves')}
-              >
-                <div className="mobile-kpi-top">
-                  <div className="mobile-kpi-icon-box purple">
-                    <CalendarDays size={16} color="#7C3AED" />
+                {/* 4. Bottom-Right: OT Overtime */}
+                <div
+                  className="mobile-kpi-card"
+                  data-testid="mobile-kpi-overtime"
+                  onClick={() => setActiveModule('overtime')}
+                >
+                  <div className="mobile-kpi-top">
+                    <div className="mobile-kpi-icon-box cyan">
+                      <Clock size={14} color="#0891B2" />
+                    </div>
+                    <span className="mobile-kpi-label">OT Overtime</span>
                   </div>
-                  <span className="mobile-kpi-label">Leave Balance</span>
-                </div>
-                <div className="mobile-kpi-value-row">
-                  <span className="mobile-kpi-value">{employeeAttendanceStats.remainingLeaves} Days</span>
-                  <span className="mobile-kpi-trend neutral">{employeeAttendanceStats.adjLeave} Days Taken</span>
+                  <div className="mobile-kpi-metric-main">
+                    <span className="mobile-kpi-value">{employeeOtHours} hrs</span>
+                  </div>
+                  <div className="mobile-kpi-badge-wrap">
+                    <span className="mobile-kpi-trend green">Overtime</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
             {/* 3. Today's Attendance Card (Authoritative Status + Check In / Check Out) */}
             <div className="mobile-attendance-card" data-testid="mobile-today-attendance-card">
@@ -880,51 +939,91 @@ export const Dashboard: React.FC = () => {
               </button>
             </div>
 
-            {/* 4. Quick Actions Grid */}
+            {/* 4. Quick Actions 3x3 Grid (Apple-inspired Minimal Grid, 9 Items) */}
             <div className="mobile-quick-actions-card">
               <div className="mobile-quick-actions-title">Quick Actions</div>
               <div className="mobile-quick-actions-grid">
-                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('leaves')}>
-                  <div className="quick-action-icon-bg mint">
-                    <FileText size={20} color="#0E7490" />
-                  </div>
-                  <span>Leave</span>
-                </button>
-
+                {/* Row 1: Task | Claim | Tracking */}
                 <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('tasks')}>
                   <div className="quick-action-icon-bg blue">
                     <CheckSquare size={20} color="#2563EB" />
                   </div>
-                  <span>Tasks</span>
-                </button>
-
-                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('payroll')}>
-                  <div className="quick-action-icon-bg orange">
-                    <CreditCard size={20} color="#EA580C" />
-                  </div>
-                  <span>Payslip</span>
-                </button>
-
-                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('profile')}>
-                  <div className="quick-action-icon-bg purple">
-                    <User size={20} color="#7C3AED" />
-                  </div>
-                  <span>Profile</span>
-                </button>
-
-                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('shifts')}>
-                  <div className="quick-action-icon-bg cyan">
-                    <Clock size={20} color="#0891B2" />
-                  </div>
-                  <span>Shift</span>
+                  <span>Task</span>
                 </button>
 
                 <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('finance')}>
                   <div className="quick-action-icon-bg yellow">
-                    <IndianRupee size={20} color="#D97706" />
+                    <Receipt size={20} color="#D97706" />
                   </div>
-                  <span>Claims</span>
+                  <span>Claim</span>
                 </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('tracking')}>
+                  <div className="quick-action-icon-bg mint">
+                    <Navigation size={20} color="#0E7490" />
+                  </div>
+                  <span>Tracking</span>
+                </button>
+
+                {/* Row 2: Advance Salary | Card Scanner | My Performance */}
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('advance_salary')}>
+                  <div className="quick-action-icon-bg orange">
+                    <Wallet size={20} color="#EA580C" />
+                  </div>
+                  <span>{isAccountsStaff ? 'Advance Salary' : 'My Advance Salary'}</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('customer_data')}>
+                  <div className="quick-action-icon-bg purple">
+                    <ScanLine size={20} color="#7C3AED" />
+                  </div>
+                  <span>Card Scanner</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('performance')}>
+                  <div className="quick-action-icon-bg cyan">
+                    <TrendingUp size={20} color="#0891B2" />
+                  </div>
+                  <span>My Performance</span>
+                </button>
+
+                {/* Row 3: Payslip | WhatsApp CRM | Payment Disbursement (Accounts) or Petty Cash (Custodian) or Shift */}
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('payroll')}>
+                  <div className="quick-action-icon-bg orange">
+                    <CreditCard size={20} color="#EA580C" />
+                  </div>
+                  <span>{isAccountsStaff ? 'My Payslip' : 'Payslip'}</span>
+                </button>
+
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('whatsapp_crm')}>
+                  <div className="quick-action-icon-bg green">
+                    <MessageCircle size={20} color="#16A34A" />
+                  </div>
+                  <span>WhatsApp CRM</span>
+                </button>
+
+                {isAccountsStaff ? (
+                  <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('accounts_payment')}>
+                    <div className="quick-action-icon-bg yellow">
+                      <Banknote size={20} color="#D97706" />
+                    </div>
+                    <span>Payment Disbursement</span>
+                  </button>
+                ) : isCustodian ? (
+                  <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('petty_cash')}>
+                    <div className="quick-action-icon-bg yellow">
+                      <Coins size={20} color="#D97706" />
+                    </div>
+                    <span>Petty Cash</span>
+                  </button>
+                ) : (
+                  <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('shifts')}>
+                    <div className="quick-action-icon-bg cyan">
+                      <Clock size={20} color="#0891B2" />
+                    </div>
+                    <span>My Shift</span>
+                  </button>
+                )}
               </div>
             </div>
 

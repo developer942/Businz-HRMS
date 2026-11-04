@@ -19,6 +19,8 @@ import {
 import { TaskItemEnhanced, TaskAssigneeStatus, computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
+import { MobileFilterSheet } from '../common/MobileFilterSheet';
+import { X } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 interface AssignedTasksProps {
@@ -36,6 +38,7 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
 
   // Multi-row selection state
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -129,6 +132,55 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
   }, [filteredAssignedTasks, activeSection, today]);
 
   // 5. Paginated tasks (on mobile screens, show all section tasks without pagination slicing)
+  
+  const getFriendlyDueText = (dueDateStr: string, overallStatus: string) => {
+    if (!dueDateStr) return 'No due date';
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrowObj = new Date();
+    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+    const tomorrow = tomorrowObj.toISOString().split('T')[0];
+    const isCompleted = overallStatus === 'COMPLETED' || overallStatus === 'CLOSED';
+
+    if (dueDateStr === today) return 'Due Today';
+    if (dueDateStr === tomorrow) return 'Due Tomorrow';
+    if (dueDateStr < today && !isCompleted) return `Overdue (${formatDateDDMMYYYY(dueDateStr)})`;
+
+    try {
+      const parts = dueDateStr.split('-');
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    } catch (e) {}
+
+    return formatDateDDMMYYYY(dueDateStr);
+  };
+
+  const getPriorityConfig = (priority: string) => {
+    const p = (priority || 'Normal').toLowerCase();
+    if (p === 'urgent' || p === 'high') {
+      return { label: p === 'urgent' ? 'Urgent' : 'High Priority', bg: '#FEE2E2', text: '#EF4444' };
+    }
+    if (p === 'medium') {
+      return { label: 'Medium', bg: '#FEF3C7', text: '#D97706' };
+    }
+    return { label: 'Normal', bg: '#DCFCE7', text: '#16A34A' };
+  };
+
+  const getStatusConfig = (status: string) => {
+    const s = (status || 'Pending').toLowerCase();
+    if (s.includes('completed') || s.includes('closed')) {
+      return { label: 'Completed', dotColor: '#16A34A', bg: '#DCFCE7', text: '#15803D' };
+    }
+    if (s.includes('progress') || s.includes('process')) {
+      return { label: 'In Progress', dotColor: '#2563EB', bg: '#EFF6FF', text: '#2563EB' };
+    }
+    if (s.includes('review')) {
+      return { label: 'In Review', dotColor: '#7C3AED', bg: '#FAF5FF', text: '#7C3AED' };
+    }
+    return { label: 'To Do', dotColor: '#D97706', bg: '#FEF3C7', text: '#B45309' };
+  };
+
   const paginatedTasks = useMemo(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
       return sectionTasks;
@@ -324,6 +376,201 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
           </select>
         </div>
       </div>
+
+      {/* Mobile Compact Search & Filter Toolbar (< 768px) */}
+      <div className="mobile-only-block" style={{ marginBottom: '6px' }}>
+        <div className="mobile-search-filter-bar">
+          <div className="mobile-search-input-wrap">
+            <Search 
+              size={15} 
+              style={{ 
+                position: 'absolute', 
+                left: '12px', 
+                top: '50%', 
+                transform: 'translateY(-50%)', 
+                color: '#94A3B8' 
+              }} 
+            />
+            <input
+              type="text"
+              placeholder="Search assigned tasks..."
+              value={searchTerm}
+              onChange={e => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="mobile-search-input"
+              style={{ borderRadius: '12px', height: '40px', paddingLeft: '34px' }}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCurrentPage(1);
+                }}
+                aria-label="Clear search"
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#94A3B8',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  padding: 0
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className={`mobile-filter-trigger-btn ${(activeSection !== 'all' || selectedDept !== 'All') ? 'has-filters' : ''}`}
+            onClick={() => setIsFilterSheetOpen(true)}
+            aria-label="Open filter options"
+            style={{ borderRadius: '12px', height: '40px', padding: '0 14px' }}
+          >
+            <Filter size={15} />
+            <span>Filters</span>
+            {(activeSection !== 'all' || selectedDept !== 'All') && (
+              <span className="mobile-tab-badge" style={{ background: '#0E7490', color: '#FFFFFF', padding: '1px 6px', fontSize: '0.68rem' }}>
+                {(activeSection !== 'all' ? 1 : 0) + (selectedDept !== 'All' ? 1 : 0)}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Active Filter Chips */}
+        {(activeSection !== 'all' || selectedDept !== 'All') && (
+          <div className="mobile-active-filter-chips-row">
+            {activeSection !== 'all' && (
+              <span className="mobile-ref-filter-chip">
+                <span>Status: {
+                  activeSection === 'pending' ? 'To Do' :
+                  activeSection === 'in_progress' ? 'In Progress' :
+                  activeSection === 'today' ? "Today's Tasks" :
+                  activeSection === 'completed' ? 'Completed' :
+                  activeSection === 'overdue' ? 'Overdue' : 'All'
+                }</span>
+                <button
+                  type="button"
+                  className="mobile-ref-filter-chip-clear"
+                  onClick={() => {
+                    handleSectionChange('all');
+                  }}
+                  aria-label="Remove status filter"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {selectedDept !== 'All' && (
+              <span className="mobile-ref-filter-chip">
+                <span>Dept: {selectedDept}</span>
+                <button
+                  type="button"
+                  className="mobile-ref-filter-chip-clear"
+                  onClick={() => {
+                    setSelectedDept('All');
+                    setCurrentPage(1);
+                  }}
+                  aria-label="Remove department filter"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            <button
+              type="button"
+              className="mobile-filter-reset-all-btn"
+              onClick={() => {
+                handleSectionChange('all');
+                setSelectedDept('All');
+                setSearchTerm('');
+              }}
+            >
+              Reset all
+            </button>
+          </div>
+        )}
+
+        {/* Current Tasks Section Header */}
+        <div className="mobile-task-section-header">
+          <span className="mobile-task-section-title">
+            CURRENT TASKS ({sectionTasks.length})
+          </span>
+          <span className="mobile-task-section-sort">
+            Sort by Due Date
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile Filter Bottom Sheet */}
+      <MobileFilterSheet
+        isOpen={isFilterSheetOpen}
+        onClose={() => setIsFilterSheetOpen(false)}
+        title="Filter Assigned Tasks"
+        onReset={() => {
+          handleSectionChange('all');
+          setSelectedDept('All');
+        }}
+        onApply={() => {
+          setCurrentPage(1);
+        }}
+      >
+        <div>
+          <div className="mobile-filter-group-title">Status Filter</div>
+          <div className="mobile-filter-chips-grid">
+            {[
+              { id: 'all', label: `All Tasks (${sectionCounts.all})` },
+              { id: 'pending', label: `To Do (${sectionCounts.pending})` },
+              { id: 'in_progress', label: `In Progress (${sectionCounts.in_progress})` },
+              { id: 'today', label: `Today's Tasks (${sectionCounts.today})` },
+              { id: 'completed', label: `Completed (${sectionCounts.completed})` },
+              { id: 'overdue', label: `Overdue (${sectionCounts.overdue})` }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                className={`mobile-filter-select-chip ${activeSection === opt.id ? 'selected' : ''}`}
+                onClick={() => {
+                  handleSectionChange(opt.id as any);
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mobile-filter-group-title">Department</div>
+          <div className="mobile-filter-chips-grid">
+            <button
+              type="button"
+              className={`mobile-filter-select-chip ${selectedDept === 'All' ? 'selected' : ''}`}
+              onClick={() => setSelectedDept('All')}
+            >
+              All Departments
+            </button>
+            {departments.map(d => (
+              <button
+                key={d.id}
+                type="button"
+                className={`mobile-filter-select-chip ${selectedDept === d.name ? 'selected' : ''}`}
+                onClick={() => setSelectedDept(d.name)}
+              >
+                {d.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </MobileFilterSheet>
 
       {/* TASKS TABLE VIEW */}
       <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid #E7ECF3', borderRadius: '16px' }}>

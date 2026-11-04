@@ -178,7 +178,7 @@ export const Header: React.FC<HeaderProps> = ({
           <img 
             src={businessSettings?.logoUrl || "/logo.png"} 
             alt="Logo" 
-            style={{ width: '22px', height: '22px', objectFit: 'contain' }} 
+            className="header-mobile-logo-img"
           />
           <span className="header-mobile-brand-title">
             {businessSettings?.businessName || 'BUSINZ'} <span>HRMS</span>

@@ -30,6 +30,8 @@ import { toNum, formatCurrency } from '../../utils/numbers';
 import { formatDateDDMMYYYY, isValidISODate } from '../../utils/dateUtils';
 import { downloadPDF, downloadCSV, downloadExcel, ExportColumn } from '../../utils/exportUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
+import { MobileFilterSheet } from '../common/MobileFilterSheet';
+import { Filter, X } from 'lucide-react';
 import { Expense } from '../../types/hrms';
 import { 
   getTodayKolkata, 
@@ -86,6 +88,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
   // Multi-row selection
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
 
   // Pagination per AGENTS.md rules ([5, 10])
   const [pageSize, setPageSize] = useState<number>(10);
@@ -505,7 +508,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
           {canSubmitClaim && (
             <button type="button" className="btn btn-primary" onClick={() => setShowModal(true)}>
-              <Plus size={16} /> Submit Expense Claim
+              <Plus size={16} /> <span className="desktop-only-inline">Submit Expense Claim</span><span className="mobile-only-inline">Claim</span>
             </button>
           )}
 
@@ -513,97 +516,128 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
         </div>
       </div>
 
-      {/* KPI Cards: Shows personal totals for Employee role */}
-      <div className="kpi-grid" style={{ marginBottom: '24px' }}>
-        <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
-          <div className="kpi-card-header">
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployeeRole ? 'My Total Claimed Amount' : 'Total Claimed Amount'}
-            </span>
-            <div className="kpi-icon-wrapper blue" style={{ flexShrink: 0 }}><IndianRupee size={20} /></div>
-          </div>
-          <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
-            <div 
-              className="kpi-value" 
-              title={`₹${totalClaimed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              style={{ 
-                color: '#0E7490', 
-                fontWeight: 800, 
-                minWidth: 0, 
-                maxWidth: '100%', 
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap' 
-              }}
-            >
-              ₹{totalClaimed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      {/* KPI Cards: Desktop Grid (>= 768px) */}
+      <div className="desktop-only-block">
+        <div className="kpi-grid" style={{ marginBottom: '24px' }}>
+          <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
+            <div className="kpi-card-header">
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmployeeRole ? 'My Total Claimed Amount' : 'Total Claimed Amount'}
+              </span>
+              <div className="kpi-icon-wrapper blue" style={{ flexShrink: 0 }}><IndianRupee size={20} /></div>
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployeeRole 
-                ? `Across ${activeValidExpenses.length} personal claims${rejectedCount > 0 ? ` (${rejectedCount} rejected excluded)` : ''}` 
-                : `Across ${activeValidExpenses.length} active claims${rejectedCount > 0 ? ` (${rejectedCount} rejected excluded)` : ''}`}
+            <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div 
+                className="kpi-value" 
+                title={`₹${totalClaimed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                style={{ 
+                  color: '#0E7490', 
+                  fontWeight: 800, 
+                  minWidth: 0, 
+                  maxWidth: '100%', 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap' 
+                }}
+              >
+                ₹{totalClaimed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmployeeRole 
+                  ? `Across ${activeValidExpenses.length} personal claims${rejectedCount > 0 ? ` (${rejectedCount} rejected excluded)` : ''}` 
+                  : `Across ${activeValidExpenses.length} active claims${rejectedCount > 0 ? ` (${rejectedCount} rejected excluded)` : ''}`}
+              </div>
+            </div>
+          </div>
+
+          <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
+            <div className="kpi-card-header">
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmployeeRole ? 'My Pending Verification' : 'Pending Review & Verification'}
+              </span>
+              <div className="kpi-icon-wrapper amber" style={{ flexShrink: 0 }}><FileText size={20} /></div>
+            </div>
+            <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div 
+                className="kpi-value" 
+                style={{ 
+                  color: '#D97706', 
+                  fontWeight: 800, 
+                  minWidth: 0, 
+                  maxWidth: '100%', 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap' 
+                }}
+              >
+                {pendingFinance}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmployeeRole 
+                  ? 'Your claims awaiting bill audit & reimbursement' 
+                  : 'Claims awaiting bill audit & reimbursement'}
+              </div>
+            </div>
+          </div>
+
+          <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
+            <div className="kpi-card-header">
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmployeeRole ? 'My Total Reimbursed Amount' : 'Total Reimbursed Payouts'}
+              </span>
+              <div className="kpi-icon-wrapper emerald" style={{ flexShrink: 0 }}><CheckCircle2 size={20} /></div>
+            </div>
+            <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div 
+                className="kpi-value" 
+                title={`₹${totalReimbursed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                style={{ 
+                  color: '#059669', 
+                  fontWeight: 800, 
+                  minWidth: 0, 
+                  maxWidth: '100%', 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap' 
+                }}
+              >
+                ₹{totalReimbursed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmployeeRole 
+                  ? 'Disbursed directly via corporate payroll' 
+                  : 'Disbursed directly via corporate payroll'}
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
-          <div className="kpi-card-header">
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployeeRole ? 'My Pending Verification' : 'Pending Review & Verification'}
-            </span>
-            <div className="kpi-icon-wrapper amber" style={{ flexShrink: 0 }}><FileText size={20} /></div>
+      {/* Mobile Financial Summary: Compact KPI Tiles (< 768px) */}
+      <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
+        <div className="mobile-expense-kpi-grid">
+          <div className="mobile-expense-kpi-tile">
+            <span className="mobile-expense-kpi-label">Claimed</span>
+            <div className="mobile-expense-kpi-val" style={{ color: '#0E7490' }}>
+              ₹{totalClaimed >= 1000 ? (totalClaimed / 1000).toFixed(1) + 'k' : totalClaimed.toLocaleString('en-IN')}
+            </div>
+            <span className="mobile-expense-kpi-sub">{activeValidExpenses.length} claims</span>
           </div>
-          <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
-            <div 
-              className="kpi-value" 
-              style={{ 
-                color: '#D97706', 
-                fontWeight: 800, 
-                minWidth: 0, 
-                maxWidth: '100%', 
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap' 
-              }}
-            >
+
+          <div className="mobile-expense-kpi-tile">
+            <span className="mobile-expense-kpi-label">Pending</span>
+            <div className="mobile-expense-kpi-val" style={{ color: '#D97706' }}>
               {pendingFinance}
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployeeRole 
-                ? 'Your claims awaiting bill audit & reimbursement' 
-                : 'Claims awaiting bill audit & reimbursement'}
-            </div>
+            <span className="mobile-expense-kpi-sub">In Review</span>
           </div>
-        </div>
 
-        <div className="kpi-card" style={{ borderRadius: '16px', minWidth: 0, overflow: 'hidden' }}>
-          <div className="kpi-card-header">
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployeeRole ? 'My Total Reimbursed Amount' : 'Total Reimbursed Payouts'}
-            </span>
-            <div className="kpi-icon-wrapper emerald" style={{ flexShrink: 0 }}><CheckCircle2 size={20} /></div>
-          </div>
-          <div className="kpi-card-body" style={{ minWidth: 0, overflow: 'hidden' }}>
-            <div 
-              className="kpi-value" 
-              title={`₹${totalReimbursed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              style={{ 
-                color: '#059669', 
-                fontWeight: 800, 
-                minWidth: 0, 
-                maxWidth: '100%', 
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap' 
-              }}
-            >
-              ₹{totalReimbursed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="mobile-expense-kpi-tile">
+            <span className="mobile-expense-kpi-label">Reimbursed</span>
+            <div className="mobile-expense-kpi-val" style={{ color: '#059669' }}>
+              ₹{totalReimbursed >= 1000 ? (totalReimbursed / 1000).toFixed(1) + 'k' : totalReimbursed.toLocaleString('en-IN')}
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployeeRole 
-                ? 'Disbursed directly via corporate payroll' 
-                : 'Disbursed directly via corporate payroll'}
-            </div>
+            <span className="mobile-expense-kpi-sub">Paid out</span>
           </div>
         </div>
       </div>
@@ -753,6 +787,184 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
             </select>
           </div>
         </div>
+
+        {/* Mobile Scope Tabs & Filters Toolbar (< 768px) */}
+        <div className="mobile-only-block" style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9' }}>
+          {/* Segmented Scope Tab Bar */}
+          <div className="mobile-segmented-tab-bar" style={{ marginBottom: '8px' }}>
+            {!isEmployeeRole && (
+              <>
+                <button
+                  type="button"
+                  className={`mobile-segmented-tab-btn ${scopeTab === 'all' ? 'active' : ''}`}
+                  onClick={() => { setScopeTab('all'); setCurrentPage(1); }}
+                >
+                  <span>All Claims</span>
+                  <span className="mobile-tab-badge">{expenses.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`mobile-segmented-tab-btn ${scopeTab === 'approved' ? 'active' : ''}`}
+                  onClick={() => { setScopeTab('approved'); setCurrentPage(1); }}
+                >
+                  <span>Approved</span>
+                  <span className="mobile-tab-badge">{expenses.filter(e => e.status === 'Reimbursed' || e.status === 'Approved').length}</span>
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className={`mobile-segmented-tab-btn ${scopeTab === 'my' ? 'active' : ''}`}
+              onClick={() => { setScopeTab('my'); setCurrentPage(1); }}
+            >
+              <span>My Claims</span>
+              <span className="mobile-tab-badge">{expenses.filter(isUserExpense).length}</span>
+            </button>
+          </div>
+
+          {/* Compact Search & Filter Toolbar */}
+          <div className="mobile-search-filter-bar">
+            <div className="mobile-search-input-wrap">
+              <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+              <input
+                type="text"
+                placeholder="Search claims..."
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                className="mobile-search-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                  aria-label="Clear search"
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: '#94A3B8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    padding: 0
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className={`mobile-filter-trigger-btn ${(categoryFilter !== 'ALL' || statusFilter !== 'ALL') ? 'has-filters' : ''}`}
+              onClick={() => setIsFilterSheetOpen(true)}
+              aria-label="Open filter options"
+            >
+              <Filter size={15} />
+              <span>Filters</span>
+              {(categoryFilter !== 'ALL' || statusFilter !== 'ALL') && (
+                <span className="mobile-tab-badge" style={{ background: '#0E7490', color: '#FFFFFF', padding: '1px 5px', fontSize: '0.66rem' }}>
+                  {(categoryFilter !== 'ALL' ? 1 : 0) + (statusFilter !== 'ALL' ? 1 : 0)}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Active Filter Chips */}
+          {(categoryFilter !== 'ALL' || statusFilter !== 'ALL') && (
+            <div className="mobile-active-filter-chips">
+              {categoryFilter !== 'ALL' && (
+                <span className="mobile-filter-chip">
+                  <span>Category: {categoryFilter}</span>
+                  <button
+                    type="button"
+                    className="mobile-filter-chip-clear"
+                    onClick={() => { setCategoryFilter('ALL'); setCurrentPage(1); }}
+                    aria-label="Remove category filter"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+              {statusFilter !== 'ALL' && (
+                <span className="mobile-filter-chip">
+                  <span>Status: {statusFilter}</span>
+                  <button
+                    type="button"
+                    className="mobile-filter-chip-clear"
+                    onClick={() => { setStatusFilter('ALL'); setCurrentPage(1); }}
+                    aria-label="Remove status filter"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Mobile Filter Bottom Sheet */}
+        <MobileFilterSheet
+          isOpen={isFilterSheetOpen}
+          onClose={() => setIsFilterSheetOpen(false)}
+          title="Filter Expense Claims"
+          onReset={() => {
+            setCategoryFilter('ALL');
+            setStatusFilter('ALL');
+            setCurrentPage(1);
+          }}
+          onApply={() => {
+            setCurrentPage(1);
+          }}
+        >
+          <div>
+            <div className="mobile-filter-group-title">Status</div>
+            <div className="mobile-filter-chips-grid">
+              {[
+                { id: 'ALL', label: 'All Statuses' },
+                { id: 'Pending', label: 'Pending Review' },
+                { id: 'Approved', label: 'Approved (Awaiting Payment)' },
+                { id: 'Reimbursed', label: 'Paid / Reimbursed' },
+                { id: 'Rejected', label: 'Rejected' }
+              ].map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`mobile-filter-select-chip ${statusFilter === opt.id ? 'selected' : ''}`}
+                  onClick={() => setStatusFilter(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mobile-filter-group-title">Expense Category</div>
+            <div className="mobile-filter-chips-grid">
+              {[
+                'ALL',
+                'Travel',
+                'Meals',
+                'Equipment',
+                'Training',
+                'Utilities',
+                'Other'
+              ].map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={`mobile-filter-select-chip ${categoryFilter === cat ? 'selected' : ''}`}
+                  onClick={() => setCategoryFilter(cat)}
+                >
+                  {cat === 'ALL' ? 'All Categories' : cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        </MobileFilterSheet>
 
         {/* Unified Table - Single Box Container (Desktop) */}
         <div className="expense-desktop-table" style={{ overflowX: 'auto', width: '100%' }}>
@@ -1443,7 +1655,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
       {showModal && (
         <div className="modal-overlay" style={{ zIndex: 20000 }}>
           <div
-            className="modal-content"
+            className="modal-content expense-submit-modal-content"
             style={{
               maxWidth: '640px',
               width: '95%',

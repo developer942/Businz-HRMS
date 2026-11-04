@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Employee } from '../../types/hrms';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
@@ -26,7 +26,8 @@ import {
   X,
   RotateCcw,
   Filter,
-  ChevronRight
+  ChevronRight,
+  ArrowUpDown
 } from 'lucide-react';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 
@@ -54,6 +55,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState<boolean>(false);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const activeFilterCount = (selectedDepartment !== 'All' ? 1 : 0) +
     (selectedDesignation !== 'All' ? 1 : 0) +
@@ -148,26 +150,36 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
     }
   }, [openAddModal]);
 
-  // Filter scoped employees by search, dept, designation, location, status
-  const filteredEmployees = roleScopedEmployees.filter(emp => {
-    const matchesSearch = 
-      emp.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      emp.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      emp.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      emp.employeeId.toLowerCase().includes(searchQuery.toLowerCase());
+  // Filter scoped employees by search, dept, designation, location, status, and sort by Employee Code (1, 2, 3, 4...)
+  const filteredEmployees = useMemo(() => {
+    return roleScopedEmployees.filter(emp => {
+      const matchesSearch = 
+        emp.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.employeeId.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const departmentDisplay = getEmployeeDepartmentDisplay(emp);
-    const matchesDept = (isManagerRole || selectedDepartment === 'All') 
-      ? true 
-      : departmentDisplay.toLowerCase() === selectedDepartment.toLowerCase();
-    const matchesDesignation = selectedDesignation === 'All' || emp.designation === selectedDesignation;
-    const matchesLocation = selectedLocation === 'All' || 
-      (emp.workLocation && emp.workLocation.toLowerCase().includes(selectedLocation.toLowerCase())) ||
-      (emp.address && emp.address.toLowerCase().includes(selectedLocation.toLowerCase()));
-    const matchesStatus = selectedStatus === 'All' || emp.status === selectedStatus;
+      const departmentDisplay = getEmployeeDepartmentDisplay(emp);
+      const matchesDept = (isManagerRole || selectedDepartment === 'All') 
+        ? true 
+        : departmentDisplay.toLowerCase() === selectedDepartment.toLowerCase();
+      const matchesDesignation = selectedDesignation === 'All' || emp.designation === selectedDesignation;
+      const matchesLocation = selectedLocation === 'All' || 
+        (emp.workLocation && emp.workLocation.toLowerCase().includes(selectedLocation.toLowerCase())) ||
+        (emp.address && emp.address.toLowerCase().includes(selectedLocation.toLowerCase()));
+      const matchesStatus = selectedStatus === 'All' || emp.status === selectedStatus;
 
-    return matchesSearch && matchesDept && matchesDesignation && matchesLocation && matchesStatus;
-  });
+      return matchesSearch && matchesDept && matchesDesignation && matchesLocation && matchesStatus;
+    }).sort((a, b) => {
+      const codeA = (a.employeeId || '').trim();
+      const codeB = (b.employeeId || '').trim();
+      if (!codeA && !codeB) return 0;
+      if (!codeA) return 1;
+      if (!codeB) return -1;
+      const cmp = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
+  }, [roleScopedEmployees, searchQuery, isManagerRole, selectedDepartment, selectedDesignation, selectedLocation, selectedStatus, departments, sortOrder]);
 
   const exportColumns = [
     { key: 'employeeId', label: 'Employee ID' },
@@ -650,6 +662,35 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
               <option value="Terminated">Terminated</option>
             </select>
           </div>
+          {/* Employee Code Sort Order */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
+            <label style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Sort by Code
+            </label>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+              style={{
+                height: '40px',
+                padding: '0 12px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                backgroundColor: '#FFFFFF',
+                color: '#0E7490',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer'
+              }}
+              title="Toggle Employee Code sort order (Ascending / Descending)"
+            >
+              <ArrowUpDown size={14} />
+              <span>{sortOrder === 'asc' ? 'Code: 1 → 9 (Asc)' : 'Code: 9 → 1 (Desc)'}</span>
+            </button>
+          </div>
 
           {/* Reset Filters */}
           {(searchQuery || selectedDepartment !== 'All' || selectedDesignation !== 'All' || selectedLocation !== 'All' || selectedStatus !== 'All') && (
@@ -701,7 +742,30 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                   />
                 </th>
               )}
-              <th>Employee</th>
+              <th 
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                title={`Sorted by Employee Code (${sortOrder === 'asc' ? 'Ascending 1→9' : 'Descending 9→1'}). Click to switch.`}
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Employee</span>
+                  <span style={{ 
+                    fontSize: '0.68rem', 
+                    fontWeight: 700, 
+                    color: '#0E7490', 
+                    background: '#ECFEFF', 
+                    padding: '2px 7px', 
+                    borderRadius: '6px', 
+                    border: '1px solid #CFFAFE',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <ArrowUpDown size={11} />
+                    Code {sortOrder === 'asc' ? '1→9 ↑' : '9→1 ↓'}
+                  </span>
+                </div>
+              </th>
               <th>Department</th>
               <th>Designation</th>
               <th>Reporting Manager</th>
@@ -895,6 +959,35 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
           </tbody>
         </table>
       </div>
+      </div>
+
+      {/* Mobile Sort & Count Subheader */}
+      <div className="mobile-only-block" style={{ padding: '0 4px 8px 4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#64748B' }}>
+            {filteredEmployees.length} Employees
+          </span>
+          <button
+            type="button"
+            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+            style={{
+              background: '#ECFEFF',
+              border: '1px solid #CFFAFE',
+              borderRadius: '8px',
+              padding: '4px 10px',
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              color: '#0E7490',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <ArrowUpDown size={12} />
+            <span>Code {sortOrder === 'asc' ? '1→9 ↑' : '9→1 ↓'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Mobile Card List View (Visible on Mobile < 768px, Matches Reference Image 5) */}
