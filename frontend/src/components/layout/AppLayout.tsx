@@ -17,7 +17,6 @@ const LeaveManagement = lazyWithRetry(() => import('../leave/LeaveManagement'), 
 const ShiftManagement = lazyWithRetry(() => import('../shift/ShiftManagement'), 'ShiftManagement');
 const TaskManagement = lazyWithRetry(() => import('../tasks/TaskManagement'), 'TaskManagement');
 const ExpenseManagement = lazyWithRetry(() => import('../finance/ExpenseManagement'), 'ExpenseManagement');
-const FieldAllowanceModule = lazyWithRetry(() => import('../field-allowance/FieldAllowanceModule'), 'FieldAllowanceModule');
 const AttendanceReportsView = lazyWithRetry(() => import('../attendance/AttendanceReportsView'), 'AttendanceReportsView');
 const UserProfile = lazyWithRetry(() => import('../profile/UserProfile'), 'UserProfile');
 const AccountsPaymentDashboard = lazyWithRetry(() => import('../finance/AccountsPaymentDashboard'), 'AccountsPaymentDashboard');
@@ -156,8 +155,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
                 return <RecruitmentPipeline />;
             case 'finance':
                 return <ExpenseManagement openAddModal={quickAddModal === 'expense'} onCloseQuickAdd={() => setQuickAddModal(null)} />;
-            case 'field_allowance':
-                return <FieldAllowanceModule />;
             case 'payroll':
                 return <PayrollManagement />;
             case 'advance_salary':

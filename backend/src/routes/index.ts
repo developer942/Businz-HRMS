@@ -19,7 +19,6 @@ import { crmRouter } from './crmRoutes.js';
 import { pettyCashRouter } from './pettyCashRoutes.js';
 import { departmentRouter } from './departmentRoutes.js';
 import { dataGatewayRouter } from './dataGatewayRoutes.js';
-import { fieldAdvanceRouter } from './fieldAdvanceRoutes.js';
 
 export const apiRouter = Router();
 
@@ -45,9 +44,6 @@ apiRouter.use('/', overtimeRouter);
 apiRouter.use('/customers', customerRouter);
 apiRouter.use('/whatsapp', whatsappRouter);
 apiRouter.use('/expenses', expenseRouter);
-apiRouter.use('/field-allowance', fieldAdvanceRouter);
-apiRouter.use('/field-advances', fieldAdvanceRouter);
-apiRouter.use('/field-visits', fieldAdvanceRouter);
 apiRouter.use('/crm', crmRouter);
 apiRouter.use('/petty-cash', pettyCashRouter);
 apiRouter.use('/data-gateway', dataGatewayRouter);

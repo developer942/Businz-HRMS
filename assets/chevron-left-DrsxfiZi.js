@@ -1,0 +1,1 @@
+import{ut as e}from"./HRMSContext-5iQ6t_UY.js";var t=e(`chevron-left`,[[`path`,{d:`m15 18-6-6 6-6`,key:`1wnfg3`}]]);export{t};
