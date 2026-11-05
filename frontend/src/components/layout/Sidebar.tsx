@@ -30,7 +30,8 @@ import {
   ChevronRight,
   Bell,
   LogOut,
-  Contact2
+  Contact2,
+  MapPinned
 } from 'lucide-react';
 import { pettyCashService } from '../../services/pettyCashService';
 
@@ -245,6 +246,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'petty_cash',
       label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Petty Cash Desk' : 'Petty Cash',
       icon: Wallet,
+      section: 'FINANCE & PAYROLL'
+    },
+    {
+      id: 'field_allowance',
+      label: 'Field Allowance',
+      icon: MapPinned,
       section: 'FINANCE & PAYROLL'
     },
 

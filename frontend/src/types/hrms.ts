@@ -50,6 +50,7 @@ export type ModuleName =
   | 'payroll'
   | 'advance_salary'
   | 'petty_cash'
+  | 'field_allowance'
   | 'accounts_payment'
   | 'reports'
   | 'organization'

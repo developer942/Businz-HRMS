@@ -36,6 +36,7 @@ const TrackingModule = lazyWithRetry(() => import('../tracking/TrackingModule'),
 const CustomerModule = lazyWithRetry(() => import('../customer/CustomerModule'), 'CustomerModule');
 const WhatsAppCRMModule = lazyWithRetry(() => import('../whatsapp-crm/WhatsAppCRMModule'), 'WhatsAppCRMModule');
 const PettyCashManagement = lazyWithRetry(() => import('../petty-cash/PettyCashManagement'), 'PettyCashManagement');
+const FieldAllowanceModule = lazyWithRetry(() => import('../field-allowance/FieldAllowanceModule'), 'FieldAllowanceModule');
 
 interface AppLayoutProps {
     onLogout?: () => void;
@@ -72,6 +73,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
             void import('../attendance/AttendanceReportsView');
             void import('../petty-cash/PettyCashManagement');
             void import('../finance/ExpenseManagement');
+            void import('../field-allowance/FieldAllowanceModule');
             void import('../payroll/PayrollManagement');
         });
         return () => {
@@ -161,6 +163,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
                 return <AdvanceSalaryManagement openAddModal={quickAddModal === 'advance_salary'} onCloseQuickAdd={() => setQuickAddModal(null)} />;
             case 'petty_cash':
                 return <PettyCashManagement />;
+            case 'field_allowance':
+                return <FieldAllowanceModule />;
             case 'accounts_payment':
                 return <AccountsPaymentDashboard />;
             case 'reports':

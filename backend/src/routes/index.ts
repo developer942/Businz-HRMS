@@ -19,6 +19,7 @@ import { crmRouter } from './crmRoutes.js';
 import { pettyCashRouter } from './pettyCashRoutes.js';
 import { departmentRouter } from './departmentRoutes.js';
 import { dataGatewayRouter } from './dataGatewayRoutes.js';
+import { fieldAllowanceRouter } from './fieldAllowanceRoutes.js';
 
 export const apiRouter = Router();
 
@@ -47,3 +48,4 @@ apiRouter.use('/expenses', expenseRouter);
 apiRouter.use('/crm', crmRouter);
 apiRouter.use('/petty-cash', pettyCashRouter);
 apiRouter.use('/data-gateway', dataGatewayRouter);
+apiRouter.use('/field-allowance', fieldAllowanceRouter);

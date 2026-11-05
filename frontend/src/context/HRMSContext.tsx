@@ -268,6 +268,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     advance_salary: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     petty_cash: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    field_allowance: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     accounts_payment: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     reports: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -292,6 +293,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     advance_salary: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     petty_cash: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    field_allowance: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     accounts_payment: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     reports: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -316,6 +318,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view', 'create', 'edit', 'export'], // Batches require CEO sign-off
     advance_salary: ['view', 'create', 'export'], // NO approve - CEO sole approver
     petty_cash: ['view'],
+    field_allowance: ['view', 'create', 'edit', 'approve', 'export'],
     accounts_payment: [],
     reports: ['view', 'export'],
     organization: ['view', 'edit'],
@@ -339,6 +342,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view', 'create', 'edit', 'export'],
     advance_salary: ['view', 'create', 'export'], // NO approve - CEO sole approver
     petty_cash: ['view'],
+    field_allowance: ['view', 'create', 'edit', 'approve', 'export'],
     accounts_payment: [],
     reports: ['view', 'export'],
     organization: ['view', 'create', 'edit', 'export'],
@@ -362,6 +366,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view', 'create', 'edit', 'export'],
     advance_salary: ['view', 'create', 'export'], // NO approve - CEO sole approver
     petty_cash: ['view'],
+    field_allowance: ['view', 'create', 'edit', 'approve', 'export'],
     accounts_payment: [],
     reports: ['view', 'export'],
     organization: ['view', 'create', 'edit', 'export'],
@@ -385,6 +390,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view', 'create', 'edit', 'delete', 'export'],
     advance_salary: ['view', 'create', 'edit', 'export'], // NO approve
     petty_cash: ['view', 'create', 'export'],
+    field_allowance: ['view', 'create', 'edit', 'approve', 'export'],
     accounts_payment: ['view'],
     reports: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -408,6 +414,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: [],
     advance_salary: ['view', 'create'],
     petty_cash: ['view'],
+    field_allowance: ['view', 'create', 'edit'],
     accounts_payment: [],
     reports: ['view'],
     organization: ['view'],
@@ -431,6 +438,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view'], // Payslip only
     advance_salary: ['view', 'create'],
     petty_cash: ['view'],
+    field_allowance: ['view', 'create', 'edit'],
     accounts_payment: [],
     reports: [],
     organization: ['view'],
@@ -454,6 +462,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     payroll: ['view'], // Self payslip only
     advance_salary: ['view', 'create'], // Self advance salary only
     petty_cash: ['view'], // Personal desk
+    field_allowance: ['view', 'create', 'edit', 'export'],
     accounts_payment: ['view', 'create', 'export'], // Accounts financial payment processing
     reports: [],
     organization: ['view'],
