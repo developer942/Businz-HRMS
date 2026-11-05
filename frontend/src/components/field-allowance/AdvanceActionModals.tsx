@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, XCircle, AlertCircle, IndianRupee, ArrowRight, ShieldCheck, DollarSign } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { FieldVisitAdvance, FieldVisitDetail, ExpenseApprovalStatus } from '../../types/fieldAdvance';
 import {
   approveAdvanceApi,
@@ -9,6 +9,72 @@ import {
   confirmBalanceReturnApi,
   disburseReimbursementApi,
 } from '../../services/fieldAdvanceService';
+
+const overlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 20000,
+  background: 'rgba(15, 23, 42, 0.6)',
+  backdropFilter: 'blur(4px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '16px',
+  overflowY: 'auto',
+};
+
+const cardStyle: React.CSSProperties = {
+  width: '100%',
+  maxWidth: '480px',
+  background: '#FFFFFF',
+  borderRadius: '18px',
+  border: '1px solid #E2E8F0',
+  boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.15)',
+  overflow: 'hidden',
+  margin: 'auto',
+};
+
+const headerStyle: React.CSSProperties = {
+  padding: '18px 22px',
+  borderBottom: '1px solid #E2E8F0',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  background: '#F8FAFC',
+};
+
+const closeBtnStyle: React.CSSProperties = {
+  width: '32px',
+  height: '32px',
+  borderRadius: '8px',
+  border: '1px solid #E2E8F0',
+  background: '#FFFFFF',
+  color: '#64748B',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+};
+
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: '0.8rem',
+  fontWeight: 700,
+  color: '#334155',
+  marginBottom: '6px',
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 14px',
+  borderRadius: '10px',
+  border: '1px solid #CBD5E1',
+  fontSize: '0.88rem',
+  color: '#0F172A',
+  background: '#FFFFFF',
+  boxSizing: 'border-box',
+  outline: 'none',
+};
 
 // -------------------------------------------------------------
 // 1. CEO / HR ADVANCE APPROVAL MODAL
@@ -47,92 +113,137 @@ export const ApproveAdvanceModal: React.FC<{
   };
 
   return (
-    <div className="modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", overflowY: "auto" }}>
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-sm">Review Field Visit Advance</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
-            <X className="w-4 h-4" />
+    <div style={overlayStyle}>
+      <div style={cardStyle}>
+        <div style={headerStyle}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 800, color: '#0F172A' }}>
+              Review Field Visit Advance
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: '#64748B' }}>
+              {visit.request_number} · {visit.destination}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} style={closeBtnStyle}>
+            <X size={16} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5">
-          {error && <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-lg">{error}</div>}
-          <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs">
-            <div className="flex justify-between text-slate-500">
-              <span>Employee:</span>
-              <span className="font-semibold text-slate-800">{visit.employee_name} ({visit.employee_code})</span>
+
+        <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '0.8rem', fontWeight: 600 }}>
+              {error}
             </div>
-            <div className="flex justify-between text-slate-500">
-              <span>Purpose:</span>
-              <span className="font-semibold text-slate-800">{visit.purpose}</span>
+          )}
+
+          <div style={{ padding: '14px 16px', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.84rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#64748B' }}>Employee</span>
+              <span style={{ fontWeight: 700, color: '#0F172A' }}>{visit.employee_name} ({visit.employee_code})</span>
             </div>
-            <div className="flex justify-between text-slate-500">
-              <span>Requested Advance:</span>
-              <span className="font-bold text-teal-700">₹{visit.requested_amount.toLocaleString()}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#64748B' }}>Field Visit</span>
+              <span style={{ fontWeight: 700, color: '#0F172A' }}>{visit.purpose} · {visit.destination}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #E2E8F0' }}>
+              <span style={{ color: '#64748B', fontWeight: 600 }}>Requested Advance</span>
+              <span style={{ fontWeight: 800, fontSize: '1rem', color: '#0E7490' }}>
+                ₹{Number(visit.requested_amount || 0).toLocaleString('en-IN')}
+              </span>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Decision</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['Approved', 'Correction Requested', 'Rejected'] as const).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDecision(d)}
-                  className={`py-1.5 px-2 text-xs font-semibold rounded-lg border text-center transition ${decision === d
-                    ? d === 'Approved'
-                      ? 'bg-teal-600 text-white border-teal-600'
-                      : d === 'Rejected'
-                        ? 'bg-rose-600 text-white border-rose-600'
-                        : 'bg-amber-600 text-white border-amber-600'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                >
-                  {d}
-                </button>
-              ))}
+            <label style={labelStyle}>Decision</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              {(['Approved', 'Correction Requested', 'Rejected'] as const).map((d) => {
+                const active = decision === d;
+                const activeBg = d === 'Approved' ? '#059669' : d === 'Rejected' ? '#DC2626' : '#D97706';
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDecision(d)}
+                    style={{
+                      padding: '10px 8px',
+                      borderRadius: '10px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      border: active ? `1.5px solid ${activeBg}` : '1px solid #CBD5E1',
+                      background: active ? activeBg : '#FFFFFF',
+                      color: active ? '#FFFFFF' : '#475569',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {d === 'Correction Requested' ? 'Correction' : d}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {decision === 'Approved' && (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Approved Advance Amount (₹)</label>
+              <label style={labelStyle}>Approved Advance Amount (₹)</label>
               <input
                 type="number"
                 min="1"
                 value={approvedAmount}
                 onChange={(e) => setApprovedAmount(Number(e.target.value))}
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                style={{ ...inputStyle, fontWeight: 800, fontSize: '1rem' }}
                 required
               />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Remarks {decision !== 'Approved' && <span className="text-rose-500">*</span>}
+            <label style={labelStyle}>
+              Remarks {decision !== 'Approved' && <span style={{ color: '#DC2626' }}>*</span>}
             </label>
             <textarea
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g. Approved as per travel policy"
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-none"
+              style={{ ...inputStyle, resize: 'vertical', minHeight: '68px' }}
               required={decision !== 'Approved'}
             />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                background: '#FFFFFF',
+                color: '#475569',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm disabled:opacity-50"
+              style={{
+                padding: '10px 20px',
+                borderRadius: '10px',
+                border: 'none',
+                background: '#0E7490',
+                color: '#FFFFFF',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.6 : 1,
+              }}
             >
-              {loading ? 'Submitting...' : 'Confirm Decision'}
+              {loading ? 'Saving...' : 'Confirm Decision'}
             </button>
           </div>
         </form>
@@ -180,85 +291,123 @@ export const DisburseAdvanceModal: React.FC<{
   };
 
   return (
-    <div className="modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", overflowY: "auto" }}>
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-sm">Disburse Field Visit Advance</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
-            <X className="w-4 h-4" />
+    <div style={overlayStyle}>
+      <div style={cardStyle}>
+        <div style={headerStyle}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 800, color: '#0F172A' }}>
+              Disburse Field Advance
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: '#64748B' }}>
+              {visit.employee_name} · {visit.request_number}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} style={closeBtnStyle}>
+            <X size={16} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5">
-          {error && <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-lg">{error}</div>}
-          <div className="p-3 bg-teal-50/50 border border-teal-100 rounded-xl text-xs space-y-1">
-            <div className="flex justify-between text-slate-600">
-              <span>Payable to:</span>
-              <span className="font-bold text-slate-800">{visit.employee_name} ({visit.employee_code})</span>
+
+        <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '0.8rem', fontWeight: 600 }}>
+              {error}
             </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Approved Amount:</span>
-              <span className="font-bold text-teal-800">₹{(visit.approved_amount || visit.requested_amount).toLocaleString()}</span>
+          )}
+
+          <div style={{ padding: '14px 16px', background: '#ECFEFF', borderRadius: '12px', border: '1px solid #A5F3FC', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.84rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#475569' }}>Payable To</span>
+              <span style={{ fontWeight: 700, color: '#0F172A' }}>{visit.employee_name} ({visit.employee_code})</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#475569' }}>Approved Advance</span>
+              <span style={{ fontWeight: 800, color: '#0E7490' }}>
+                ₹{Number(visit.approved_amount || visit.requested_amount || 0).toLocaleString('en-IN')}
+              </span>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Disbursement Amount (₹)</label>
+            <label style={labelStyle}>Disbursement Amount (₹)</label>
             <input
               type="number"
               min="1"
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              style={{ ...inputStyle, fontWeight: 800, fontSize: '1rem' }}
               required
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Payment Method</label>
+              <label style={labelStyle}>Payment Method</label>
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white"
+                style={inputStyle}
               >
                 <option value="Bank Transfer">Bank Transfer</option>
                 <option value="UPI">UPI</option>
-                <option value="Cash">Cash Handover</option>
+                <option value="Cash">Cash</option>
                 <option value="Cheque">Cheque</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Reference / UTR #</label>
+              <label style={labelStyle}>UTR / Reference #</label>
               <input
                 type="text"
                 value={paymentReference}
                 onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="UTR/Cheque #"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs"
+                placeholder="UTR / Ref #"
+                style={inputStyle}
                 required={paymentMethod !== 'Cash'}
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Accounts Remarks</label>
+            <label style={labelStyle}>Remarks (Optional)</label>
             <input
               type="text"
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="e.g. Paid via corporate account"
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
+              placeholder="e.g. Disbursed to salary account"
+              style={inputStyle}
             />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                background: '#FFFFFF',
+                color: '#475569',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm disabled:opacity-50"
+              style={{
+                padding: '10px 20px',
+                borderRadius: '10px',
+                border: 'none',
+                background: '#0E7490',
+                color: '#FFFFFF',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.6 : 1,
+              }}
             >
               {loading ? 'Processing...' : 'Confirm Disbursement'}
             </button>
@@ -270,7 +419,7 @@ export const DisburseAdvanceModal: React.FC<{
 };
 
 // -------------------------------------------------------------
-// 3. CEO / HR SETTLEMENT REVIEW MODAL (ITEM-BY-ITEM & BULK)
+// 3. CEO / HR SETTLEMENT REVIEW MODAL (SIMPLE & CLEAN)
 // -------------------------------------------------------------
 export const ReviewSettlementModal: React.FC<{
   isOpen: boolean;
@@ -342,90 +491,130 @@ export const ReviewSettlementModal: React.FC<{
   };
 
   return (
-    <div className="modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", overflowY: "auto" }}>
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden my-auto">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+    <div style={overlayStyle}>
+      <div style={{ ...cardStyle, maxWidth: '600px' }}>
+        <div style={headerStyle}>
           <div>
-            <h3 className="font-bold text-slate-800 text-sm">Review Field Visit Settlement</h3>
-            <p className="text-xs text-slate-500">
-              {detail.visit.employee_name} • {detail.visit.client_name} ({detail.visit.destination})
+            <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 800, color: '#0F172A' }}>
+              Review Expense Claims
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: '#64748B' }}>
+              {detail.visit.employee_name} · {detail.visit.purpose} ({detail.visit.destination})
             </p>
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
-            <X className="w-4 h-4" />
+          <button type="button" onClick={onClose} style={closeBtnStyle}>
+            <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4">
-          {error && <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-lg">{error}</div>}
+        <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '82vh', overflowY: 'auto' }}>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '0.8rem', fontWeight: 600 }}>
+              {error}
+            </div>
+          )}
 
-          {/* Financial Calculation Banner */}
-          <div className="grid grid-cols-3 gap-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
+          {/* Clean 3-column Summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', padding: '14px 16px', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
             <div>
-              <span className="text-slate-500 block text-[11px]">Confirmed Advance (A)</span>
-              <span className="font-bold text-slate-800 text-sm">₹{totalDisbursed.toLocaleString()}</span>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>Allocated</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+                ₹{totalDisbursed.toLocaleString('en-IN')}
+              </div>
             </div>
             <div>
-              <span className="text-slate-500 block text-[11px]">Eligible Expenses (E)</span>
-              <span className="font-bold text-teal-700 text-sm">₹{eligibleTotal.toLocaleString()}</span>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>Approved Spent</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+                ₹{eligibleTotal.toLocaleString('en-IN')}
+              </div>
             </div>
             <div>
-              <span className="text-slate-500 block text-[11px]">Settlement Balance (F = A - E)</span>
-              <span
-                className={`font-bold text-sm ${finalBalance > 0 ? 'text-teal-700' : finalBalance < 0 ? 'text-amber-700' : 'text-slate-700'
-                  }`}
+              <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>Balance</div>
+              <div
+                style={{
+                  fontSize: '1.05rem',
+                  fontWeight: 800,
+                  marginTop: '2px',
+                  color: finalBalance > 0 ? '#059669' : finalBalance < 0 ? '#DC2626' : '#0F172A',
+                }}
               >
                 {finalBalance > 0
-                  ? `+₹${finalBalance.toLocaleString()} (Return Due)`
+                  ? `+₹${finalBalance.toLocaleString('en-IN')}`
                   : finalBalance < 0
-                    ? `−₹${Math.abs(finalBalance).toLocaleString()} (Reimbursement Due)`
-                    : '₹0 (Reconciled)'}
-              </span>
+                  ? `−₹${Math.abs(finalBalance).toLocaleString('en-IN')}`
+                  : '₹0'}
+              </div>
             </div>
           </div>
 
-          {/* Expense Items Item-by-item verification */}
+          {/* Day-wise Expenses List */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold text-slate-700">Trip Expenses Verification</label>
-              <div className="text-[11px] text-slate-500">
-                {detail.expenses.length} item(s) recorded
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                Day-wise Expenses ({detail.expenses.length})
+              </span>
+              <span style={{ fontSize: '0.74rem', color: '#64748B' }}>Approve or reject each item</span>
             </div>
-            <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-52 overflow-y-auto">
-              {detail.expenses.map((exp) => {
+
+            <div style={{ border: '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', maxHeight: '220px', overflowY: 'auto' }}>
+              {detail.expenses.map((exp, idx) => {
                 const currentStatus = itemStatuses[exp.id]?.approval_status || 'Approved';
                 return (
-                  <div key={exp.id} className="p-2.5 flex items-center justify-between gap-3 text-xs">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800">₹{exp.amount.toLocaleString()}</span>
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium">
+                  <div
+                    key={exp.id}
+                    style={{
+                      padding: '12px 14px',
+                      borderBottom: idx < detail.expenses.length - 1 ? '1px solid #F1F5F9' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      background: '#FFFFFF',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0F172A' }}>
+                          ₹{Number(exp.amount).toLocaleString('en-IN')}
+                        </span>
+                        <span style={{ padding: '2px 8px', background: '#F1F5F9', color: '#334155', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700 }}>
                           {exp.category}
                         </span>
-                        <span className="text-slate-400 text-[11px]">{exp.expense_date}</span>
+                        <span style={{ fontSize: '0.74rem', color: '#64748B' }}>{exp.expense_date}</span>
                       </div>
-                      <p className="text-slate-600 truncate text-[11px] mt-0.5">{exp.description}</p>
+                      <div style={{ fontSize: '0.76rem', color: '#64748B', marginTop: '3px' }}>{exp.description}</div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                       <button
                         type="button"
                         onClick={() => handleToggleItem(exp.id, 'Approved')}
-                        className={`px-2 py-1 rounded text-[11px] font-medium transition ${currentStatus === 'Approved'
-                          ? 'bg-emerald-100 text-emerald-800 font-bold'
-                          : 'bg-slate-100 text-slate-500 hover:bg-emerald-50'
-                          }`}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          border: currentStatus === 'Approved' ? '1px solid #059669' : '1px solid #E2E8F0',
+                          background: currentStatus === 'Approved' ? '#ECFDF5' : '#FFFFFF',
+                          color: currentStatus === 'Approved' ? '#047857' : '#64748B',
+                          cursor: 'pointer',
+                        }}
                       >
                         Approve
                       </button>
                       <button
                         type="button"
                         onClick={() => handleToggleItem(exp.id, 'Rejected')}
-                        className={`px-2 py-1 rounded text-[11px] font-medium transition ${currentStatus === 'Rejected'
-                          ? 'bg-rose-100 text-rose-800 font-bold'
-                          : 'bg-slate-100 text-slate-500 hover:bg-rose-50'
-                          }`}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          border: currentStatus === 'Rejected' ? '1px solid #DC2626' : '1px solid #E2E8F0',
+                          background: currentStatus === 'Rejected' ? '#FEF2F2' : '#FFFFFF',
+                          color: currentStatus === 'Rejected' ? '#B91C1C' : '#64748B',
+                          cursor: 'pointer',
+                        }}
                       >
                         Reject
                       </button>
@@ -436,51 +625,80 @@ export const ReviewSettlementModal: React.FC<{
             </div>
           </div>
 
-          {/* Decision */}
+          {/* Overall Decision */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Settlement Decision</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['Approved', 'Correction Requested', 'Rejected'] as const).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDecision(d)}
-                  className={`py-1.5 px-2 text-xs font-semibold rounded-lg border text-center transition ${decision === d
-                    ? d === 'Approved'
-                      ? 'bg-teal-600 text-white border-teal-600'
-                      : d === 'Rejected'
-                        ? 'bg-rose-600 text-white border-rose-600'
-                        : 'bg-amber-600 text-white border-amber-600'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                >
-                  {d}
-                </button>
-              ))}
+            <label style={labelStyle}>Final Decision</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              {(['Approved', 'Correction Requested', 'Rejected'] as const).map((d) => {
+                const active = decision === d;
+                const activeBg = d === 'Approved' ? '#059669' : d === 'Rejected' ? '#DC2626' : '#D97706';
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDecision(d)}
+                    style={{
+                      padding: '10px 8px',
+                      borderRadius: '10px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      border: active ? `1.5px solid ${activeBg}` : '1px solid #CBD5E1',
+                      background: active ? activeBg : '#FFFFFF',
+                      color: active ? '#FFFFFF' : '#475569',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {d === 'Correction Requested' ? 'Correction' : d}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Approval Reason / Feedback</label>
+            <label style={labelStyle}>Remarks (Optional)</label>
             <textarea
               rows={2}
               value={approvalReason}
               onChange={(e) => setApprovalReason(e.target.value)}
-              placeholder="e.g. Bills verified against visit scope. Final approved."
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-none"
+              placeholder="e.g. Bills verified and approved."
+              style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }}
             />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                background: '#FFFFFF',
+                color: '#475569',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm disabled:opacity-50"
+              style={{
+                padding: '10px 20px',
+                borderRadius: '10px',
+                border: 'none',
+                background: '#0E7490',
+                color: '#FFFFFF',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.6 : 1,
+              }}
             >
-              {loading ? 'Submitting...' : 'Confirm Settlement Review'}
+              {loading ? 'Saving...' : 'Confirm Decision'}
             </button>
           </div>
         </form>
@@ -490,7 +708,7 @@ export const ReviewSettlementModal: React.FC<{
 };
 
 // -------------------------------------------------------------
-// 4. EMPLOYEE REPORT RETURN MODAL (SCENARIO 1)
+// 4. EMPLOYEE REPORT RETURN MODAL
 // -------------------------------------------------------------
 export const ReportReturnModal: React.FC<{
   isOpen: boolean;
@@ -534,103 +752,89 @@ export const ReportReturnModal: React.FC<{
   };
 
   return (
-    <div className="modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", overflowY: "auto" }}>
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-sm">Return Unused Advance to Accounts</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
-            <X className="w-4 h-4" />
+    <div style={overlayStyle}>
+      <div style={cardStyle}>
+        <div style={headerStyle}>
+          <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 800, color: '#0F172A' }}>
+            Return Unused Balance
+          </h3>
+          <button type="button" onClick={onClose} style={closeBtnStyle}>
+            <X size={16} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5">
-          {error && <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-lg">{error}</div>}
-          <div className="p-3 bg-teal-50/50 border border-teal-100 rounded-xl text-xs space-y-1">
-            <div className="flex justify-between text-slate-600">
-              <span>Unused Balance Due:</span>
-              <span className="font-bold text-teal-800">₹{remainingDue.toLocaleString()}</span>
+
+        <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '0.8rem', fontWeight: 600 }}>
+              {error}
             </div>
-            {alreadyReturned > 0 && (
-              <div className="flex justify-between text-slate-500 text-[11px]">
-                <span>Already Returned:</span>
-                <span>₹{alreadyReturned.toLocaleString()}</span>
-              </div>
-            )}
+          )}
+
+          <div style={{ padding: '14px 16px', background: '#ECFDF5', borderRadius: '12px', border: '1px solid #A7F3D0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.86rem' }}>
+            <span style={{ color: '#065F46', fontWeight: 600 }}>Unused Balance to Return</span>
+            <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#047857' }}>₹{remainingDue.toLocaleString('en-IN')}</span>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Handover Amount (₹)</label>
+            <label style={labelStyle}>Return Amount (₹)</label>
             <input
               type="number"
               min="1"
               max={remainingDue}
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              style={{ ...inputStyle, fontWeight: 800 }}
               required
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Return Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white"
-              >
+              <label style={labelStyle}>Return Mode</label>
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as any)} style={inputStyle}>
                 <option value="Cash Handover">Cash Handover</option>
-                <option value="Bank Transfer">Bank Transfer</option>
                 <option value="UPI">UPI</option>
+                <option value="Bank Transfer">Bank Transfer</option>
                 <option value="Cheque">Cheque</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Date</label>
-              <input
-                type="date"
-                value={handoverDate}
-                onChange={(e) => setHandoverDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs"
-                required
-              />
+              <label style={labelStyle}>Date</label>
+              <input type="date" value={handoverDate} onChange={(e) => setHandoverDate(e.target.value)} style={inputStyle} required />
             </div>
           </div>
 
           {paymentMethod !== 'Cash Handover' && (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">UTR / Payment Reference</label>
+              <label style={labelStyle}>UTR / Reference #</label>
               <input
                 type="text"
                 value={paymentReference}
                 onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="UPI ref or bank transfer ref"
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
+                placeholder="UPI / Bank reference"
+                style={inputStyle}
                 required
               />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Remarks</label>
+            <label style={labelStyle}>Remarks (Optional)</label>
             <input
               type="text"
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="e.g. Handed cash to cashier"
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
+              placeholder="e.g. Returned to Accounts desk"
+              style={inputStyle}
             />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' }}>
+            <button type="button" onClick={onClose} style={{ padding: '10px 18px', borderRadius: '10px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm disabled:opacity-50"
-            >
-              {loading ? 'Submitting...' : 'Report Return'}
+            <button type="submit" disabled={loading} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: '#0E7490', color: '#FFFFFF', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
+              {loading ? 'Submitting...' : 'Submit Return'}
             </button>
           </div>
         </form>
@@ -678,57 +882,48 @@ export const ConfirmReturnModal: React.FC<{
   };
 
   return (
-    <div className="modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", overflowY: "auto" }}>
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-sm">Confirm Returned Advance Balance</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
-            <X className="w-4 h-4" />
+    <div style={overlayStyle}>
+      <div style={cardStyle}>
+        <div style={headerStyle}>
+          <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 800, color: '#0F172A' }}>
+            Confirm Returned Balance
+          </h3>
+          <button type="button" onClick={onClose} style={closeBtnStyle}>
+            <X size={16} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5">
-          {error && <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-lg">{error}</div>}
-          <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
-            <div className="flex justify-between text-slate-500">
-              <span>Reported Amount:</span>
-              <span className="font-bold text-slate-800">₹{returnRecord.employee_reported_amount.toLocaleString()}</span>
+
+        <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '0.8rem', fontWeight: 600 }}>
+              {error}
             </div>
-            <div className="flex justify-between text-slate-500">
-              <span>Method & Date:</span>
-              <span>{returnRecord.payment_method} ({returnRecord.handover_date})</span>
+          )}
+
+          <div style={{ padding: '14px 16px', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0', fontSize: '0.84rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#64748B' }}>Reported Return</span>
+              <span style={{ fontWeight: 800, color: '#0F172A' }}>₹{Number(returnRecord.employee_reported_amount || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#64748B' }}>Method & Date</span>
+              <span style={{ fontWeight: 600, color: '#334155' }}>{returnRecord.payment_method} ({returnRecord.handover_date})</span>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Actual Received Amount (₹)</label>
-            <input
-              type="number"
-              min="1"
-              value={actualAmount}
-              onChange={(e) => setActualAmount(Number(e.target.value))}
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold"
-              required
-            />
+            <label style={labelStyle}>Actual Received Amount (₹)</label>
+            <input type="number" min="1" value={actualAmount} onChange={(e) => setActualAmount(Number(e.target.value))} style={{ ...inputStyle, fontWeight: 800 }} required />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Receipt Date</label>
-              <input
-                type="date"
-                value={receiptDate}
-                onChange={(e) => setReceiptDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs"
-                required
-              />
+              <label style={labelStyle}>Receipt Date</label>
+              <input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} style={inputStyle} required />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Confirmation Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white"
-              >
+              <label style={labelStyle}>Status</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value as any)} style={inputStyle}>
                 <option value="Confirmed">Confirmed Full</option>
                 <option value="Partial Receipt">Partial Receipt</option>
                 <option value="Mismatch Reported">Mismatch</option>
@@ -737,25 +932,15 @@ export const ConfirmReturnModal: React.FC<{
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Remarks</label>
-            <input
-              type="text"
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              placeholder="e.g. Cash received in safe"
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
-            />
+            <label style={labelStyle}>Remarks (Optional)</label>
+            <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="e.g. Received by Accounts" style={inputStyle} />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' }}>
+            <button type="button" onClick={onClose} style={{ padding: '10px 18px', borderRadius: '10px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm disabled:opacity-50"
-            >
+            <button type="submit" disabled={loading} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: '#059669', color: '#FFFFFF', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
               {loading ? 'Confirming...' : 'Confirm Receipt'}
             </button>
           </div>
@@ -766,7 +951,7 @@ export const ConfirmReturnModal: React.FC<{
 };
 
 // -------------------------------------------------------------
-// 6. ACCOUNTS DISBURSE REIMBURSEMENT MODAL (SCENARIO 2 & 3)
+// 6. ACCOUNTS DISBURSE REIMBURSEMENT MODAL
 // -------------------------------------------------------------
 export const DisburseReimbursementModal: React.FC<{
   isOpen: boolean;
@@ -808,48 +993,44 @@ export const DisburseReimbursementModal: React.FC<{
   };
 
   return (
-    <div className="modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", overflowY: "auto" }}>
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-sm">Disburse Expense Reimbursement</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
-            <X className="w-4 h-4" />
+    <div style={overlayStyle}>
+      <div style={cardStyle}>
+        <div style={headerStyle}>
+          <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 800, color: '#0F172A' }}>
+            Pay Expense Reimbursement
+          </h3>
+          <button type="button" onClick={onClose} style={closeBtnStyle}>
+            <X size={16} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5">
-          {error && <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-lg">{error}</div>}
-          <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl text-xs space-y-1">
-            <div className="flex justify-between text-slate-600">
-              <span>Employee:</span>
-              <span className="font-bold text-slate-800">{detail.visit.employee_name} ({detail.visit.employee_code})</span>
+
+        <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '0.8rem', fontWeight: 600 }}>
+              {error}
             </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Reimbursement Due:</span>
-              <span className="font-bold text-amber-900">₹{remainingDue.toLocaleString()}</span>
+          )}
+
+          <div style={{ padding: '14px 16px', background: '#FEF2F2', borderRadius: '12px', border: '1px solid #FECACA', fontSize: '0.84rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#7F1D1D' }}>Employee</span>
+              <span style={{ fontWeight: 700, color: '#0F172A' }}>{detail.visit.employee_name} ({detail.visit.employee_code})</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#7F1D1D', fontWeight: 600 }}>Reimbursement Due</span>
+              <span style={{ fontWeight: 800, fontSize: '1rem', color: '#DC2626' }}>₹{remainingDue.toLocaleString('en-IN')}</span>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Payout Amount (₹)</label>
-            <input
-              type="number"
-              min="1"
-              max={remainingDue}
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold"
-              required
-            />
+            <label style={labelStyle}>Payout Amount (₹)</label>
+            <input type="number" min="1" max={remainingDue} value={amount} onChange={(e) => setAmount(Number(e.target.value))} style={{ ...inputStyle, fontWeight: 800 }} required />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white"
-              >
+              <label style={labelStyle}>Payment Method</label>
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as any)} style={inputStyle}>
                 <option value="Bank Transfer">Bank Transfer</option>
                 <option value="UPI">UPI</option>
                 <option value="Cash">Cash</option>
@@ -857,39 +1038,22 @@ export const DisburseReimbursementModal: React.FC<{
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Reference / UTR #</label>
-              <input
-                type="text"
-                value={paymentReference}
-                onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="UTR #"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs"
-                required={paymentMethod !== 'Cash'}
-              />
+              <label style={labelStyle}>UTR / Reference #</label>
+              <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder="UTR #" style={inputStyle} required={paymentMethod !== 'Cash'} />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Remarks</label>
-            <input
-              type="text"
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              placeholder="e.g. Credited via IMPS"
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
-            />
+            <label style={labelStyle}>Remarks (Optional)</label>
+            <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="e.g. Credited via IMPS" style={inputStyle} />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' }}>
+            <button type="button" onClick={onClose} style={{ padding: '10px 18px', borderRadius: '10px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : 'Disburse Reimbursement'}
+            <button type="submit" disabled={loading} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: '#0E7490', color: '#FFFFFF', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
+              {loading ? 'Processing...' : 'Pay Reimbursement'}
             </button>
           </div>
         </form>

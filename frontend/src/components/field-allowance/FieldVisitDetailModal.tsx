@@ -1,25 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  IndianRupee,
-  Calendar,
-  MapPin,
-  Building,
   Plus,
-  Send,
-  CheckCircle2,
-  AlertCircle,
-  FileText,
-  Clock,
   ExternalLink,
-  ShieldCheck,
-  DollarSign,
-  ArrowRight,
-  TrendingDown,
-  TrendingUp,
-  Receipt,
-  User,
-  History,
+  Copy,
+  CheckCircle2,
+  ClipboardCheck,
 } from 'lucide-react';
 import { FieldVisitDetail, FieldVisitExpense } from '../../types/fieldAdvance';
 import { fetchFieldVisitDetail, submitSettlementApi } from '../../services/fieldAdvanceService';
@@ -41,6 +27,13 @@ interface FieldVisitDetailModalProps {
   onUpdated: () => void;
 }
 
+const formatShortDate = (dateStr?: string) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+};
+
 export const FieldVisitDetailModal: React.FC<FieldVisitDetailModalProps> = ({
   isOpen,
   onClose,
@@ -51,6 +44,7 @@ export const FieldVisitDetailModal: React.FC<FieldVisitDetailModalProps> = ({
   const [detail, setDetail] = useState<FieldVisitDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Sub-modals
   const [showAddExpense, setShowAddExpense] = useState(false);
@@ -61,18 +55,14 @@ export const FieldVisitDetailModal: React.FC<FieldVisitDetailModalProps> = ({
   const [showReportReturn, setShowReportReturn] = useState(false);
   const [selectedReturn, setSelectedReturn] = useState<any | null>(null);
   const [showDisburseReimbursement, setShowDisburseReimbursement] = useState(false);
-  const [submitRemarks, setSubmitRemarks] = useState('');
   const [submittingSettlement, setSubmittingSettlement] = useState(false);
 
-  // User roles
   const isCeo =
     currentUser?.role === 'CEO' ||
     currentUser?.role === 'Super Admin' ||
     currentUser?.role === 'Director';
 
   const isHr = Boolean(currentUser?.role?.includes('HR')) && !isCeo;
-
-  const isCeoOrHr = isCeo || isHr;
 
   const isAccounts =
     currentUser?.role === 'Finance Manager' ||
@@ -84,15 +74,15 @@ export const FieldVisitDetailModal: React.FC<FieldVisitDetailModalProps> = ({
     detail?.visit?.employee_id === currentUser?.employeeId ||
     detail?.visit?.employee_id === currentUser?.id;
 
-  // CEO must never create or submit employee expense claims
   const isEmployeeOwner = !isCeo && isOwnerMatch;
 
-  // HR cannot approve their own request or any HR employee's request
   const isHrClaim =
     isOwnerMatch ||
     Boolean(
       detail?.visit?.department?.toLowerCase().includes('hr') ||
-        detail?.visit?.department?.toLowerCase().includes('human resource')
+        detail?.visit?.department?.toLowerCase().includes('human resource') ||
+        detail?.visit?.department_name?.toLowerCase().includes('hr') ||
+        detail?.visit?.department_name?.toLowerCase().includes('human resource')
     );
 
   const canApproveThisVisit = isCeo || (isHr && !isHrClaim);
@@ -129,468 +119,500 @@ export const FieldVisitDetailModal: React.FC<FieldVisitDetailModalProps> = ({
       alert('Please add at least one expense before submitting settlement.');
       return;
     }
-    if (!window.confirm('Submit this field visit settlement for CEO / HR review?')) return;
+    if (!window.confirm('Submit this field visit expense report for approval?')) return;
 
     setSubmittingSettlement(true);
     try {
-      await submitSettlementApi(detail.visit.id, submitRemarks.trim() || null);
+      await submitSettlementApi(detail.visit.id, null);
       handleActionSuccess();
     } catch (err: any) {
-      alert(err.message || 'Settlement submission failed');
+      alert(err.message || 'Failed to submit settlement');
     } finally {
       setSubmittingSettlement(false);
     }
   };
 
-  // Financial calculations
-  const totalDisbursed = detail?.visit?.disbursed_amount || 0;
-  const totalExpenses = detail?.expenses?.reduce((sum, e) => sum + e.amount, 0) || 0;
-  const provisionalBalance = totalDisbursed - totalExpenses;
-  const settlement = detail?.settlement;
+  const totalDisbursed = detail?.visit.disbursed_amount || 0;
+  const totalExpenses = detail?.expenses.reduce((s, e) => s + Number(e.amount || 0), 0) || 0;
+  const balance = totalDisbursed - totalExpenses;
+
+  const handleCopyReport = () => {
+    if (!detail) return;
+    const lines = [
+      `Employee Daily Report — ${detail.visit.employee_name} (${detail.visit.request_number})`,
+      `Field Visit: ${detail.visit.purpose} (${detail.visit.destination})`,
+      `Allocated Amount: ₹${totalDisbursed.toLocaleString('en-IN')}`,
+      `Spent Amount: ₹${totalExpenses.toLocaleString('en-IN')}`,
+      `Balance: ${balance > 0 ? `+₹${balance.toLocaleString('en-IN')}` : balance < 0 ? `−₹${Math.abs(balance).toLocaleString('en-IN')}` : '₹0'}`,
+      `---`,
+      ...detail.expenses.map(
+        (e) => `${formatShortDate(e.expense_date)} | ${e.category} | ₹${Number(e.amount).toLocaleString('en-IN')} (${e.description})`
+      ),
+      `Total Expense: ₹${totalExpenses.toLocaleString('en-IN')}`,
+    ];
+    navigator.clipboard?.writeText(lines.join('\n'));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
-      <div className="modal-content" style={{ background: '#FFFFFF', borderRadius: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', border: '1px solid #E2E8F0', width: '100%', maxWidth: '880px', maxHeight: 'calc(100vh - 40px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', margin: 'auto' }}>
-        {/* Top Header */}
-        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
-          <div className="flex items-center gap-3">
-            <span className="font-mono font-bold text-slate-800 text-sm">
-              {detail?.visit?.request_number || 'Loading...'}
-            </span>
-            {detail && (
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                  detail.visit.funding_type === 'advance'
-                    ? 'bg-teal-50 text-teal-700 border border-teal-200'
-                    : 'bg-purple-50 text-purple-700 border border-purple-200'
-                }`}
-              >
-                {detail.visit.funding_type === 'advance' ? 'Option A: Advance' : 'Option B: Personal Money'}
-              </span>
-            )}
-            {detail && (
-              <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                  detail.visit.status === 'Completed'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : detail.visit.status === 'Active'
-                    ? 'bg-teal-100 text-teal-800'
-                    : detail.visit.status.includes('Pending')
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {detail.visit.status}
-              </span>
-            )}
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10000,
+        background: 'rgba(15, 23, 42, 0.6)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+        overflowY: 'auto',
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '640px',
+          background: '#FFFFFF',
+          borderRadius: '20px',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 24px 48px -12px rgba(15, 23, 42, 0.22)',
+          overflow: 'hidden',
+          margin: 'auto',
+        }}
+      >
+        {/* Header matching Image 5: Employee Daily Report */}
+        <div
+          style={{
+            padding: '22px 26px 18px',
+            borderBottom: '1px solid #F1F5F9',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: '12px',
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
+              Employee Daily Report
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#64748B', fontWeight: 500 }}>
+              {detail ? `${detail.visit.employee_name} · ${detail.visit.request_number}` : 'Loading...'}
+            </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span
+              style={{
+                padding: '4px 12px',
+                borderRadius: '999px',
+                background: '#EFF6FF',
+                color: '#2563EB',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                border: '1px solid #BFDBFE',
+              }}
+            >
+              Detail View
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                border: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                color: '#64748B',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
-        {/* Content Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+        {/* Body */}
+        <div style={{ padding: '20px 26px 24px', maxHeight: '78vh', overflowY: 'auto' }}>
           {loading ? (
-            <div className="py-16 text-center text-slate-400 text-xs">Loading field visit details...</div>
+            <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748B', fontSize: '0.88rem' }}>
+              Loading report details...
+            </div>
           ) : error || !detail ? (
-            <div className="p-4 bg-rose-50 text-rose-700 text-xs rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              <span>{error || 'Field visit could not be loaded.'}</span>
+            <div style={{ padding: '24px', textAlign: 'center', color: '#DC2626', fontSize: '0.88rem' }}>
+              {error || 'Could not load field visit details'}
             </div>
           ) : (
-            <>
-              {/* Trip Overview Card */}
-              <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-sm">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-                  <div>
-                    <span className="text-slate-400 text-[11px] block">Employee</span>
-                    <span className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mt-0.5">
-                      <User className="w-3.5 h-3.5 text-slate-400" />
-                      {detail.visit.employee_name}
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      {detail.visit.employee_code} • {detail.visit.department_name}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 text-[11px] block">Customer / Site</span>
-                    <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5 mt-0.5">
-                      <Building className="w-3.5 h-3.5 text-slate-400" />
-                      {detail.visit.client_name}
-                    </span>
-                    <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                      <MapPin className="w-3 h-3 text-slate-400" />
-                      {detail.visit.destination}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 text-[11px] block">Travel Period</span>
-                    <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5 mt-0.5">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      {detail.visit.start_date} to {detail.visit.end_date}
-                    </span>
-                    {detail.visit.travel_mode && (
-                      <span className="text-[11px] text-slate-500 block mt-0.5">
-                        Mode: {detail.visit.travel_mode}
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 text-[11px] block">Purpose</span>
-                    <p className="text-slate-700 text-xs font-medium mt-0.5 line-clamp-2">
-                      {detail.visit.purpose}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* UNIFIED FINANCIAL BALANCE CARD (MANDATORY SECTION 7 & 8) */}
-              <div className="p-4 sm:p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl shadow-md border border-slate-700/50">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-700/60 mb-3">
-                  <div className="flex items-center gap-2">
-                    <IndianRupee className="w-4 h-4 text-teal-400" />
-                    <span className="font-bold text-xs tracking-wide uppercase text-slate-300">
-                      Trip Financial Balance & Reconciliation
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-400">
-                    Formula: Balance = Advance − Expenses
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Clean Summary Rows (Field Visit, Allocated, Spent, Balance) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.94rem' }}>
+                  <span style={{ color: '#64748B', fontWeight: 500 }}>Field Visit</span>
+                  <span style={{ fontWeight: 800, color: '#0F172A' }}>
+                    {detail.visit.purpose}
+                    {detail.visit.destination ? ` · ${detail.visit.destination}` : ''}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {/* Confirmed Advance A */}
-                  <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                    <span className="text-[11px] text-slate-400 block">Confirmed Advance (A)</span>
-                    <span className="text-base sm:text-lg font-bold text-white mt-0.5 block">
-                      ₹{totalDisbursed.toLocaleString()}
-                    </span>
-                    {detail.visit.funding_type === 'advance' && (
-                      <span className="text-[10px] text-slate-400 block mt-1">
-                        Req: ₹{detail.visit.requested_amount.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
+                <div style={{ height: '1px', background: '#F1F5F9', margin: '2px 0' }} />
 
-                  {/* Total Recorded Expenses D */}
-                  <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                    <span className="text-[11px] text-slate-400 block">Recorded Expenses (D)</span>
-                    <span className="text-base sm:text-lg font-bold text-teal-300 mt-0.5 block">
-                      ₹{totalExpenses.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-slate-400 block mt-1">
-                      {detail.expenses.length} bills logged
+                {detail.visit.requested_amount > 0 && totalDisbursed === 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.92rem' }}>
+                    <span style={{ color: '#64748B', fontWeight: 500 }}>Requested Advance</span>
+                    <span style={{ fontWeight: 800, color: '#D97706' }}>
+                      ₹{Number(detail.visit.requested_amount).toLocaleString('en-IN')}
                     </span>
                   </div>
+                )}
 
-                  {/* Provisional Balance B = A - D (Negative Allowed) */}
-                  <div
-                    className={`p-3 rounded-xl border ${
-                      provisionalBalance < 0
-                        ? 'bg-amber-950/40 border-amber-500/30'
-                        : provisionalBalance > 0
-                        ? 'bg-teal-950/40 border-teal-500/30'
-                        : 'bg-white/5 border-white/10'
-                    }`}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.94rem' }}>
+                  <span style={{ color: '#64748B', fontWeight: 500 }}>Allocated Amount</span>
+                  <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0F172A' }}>
+                    ₹{totalDisbursed.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.94rem' }}>
+                  <span style={{ color: '#64748B', fontWeight: 500 }}>Spent Amount</span>
+                  <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0F172A' }}>
+                    ₹{totalExpenses.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.94rem' }}>
+                  <span style={{ color: '#64748B', fontWeight: 500 }}>Balance</span>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: '1.05rem',
+                      color: balance > 0 ? '#059669' : balance < 0 ? '#DC2626' : '#0F172A',
+                    }}
                   >
-                    <span className="text-[11px] text-slate-400 block">Provisional Balance (B)</span>
-                    <span
-                      className={`text-base sm:text-lg font-bold mt-0.5 block ${
-                        provisionalBalance < 0
-                          ? 'text-amber-400'
-                          : provisionalBalance > 0
-                          ? 'text-teal-400'
-                          : 'text-white'
-                      }`}
-                    >
-                      {provisionalBalance < 0
-                        ? `−₹${Math.abs(provisionalBalance).toLocaleString()}`
-                        : provisionalBalance > 0
-                        ? `+₹${provisionalBalance.toLocaleString()}`
-                        : '₹0'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block mt-1">
-                      {provisionalBalance < 0
-                        ? 'Excess Expense (Reimbursement)'
-                        : provisionalBalance > 0
-                        ? 'Unused Advance (Return)'
-                        : 'Balanced'}
-                    </span>
-                  </div>
-
-                  {/* Settlement Status / Approved Outcome */}
-                  <div className="p-3 bg-white/5 rounded-xl border border-white/10 flex flex-col justify-between">
-                    <span className="text-[11px] text-slate-400 block">Settlement Status</span>
-                    {settlement ? (
-                      <div>
-                        <span className="text-xs font-bold text-white block">
-                          {settlement.settlement_status}
-                        </span>
-                        {settlement.return_due > 0 && (
-                          <span className="text-[11px] text-teal-400 font-semibold block mt-0.5">
-                            Return Due: ₹{(settlement.return_due - settlement.actual_returned).toLocaleString()}
-                          </span>
-                        )}
-                        {settlement.reimbursement_due > 0 && (
-                          <span className="text-[11px] text-amber-400 font-semibold block mt-0.5">
-                            Reimb. Due: ₹
-                            {(settlement.reimbursement_due - settlement.actual_reimbursed).toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400">Awaiting Settlement Submission</span>
-                    )}
-                  </div>
+                    {balance > 0
+                      ? `+₹${balance.toLocaleString('en-IN')}`
+                      : balance < 0
+                      ? `−₹${Math.abs(balance).toLocaleString('en-IN')}`
+                      : '₹0'}
+                  </span>
                 </div>
               </div>
 
-              {/* Daily Expenses Section */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Trip Expense Log ({detail.expenses.length})
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      All itemized expenses incurred during the field visit
-                    </p>
-                  </div>
+              {/* Day-wise Expense Breakdown */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <h3 style={{ margin: 0, fontSize: '0.96rem', fontWeight: 800, color: '#0F172A' }}>
+                    Day-wise Expense Breakdown
+                  </h3>
+
                   {isEmployeeOwner &&
-                    ['Active', 'Draft', 'Settlement Correction Requested'].includes(
-                      detail.visit.status
-                    ) && (
+                    ['Active', 'Draft', 'Advance Disbursed', 'Settlement Correction Requested'].includes(detail.visit.status) && (
                       <button
+                        type="button"
                         onClick={() => {
                           setEditingExpense(null);
                           setShowAddExpense(true);
                         }}
-                        className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '7px 14px',
+                          borderRadius: '10px',
+                          border: 'none',
+                          background: '#0E7490',
+                          color: '#FFFFFF',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Daily Expense</span>
+                        <Plus size={14} />
+                        <span>Add Expense</span>
                       </button>
                     )}
                 </div>
 
                 {detail.expenses.length === 0 ? (
-                  <div className="py-10 text-center border-2 border-dashed border-slate-200 rounded-2xl">
-                    <Receipt className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs font-medium text-slate-600">No expenses recorded yet</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Log travel, hotel, food and customer visit bills
-                    </p>
+                  <div
+                    style={{
+                      padding: '28px 16px',
+                      borderRadius: '14px',
+                      border: '1px dashed #CBD5E1',
+                      background: '#F8FAFC',
+                      textAlign: 'center',
+                      color: '#64748B',
+                      fontSize: '0.84rem',
+                    }}
+                  >
+                    No daily expenses recorded for this visit yet.
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100">
-                    {detail.expenses.map((exp) => (
-                      <div
-                        key={exp.id}
-                        className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/60 transition"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-800 text-sm">
-                              ₹{exp.amount.toLocaleString()}
-                            </span>
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
-                              {exp.category}
-                            </span>
-                            <span className="text-[11px] text-slate-400">{exp.expense_date}</span>
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-medium ${
-                                exp.approval_status === 'Approved'
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : exp.approval_status === 'Rejected'
-                                  ? 'bg-rose-50 text-rose-700'
-                                  : 'bg-slate-100 text-slate-500'
-                              }`}
-                            >
-                              {exp.approval_status}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600">{exp.description}</p>
-                          {exp.rejection_reason && (
-                            <p className="text-[11px] text-rose-600">
-                              Reason: {exp.rejection_reason}
-                            </p>
-                          )}
-                        </div>
+                  <div style={{ width: '100%' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                          <th style={{ padding: '10px 4px', textAlign: 'left', color: '#64748B', fontWeight: 600, fontSize: '0.78rem' }}>
+                            Date
+                          </th>
+                          <th style={{ padding: '10px 8px', textAlign: 'left', color: '#64748B', fontWeight: 600, fontSize: '0.78rem' }}>
+                            Expense
+                          </th>
+                          <th style={{ padding: '10px 4px', textAlign: 'right', color: '#64748B', fontWeight: 600, fontSize: '0.78rem' }}>
+                            Amount
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.expenses.map((exp) => (
+                          <tr key={exp.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                            <td style={{ padding: '12px 4px', color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {formatShortDate(exp.expense_date)}
+                            </td>
+                            <td style={{ padding: '12px 8px', color: '#0F172A' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 700 }}>{exp.category}</span>
+                                {exp.description && (
+                                  <span style={{ color: '#64748B', fontSize: '0.8rem' }}>· {exp.description}</span>
+                                )}
+                                {exp.receipt_url && (
+                                  <a
+                                    href={exp.receipt_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      background: '#ECFDF5',
+                                      color: '#059669',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      textDecoration: 'none',
+                                    }}
+                                  >
+                                    <ExternalLink size={11} />
+                                    <span>Bill</span>
+                                  </a>
+                                )}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 4px', textAlign: 'right', fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap' }}>
+                              ₹{Number(exp.amount).toLocaleString('en-IN')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
 
-                        {exp.receipt_url && (
-                          <a
-                            href={exp.receipt_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg self-start sm:self-auto"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            <span>View Bill</span>
-                          </a>
-                        )}
-                      </div>
-                    ))}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        paddingTop: '14px',
+                        marginTop: '4px',
+                        fontSize: '1rem',
+                        fontWeight: 800,
+                        color: '#0F172A',
+                      }}
+                    >
+                      <span>Total Expense</span>
+                      <span>₹{totalExpenses.toLocaleString('en-IN')}</span>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* ACTION WORKFLOW CONTEXT BUTTONS */}
-              <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs text-slate-600">
-                  <span className="font-bold block text-slate-700">Next Action:</span>
-                  {detail.visit.status === 'Pending Advance Approval' &&
-                    'Awaiting CEO / HR review and authorization of requested trip advance.'}
-                  {detail.visit.status === 'Advance Approved' &&
-                    'Advance approved. Ready for Accounts payment disbursement.'}
-                  {detail.visit.status === 'Active' &&
-                    'Trip ongoing. Employee can record expenses and submit final settlement.'}
-                  {detail.visit.status === 'Settlement Submitted' &&
-                    'Settlement submitted. CEO / HR can review and approve eligible claims.'}
-                  {detail.visit.status === 'Pending Balance Collection' &&
-                    'Approved. Employee to return remaining advance balance to Accounts.'}
-                  {detail.visit.status === 'Pending Reimbursement' &&
-                    'Approved. Accounts to disburse excess expense reimbursement to employee.'}
-                  {detail.visit.status === 'Completed' &&
-                    'Financial settlement fully completed and reconciled.'}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* CEO / HR Actions */}
-                  {canApproveThisVisit && detail.visit.status === 'Pending Advance Approval' && (
-                    <button
-                      onClick={() => setShowApproveAdvance(true)}
-                      className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
-                    >
-                      Review & Approve Advance
-                    </button>
-                  )}
-
-                  {isHr && isHrClaim && detail.visit.status === 'Pending Advance Approval' && (
-                    <span className="px-3 py-1.5 bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-[11px] font-bold">
-                      CEO Approval Required (HR Request)
-                    </span>
-                  )}
-
-                  {/* Accounts Advance Disbursement */}
-                  {isAccounts && detail.visit.status === 'Advance Approved' && (
-                    <button
-                      onClick={() => setShowDisburseAdvance(true)}
-                      className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
-                    >
-                      <DollarSign className="w-3.5 h-3.5" />
-                      <span>Disburse Advance Money</span>
-                    </button>
-                  )}
-
-                  {/* Employee Submit Settlement */}
-                  {isEmployeeOwner &&
-                    ['Active', 'Draft', 'Settlement Correction Requested'].includes(
-                      detail.visit.status
-                    ) && (
-                      <button
-                        onClick={handleSubmitSettlement}
-                        disabled={submittingSettlement || detail.expenses.length === 0}
-                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Submit Final Settlement</span>
-                      </button>
-                    )}
-
-                  {/* CEO / HR Settlement Review */}
-                  {canApproveThisVisit && detail.visit.status === 'Settlement Submitted' && (
-                    <button
-                      onClick={() => setShowReviewSettlement(true)}
-                      className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Review & Approve Settlement</span>
-                    </button>
-                  )}
-
-                  {isHr && isHrClaim && detail.visit.status === 'Settlement Submitted' && (
-                    <span className="px-3 py-1.5 bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-[11px] font-bold">
-                      CEO Settlement Approval Required (HR Request)
-                    </span>
-                  )}
-
-                  {/* Employee Report Return (Scenario 1) */}
-                  {isEmployeeOwner &&
-                    ['Pending Balance Collection', 'Partially Collected'].includes(
-                      detail.visit.status
-                    ) && (
-                      <button
-                        onClick={() => setShowReportReturn(true)}
-                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
-                      >
-                        <ArrowRight className="w-3.5 h-3.5" />
-                        <span>Report Advance Return</span>
-                      </button>
-                    )}
-
-                  {/* Accounts Confirm Return Receipt (Scenario 1) */}
-                  {isAccounts &&
-                    detail.balanceReturns.some((r) => r.status === 'Awaiting Confirmation') && (
-                      <button
-                        onClick={() => {
-                          const pending = detail.balanceReturns.find(
-                            (r) => r.status === 'Awaiting Confirmation'
-                          );
-                          setSelectedReturn(pending);
-                        }}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
-                      >
-                        Confirm Received Cash/Bank Return
-                      </button>
-                    )}
-
-                  {/* Accounts Disburse Reimbursement (Scenario 2 & 3) */}
-                  {isAccounts &&
-                    ['Pending Reimbursement', 'Partially Reimbursed'].includes(
-                      detail.visit.status
-                    ) && (
-                      <button
-                        onClick={() => setShowDisburseReimbursement(true)}
-                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
-                      >
-                        <IndianRupee className="w-3.5 h-3.5" />
-                        <span>Pay Expense Reimbursement</span>
-                      </button>
-                    )}
-                </div>
-              </div>
-
-              {/* Audit Log / History Timeline */}
-              {detail.auditLogs.length > 0 && (
-                <div className="pt-2">
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <History className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Audit & Activity Trail</span>
-                  </h4>
-                  <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-40 overflow-y-auto text-[11px]">
-                    {detail.auditLogs.map((log) => (
-                      <div key={log.id} className="p-2.5 flex items-center justify-between text-slate-600">
-                        <div>
-                          <span className="font-semibold text-slate-800">{log.action}</span>
-                          {log.actor_name && <span className="ml-1 text-slate-500">by {log.actor_name}</span>}
-                          {log.new_status && (
-                            <span className="ml-1 text-teal-700 font-medium">→ {log.new_status}</span>
-                          )}
-                        </div>
-                        <span className="text-slate-400">{log.created_at.slice(0, 16).replace('T', ' ')}</span>
-                      </div>
-                    ))}
+              {/* Bottom 2 Full-Width Pill Action Buttons matching Image 5 */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', paddingTop: '6px' }}>
+                {/* Primary Role Action Button */}
+                {canApproveThisVisit && detail.visit.status === 'Pending Advance Approval' ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowApproveAdvance(true)}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#0F172A',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <ClipboardCheck size={16} />
+                    <span>Review Advance</span>
+                  </button>
+                ) : canApproveThisVisit && detail.visit.status === 'Settlement Submitted' ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowReviewSettlement(true)}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#0F172A',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <ClipboardCheck size={16} />
+                    <span>Review Claims</span>
+                  </button>
+                ) : isAccounts && detail.visit.status === 'Advance Approved' ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowDisburseAdvance(true)}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#0E7490',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Disburse Advance
+                  </button>
+                ) : isAccounts && ['Pending Reimbursement', 'Partially Reimbursed'].includes(detail.visit.status) ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowDisburseReimbursement(true)}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#0E7490',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Pay Reimbursement
+                  </button>
+                ) : isAccounts && detail.balanceReturns.some((r) => r.status === 'Awaiting Confirmation') ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pending = detail.balanceReturns.find((r) => r.status === 'Awaiting Confirmation');
+                      setSelectedReturn(pending);
+                    }}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#059669',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Confirm Return Receipt
+                  </button>
+                ) : isEmployeeOwner &&
+                  ['Active', 'Draft', 'Advance Disbursed', 'Settlement Correction Requested'].includes(detail.visit.status) &&
+                  detail.expenses.length > 0 ? (
+                  <button
+                    type="button"
+                    disabled={submittingSettlement}
+                    onClick={handleSubmitSettlement}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#0E7490',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {submittingSettlement ? 'Submitting...' : 'Submit Claim for Approval'}
+                  </button>
+                ) : isEmployeeOwner && ['Pending Balance Collection', 'Partially Collected'].includes(detail.visit.status) ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowReportReturn(true)}
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: '#059669',
+                      color: '#FFFFFF',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Return Unused Balance
+                  </button>
+                ) : (
+                  <div
+                    style={{
+                      padding: '13px 18px',
+                      borderRadius: '999px',
+                      border: '1px solid #E2E8F0',
+                      background: '#F8FAFC',
+                      color: '#475569',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <CheckCircle2 size={15} style={{ color: '#0E7490' }} />
+                    <span>{detail.visit.status}</span>
                   </div>
-                </div>
-              )}
-            </>
+                )}
+
+                {/* Copy Report Button */}
+                <button
+                  type="button"
+                  onClick={handleCopyReport}
+                  style={{
+                    padding: '13px 18px',
+                    borderRadius: '999px',
+                    border: '1px solid #CBD5E1',
+                    background: '#FFFFFF',
+                    color: '#0F172A',
+                    fontSize: '0.88rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <Copy size={15} />
+                  <span>{copied ? 'Copied!' : 'Copy Report'}</span>
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
