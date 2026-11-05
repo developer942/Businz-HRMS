@@ -7,7 +7,9 @@ import {
   recordConsentSchema,
   sendWhatsAppSchema,
   saveTemplateSchema,
-  ocrScanSchema
+  ocrScanSchema,
+  MAX_OCR_IMAGE_BYTES,
+  verifyImageMagicBytes
 } from '../validators/customerValidators.js';
 
 export class CustomerController {
@@ -220,6 +222,30 @@ export class CustomerController {
         res.status(400).json({
           success: false,
           error: { code: 'VALIDATION_ERROR', message: 'Invalid image format or payload' }
+        });
+        return;
+      }
+
+      const cleanBase64 = parsed.data.imageBase64.replace(/^data:image\/[a-zA-Z0-9.+]+;base64,/i, '').trim();
+      const imageBuffer = Buffer.from(cleanBase64, 'base64');
+      if (imageBuffer.length === 0 || imageBuffer.length > MAX_OCR_IMAGE_BYTES) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'FILE_TOO_LARGE',
+            message: 'Uploaded image exceeds the maximum allowed size of 5 MB or is empty.'
+          }
+        });
+        return;
+      }
+
+      if (!verifyImageMagicBytes(imageBuffer, parsed.data.mimeType)) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_IMAGE_SIGNATURE',
+            message: 'Uploaded file content does not match declared image MIME type (JPEG, PNG, or WebP).'
+          }
         });
         return;
       }

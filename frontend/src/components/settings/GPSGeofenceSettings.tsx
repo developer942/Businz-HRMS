@@ -433,7 +433,7 @@ export const GPSGeofenceSettings: React.FC = () => {
       try {
         const resp = await fetch(`${API_BASE_URL}/settings/resolve-map-link`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {}) },
           body: JSON.stringify({ url: raw })
         });
         if (resp.ok) {

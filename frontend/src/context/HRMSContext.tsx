@@ -1288,34 +1288,40 @@ const localDateTimeToIso = (date: string, time?: string | null): string | null =
 export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // VPS database architecture: purge any remaining business data from browser localStorage
   if (typeof window !== 'undefined') {
-    const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v8';
-    if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
-      const keysToRemove = [
-        'vrm_hrms_employees', 'vrm_hrms_enhanced_tasks', 'vrm_hrms_attendance_records',
-        'vrm_hrms_leave_requests', 'hrms_loan_records', 'vrm_hrms_loan_records', 'vrm_hrms_loan_policies',
-        'vrm_hrms_expenses', 'vrm_hrms_assets', 'vrm_hrms_mom_meetings',
-        'vrm_hrms_payroll_records', 'vrm_hrms_field_assignments', 'vrm_hrms_trip_sessions',
-        'vrm_hrms_tracking_alerts', 'vrm_hrms_shifts', 'vrm_hrms_holiday_policies',
-        'vrm_hrms_shift_requests', 'vrm_hrms_shift_requests_persistent', 'vrm_hrms_leave_requests_persistent',
-        'vrm_hrms_reward_policies', 'vrm_hrms_employee_rewards',
-        'vrm_hrms_master_attendance_policies', 'vrm_hrms_master_leave_policies',
-        'vrm_hrms_payroll_settings_config', 'vrm_hrms_geofence_config', 'vrm_hrms_company_info',
-        'vrm_hrms_company_branches', 'vrm_hrms_org_structure', 'vrm_hrms_departments',
-        'vrm_hrms_designations', 'vrm_hrms_department_ot_policies', 'vrm_hrms_overtime_records',
-        'vrm_enterprise_integrations_v6', 'vrm_enterprise_integrations_v5', 'vrm_enterprise_integrations_v4',
-        'vrm_enterprise_integrations_v3', 'vrm_enterprise_integrations_v2',
-        'vrm_hrms_candidates', 'hrms_candidates', 'vrm_hrms_candidates_data', 'vrm_hrms_loan_records_data',
-        'vrm_hrms_shared_notifications', 'shared_notifications_data', 'vrm_shared_notifications'
-      ];
-      for (const k of keysToRemove) {
-        try { localStorage.removeItem(k); } catch {}
+    try {
+      const STORAGE_MODE = 'vrm_hrms_hostinger_vps_source_of_truth_v9';
+      if (localStorage.getItem('vrm_hrms_storage_mode') !== STORAGE_MODE) {
+        const keysToRemove = [
+          'vrm_hrms_employees', 'vrm_hrms_enhanced_tasks', 'vrm_hrms_attendance_records',
+          'vrm_hrms_attendance_records_persistent', 'vrm_hrms_face_logs',
+          'vrm_hrms_leave_requests', 'hrms_loan_records', 'vrm_hrms_loan_records', 'vrm_hrms_loan_policies',
+          'vrm_hrms_expenses', 'vrm_hrms_assets', 'vrm_hrms_mom_meetings',
+          'vrm_hrms_payroll_records', 'vrm_hrms_field_assignments', 'vrm_hrms_trip_sessions',
+          'vrm_hrms_tracking_alerts', 'vrm_hrms_shifts', 'vrm_hrms_holiday_policies',
+          'vrm_hrms_shift_requests', 'vrm_hrms_shift_requests_persistent', 'vrm_hrms_leave_requests_persistent',
+          'vrm_hrms_reward_policies', 'vrm_hrms_employee_rewards',
+          'vrm_hrms_master_attendance_policies', 'vrm_hrms_master_leave_policies',
+          'vrm_hrms_payroll_settings_config', 'vrm_hrms_geofence_config', 'vrm_hrms_company_info',
+          'vrm_hrms_company_branches', 'vrm_hrms_org_structure', 'vrm_hrms_departments',
+          'vrm_hrms_designations', 'vrm_hrms_department_ot_policies', 'vrm_hrms_overtime_records',
+          'vrm_enterprise_integrations_v6', 'vrm_enterprise_integrations_v5', 'vrm_enterprise_integrations_v4',
+          'vrm_enterprise_integrations_v3', 'vrm_enterprise_integrations_v2',
+          'vrm_hrms_candidates', 'hrms_candidates', 'vrm_hrms_candidates_data', 'vrm_hrms_loan_records_data',
+          'vrm_hrms_shared_notifications', 'shared_notifications_data', 'vrm_shared_notifications'
+        ];
+        for (const k of keysToRemove) {
+          try { localStorage.removeItem(k); } catch {}
+        }
+        try { localStorage.setItem('vrm_hrms_storage_mode', STORAGE_MODE); } catch {}
       }
-      localStorage.setItem('vrm_hrms_storage_mode', STORAGE_MODE);
-    }
+    } catch {}
   }
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
-    const saved = localStorage.getItem('vrm_hrms_current_user');
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem('vrm_hrms_current_user');
+    } catch {}
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -1932,7 +1938,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (changed) {
         try {
           if (typeof window !== 'undefined') {
-            localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(updated));
+            const compactLogs = updated.slice(0, 40).map(l => ({
+              ...l,
+              photoUrl: l.photoUrl?.startsWith('data:') ? '' : l.photoUrl
+            }));
+            localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
           }
         } catch {}
         supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => {});
@@ -6425,7 +6435,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     'gpsAllowed',
     'mustChangePassword',
     'accountStatus',
-    'password',
     'skills'
   ];
 
@@ -6449,6 +6458,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...extensionData,
         updatedAt: new Date().toISOString()
       };
+      delete (mergedEntry as any).password;
+      delete (mergedEntry as any).plainPassword;
+      delete (mergedEntry as any).passwordHash;
       profiles[profileKey] = mergedEntry;
       if (targetEmployee.id && targetEmployee.id !== profileKey) {
         profiles[targetEmployee.id] = mergedEntry;
@@ -6561,7 +6573,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (e.id === employeeId || e.employeeId === employeeId) {
         return {
           ...e,
-          password: tempPassword,
+          password: undefined,
           mustChangePassword: true,
           credentialEmailStatus: 'SENT',
           credentialEmailSentAt: new Date().toISOString(),
@@ -6573,13 +6585,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (matched) {
       const updatedEmp: Employee = {
         ...matched,
-        password: tempPassword,
+        password: undefined,
         mustChangePassword: true,
         credentialEmailStatus: 'SENT',
         credentialEmailSentAt: new Date().toISOString(),
       };
       supabaseDirect.updateEmployee(matched.id || matched.employeeId, {
-        password: tempPassword,
+        password: undefined,
         must_change_password: true,
         credential_email_status: 'SENT',
         credential_email_sent_at: new Date().toISOString(),
@@ -6731,7 +6743,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (e.email?.toLowerCase().trim() === clean || e.employeeId?.toLowerCase().trim() === clean || e.id?.toLowerCase().trim() === clean) {
         return {
           ...e,
-          password: newPassword,
+          password: undefined,
           mustChangePassword: false,
         };
       }
@@ -6741,11 +6753,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (matched) {
       const updatedEmp: Employee = {
         ...matched,
-        password: newPassword,
+        password: undefined,
         mustChangePassword: false,
       };
       supabaseDirect.updateEmployee(matched.id || matched.employeeId, {
-        password: newPassword,
+        password: undefined,
         must_change_password: false,
       }).catch(err => console.warn('[HRMSContext] changeEmployeePassword db update notice:', err));
 
@@ -7386,7 +7398,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ].slice(0, 200);
       try {
         if (typeof window !== 'undefined') {
-          localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(updated));
+          const compactLogs = updated.slice(0, 40).map(l => ({
+            ...l,
+            photoUrl: l.photoUrl?.startsWith('data:') ? '' : l.photoUrl
+          }));
+          localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
         }
       } catch {}
       supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => {});
@@ -11748,7 +11764,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const merged = Array.from(map.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 200);
             try {
               if (typeof window !== 'undefined') {
-                localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(merged));
+                const compactLogs = merged.slice(0, 40).map(l => ({
+                  ...l,
+                  photoUrl: l.photoUrl?.startsWith('data:') ? '' : l.photoUrl
+                }));
+                localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
               }
             } catch {}
             return merged;

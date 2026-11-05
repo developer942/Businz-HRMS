@@ -2,17 +2,20 @@ import { Router } from 'express';
 import { customerController } from '../controllers/customerController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/rbacMiddleware.js';
+import { ocrRateLimiter } from '../middleware/rateLimiter.js';
 
 export const customerRouter = Router();
 
-// OCR Visiting Card Scan endpoint (allow scanning even if session token is refreshing)
+// Protect all customer routes (including OCR scan) with authentication
+customerRouter.use(authenticateToken);
+
+// OCR Visiting Card Scan endpoint (authenticated, role-authorized, and rate-limited)
 customerRouter.post(
   '/ocr-scan',
+  ocrRateLimiter,
+  requirePermission('customer_data', 'create'),
   customerController.scanCardOcr.bind(customerController)
 );
-
-// Protect data-access customer routes with authentication
-customerRouter.use(authenticateToken);
 
 // Duplicate check endpoint
 customerRouter.get(

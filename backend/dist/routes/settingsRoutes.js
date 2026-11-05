@@ -3,9 +3,25 @@ import { getCompanySettings, updateCompanySettings, getGeofenceSettings, updateG
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
 import { parseGoogleMapsLink } from '../utils/googleMapsParser.js';
+import { ssrfSafeMapFetch, validateSafeMapUrl, SsrfBlockedError, } from '../utils/ssrfSafeFetch.js';
 export const settingsRouter = Router();
-// Resolve Google Maps link (including short links like maps.app.goo.gl and extract coords with pin priority)
-settingsRouter.post('/resolve-map-link', async (req, res) => {
+// Public read access for canonical office geofence boundaries so Face Attendance and HRMSContext
+// always validate against the authoritative PostgreSQL office coordinates.
+settingsRouter.get('/geofence', getGeofenceSettings);
+// All remaining settings endpoints require authentication
+settingsRouter.use(authenticateToken);
+// Resolve Google Maps link (protected against SSRF, unsafe schemes, private IPs, and untrusted redirects)
+settingsRouter.post('/resolve-map-link', requireRoles([
+    'Super Admin',
+    'CEO',
+    'HR Manager',
+    'HR Admin',
+    'HR',
+    'Admin',
+    'ERP Administrator',
+    'Department Manager',
+    'Finance Manager',
+]), async (req, res) => {
     try {
         const { url } = req.body;
         if (!url || typeof url !== 'string' || !url.trim()) {
@@ -13,7 +29,25 @@ settingsRouter.post('/resolve-map-link', async (req, res) => {
             return;
         }
         const cleanUrl = url.trim();
-        // 1. Direct parse on input URL with place pin priority
+        const hasUrlScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(cleanUrl);
+        // Enforce strict URL scheme & Google Maps host allowlist whenever input is a URL
+        if (hasUrlScheme) {
+            try {
+                validateSafeMapUrl(cleanUrl);
+            }
+            catch (err) {
+                if (err instanceof SsrfBlockedError) {
+                    res.status(400).json({
+                        success: false,
+                        error: { code: err.code, message: err.message },
+                        message: err.message,
+                    });
+                    return;
+                }
+                throw err;
+            }
+        }
+        // 1. Direct parse on input URL/coordinates with place pin priority
         const directParsed = parseGoogleMapsLink(cleanUrl);
         if (directParsed.success && !directParsed.isViewportFallback) {
             res.json({
@@ -27,17 +61,10 @@ settingsRouter.post('/resolve-map-link', async (req, res) => {
             });
             return;
         }
-        // 2. If it's a web URL (especially short links like maps.app.goo.gl, goo.gl/maps, etc.), follow redirects
-        if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+        // 2. If it is an allowlisted HTTPS Google Maps URL (e.g. maps.app.goo.gl), resolve via SSRF-safe fetch
+        if (hasUrlScheme) {
             try {
-                const resp = await fetch(cleanUrl, {
-                    redirect: 'follow',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                    },
-                });
-                const finalUrl = resp.url || cleanUrl;
+                const { finalUrl, html } = await ssrfSafeMapFetch(cleanUrl);
                 // Parse final resolved URL
                 const redirectParsed = parseGoogleMapsLink(finalUrl);
                 if (redirectParsed.success && !redirectParsed.isViewportFallback) {
@@ -53,8 +80,6 @@ settingsRouter.post('/resolve-map-link', async (req, res) => {
                     return;
                 }
                 // Check HTML content for place pin metadata
-                const html = await resp.text().catch(() => '');
-                // Search for place pin in HTML data attributes or canonical link
                 const pinInHtml = html.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
                 if (pinInHtml) {
                     const lat = parseFloat(pinInHtml[1]);
@@ -88,6 +113,14 @@ settingsRouter.post('/resolve-map-link', async (req, res) => {
                 }
             }
             catch (fetchErr) {
+                if (fetchErr instanceof SsrfBlockedError) {
+                    res.status(400).json({
+                        success: false,
+                        error: { code: fetchErr.code, message: fetchErr.message },
+                        message: fetchErr.message,
+                    });
+                    return;
+                }
                 console.warn('Redirect fetch error for map link:', fetchErr.message);
             }
         }
@@ -114,10 +147,6 @@ settingsRouter.post('/resolve-map-link', async (req, res) => {
         res.status(500).json({ success: false, message: err.message || 'Error resolving map link' });
     }
 });
-// Public read access for canonical office geofence boundaries so Face Attendance and HRMSContext
-// always validate against the authoritative PostgreSQL office coordinates.
-settingsRouter.get('/geofence', getGeofenceSettings);
-settingsRouter.use(authenticateToken);
 // Company Profile Settings
 settingsRouter.get('/company', getCompanySettings);
 settingsRouter.put('/company', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'HR', 'Admin']), updateCompanySettings);

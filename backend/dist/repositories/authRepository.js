@@ -5,6 +5,25 @@ import { hasDatabaseColumn, query } from '../config/database.js';
 import { generateTemporaryPassword, validatePasswordComplexity } from '../services/passwordService.js';
 import { sendCredentialEmail } from '../services/emailService.js';
 import { auditRepository } from './auditRepository.js';
+export const BCRYPT_ROUNDS = 12;
+export function isBcryptPasswordHash(value) {
+    return typeof value === 'string' && /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(value);
+}
+export function scrubProfilePasswordFields(profileEntry) {
+    const cleaned = { ...(profileEntry || {}) };
+    delete cleaned.password;
+    delete cleaned.plainPassword;
+    delete cleaned.passwordHash;
+    delete cleaned.password_hash;
+    if (cleaned.systemAccess && typeof cleaned.systemAccess === 'object') {
+        cleaned.systemAccess = { ...cleaned.systemAccess };
+        delete cleaned.systemAccess.password;
+        delete cleaned.systemAccess.plainPassword;
+        delete cleaned.systemAccess.passwordHash;
+        delete cleaned.systemAccess.password_hash;
+    }
+    return cleaned;
+}
 export class AuthRepository {
     /**
      * Dual identifier search: Finds account by either registered email OR Employee Code (e.g. EMP-005)
@@ -35,14 +54,15 @@ export class AuthRepository {
                 isSystemAccount: true,
             };
         }
-        if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || env.NODE_ENV === 'test') {
+        const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || env.NODE_ENV === 'test';
+        const isQueryMocked = Boolean(query?.mock);
+        if (isTestEnv && !isQueryMocked) {
             if (normalizedIdentifier === 'pavithra@gmail.com' || normalizedIdentifier === 'hr@vrmstructures.com' || normalizedIdentifier === 'emp-001') {
                 const passwordHash = await bcrypt.hash('Password@123', 10);
                 return {
                     id: 'usr-001',
                     email: normalizedIdentifier.includes('@') ? normalizedIdentifier : 'pavithra@gmail.com',
                     passwordHash,
-                    plainPassword: 'Password@123',
                     name: 'Pavithra',
                     role: 'HR Manager',
                     employeeId: 'EMP-001',
@@ -61,7 +81,6 @@ export class AuthRepository {
                     id: 'usr-004',
                     email: 'field@vrmstructures.com',
                     passwordHash,
-                    plainPassword: 'Password@123',
                     name: 'Karthik Rajan',
                     role: 'Employee',
                     employeeId: 'EMP-004',
@@ -124,13 +143,14 @@ export class AuthRepository {
                         userRole = 'Department Manager';
                 }
                 const accountStatus = data.account_status || (data.status === 'Active' ? 'ACTIVE' : 'DEACTIVATED');
-                const rawDbPass = data.password || '';
-                const passwordHash = rawDbPass.startsWith('$2') ? rawDbPass : (rawDbPass ? await bcrypt.hash(rawDbPass, 10) : '');
+                const rawDbPass = String(data.password || '');
+                const alreadyHashed = isBcryptPasswordHash(rawDbPass);
+                const passwordHash = alreadyHashed ? rawDbPass : (rawDbPass ? await bcrypt.hash(rawDbPass, BCRYPT_ROUNDS) : '');
                 const userAccount = {
                     id: data.auth_id || data.id,
                     email: data.email,
                     passwordHash,
-                    plainPassword: rawDbPass,
+                    plainPassword: alreadyHashed ? undefined : (rawDbPass || undefined),
                     name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Staff',
                     role: userRole,
                     employeeId: data.employee_id,
@@ -148,7 +168,7 @@ export class AuthRepository {
             }
         }
         catch (error) {
-            if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || env.NODE_ENV === 'test') {
+            if (isTestEnv) {
                 return null;
             }
             console.error('[PostgreSQL] Authentication lookup failed:', error instanceof Error ? error.message : 'Unknown error');
@@ -167,7 +187,9 @@ export class AuthRepository {
      */
     async createLoginAccount(params) {
         const temporaryPassword = params.temporaryPassword || generateTemporaryPassword();
-        const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+        const passwordHash = isBcryptPasswordHash(temporaryPassword)
+            ? temporaryPassword
+            : await bcrypt.hash(temporaryPassword, BCRYPT_ROUNDS);
         const userRole = params.role || 'Employee';
         const account = {
             id: params.employeeDbId,
@@ -219,14 +241,14 @@ export class AuthRepository {
         if (!validation.valid) {
             return { success: false, message: validation.message || 'Password does not meet complexity requirements' };
         }
-        user.passwordHash = await bcrypt.hash(newPassword, 10);
-        user.plainPassword = newPassword;
+        user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+        user.plainPassword = undefined;
         user.mustChangePassword = false;
         // Record audit log with NO passwords in metadata
         await auditRepository.recordLog('PASSWORD_CHANGED', user.employeeId, performedBy || user.email, { email: user.email });
         await query(`UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
-       WHERE LOWER(email) = LOWER($2) OR LOWER(employee_id) = LOWER($3)`, [newPassword, user.email, user.employeeId]);
-        // Sync company_settings employee_profiles_data so HR and CEO can view the updated password
+       WHERE LOWER(email) = LOWER($2) OR LOWER(employee_id) = LOWER($3)`, [user.passwordHash, user.email, user.employeeId]);
+        // Sync company_settings employee_profiles_data WITHOUT storing plaintext or hashed passwords
         try {
             const csResult = await query(`SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`);
             if (csResult.rows.length > 0) {
@@ -240,16 +262,14 @@ export class AuthRepository {
                 if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
                     if (user.employeeId) {
                         profiles[user.employeeId] = {
-                            ...(profiles[user.employeeId] || {}),
-                            password: newPassword,
+                            ...scrubProfilePasswordFields(profiles[user.employeeId]),
                             mustChangePassword: false,
                             updatedAt: new Date().toISOString()
                         };
                     }
                     if (user.id && user.id !== user.employeeId) {
                         profiles[user.id] = {
-                            ...(profiles[user.id] || {}),
-                            password: newPassword,
+                            ...scrubProfilePasswordFields(profiles[user.id]),
                             mustChangePassword: false,
                             updatedAt: new Date().toISOString()
                         };
@@ -272,8 +292,8 @@ export class AuthRepository {
             return { success: false, message: `No login account found for Employee ${employeeId}` };
         }
         const newTempPassword = generateTemporaryPassword();
-        user.passwordHash = await bcrypt.hash(newTempPassword, 10);
-        user.plainPassword = newTempPassword;
+        user.passwordHash = await bcrypt.hash(newTempPassword, BCRYPT_ROUNDS);
+        user.plainPassword = undefined;
         user.mustChangePassword = true;
         // Record reset audit
         await auditRepository.recordLog('TEMPORARY_LOGIN_RESET', user.employeeId, performedBy, { email: user.email });
@@ -290,7 +310,7 @@ export class AuthRepository {
         await query(`UPDATE employees
        SET password = $1, must_change_password = TRUE, credential_email_status = $2,
            credential_email_sent_at = $3, updated_at = NOW()
-       WHERE LOWER(employee_id) = LOWER($4) OR LOWER(email) = LOWER($4)`, [newTempPassword, emailResult.status, emailResult.sentAt, user.employeeId]);
+       WHERE LOWER(employee_id) = LOWER($4) OR LOWER(email) = LOWER($4)`, [user.passwordHash, emailResult.status, emailResult.sentAt, user.employeeId]);
         try {
             const csResult = await query(`SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`);
             if (csResult.rows.length > 0) {
@@ -304,8 +324,7 @@ export class AuthRepository {
                 if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
                     if (user.employeeId) {
                         profiles[user.employeeId] = {
-                            ...(profiles[user.employeeId] || {}),
-                            password: newTempPassword,
+                            ...scrubProfilePasswordFields(profiles[user.employeeId]),
                             mustChangePassword: true,
                             credentialEmailStatus: emailResult.status,
                             credentialEmailSentAt: emailResult.sentAt,
@@ -314,8 +333,7 @@ export class AuthRepository {
                     }
                     if (user.id && user.id !== user.employeeId) {
                         profiles[user.id] = {
-                            ...(profiles[user.id] || {}),
-                            password: newTempPassword,
+                            ...scrubProfilePasswordFields(profiles[user.id]),
                             mustChangePassword: true,
                             credentialEmailStatus: emailResult.status,
                             credentialEmailSentAt: emailResult.sentAt,
@@ -343,54 +361,48 @@ export class AuthRepository {
         const user = await this.findByIdentifier(employeeId);
         if (!user)
             return false;
-        const isHashed = newPasswordOrHash.startsWith('$2');
+        const isHashed = isBcryptPasswordHash(newPasswordOrHash);
         const newPasswordHash = isHashed
             ? newPasswordOrHash
-            : await bcrypt.hash(newPasswordOrHash, 10);
-        const plainPassword = isHashed ? undefined : newPasswordOrHash;
+            : await bcrypt.hash(newPasswordOrHash, BCRYPT_ROUNDS);
         user.passwordHash = newPasswordHash;
-        if (plainPassword)
-            user.plainPassword = plainPassword;
+        user.plainPassword = undefined;
         user.mustChangePassword = false;
         const updateResult = await query(`UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
-       WHERE LOWER(employee_id) = LOWER($2) OR LOWER(email) = LOWER($2)`, [plainPassword || newPasswordHash, user.employeeId]);
+       WHERE LOWER(employee_id) = LOWER($2) OR LOWER(email) = LOWER($2)`, [newPasswordHash, user.employeeId]);
         if (!updateResult.rowCount)
             return false;
-        if (plainPassword) {
-            try {
-                const csResult = await query(`SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`);
-                if (csResult.rows.length > 0) {
-                    let profiles = csResult.rows[0].setting_val || {};
-                    if (typeof profiles === 'string') {
-                        try {
-                            profiles = JSON.parse(profiles);
-                        }
-                        catch { }
+        try {
+            const csResult = await query(`SELECT setting_val FROM company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`);
+            if (csResult.rows.length > 0) {
+                let profiles = csResult.rows[0].setting_val || {};
+                if (typeof profiles === 'string') {
+                    try {
+                        profiles = JSON.parse(profiles);
                     }
-                    if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
-                        if (user.employeeId) {
-                            profiles[user.employeeId] = {
-                                ...(profiles[user.employeeId] || {}),
-                                password: plainPassword,
-                                mustChangePassword: false,
-                                updatedAt: new Date().toISOString()
-                            };
-                        }
-                        if (user.id && user.id !== user.employeeId) {
-                            profiles[user.id] = {
-                                ...(profiles[user.id] || {}),
-                                password: plainPassword,
-                                mustChangePassword: false,
-                                updatedAt: new Date().toISOString()
-                            };
-                        }
-                        await query(`UPDATE company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`, [JSON.stringify(profiles)]);
+                    catch { }
+                }
+                if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
+                    if (user.employeeId) {
+                        profiles[user.employeeId] = {
+                            ...scrubProfilePasswordFields(profiles[user.employeeId]),
+                            mustChangePassword: false,
+                            updatedAt: new Date().toISOString()
+                        };
                     }
+                    if (user.id && user.id !== user.employeeId) {
+                        profiles[user.id] = {
+                            ...scrubProfilePasswordFields(profiles[user.id]),
+                            mustChangePassword: false,
+                            updatedAt: new Date().toISOString()
+                        };
+                    }
+                    await query(`UPDATE company_settings SET setting_val = $1::jsonb, updated_at = NOW() WHERE setting_key = 'employee_profiles_data'`, [JSON.stringify(profiles)]);
                 }
             }
-            catch (csErr) {
-                console.warn('[authRepository] company_settings updatePasswordDirectly sync warning:', csErr);
-            }
+        }
+        catch (csErr) {
+            console.warn('[authRepository] company_settings updatePasswordDirectly sync warning:', csErr);
         }
         await auditRepository.recordLog('PASSWORD_RESET_SUCCESS', user.employeeId, performedBy, { email: user.email });
         return true;
@@ -433,13 +445,13 @@ export class AuthRepository {
                     };
                     if (user.employeeId) {
                         profiles[user.employeeId] = {
-                            ...(profiles[user.employeeId] || {}),
+                            ...scrubProfilePasswordFields(profiles[user.employeeId]),
                             ...statusPayload
                         };
                     }
                     if (user.id && user.id !== user.employeeId) {
                         profiles[user.id] = {
-                            ...(profiles[user.id] || {}),
+                            ...scrubProfilePasswordFields(profiles[user.id]),
                             ...statusPayload
                         };
                     }
@@ -454,6 +466,7 @@ export class AuthRepository {
     }
     /**
      * Records last login timestamp upon successful authentication
+     * and automatically upgrades any legacy plaintext password to bcrypt in-place.
      */
     async recordLoginSuccess(user) {
         const timestamp = new Date().toISOString();
@@ -469,8 +482,15 @@ export class AuthRepository {
             console.warn('[Auth] System Super Admin login succeeded, but its audit record could not be persisted:', error instanceof Error ? error.message : 'Unknown database error');
         }
         if (!user.isSystemAccount) {
-            await query(`UPDATE employees SET last_login_at = $1, updated_at = NOW()
-         WHERE LOWER(employee_id) = LOWER($2)`, [timestamp, user.employeeId]);
+            if (user.plainPassword && user.passwordHash && isBcryptPasswordHash(user.passwordHash)) {
+                user.plainPassword = undefined;
+                await query(`UPDATE employees SET password = $1, last_login_at = $2, updated_at = NOW()
+           WHERE LOWER(employee_id) = LOWER($3)`, [user.passwordHash, timestamp, user.employeeId]);
+            }
+            else {
+                await query(`UPDATE employees SET last_login_at = $1, updated_at = NOW()
+           WHERE LOWER(employee_id) = LOWER($2)`, [timestamp, user.employeeId]);
+            }
         }
     }
     generateToken(user) {
@@ -494,10 +514,6 @@ export class AuthRepository {
     async verifyPassword(password, hash, plain, additionalPlainPasswords = []) {
         if (!password)
             return false;
-        if (plain && password === plain)
-            return true;
-        if (additionalPlainPasswords.includes(password))
-            return true;
         if (hash && hash.startsWith('$2')) {
             try {
                 return await bcrypt.compare(password, hash);
@@ -506,6 +522,10 @@ export class AuthRepository {
                 return false;
             }
         }
+        if (plain && password === plain)
+            return true;
+        if (additionalPlainPasswords.includes(password))
+            return true;
         return false;
     }
 }

@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { customerController } from '../controllers/customerController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/rbacMiddleware.js';
+import { ocrRateLimiter } from '../middleware/rateLimiter.js';
 export const customerRouter = Router();
-// OCR Visiting Card Scan endpoint (allow scanning even if session token is refreshing)
-customerRouter.post('/ocr-scan', customerController.scanCardOcr.bind(customerController));
-// Protect data-access customer routes with authentication
+// Protect all customer routes (including OCR scan) with authentication
 customerRouter.use(authenticateToken);
+// OCR Visiting Card Scan endpoint (authenticated, role-authorized, and rate-limited)
+customerRouter.post('/ocr-scan', ocrRateLimiter, requirePermission('customer_data', 'create'), customerController.scanCardOcr.bind(customerController));
 // Duplicate check endpoint
 customerRouter.get('/check-duplicate', requirePermission('customer_data', 'view'), customerController.checkDuplicate.bind(customerController));
 // Record WhatsApp Consent Audit

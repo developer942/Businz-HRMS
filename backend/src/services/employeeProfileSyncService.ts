@@ -148,6 +148,7 @@ const withoutSecrets = (value: Record<string, any>): Record<string, any> => {
   const copy = JSON.parse(JSON.stringify(value || {}));
   delete copy.password;
   delete copy.passwordHash;
+  delete copy.password_hash;
   delete copy.plainPassword;
   delete copy.mustChangePassword;
   delete copy.officialUsername;
@@ -1411,7 +1412,10 @@ export class EmployeeProfileSyncService {
                 branch: updatedEmployee.branch || mergedBankDetails?.branch || '',
               },
               // Preserve existing password metadata in company_settings untouched (Phase 7)
-              password: existingExt.password,
+              password: undefined,
+              plainPassword: undefined,
+              passwordHash: undefined,
+              password_hash: undefined,
               mustChangePassword: existingExt.mustChangePassword,
               updatedAt: new Date().toISOString(),
             };
@@ -1435,7 +1439,7 @@ export class EmployeeProfileSyncService {
         return {
           employee: {
             ...profileData,
-            ...updatedEmployee,
+            ...withoutSecrets(updatedEmployee),
             id: updatedEmployee.id,
             employeeId: updatedEmployee.employee_id,
             firstName: updatedEmployee.first_name,

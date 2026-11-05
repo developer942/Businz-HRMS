@@ -34,17 +34,23 @@ export class ErrorBoundary extends Component<Props, State> {
       /loading chunk|failed to fetch dynamically imported module|unexpected token '<'/i.test(error?.message || '');
 
     if (isChunkFailure) {
-      const alreadyReloaded = window.sessionStorage.getItem('vrm_chunk_reload_attempted');
-      if (!alreadyReloaded) {
-        console.warn('[VRM ErrorBoundary] New deployment detected or chunk failed. Auto-reloading with latest assets...');
-        window.sessionStorage.setItem('vrm_chunk_reload_attempted', 'true');
-        window.location.reload();
+      try {
+        const alreadyReloaded = window.sessionStorage.getItem('vrm_chunk_reload_attempted');
+        if (!alreadyReloaded) {
+          console.warn('[VRM ErrorBoundary] New deployment detected or chunk failed. Auto-reloading with latest assets...');
+          window.sessionStorage.setItem('vrm_chunk_reload_attempted', 'true');
+          window.location.reload();
+        }
+      } catch {
+        // Ignore sessionStorage SecurityError / QuotaExceededError
       }
     }
   }
 
   private handleReset = () => {
-    window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
+    try {
+      window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
+    } catch {}
     this.setState({ hasError: false, error: null, errorInfo: null });
     if (this.props.onReset) {
       this.props.onReset();
@@ -54,7 +60,9 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleGoHome = () => {
-    window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
+    try {
+      window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
+    } catch {}
     window.location.href = '/';
   };
 

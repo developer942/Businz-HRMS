@@ -1,8 +1,70 @@
+import '../utils/storageGuard';
 import type { Role, User } from '../types/hrms';
 import { API_BASE_URL } from '../config/api';
 
 const getApiBase = () => `${API_BASE_URL}`;
 const TOKEN_KEY = 'vrm_auth_token';
+let memoryToken: string | null = null;
+
+const safeGetToken = (): string | null => {
+  if (typeof window === 'undefined') return memoryToken;
+  try {
+    const s = window.sessionStorage?.getItem(TOKEN_KEY);
+    if (s) return s;
+  } catch {}
+  try {
+    const l = window.localStorage?.getItem(TOKEN_KEY);
+    if (l) return l;
+  } catch {}
+  return memoryToken;
+};
+
+const safeSetStorageItem = (key: string, value: string, alsoSession = false) => {
+  if (key === TOKEN_KEY) {
+    memoryToken = value;
+  }
+  if (typeof window === 'undefined') return;
+  if (alsoSession) {
+    try {
+      window.sessionStorage?.setItem(key, value);
+    } catch {}
+  }
+  try {
+    window.localStorage?.setItem(key, value);
+    return;
+  } catch {
+    // QuotaExceededError or SecurityError fallback: clear non-critical keys and retry
+    try {
+      const keepKeys = new Set([TOKEN_KEY, 'vrm_hrms_current_user', 'vrm_active_role', 'vrm_active_emp_id']);
+      const keysToDelete: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k && !keepKeys.has(k)) keysToDelete.push(k);
+      }
+      keysToDelete.forEach((k) => {
+        try {
+          window.localStorage.removeItem(k);
+        } catch {}
+      });
+      window.localStorage?.setItem(key, value);
+    } catch {}
+  }
+};
+
+const safeRemoveStorageItem = (key: string, alsoSession = false) => {
+  if (key === TOKEN_KEY) {
+    memoryToken = null;
+  }
+  if (typeof window === 'undefined') return;
+  if (alsoSession) {
+    try {
+      window.sessionStorage?.removeItem(key);
+    } catch {}
+  }
+  try {
+    window.localStorage?.removeItem(key);
+  } catch {}
+};
 
 export interface AuthUser {
   id: string;
@@ -168,16 +230,14 @@ const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
 
 export const authService = {
   getToken: () => {
-    if (typeof window === 'undefined') return null;
-    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+    return safeGetToken();
   },
 
   clearSession: () => {
-    sessionStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem('vrm_active_role');
-    localStorage.removeItem('vrm_active_emp_id');
-    localStorage.removeItem('vrm_hrms_current_user');
+    safeRemoveStorageItem(TOKEN_KEY, true);
+    safeRemoveStorageItem('vrm_active_role');
+    safeRemoveStorageItem('vrm_active_emp_id');
+    safeRemoveStorageItem('vrm_hrms_current_user');
     try {
       sessionStorage.removeItem('vrm_task_active_tab');
     } catch {}
@@ -194,9 +254,8 @@ export const authService = {
     if (!response.ok) throw new Error(await readError(response, 'Invalid User ID / Email or password.'));
     const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
     if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
-    sessionStorage.setItem(TOKEN_KEY, body.data.accessToken);
-    localStorage.setItem(TOKEN_KEY, body.data.accessToken);
-    localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+    safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
     return body.data;
   },
 
@@ -216,7 +275,7 @@ export const authService = {
       this.clearSession();
       throw new Error('Authentication response was incomplete.');
     }
-    localStorage.setItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data)));
+    safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data)));
     return body.data;
   },
 
@@ -235,8 +294,7 @@ export const authService = {
     if (!response.ok) throw new Error(await readError(response, 'Password could not be changed.'));
     const body = (await response.json()) as ApiResponse<{ accessToken?: string }>;
     if (body.data?.accessToken) {
-      sessionStorage.setItem(TOKEN_KEY, body.data.accessToken);
-      localStorage.setItem(TOKEN_KEY, body.data.accessToken);
+      safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
     }
   },
 
@@ -306,5 +364,3 @@ export const authService = {
     if (!response.ok) throw new Error(await readError(response, 'Failed to reset password.'));
   },
 };
-
-

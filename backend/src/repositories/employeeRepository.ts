@@ -1,3 +1,4 @@
+import bcrypt from 'bcrypt';
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
 import { SalaryStructureInput } from '../types/payroll.js';
 import { memoryCache } from '../services/cacheService.js';
@@ -87,7 +88,16 @@ export interface EmployeeSalaryStructureRecord extends SalaryStructureInput {
 }
 
 function mapDbRowToEmployee(data: any): EmployeeRecord {
-  const profile = typeof data.profile_data === 'object' && data.profile_data !== null ? data.profile_data : {};
+  const rawProfile = typeof data.profile_data === 'object' && data.profile_data !== null ? { ...data.profile_data } : {};
+  delete rawProfile.password;
+  delete rawProfile.plainPassword;
+  delete rawProfile.passwordHash;
+  delete rawProfile.password_hash;
+  if (rawProfile.systemAccess && typeof rawProfile.systemAccess === 'object') {
+    rawProfile.systemAccess = { ...rawProfile.systemAccess };
+    delete rawProfile.systemAccess.password;
+  }
+  const profile = rawProfile;
   const basic = Number(data.basic_salary ?? profile.basicSalary) || 0;
   const gross = Number(data.gross_salary ?? profile.grossSalary) || basic || 0;
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -507,7 +517,9 @@ export class EmployeeRepository {
       must_change_password: data.mustChangePassword ?? true,
       account_status: data.accountStatus || 'ACTIVE',
       credential_email_status: data.credentialEmailStatus || 'PENDING',
-      password: data.password || null,
+      password: data.password
+        ? (/^\$2[aby]\$\d{2}\$/.test(data.password) ? data.password : await bcrypt.hash(data.password, 12))
+        : null,
     };
 
     // Banking & Statutory

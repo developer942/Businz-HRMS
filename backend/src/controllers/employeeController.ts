@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
+import { passwordResetRepository } from '../repositories/passwordResetRepository.js';
 import { z } from 'zod';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { authRepository } from '../repositories/authRepository.js';
@@ -187,7 +189,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
       mustChangePassword: true,
       accountStatus: 'ACTIVE',
       status: 'Active',
-      password: temporaryPassword,
+      password: await bcrypt.hash(temporaryPassword, 12),
     });
 
     // STEP 5: Create linked authentication account & persist credentials
@@ -671,7 +673,12 @@ export const sendEmployeeCredentials = async (
     const performer = req.user?.email || 'HR Department';
 
     // Generate secure one-time account setup link (NO plaintext passwords)
-    const setupToken = crypto.randomBytes(32).toString('hex');
+    const setupToken = passwordResetRepository.generateResetToken(emp.employeeId, emp.email.toLowerCase());
+    await passwordResetRepository.createResetRecord({
+      employeeId: emp.employeeId,
+      otpHash: await bcrypt.hash(setupToken.slice(-32), 10),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    });
     const baseLoginUrl = (loginUrl as string) || 'https://hrms.businz.com/login';
     const baseUrl = baseLoginUrl.replace(/\/login\/?$/, '');
     const setupUrl = `${baseUrl}/reset-password?setupToken=${setupToken}&employeeCode=${encodeURIComponent(emp.employeeId)}`;

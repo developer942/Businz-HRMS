@@ -574,7 +574,7 @@ describe('BUSINZ HRMS — Employee Profile Save & PostgreSQL Persistence Suite',
       expect(dbEmployeeRow.password).toBe('$2b$10$originalHashedPasswordValueDoNotChange123456');
       expect(dbEmployeeRow.must_change_password).toBe(false);
       expect(dbEmployeeRow.profile_data.password).toBeUndefined();
-      expect(dbCompanySettings['EMP-004'].password).toBe('OriginalPlainPassword@123');
+      expect(dbCompanySettings['EMP-004'].password).toBeUndefined();
 
       // Verify Audit Log recorded without secrets
       expect(dbAuditLogs).toHaveLength(1);

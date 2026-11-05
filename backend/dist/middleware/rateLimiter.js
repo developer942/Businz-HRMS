@@ -17,7 +17,8 @@ export const authRateLimiter = rateLimit({
             details: [],
         },
     },
-    skip: () => env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true',
+    skip: (req) => req.headers['x-enforce-rate-limit-test'] !== 'true' &&
+        (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true'),
 });
 /**
  * Strict rate limiter for credential dispatch to prevent email flooding or abuse.
@@ -36,7 +37,33 @@ export const credentialDispatchRateLimiter = rateLimit({
             details: [],
         },
     },
-    skip: () => env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true',
+    skip: (req) => req.headers['x-enforce-rate-limit-test'] !== 'true' &&
+        (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true'),
+});
+/**
+ * Dedicated rate limiter for AI OCR visiting card scanning to prevent Gemini API quota exhaustion.
+ * Allows max 10 OCR scan requests per 15 minutes per authenticated user / IP.
+ */
+export const ocrRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const userId = req.user?.id || req.user?.employeeId;
+        return userId ? `ocr-user:${userId}` : `ocr-ip:${req.ip || 'unknown'}`;
+    },
+    validate: false,
+    message: {
+        success: false,
+        error: {
+            code: 'TOO_MANY_REQUESTS',
+            message: 'Too many OCR card scan requests. Please wait a few minutes before scanning again.',
+            details: [],
+        },
+    },
+    skip: (req) => req.headers['x-enforce-rate-limit-test'] !== 'true' &&
+        (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true'),
 });
 /**
  * High-capacity rate limiter for general API endpoints.
@@ -56,9 +83,11 @@ export const apiRateLimiter = rateLimit({
         },
     },
     skip: (req) => {
-        // Skip in automated test environments
-        if (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true')
+        // Skip in automated test environments unless explicitly testing rate limits
+        if (req.headers['x-enforce-rate-limit-test'] !== 'true' &&
+            (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true')) {
             return true;
+        }
         // Header bypass strictly allowed ONLY in local development
         if (env.NODE_ENV === 'development' && req.headers['x-internal-benchmark'] === 'vrm-benchmark-2026')
             return true;
