@@ -46,6 +46,7 @@ export type ModuleName =
   | 'tasks'
   | 'recruitment'
   | 'finance'
+  | 'field_allowance'
   | 'notifications'
   | 'payroll'
   | 'advance_salary'
