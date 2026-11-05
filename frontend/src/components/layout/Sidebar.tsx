@@ -30,7 +30,8 @@ import {
   ChevronRight,
   Bell,
   LogOut,
-  Contact2
+  Contact2,
+  Compass
 } from 'lucide-react';
 import { pettyCashService } from '../../services/pettyCashService';
 
@@ -224,6 +225,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'FINANCE & PAYROLL' 
     },
     { 
+      id: 'field_allowance',
+      label: (currentUser.role === 'Employee' && !isHRorAdmin && !isAccountsStaff) ? 'My Field Allowance' : 'Field Allowance & Claims',
+      icon: Compass,
+      section: 'FINANCE & PAYROLL'
+    },
+    {
       id: 'finance', 
       label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Expenses' : 'Finance & Expenses', 
       icon: IndianRupee, 

@@ -23,6 +23,7 @@ export const DEFAULT_CORE_MODULES: ModuleDefinition[] = [
   { id: 'mod-7', key: 'payroll', name: 'Payroll', category: 'Finance', isCustom: false, description: 'Salary calculations, payslips, EPF/ESIC statutory rules' },
   { id: 'mod-8', key: 'advance_salary', name: 'Advance Salary', category: 'Finance', isCustom: false, description: 'Salary advances, loan policies & monthly EMI deductions' },
   { id: 'mod-9', key: 'expenses', name: 'Expenses', category: 'Finance', isCustom: false, description: 'Reimbursement claims, TaDa travel allowance & receipts' },
+  { id: 'mod-9b', key: 'field_allowance', name: 'Field Allowance & Claims', category: 'Finance', isCustom: false, description: 'Field visit advances, daily expense claims, balance returns & reimbursements' },
   { id: 'mod-10', key: 'performance', name: 'Performance', category: 'HR Core', isCustom: false, description: 'Quarterly appraisals, KPI scorecards & achievement reviews' },
   { id: 'mod-11', key: 'site_visit', name: 'Site Visit', category: 'Field Force', isCustom: false, description: 'Client site check-ins, field verification & geo-tagging' },
   { id: 'mod-12', key: 'gps_tracking', name: 'GPS Tracking', category: 'Field Force', isCustom: false, description: 'Real-time live location, route history & travel trails' },

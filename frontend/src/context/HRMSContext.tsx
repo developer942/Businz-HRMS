@@ -6263,6 +6263,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       (currentUser.department && (currentUser.department.toLowerCase() === 'hr' || currentUser.department.toLowerCase() === 'human resources')) ||
       (currentUser.designation && currentUser.designation.toLowerCase().includes('hr'));
 
+    if (module === 'field_allowance') {
+      if (action === 'view' || action === 'export') return true;
+      if (action === 'create') return !isCeoAuthority;
+      if (action === 'approve') return isHrOrCeo && !isFinanceStaff;
+      return true;
+    }
+
     if (module === 'assets' || module === 'recruitment') {
       if (isHrOrCeo) return true;
     }
