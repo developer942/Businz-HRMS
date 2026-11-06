@@ -692,12 +692,13 @@ const TaskDetailModalInner: React.FC<TaskDetailModalProps> = ({ taskId, onClose 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '14px' }}>
                 {task.assignees.map((a) => {
                   const isCompleted = a.individualStatus === 'Completed' || (a.progressPercentage || 0) === 100;
+                  // Strictly ONLY the assigned employee can change their own individual status (No other person can change)
                   const canEditThis = (a.employeeId && (a.employeeId === currentEmpId || a.employeeId === currentUser.id)) ||
                     (currentEmpName && a.employeeName && (
                       a.employeeName.toLowerCase() === currentEmpName ||
                       a.employeeName.toLowerCase().includes(currentEmpName) ||
                       currentEmpName.includes(a.employeeName.toLowerCase())
-                    )) || isCEO || isHR || isSuperAdmin || isAssigner || isResponsiblePerson;
+                    ));
 
                   return (
                     <div 

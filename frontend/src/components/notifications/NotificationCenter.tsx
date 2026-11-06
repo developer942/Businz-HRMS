@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
-import { AlertTriangle, Info, Plus } from 'lucide-react';
+import { AlertTriangle, Info, Plus, CheckCheck } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export const NotificationCenter: React.FC = () => {
-  const { notifications, markNotificationRead, addNotification, pushSharedNotification } = useHRMS();
+  const { notifications, markNotificationRead, markAllNotificationsRead, addNotification, pushSharedNotification } = useHRMS();
   const [filter, setFilter] = useState<'All' | 'Urgent' | 'Important' | 'Normal'>('All');
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
+
+  // Requirement 1 & 2: Automatically mark all notifications as read when opening notification module
+  useEffect(() => {
+    markAllNotificationsRead();
+  }, []);
 
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
@@ -41,7 +46,10 @@ export const NotificationCenter: React.FC = () => {
         <div className="page-title-group">
           <h1>Global Notification Center</h1>
         </div>
-        <div className="header-actions">
+        <div className="header-actions" style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => markAllNotificationsRead()}>
+            <CheckCheck size={16} /> Mark All Read
+          </button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowAnnounceModal(true)}>
             <Plus size={16} /> Post Announcement
           </button>

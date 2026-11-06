@@ -459,7 +459,13 @@ export const Header: React.FC<HeaderProps> = ({
           <button 
             className="header-action-circle-btn" 
             onClick={() => {
-              setShowNotifications(prev => !prev);
+              setShowNotifications(prev => {
+                const next = !prev;
+                if (next && unreadCount > 0) {
+                  markAllNotificationsRead();
+                }
+                return next;
+              });
               setShowQuickAddMenu(false);
               setShowProfileMenu(false);
             }}

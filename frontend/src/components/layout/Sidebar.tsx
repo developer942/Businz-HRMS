@@ -103,6 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     tasks = [],
     enhancedTasks = [],
     notifications = [],
+    markModuleNotificationsRead,
     leaveRequests = [],
     loanRecords = [],
     expenses = [],
@@ -408,16 +409,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   const getItemBadge = (id: ModuleName): number | null => {
-    if (id === 'tasks' && pendingTasksCount > 0) return pendingTasksCount;
-    if (id === 'leaves' && pendingLeavesCount > 0) return pendingLeavesCount;
-    if (id === 'attendance' && pendingAttendanceCount > 0) return pendingAttendanceCount;
-    if (id === 'shifts' && pendingShiftsCount > 0) return pendingShiftsCount;
-    if (id === 'finance' && pendingExpensesCount > 0) return pendingExpensesCount;
-    if (id === 'accounts_payment' && pendingDisbursementsCount > 0) return pendingDisbursementsCount;
-    if (id === 'advance_salary' && pendingLoansCount > 0) return pendingLoansCount;
-    if (id === 'recruitment' && pendingRecruitmentCount > 0) return pendingRecruitmentCount;
-    if (id === 'tracking' && openTrackingAlertsCount > 0) return openTrackingAlertsCount;
+    // If user is currently looking at this module, badge is closed!
+    if (activeModule === id) return null;
+
+    // Check for unread notifications for this specific module
+    const unreadModuleNotifs = (notifications || []).filter(n => {
+      if (n.read) return false;
+      const linkMatch = n.link === id;
+      const cat = String(n.category || '').toLowerCase();
+      const catMatch = 
+        (id === 'leaves' && cat.includes('leave')) ||
+        (id === 'tasks' && cat.includes('task')) ||
+        (id === 'finance' && (cat.includes('finance') || cat.includes('expense'))) ||
+        (id === 'attendance' && cat.includes('attendance')) ||
+        (id === 'shifts' && cat.includes('shift')) ||
+        (id === 'payroll' && cat.includes('payroll')) ||
+        (id === 'advance_salary' && (cat.includes('salary') || cat.includes('loan')));
+      return linkMatch || catMatch;
+    }).length;
+
+    if (unreadModuleNotifs > 0) return unreadModuleNotifs;
+
+    // Notifications bell/center item
     if (id === 'notifications' && unreadNotificationsCount > 0) return unreadNotificationsCount;
+
     return null;
   };
 
@@ -591,6 +606,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`sidebar-mobile-nav-item ${isActive ? 'active' : ''}`}
                   onClick={() => {
                     setActiveModule(item.id);
+                    markModuleNotificationsRead?.(item.id);
                     onCloseMobile?.();
                   }}
                 >
@@ -815,6 +831,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={(e) => {
                   e.preventDefault();
                   setActiveModule(item.id);
+                  markModuleNotificationsRead?.(item.id);
                   onCloseMobile?.();
                 }}
                 title={effectiveCollapsed ? item.label : undefined}

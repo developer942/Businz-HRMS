@@ -208,25 +208,37 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
     t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED'
   ).length;
 
-  // Count team tasks (assigned to 2 or more members)
+  // Count active team tasks requiring action (assigned to 2 or more members)
   const teamTasksCount = enhancedTasks.filter(t => {
     const count = t.assignees ? t.assignees.length : 0;
     if (count <= 1) return false;
+    if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED' || t.overallStatus === 'CANCELLED') return false;
+
+    const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
+    const currentName = (currentUser.name || '').toLowerCase().trim();
+
+    // Check if current user is an assignee in this team task
+    const myAssignee = t.assignees.find(a => {
+      const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
+      const assigneeName = (a.employeeName || '').toLowerCase().trim();
+      return (
+        (currentEmpId && assigneeEmpId === currentEmpId) ||
+        (currentName && (assigneeName === currentName || assigneeName.includes(currentName) || currentName.includes(assigneeName)))
+      );
+    });
+
+    // If current user is an assignee, only count if their individual status is NOT completed
+    if (myAssignee) {
+      return myAssignee.individualStatus !== 'Completed';
+    }
+
     if (!isCEO && !isHR) {
-      const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
-      const currentName = (currentUser.name || '').toLowerCase().trim();
-      const isAssignedToMe = t.assignees.some(a => {
-        const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
-        const assigneeName = (a.employeeName || '').toLowerCase().trim();
-        return (
-          (currentEmpId && assigneeEmpId === currentEmpId) ||
-          (currentName && (assigneeName === currentName || assigneeName.includes(currentName) || currentName.includes(assigneeName)))
-        );
-      });
-      if (!isAssignedToMe) return false;
+      return false;
     }
     if (isManager && currentUser.department && t.department !== currentUser.department) return false;
-    return t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED';
+
+    // For management, only count if at least one member is still not completed
+    return t.assignees.some(a => a.individualStatus !== 'Completed');
   }).length;
 
   // Count daily reports visible to the current user

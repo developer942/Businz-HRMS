@@ -478,7 +478,7 @@ export interface NotificationItem {
   message: string;
   timestamp: string;
   priority: 'Urgent' | 'Important' | 'Normal';
-  category: 'Leave' | 'Shift' | 'Task' | 'Payroll' | 'Recruitment' | 'Announcement' | 'Attendance';
+  category: 'Leave' | 'Shift' | 'Task' | 'Payroll' | 'Recruitment' | 'Announcement' | 'Attendance' | 'Finance' | 'Expense' | 'Advance Salary' | 'Loan';
   read: boolean;
   link?: string;
   /** Cross-user delivery: audience groups ('ALL' | 'CEO' | 'HR' | 'ACCOUNTS') */

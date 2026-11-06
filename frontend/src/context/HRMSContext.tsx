@@ -978,6 +978,7 @@ interface HRMSContextType {
   notifications: NotificationItem[];
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
+  markModuleNotificationsRead: (moduleName: string) => void;
   addNotification: (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => void;
   pushSharedNotification: (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read' | 'createdAt' | 'readBy' | 'senderKey'>) => void;
   sendLeaveReminder: (leave: LeaveRequest) => void;
@@ -3690,8 +3691,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const markNotificationRead = (id: string) => {
     const shared = sharedNotifications.find(n => n.id === id);
     if (shared) {
-      const myKey = getUserNotificationKeys()[0];
-      if (!myKey || (shared.readBy || []).includes(myKey)) return;
+      const myKeys = getUserNotificationKeys();
+      const myKey = myKeys[0];
+      if (!myKey || (shared.readBy || []).some(k => myKeys.includes(String(k).toLowerCase()))) return;
       const updated = { ...shared, readBy: [...(shared.readBy || []), myKey] };
       setSharedNotifications(prev => prev.map(n => n.id === id ? updated : n));
       persistSharedNotifications([updated]);
@@ -3702,15 +3704,62 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const markAllNotificationsRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    const myKey = getUserNotificationKeys()[0];
+    const myKeys = getUserNotificationKeys();
+    const myKey = myKeys[0];
     if (!myKey) return;
     const toUpdate = sharedNotifications
-      .filter(n => isSharedNotificationForMe(n) && !(n.readBy || []).includes(myKey))
+      .filter(n => isSharedNotificationForMe(n) && !(n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())))
       .map(n => ({ ...n, readBy: [...(n.readBy || []), myKey] }));
     if (!toUpdate.length) return;
     const updatedMap = new Map(toUpdate.map(n => [n.id, n]));
     setSharedNotifications(prev => prev.map(n => updatedMap.get(n.id) || n));
     persistSharedNotifications(toUpdate);
+  };
+
+  const markModuleNotificationsRead = (moduleName: string) => {
+    if (!moduleName) return;
+    const mod = moduleName.toLowerCase().trim();
+    const myKeys = getUserNotificationKeys();
+    const myKey = myKeys[0];
+
+    // 1. Mark local notifications matching module
+    setNotifications(prev => prev.map(n => {
+      const cat = String(n.category || '').toLowerCase();
+      const match = (n.link && n.link.toLowerCase().trim() === mod) ||
+        (mod === 'leaves' && cat.includes('leave')) ||
+        (mod === 'tasks' && cat.includes('task')) ||
+        (mod === 'finance' && (cat.includes('finance') || cat.includes('expense'))) ||
+        (mod === 'attendance' && cat.includes('attendance')) ||
+        (mod === 'shifts' && cat.includes('shift'));
+      return match ? { ...n, read: true } : n;
+    }));
+
+    // 2. Mark shared notifications matching module
+    if (!myKey) return;
+    const toUpdate: NotificationItem[] = [];
+    const updatedShared = sharedNotifications.map(n => {
+      const isForMe = isSharedNotificationForMe(n);
+      const isRead = (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase()));
+      const cat = String(n.category || '').toLowerCase();
+      const match = (n.link && n.link.toLowerCase().trim() === mod) ||
+        (mod === 'leaves' && cat.includes('leave')) ||
+        (mod === 'tasks' && cat.includes('task')) ||
+        (mod === 'finance' && (cat.includes('finance') || cat.includes('expense'))) ||
+        (mod === 'attendance' && cat.includes('attendance')) ||
+        (mod === 'shifts' && cat.includes('shift'));
+
+      if (isForMe && !isRead && match) {
+        const updated = { ...n, readBy: [...(n.readBy || []), myKey] };
+        toUpdate.push(updated);
+        return updated;
+      }
+      return n;
+    });
+
+    if (toUpdate.length > 0) {
+      setSharedNotifications(updatedShared);
+      persistSharedNotifications(toUpdate);
+    }
   };
 
   const addNotification = (note: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => {
@@ -3745,6 +3794,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       link: 'leaves'
     });
   };
+
+  // Automatically mark unread notifications for a module as read when user visits/opens that module
+  useEffect(() => {
+    if (activeModule) {
+      if (activeModule === 'notifications') {
+        markAllNotificationsRead();
+      } else {
+        markModuleNotificationsRead(activeModule);
+      }
+    }
+  }, [activeModule]);
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>(INITIAL_DEPTS);
   const [designations, setDesignations] = useState<DesignationItem[]>([]);
@@ -7750,7 +7810,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.updateLeaveRequestStatus(id, 'Approved', approvedBy, comment);
     }
 
-    // 1. Notify the employee who applied (targeted to their employee ID & name)
+    // 1. Notify strictly and ONLY the employee who applied (targeted to their employee ID & name)
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Approved' : 'Leave Request Approved',
       message: `Your ${target.leaveType} request (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}) was approved by ${approvedBy}.${comment ? ` Remarks: ${comment}` : ''} Attendance updated.`,
@@ -7758,25 +7818,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       category: 'Leave',
       link: 'leaves',
       targetEmployeeIds: [target.employeeId, target.employeeName].filter(Boolean) as string[]
-    });
-
-    // 2. Notify management
-    pushSharedNotification({
-      title: 'Leave Request Approved',
-      message: `${target.employeeName}'s ${target.leaveType} request was approved by ${approvedBy}.`,
-      priority: 'Normal',
-      category: 'Leave',
-      link: 'leaves',
-      targetRoles: ['CEO', 'HR']
-    });
-
-    // 3. Local feedback for approver
-    addNotification({
-      title: 'Request Approved',
-      message: `You approved ${target.employeeName}'s ${target.leaveType} request.`,
-      priority: 'Normal',
-      category: 'Leave',
-      link: 'leaves'
     });
   };
 
@@ -7822,7 +7863,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.updateLeaveRequestStatus(id, 'Rejected', approvedBy, comment);
     }
 
-    // 1. Notify the employee who applied (targeted to their employee ID & name)
+    // 1. Notify strictly and ONLY the employee who applied (targeted to their employee ID & name)
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Declined' : 'Leave Request Rejected',
       message: `Your ${target.leaveType} request (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}) was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
@@ -7830,25 +7871,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       category: 'Leave',
       link: 'leaves',
       targetEmployeeIds: [target.employeeId, target.employeeName].filter(Boolean) as string[]
-    });
-
-    // 2. Notify management
-    pushSharedNotification({
-      title: 'Leave Request Rejected',
-      message: `${target.employeeName}'s ${target.leaveType} request was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
-      priority: 'Important',
-      category: 'Leave',
-      link: 'leaves',
-      targetRoles: ['CEO', 'HR']
-    });
-
-    // 3. Local feedback for current user
-    addNotification({
-      title: 'Request Rejected',
-      message: `You rejected ${target.employeeName}'s ${target.leaveType} request.`,
-      priority: 'Normal',
-      category: 'Leave',
-      link: 'leaves'
     });
   };
 
@@ -8513,14 +8535,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setTasks(prev => [legacyTask, ...prev]);
 
-    // Send notifications to all assignees
+    // Send notifications strictly to the assigned employees
     preparedAssignees.forEach(asn => {
-      addNotification({
+      pushSharedNotification({
         title: 'New Task Assigned',
-        message: `You have been assigned to task: "${newTask.title}" (Due: ${formatDateDDMMYYYY(newTask.dueDate)})`,
+        message: `You have been assigned to task: "${newTask.title}" (Due: ${formatDateDDMMYYYY(newTask.dueDate)}) by ${currentUser.name}.`,
         priority: newTask.priority === 'Urgent' ? 'Urgent' : 'Normal',
         category: 'Task',
-        link: newTask.id
+        link: 'tasks',
+        targetEmployeeIds: [asn.employeeId, asn.employeeName].filter(Boolean) as string[]
       });
     });
 
@@ -8993,26 +9016,47 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         'Blocked': 30
       };
 
-      const currentEmpId = currentUser.employeeId || currentUser.id || '';
+      const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
       const currentEmpName = (currentUser.name || '').toLowerCase().trim();
 
-      // Determine which assignee is targeted
-      let targetId = targetAssigneeId;
-      if (!targetId) {
-        const matchingAssignee = t.assignees.find(a => 
-          (currentEmpId && (a.employeeId === currentEmpId || a.id === currentEmpId)) ||
-          (currentUser.id && a.employeeId === currentUser.id) ||
-          (currentEmpName && a.employeeName && (
-            a.employeeName.toLowerCase() === currentEmpName ||
-            a.employeeName.toLowerCase().includes(currentEmpName) ||
-            currentEmpName.includes(a.employeeName.toLowerCase())
-          ))
-        );
-        if (matchingAssignee) {
-          targetId = matchingAssignee.id || matchingAssignee.employeeId;
-        } else if (t.assignees.length === 1) {
-          targetId = t.assignees[0].id || t.assignees[0].employeeId;
+      // STRICT REQUIREMENT 3: Only the assigned employee can change their own task status!
+      // No other person (not even assigner, HR, or CEO) can change another employee's status!
+      const myAssignee = t.assignees.find(a => 
+        (currentEmpId && (a.employeeId?.toLowerCase().trim() === currentEmpId || a.id?.toLowerCase().trim() === currentEmpId)) ||
+        (currentUser.id && a.employeeId?.toLowerCase().trim() === currentUser.id.toLowerCase().trim()) ||
+        (currentEmpName && a.employeeName && (
+          a.employeeName.toLowerCase().trim() === currentEmpName ||
+          a.employeeName.toLowerCase().trim().includes(currentEmpName) ||
+          currentEmpName.includes(a.employeeName.toLowerCase().trim())
+        ))
+      );
+
+      if (t.assignees && t.assignees.length > 0) {
+        if (!myAssignee) {
+          console.warn('[HRMS] Task status change blocked: Only the assigned employee can change their status.');
+          return t;
         }
+        if (targetAssigneeId) {
+          const isTargetMine = myAssignee.id === targetAssigneeId || 
+            myAssignee.employeeId === targetAssigneeId || 
+            myAssignee.employeeName.toLowerCase().trim() === targetAssigneeId.toLowerCase().trim();
+          if (!isTargetMine) {
+            console.warn('[HRMS] Task status change blocked: Cannot change another employee status.');
+            return t;
+          }
+        }
+      } else {
+        const isResponsible = t.responsiblePersonId?.toLowerCase().trim() === currentEmpId ||
+          (currentEmpName && t.responsiblePersonName && t.responsiblePersonName.toLowerCase().trim().includes(currentEmpName));
+        if (!isResponsible) {
+          return t;
+        }
+      }
+
+      // Determine which assignee is targeted
+      let targetId = targetAssigneeId || (myAssignee ? (myAssignee.id || myAssignee.employeeId) : undefined);
+      if (!targetId && t.assignees.length === 1) {
+        targetId = t.assignees[0].id || t.assignees[0].employeeId;
       }
 
       const updatedAssignees = t.assignees.map(a => {
@@ -9078,13 +9122,27 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return updated;
     }));
 
-    addNotification({
-      title: `Task Status Updated: ${newStatus}`,
-      message: `Task progress updated. New status: "${newStatus}".`,
-      priority: newStatus === 'Completed' ? 'Important' : 'Normal',
-      category: 'Task',
-      link: taskId
-    });
+    // Notify task creator & responsible person when work is marked Completed
+    if (newStatus === 'Completed') {
+      const currentTask = enhancedTasks.find(t => t.id === taskId);
+      if (currentTask) {
+        const notifyRecipients = [
+          currentTask.createdById, 
+          currentTask.responsiblePersonId, 
+          currentTask.createdBy, 
+          currentTask.responsiblePersonName
+        ].filter(Boolean) as string[];
+
+        pushSharedNotification({
+          title: 'Task Work Completed',
+          message: `${currentUser.name} marked their work as Completed on task: "${currentTask.title}".`,
+          priority: 'Important',
+          category: 'Task',
+          link: 'tasks',
+          targetEmployeeIds: notifyRecipients
+        });
+      }
+    }
   };
 
   const addTaskComment = (taskId: string, content: string, attachments?: string[]) => {
@@ -12206,6 +12264,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       notifications: combinedNotifications,
       markNotificationRead,
       markAllNotificationsRead,
+      markModuleNotificationsRead,
       addNotification,
       pushSharedNotification,
       sendLeaveReminder,
