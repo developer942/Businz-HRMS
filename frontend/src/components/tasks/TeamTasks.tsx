@@ -176,7 +176,7 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
   return (
     <div className="team-tasks-container" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
       {/* Top Search & Filter Bar */}
-      <div style={{ 
+      <div className="team-tasks-heading-row" style={{
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center', 
@@ -207,7 +207,7 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="task-desktop-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {/* Search Box */}
           <div style={{ position: 'relative', width: '220px' }}>
             <Search 

@@ -223,11 +223,26 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
     e.preventDefault();
     if (!formData.policyName.trim()) return;
 
+    const minimumEmploymentMonths = Number(formData.minimumEmploymentMonths);
+    const maxLoanAmount = Number(formData.maxLoanAmount);
+    const maxSalaryPercent = Number(formData.maxSalaryPercent);
+    const maxRepaymentMonths = Number(formData.maxRepaymentMonths);
+    if (
+      !Number.isFinite(minimumEmploymentMonths) || minimumEmploymentMonths < 0 ||
+      !Number.isFinite(maxLoanAmount) || maxLoanAmount < 1000 ||
+      !Number.isFinite(maxSalaryPercent) || maxSalaryPercent < 5 || maxSalaryPercent > 100 ||
+      !Number.isFinite(maxRepaymentMonths) || maxRepaymentMonths < 1
+    ) return;
+
     const payload = {
       ...formData,
+      minimumEmploymentMonths,
+      maxLoanAmount,
+      maxSalaryPercent,
+      maxRepaymentMonths,
       // Keep legacy fields synchronized
       maxLoanLimitType: 'PERCENTAGE_SALARY' as LoanLimitType,
-      maxLoanLimitValue: formData.maxSalaryPercent,
+      maxLoanLimitValue: maxSalaryPercent,
       maxActiveLoans: formData.allowPreviousPending ? 2 : 1,
       approvalWorkflow: formData.approvalBy === 'HR' ? 'HR_ONLY' : formData.approvalBy === 'CEO' ? 'CEO_ONLY' : formData.approvalBy === 'HR_THEN_CEO' ? 'HR_THEN_CEO' : 'HR_OR_CEO',
       deductionStartRule: formData.deductionStart === 'NEXT_MONTH' ? 'NEXT_PAYROLL_CYCLE' : 'SPECIFIED_MONTH'
@@ -982,7 +997,7 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
                         className="form-control"
                         required
                         value={formData.minimumEmploymentMonths}
-                        onChange={e => setFormData({ ...formData, minimumEmploymentMonths: Number(e.target.value) })}
+                        onChange={e => setFormData({ ...formData, minimumEmploymentMonths: (e.target.value === '' ? '' : Number(e.target.value)) as any })}
                       />
                       <span style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px', display: 'block' }}>
                         Example: <strong>3 Months</strong> completed service
@@ -1001,7 +1016,7 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
                         className="form-control"
                         required
                         value={formData.maxLoanAmount}
-                        onChange={e => setFormData({ ...formData, maxLoanAmount: Number(e.target.value) })}
+                        onChange={e => setFormData({ ...formData, maxLoanAmount: (e.target.value === '' ? '' : Number(e.target.value)) as any })}
                       />
                     </div>
 
@@ -1018,7 +1033,7 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
                         className="form-control"
                         required
                         value={formData.maxSalaryPercent}
-                        onChange={e => setFormData({ ...formData, maxSalaryPercent: Number(e.target.value) })}
+                        onChange={e => setFormData({ ...formData, maxSalaryPercent: (e.target.value === '' ? '' : Number(e.target.value)) as any })}
                       />
                       <span style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px', display: 'block' }}>
                         Example: <strong>50%</strong> of monthly salary
@@ -1155,7 +1170,7 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
                         className="form-control"
                         required
                         value={formData.maxRepaymentMonths}
-                        onChange={e => setFormData({ ...formData, maxRepaymentMonths: Number(e.target.value) })}
+                        onChange={e => setFormData({ ...formData, maxRepaymentMonths: (e.target.value === '' ? '' : Number(e.target.value)) as any })}
                       />
                       <span style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px', display: 'block' }}>
                         Example: <strong>3 / 6 Months</strong>

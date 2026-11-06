@@ -300,7 +300,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
     <div className="task-register-container">
 
       {/* Unified Command & Filter Bar */}
-      <div style={{ 
+      <div className="task-register-command-card" style={{
         padding: '14px 18px', 
         marginBottom: '20px', 
         borderRadius: '16px', 
@@ -310,7 +310,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
       }}>
         <div className="task-filters-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap', width: '100%', overflowX: 'auto', paddingBottom: '2px' }}>
           {/* Global Search Input */}
-          <div style={{ position: 'relative', flex: '0 1 200px', minWidth: '150px' }}>
+          <div className="task-register-search" style={{ position: 'relative', flex: '0 1 200px', minWidth: '150px' }}>
             <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
             <input 
               type="text"
@@ -354,7 +354,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
           </div>
 
           {/* Department Filter */}
-          <div style={{ flex: '0 0 auto', width: '145px' }}>
+          <div className="task-register-inline-filter" style={{ flex: '0 0 auto', width: '145px' }}>
             <select 
               value={filterDept} 
               onChange={e => { setFilterDept(e.target.value); setCurrentPage(1); }}
@@ -381,7 +381,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
           </div>
 
           {/* Overall Status Filter */}
-          <div style={{ flex: '0 0 auto', width: '130px' }}>
+          <div className="task-register-inline-filter" style={{ flex: '0 0 auto', width: '130px' }}>
             <select 
               value={filterStatus} 
               onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }}
@@ -409,7 +409,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
           </div>
 
           {/* Priority Filter */}
-          <div style={{ flex: '0 0 auto', width: '120px' }}>
+          <div className="task-register-inline-filter" style={{ flex: '0 0 auto', width: '120px' }}>
             <select 
               value={filterPriority} 
               onChange={e => { setFilterPriority(e.target.value); setCurrentPage(1); }}
@@ -437,7 +437,7 @@ export const TaskRegister: React.FC<TaskRegisterProps> = ({ onSelectTask, onOpen
           </div>
 
           {/* Action Buttons Group */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
+          <div className="task-register-filter-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
             <button 
               type="button"
               onClick={() => setShowFilterModal(true)}

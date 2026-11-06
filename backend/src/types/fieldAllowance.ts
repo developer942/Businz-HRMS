@@ -59,6 +59,7 @@ export interface FieldAllowanceDistribution {
   distribution_date: string;
   payment_method: string;
   reference_number?: string | null;
+  payment_proof_path?: string | null;
   remarks?: string | null;
   created_at: string;
 }

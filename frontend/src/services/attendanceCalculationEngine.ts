@@ -248,7 +248,11 @@ export function calculateAttendanceHoursAndStatus(params: {
   }
 
   // Case 4: Both Check-In and Check-Out present
-  let grossMins = (outMins! >= inMins!) ? (outMins! - inMins!) : (outMins! + 24 * 60 - inMins!);
+  const checkoutTimelineMins = outMins! >= inMins! ? outMins! : outMins! + 24 * 60;
+  const shiftEndTimelineMins = shiftEndMins >= shiftStartMins
+    ? shiftEndMins
+    : shiftEndMins + 24 * 60;
+  const grossMins = checkoutTimelineMins - inMins!;
   
   // Deduct break only if worked duration exceeds standard half-shift
   const applicableBreakMins = grossMins > (breakMins + 120) ? breakMins : 0;
@@ -264,8 +268,8 @@ export function calculateAttendanceHoursAndStatus(params: {
 
   // Early checkout calculation
   const earlyThreshold = shift.earlyCheckoutThresholdMinutes ?? 10;
-  const earlyCheckoutMinutes = (outMins! < (shiftEndMins - earlyThreshold))
-    ? (shiftEndMins - outMins!)
+  const earlyCheckoutMinutes = (checkoutTimelineMins < (shiftEndTimelineMins - earlyThreshold))
+    ? (shiftEndTimelineMins - checkoutTimelineMins)
     : 0;
 
   // Potential OT calculation

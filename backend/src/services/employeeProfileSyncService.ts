@@ -518,9 +518,9 @@ const recalculateDraftPayroll = async (
            needs_recalculation=FALSE, updated_at=NOW()
          WHERE id=$1 AND status='DRAFT'`,
         [row.id, structureId, calculated.basicSalary, calculated.da, calculated.conveyance,
-         calculated.hra, calculated.grossSalary, calculated.pfBase, calculated.pfRate,
-         calculated.pfAmount, calculated.esicBase, calculated.esicRate, calculated.esicAmount,
-         calculated.professionalTax, calculated.lopAmount, calculated.totalDeductions, calculated.netSalary]
+        calculated.hra, calculated.grossSalary, calculated.pfBase, calculated.pfRate,
+        calculated.pfAmount, calculated.esicBase, calculated.esicRate, calculated.esicAmount,
+        calculated.professionalTax, calculated.lopAmount, calculated.totalDeductions, calculated.netSalary]
       );
     }
     await client.query('RELEASE SAVEPOINT sp_draft_payroll');
@@ -969,28 +969,28 @@ export class EmployeeProfileSyncService {
         const basicSalaryVal = input.basicSalary !== undefined
           ? amount(input.basicSalary)
           : (input.salaryDetails?.basicSalary !== undefined && input.salaryDetails?.basicSalary !== ''
-              ? amount(input.salaryDetails.basicSalary)
-              : Number(oldEmployee.basic_salary ?? 0));
+            ? amount(input.salaryDetails.basicSalary)
+            : Number(oldEmployee.basic_salary ?? 0));
         const hraVal = input.allowances?.hra !== undefined
           ? amount(input.allowances.hra)
           : (input.salaryDetails?.hra !== undefined && input.salaryDetails?.hra !== ''
-              ? amount(input.salaryDetails.hra)
-              : Number(oldEmployee.allowances_hra ?? 0));
+            ? amount(input.salaryDetails.hra)
+            : Number(oldEmployee.allowances_hra ?? 0));
         const transportVal = input.allowances?.transport !== undefined
           ? amount(input.allowances.transport)
           : (input.salaryDetails?.conveyance !== undefined && input.salaryDetails?.conveyance !== ''
-              ? amount(input.salaryDetails.conveyance)
-              : Number(oldEmployee.allowances_transport ?? 0));
+            ? amount(input.salaryDetails.conveyance)
+            : Number(oldEmployee.allowances_transport ?? 0));
         const medicalVal = input.allowances?.medical !== undefined
           ? amount(input.allowances.medical)
           : (input.salaryDetails?.medicalAllowance !== undefined && input.salaryDetails?.medicalAllowance !== ''
-              ? amount(input.salaryDetails.medicalAllowance)
-              : Number(oldEmployee.allowances_medical ?? 0));
+            ? amount(input.salaryDetails.medicalAllowance)
+            : Number(oldEmployee.allowances_medical ?? 0));
         const specialVal = input.allowances?.special !== undefined
           ? amount(input.allowances.special)
           : (input.salaryDetails?.specialAllowance !== undefined && input.salaryDetails?.specialAllowance !== ''
-              ? amount(input.salaryDetails.specialAllowance)
-              : Number(oldEmployee.allowances_special ?? 0));
+            ? amount(input.salaryDetails.specialAllowance)
+            : Number(oldEmployee.allowances_special ?? 0));
 
         const bankNameVal = input.bankDetails !== undefined || input.bankName !== undefined
           ? (String(input.bankDetails?.bankName ?? input.bankName ?? '').trim() || null)
@@ -1222,7 +1222,7 @@ export class EmployeeProfileSyncService {
                     updated_at=NOW()
                   WHERE employee_id=$1::uuid AND shift_date>=$7::date AND COALESCE(is_finalized, FALSE)=FALSE`,
                 [oldEmployee.id, shiftRow.id, shiftRow.shift_name, shiftRow.start_time,
-                 shiftRow.end_time, shiftRow.grace_period_mins, shiftEffectiveFrom]
+                shiftRow.end_time, shiftRow.grace_period_mins, shiftEffectiveFrom]
               );
             }
           }
@@ -1318,24 +1318,24 @@ export class EmployeeProfileSyncService {
             ];
             const saved = existingRevision.rows[0]
               ? await client.query(
-                  // Every bound parameter must be referenced: $8 (effective_from) was previously passed but unused,
-                  // which makes PostgreSQL fail with "could not determine data type of parameter $8" whenever an
-                  // existing salary revision for the same effective date is re-saved. The row was selected by
-                  // effective_from=$8, so writing it back is a no-op for the value.
-                  `UPDATE public.salary_structures SET company_id=$2,monthly_salary=$3,basic_percentage=$4,
+                // Every bound parameter must be referenced: $8 (effective_from) was previously passed but unused,
+                // which makes PostgreSQL fail with "could not determine data type of parameter $8" whenever an
+                // existing salary revision for the same effective date is re-saved. The row was selected by
+                // effective_from=$8, so writing it back is a no-op for the value.
+                `UPDATE public.salary_structures SET company_id=$2,monthly_salary=$3,basic_percentage=$4,
                      da_percentage=$5,conveyance_percentage=$6,hra_percentage=$7,effective_from=$8::date,
                      effective_to=CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,
                      component_values=$10::jsonb,salary_scheme=$11,with_pf=$12,revision_reason=$13,
                      created_by=$14,updated_at=NOW() WHERE id=$1 RETURNING id`,
-                  [existingRevision.rows[0].id, ...salaryArgs.slice(1)]
-                )
+                [existingRevision.rows[0].id, ...salaryArgs.slice(1)]
+              )
               : await client.query(
-                  `INSERT INTO public.salary_structures(employee_id,company_id,monthly_salary,basic_percentage,da_percentage,
+                `INSERT INTO public.salary_structures(employee_id,company_id,monthly_salary,basic_percentage,da_percentage,
                      conveyance_percentage,hra_percentage,effective_from,effective_to,is_active,component_values,salary_scheme,with_pf,revision_reason,created_by)
                    VALUES($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $9::date IS NULL THEN NULL ELSE $9::date-1 END,TRUE,$10::jsonb,$11,$12,$13,$14)
                    RETURNING id`,
-                  salaryArgs
-                );
+                salaryArgs
+              );
             draftPayrollRecalculated = await recalculateDraftPayroll(client, oldEmployee, saved.rows[0].id, salaryEffectiveFrom, {
               monthlySalary: coreGross, basicPercentage: basicPct, daPercentage: daPct,
               conveyancePercentage: conveyancePct, hraPercentage: hraPct,
@@ -1433,7 +1433,7 @@ export class EmployeeProfileSyncService {
           `INSERT INTO public.employee_profile_audit_logs(company_id,employee_id,performed_by,changed_fields,old_values,new_values,effective_dates)
            VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb)`,
           [companyId, oldEmployee.id, performer, changedFields, JSON.stringify(withoutSecrets(oldProfile)),
-           JSON.stringify(withoutSecrets(input)), JSON.stringify({ shiftEffectiveFrom, salaryEffectiveFrom, weeklyOffEffectiveFrom })]
+            JSON.stringify(withoutSecrets(input)), JSON.stringify({ shiftEffectiveFrom, salaryEffectiveFrom, weeklyOffEffectiveFrom })]
         );
 
         return {

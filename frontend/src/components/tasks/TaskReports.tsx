@@ -85,7 +85,7 @@ export const TaskReports: React.FC = () => {
   return (
     <div className="task-reports-container">
       {/* Report Selection Tabs */}
-      <div className="tab-container" style={{ marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div className="tab-container task-report-tabs" style={{ marginBottom: '20px', flexWrap: 'wrap' }}>
         {[
           { id: 'summary', label: 'Department Summary' },
           { id: 'employee_perf', label: 'Employee Scorecard' },
@@ -106,7 +106,7 @@ export const TaskReports: React.FC = () => {
       {/* REPORT 1: DEPARTMENT SUMMARY */}
       {activeReport === 'summary' && (
         <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="table-responsive">
+          <div className="table-responsive desktop-only-block">
             <table className="hrms-table">
               <thead>
                 <tr>
@@ -149,13 +149,36 @@ export const TaskReports: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <div className="mobile-only-block task-analytics-mobile-list">
+            {departmentSummaryData.length === 0 ? (
+              <div className="task-analytics-empty">
+                <Building size={30} />
+                <strong>No department task data</strong>
+                <span>Department metrics will appear when tasks are assigned.</span>
+              </div>
+            ) : departmentSummaryData.map(d => (
+              <div className="task-analytics-card" key={d.department}>
+                <div className="task-analytics-card-head">
+                  <strong>{d.department}</strong>
+                  <span>{d.compRate}% complete</span>
+                </div>
+                <div className="task-analytics-progress"><span style={{ width: `${d.avgProgress}%` }} /></div>
+                <div className="task-analytics-metrics">
+                  <span><b>{d.total}</b>Total</span>
+                  <span><b>{d.completed}</b>Done</span>
+                  <span><b>{d.inProgress}</b>Active</span>
+                  <span className={d.overdue > 0 ? 'danger' : ''}><b>{d.overdue}</b>Overdue</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* REPORT 2: EMPLOYEE TASK SCORECARD */}
       {activeReport === 'employee_perf' && (
         <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="table-responsive">
+          <div className="table-responsive desktop-only-block">
             <table className="hrms-table">
               <thead>
                 <tr>
@@ -228,13 +251,39 @@ export const TaskReports: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <div className="mobile-only-block task-analytics-mobile-list">
+            {employeePerfData.length === 0 ? (
+              <div className="task-analytics-empty">
+                <User size={30} />
+                <strong>No employee scorecards</strong>
+                <span>Scorecards will appear after task activity is recorded.</span>
+              </div>
+            ) : employeePerfData.map(({ employee, metrics }) => (
+              <div className="task-analytics-card" key={employee.id}>
+                <div className="task-analytics-card-head">
+                  <div>
+                    <strong>{employee.firstName} {employee.lastName}</strong>
+                    <small>{employee.department} · {employee.designation}</small>
+                  </div>
+                  <span>{metrics.completionRate}%</span>
+                </div>
+                <div className="task-analytics-progress"><span style={{ width: `${metrics.completionRate}%` }} /></div>
+                <div className="task-analytics-metrics">
+                  <span><b>{metrics.totalAssigned}</b>Assigned</span>
+                  <span><b>{metrics.completedTasks}</b>Done</span>
+                  <span><b>{metrics.inProgressTasks}</b>Active</span>
+                  <span className={metrics.overdueTasks > 0 ? 'danger' : ''}><b>{metrics.overdueTasks}</b>Overdue</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* REPORT 3: OVERDUE DEEP-DIVE */}
       {activeReport === 'overdue_analysis' && (
         <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="table-responsive">
+          <div className="table-responsive desktop-only-block">
             <table className="hrms-table">
               <thead>
                 <tr>
@@ -277,6 +326,28 @@ export const TaskReports: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <div className="mobile-only-block task-analytics-mobile-list">
+            {overdueAnalysisData.length === 0 ? (
+              <div className="task-analytics-empty success">
+                <CheckSquare size={30} />
+                <strong>No overdue tasks</strong>
+                <span>Everything is currently on schedule.</span>
+              </div>
+            ) : overdueAnalysisData.map(({ task, daysOverdue }) => (
+              <div className="task-analytics-card" key={task.id}>
+                <div className="task-analytics-card-head">
+                  <div>
+                    <strong>{task.title}</strong>
+                    <small>{task.taskNumber} · {task.department}</small>
+                  </div>
+                  <span className="danger">+{daysOverdue}d</span>
+                </div>
+                <div className="task-analytics-card-note">
+                  Responsible: {task.responsiblePersonName} · Due {formatDateDDMMYYYY(task.dueDate)}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -284,9 +355,9 @@ export const TaskReports: React.FC = () => {
 
       {/* REPORT 6: WORKLOAD & CAPACITY */}
       {activeReport === 'workload_capacity' && (
-        <div className="card" style={{ padding: '20px' }}>
+        <div className="card task-workload-card" style={{ padding: '20px' }}>
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '14px' }}>Workload Distribution Spectrum</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          <div className="task-workload-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
             {['Light', 'Normal', 'High', 'Overloaded'].map(level => {
               const matches = employeePerfData.filter(e => e.metrics.workloadLevel === level);
               return (

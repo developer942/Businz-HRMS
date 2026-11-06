@@ -127,8 +127,8 @@ export class FieldAllowanceRepository {
                 throw new Error('Distributed amount cannot exceed the approved amount');
             }
             const created = await client.query(`INSERT INTO public.field_allowance_distributions
-         (request_id, distributed_by, distributor_name, distributed_amount, distribution_date, payment_method, reference_number, remarks)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [input.requestId, input.distributedBy, input.distributorName, input.distributedAmount, input.distributionDate, input.paymentMethod, input.referenceNumber, input.remarks]);
+         (request_id, distributed_by, distributor_name, distributed_amount, distribution_date, payment_method, reference_number, payment_proof_path, remarks)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [input.requestId, input.distributedBy, input.distributorName, input.distributedAmount, input.distributionDate, input.paymentMethod, input.referenceNumber, input.paymentProofPath, input.remarks]);
             await client.query("UPDATE public.field_allowance_requests SET status='AMOUNT_DISTRIBUTED', updated_at=NOW() WHERE id=$1", [input.requestId]);
             const row = created.rows[0];
             return { ...row, distributed_amount: Number(row.distributed_amount), distribution_date: dateValue(row.distribution_date), created_at: dateTimeValue(row.created_at) };

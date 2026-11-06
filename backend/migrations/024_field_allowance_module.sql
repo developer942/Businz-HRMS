@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS public.field_allowance_distributions (
   distribution_date DATE NOT NULL,
   payment_method TEXT NOT NULL,
   reference_number TEXT,
+  payment_proof_path TEXT,
   remarks TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

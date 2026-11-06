@@ -40,7 +40,12 @@ export const fieldAllowanceDistributionSchema = z.object({
     distributionDate: z.string().date(),
     paymentMethod: z.string().trim().min(2).max(100),
     referenceNumber: z.string().trim().max(150).optional().nullable(),
+    paymentProofPath: z.string().trim().max(3_000_000).optional().nullable(),
     remarks: cleanOptional,
+}).superRefine((data, ctx) => {
+    if (data.paymentMethod.trim().toLowerCase() !== 'cash' && !data.paymentProofPath?.trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['paymentProofPath'], message: 'Payment proof is required for non-cash distribution' });
+    }
 });
 export const fieldAllowanceDailyReportSchema = z.object({
     expenseDate: z.string().date(),

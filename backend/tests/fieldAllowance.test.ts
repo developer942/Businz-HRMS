@@ -8,7 +8,7 @@ const repository = vi.hoisted(() => ({
 
 vi.mock('../src/repositories/fieldAllowanceRepository.js', () => ({ fieldAllowanceRepository: repository }));
 
-import { fieldAllowanceRequestSchema } from '../src/validators/fieldAllowanceValidators.js';
+import { fieldAllowanceDistributionSchema, fieldAllowanceRequestSchema } from '../src/validators/fieldAllowanceValidators.js';
 import { FieldAllowanceService } from '../src/services/fieldAllowanceService.js';
 
 const employee = { id: 'user-1', employeeId: 'EMP-101', name: 'Test Employee', email: 'employee@test.com', role: 'Employee', department: 'Sales', company_id: 'company-a' };
@@ -81,5 +81,12 @@ describe('Field Allowance business workflow', () => {
     const spent = 7000;
     expect(allocated - spent).toBe(-1000);
     expect(0 - 2000).toBe(-2000);
+  });
+
+  it('requires payment proof for non-cash distribution but not for cash', () => {
+    const common = { distributedAmount: 100, distributionDate: '2026-11-06' };
+    expect(() => fieldAllowanceDistributionSchema.parse({ ...common, paymentMethod: 'Bank Transfer', referenceNumber: 'UTR-100' })).toThrow(/payment proof/i);
+    expect(fieldAllowanceDistributionSchema.parse({ ...common, paymentMethod: 'Cash' }).paymentProofPath).toBeUndefined();
+    expect(fieldAllowanceDistributionSchema.parse({ ...common, paymentMethod: 'UPI', referenceNumber: 'UPI-100', paymentProofPath: 'data:image/png;base64,proof' }).paymentProofPath).toContain('data:image/png');
   });
 });

@@ -18,9 +18,6 @@ export function scrubProfilePasswordFields(profileEntry) {
     if (cleaned.systemAccess && typeof cleaned.systemAccess === 'object') {
         cleaned.systemAccess = { ...cleaned.systemAccess };
         delete cleaned.systemAccess.password;
-        delete cleaned.systemAccess.plainPassword;
-        delete cleaned.systemAccess.passwordHash;
-        delete cleaned.systemAccess.password_hash;
     }
     return cleaned;
 }

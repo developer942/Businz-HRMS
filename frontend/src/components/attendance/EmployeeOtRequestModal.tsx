@@ -74,7 +74,12 @@ export const EmployeeOtRequestModal: React.FC<EmployeeOtRequestModalProps> = ({
     };
 
     const shiftEndMins = parseTimeToMins(shiftEnd);
-    const checkOutMins = parseTimeToMins(actualCheckOut);
+    const rawCheckOutMins = parseTimeToMins(actualCheckOut);
+    // A checkout in the early morning after an evening shift end belongs to
+    // the following calendar day (for example 06:30 PM -> 01:00 AM).
+    const checkOutMins = rawCheckOutMins <= 6 * 60 && shiftEndMins >= 12 * 60
+      ? rawCheckOutMins + 24 * 60
+      : rawCheckOutMins;
     if (checkOutMins > shiftEndMins) {
       const diffHours = Math.round(((checkOutMins - shiftEndMins) / 60) * 10) / 10;
       setPotentialOtHours(diffHours);

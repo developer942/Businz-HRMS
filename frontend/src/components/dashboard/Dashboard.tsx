@@ -112,13 +112,28 @@ export const Dashboard: React.FC = () => {
     currentUser.employeeId === activeCustodianId
   );
 
-  // Current month's approved overtime hours for the logged-in employee (Apple-inspired Mobile KPI Card)
+  // Current month's recorded overtime for the logged-in employee. Attendance is
+  // the authoritative source; approved requests are a fallback for legacy rows.
   const employeeOtHours = useMemo(() => {
     const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
     const userName = (currentUser.name || '').trim().toLowerCase();
     const month = getMonthInfo();
 
-    return (overtimeRequests || [])
+    const recordedHours = (attendanceRecords || [])
+      .filter(record => {
+        const rEmpId = (record.employeeId || '').trim().toLowerCase();
+        const rName = (record.employeeName || '').trim().toLowerCase();
+        const matchEmp = (userEmpId && rEmpId === userEmpId) || (userName && rName === userName);
+        return matchEmp && isDateInMonth(record.shiftDate || record.date, month);
+      })
+      .reduce((sum, record) => sum + (
+        Number(record.approvedOtHours) ||
+        Number(record.otHours) ||
+        Number(record.calculatedOtHours) ||
+        0
+      ), 0);
+
+    const approvedRequestHours = (overtimeRequests || [])
       .filter(req => {
         const rEmpId = (req.employeeId || '').trim().toLowerCase();
         const rName = (req.employeeName || '').trim().toLowerCase();
@@ -129,7 +144,10 @@ export const Dashboard: React.FC = () => {
         return isDateInMonth(req.date, month);
       })
       .reduce((sum, req) => sum + (Number(req.approvedOtHours) || 0), 0);
-  }, [overtimeRequests, currentUser]);
+
+    const total = recordedHours > 0 ? recordedHours : approvedRequestHours;
+    return Math.round(total * 10) / 10;
+  }, [attendanceRecords, overtimeRequests, currentUser]);
 
   useEffect(() => {
     if (isEmployee) return;
@@ -778,7 +796,7 @@ export const Dashboard: React.FC = () => {
                 <div
                   className="mobile-kpi-card"
                   data-testid="mobile-kpi-present-days"
-                  onClick={() => setActiveModule('attendance_log')}
+                  onClick={() => setActiveModule(isAccountsStaff ? 'face_attendance' : 'attendance_log')}
                 >
                   <div className="mobile-kpi-top">
                     <div className="mobile-kpi-icon-box green">
@@ -848,7 +866,7 @@ export const Dashboard: React.FC = () => {
                     <div className="mobile-kpi-icon-box cyan">
                       <Clock size={14} color="#0891B2" />
                     </div>
-                    <span className="mobile-kpi-label">OT Overtime</span>
+                    <span className="mobile-kpi-label">Monthly OT</span>
                   </div>
                   <div className="mobile-kpi-metric-main">
                     <span className="mobile-kpi-value">{employeeOtHours} hrs</span>
@@ -948,7 +966,7 @@ export const Dashboard: React.FC = () => {
                   <div className="quick-action-icon-bg blue">
                     <CheckSquare size={20} color="#2563EB" />
                   </div>
-                  <span>Task</span>
+                  <span>My Task</span>
                 </button>
 
                 <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('finance')}>
@@ -1457,7 +1475,7 @@ export const Dashboard: React.FC = () => {
             <div 
               className="kpi-card compact"
               data-testid="desktop-kpi-monthly-attendance"
-              onClick={() => setActiveModule('attendance_log')}
+              onClick={() => setActiveModule(isAccountsStaff ? 'face_attendance' : 'attendance_log')}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">
@@ -1479,7 +1497,7 @@ export const Dashboard: React.FC = () => {
             <div 
               className="kpi-card compact"
               data-testid="desktop-kpi-present-days"
-              onClick={() => setActiveModule('attendance_log')}
+              onClick={() => setActiveModule(isAccountsStaff ? 'face_attendance' : 'attendance_log')}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">

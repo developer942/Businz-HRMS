@@ -22,9 +22,6 @@ export function scrubProfilePasswordFields(profileEntry: Record<string, any> | u
   if (cleaned.systemAccess && typeof cleaned.systemAccess === 'object') {
     cleaned.systemAccess = { ...cleaned.systemAccess };
     delete cleaned.systemAccess.password;
-    delete cleaned.systemAccess.plainPassword;
-    delete cleaned.systemAccess.passwordHash;
-    delete cleaned.systemAccess.password_hash;
   }
   return cleaned;
 }
@@ -334,7 +331,7 @@ export class AuthRepository {
       if (csResult.rows.length > 0) {
         let profiles = csResult.rows[0].setting_val || {};
         if (typeof profiles === 'string') {
-          try { profiles = JSON.parse(profiles); } catch {}
+          try { profiles = JSON.parse(profiles); } catch { }
         }
         if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
           if (user.employeeId) {
@@ -422,7 +419,7 @@ export class AuthRepository {
       if (csResult.rows.length > 0) {
         let profiles = csResult.rows[0].setting_val || {};
         if (typeof profiles === 'string') {
-          try { profiles = JSON.parse(profiles); } catch {}
+          try { profiles = JSON.parse(profiles); } catch { }
         }
         if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
           if (user.employeeId) {
@@ -495,7 +492,7 @@ export class AuthRepository {
       if (csResult.rows.length > 0) {
         let profiles = csResult.rows[0].setting_val || {};
         if (typeof profiles === 'string') {
-          try { profiles = JSON.parse(profiles); } catch {}
+          try { profiles = JSON.parse(profiles); } catch { }
         }
         if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
           if (user.employeeId) {
@@ -569,7 +566,7 @@ export class AuthRepository {
       if (csResult.rows.length > 0) {
         let profiles = csResult.rows[0].setting_val || {};
         if (typeof profiles === 'string') {
-          try { profiles = JSON.parse(profiles); } catch {}
+          try { profiles = JSON.parse(profiles); } catch { }
         }
         if (profiles && typeof profiles === 'object' && !Array.isArray(profiles)) {
           const statusPayload = {

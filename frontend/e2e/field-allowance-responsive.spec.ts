@@ -59,5 +59,12 @@ test('Accounts department user sees approved Field Allowance in Payment Disburse
   await page.evaluate(() => (window as any).__setModule('accounts_payment'));
   await expect(page.getByRole('heading', { name: 'Accounts Payment Disbursement' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Field Allowance \(1\)/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Distribute Payment/i }).first()).toBeVisible();
+  const distributeButton = page.getByRole('button', { name: /Distribute Payment/i }).first();
+  await expect(distributeButton).toBeVisible();
+  await distributeButton.click();
+  await page.locator('form select').selectOption('Cash');
+  await expect(page.getByText('Payment proof is not required for Cash Distribution.')).toBeVisible();
+  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  await page.locator('form select').selectOption('Bank Transfer');
+  await expect(page.locator('input[type="file"][required]')).toBeVisible();
 });

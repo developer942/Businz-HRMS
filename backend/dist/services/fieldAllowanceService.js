@@ -64,7 +64,8 @@ export class FieldAllowanceService {
         return fieldAllowanceRepository.distribute({
             companyId: this.company(actor), requestId, distributedBy: actor.id, distributorName: actor.name || actor.email,
             distributedAmount: payload.distributedAmount, distributionDate: payload.distributionDate,
-            paymentMethod: payload.paymentMethod, referenceNumber: payload.referenceNumber, remarks: payload.remarks,
+            paymentMethod: payload.paymentMethod, referenceNumber: payload.referenceNumber,
+            paymentProofPath: payload.paymentProofPath, remarks: payload.remarks,
         });
     }
     async addDailyReport(actor, requestId, payload) {

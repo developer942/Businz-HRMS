@@ -273,7 +273,7 @@ export const AssignedTasks: React.FC<AssignedTasksProps> = ({ onSelectTask, onAs
     <div className="assigned-tasks-container" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
       
       {/* Top Controls: Quick Tabs & Search Bar */}
-      <div style={{ 
+      <div className="task-desktop-filter-bar" style={{
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center', 

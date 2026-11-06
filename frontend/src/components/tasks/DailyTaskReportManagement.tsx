@@ -218,7 +218,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', animation: 'fadeIn 0.2s ease-in-out' }}>
       {/* 2. Filter Bar */}
-      <div style={{ 
+      <div className="daily-report-filter-card" style={{
         background: '#FFFFFF', 
         borderRadius: '14px', 
         padding: '14px 18px', 
@@ -230,8 +230,8 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
         gap: '12px',
         justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px' }}>
+        <div className="daily-report-filter-controls" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1 }}>
+          <div className="daily-report-scope-tabs" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px' }}>
             {[
               { id: 'assigned_to_me', label: 'Assigned to Me', count: scopeCounts.assigned_to_me },
               { id: 'assigned_by_me', label: 'Assigned by Me', count: scopeCounts.assigned_by_me },
@@ -280,7 +280,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
           </div>
 
           {/* Search Box */}
-          <div style={{ position: 'relative', minWidth: '240px', maxWidth: '340px', flex: 1 }}>
+          <div className="daily-report-search" style={{ position: 'relative', minWidth: '240px', maxWidth: '340px', flex: 1 }}>
             <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
             <input 
               type="text"
@@ -292,9 +292,24 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
             />
           </div>
 
+          <button
+            type="button"
+            className={`mobile-only-inline mobile-filter-trigger-btn ${(selectedDept !== 'All' || selectedStatus !== 'All' || selectedDate) ? 'has-filters' : ''}`}
+            onClick={() => setIsFilterSheetOpen(true)}
+            aria-label="Open report filters"
+          >
+            <Filter size={15} />
+            <span>Filters</span>
+            {(selectedDept !== 'All' || selectedStatus !== 'All' || selectedDate) && (
+              <span className="mobile-tab-badge">
+                {(selectedDept !== 'All' ? 1 : 0) + (selectedStatus !== 'All' ? 1 : 0) + (selectedDate ? 1 : 0)}
+              </span>
+            )}
+          </button>
+
           {/* Department Filter */}
           {!isEmployee && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="daily-report-desktop-only-filter" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
                 Dept:
               </label>
@@ -313,7 +328,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
           )}
 
           {/* Workflow Stage Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="daily-report-desktop-only-filter" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
               Stage:
             </label>
@@ -332,7 +347,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
           </div>
 
           {/* Date Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="daily-report-desktop-only-filter" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
               Date:
             </label>
@@ -348,7 +363,7 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
             <button
               type="button"
               onClick={handleResetFilters}
-              className="btn btn-secondary btn-sm"
+              className="btn btn-secondary btn-sm daily-report-desktop-reset"
               style={{ fontSize: '0.76rem', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '4px', borderRadius: '8px' }}
             >
               <RotateCcw size={13} /> Reset
@@ -356,10 +371,67 @@ export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps>
           )}
         </div>
 
-        <div style={{ fontSize: '0.76rem', color: '#64748B', fontWeight: 600 }}>
+        <div className="daily-report-result-count" style={{ fontSize: '0.76rem', color: '#64748B', fontWeight: 600 }}>
           Showing <strong>{filteredReports.length}</strong> reports
         </div>
       </div>
+
+      <MobileFilterSheet
+        isOpen={isFilterSheetOpen}
+        onClose={() => setIsFilterSheetOpen(false)}
+        title="Filter Daily Reports"
+        onReset={() => {
+          setSelectedDept('All');
+          setSelectedStatus('All');
+          setSelectedDate('');
+          setCurrentPage(1);
+        }}
+        onApply={() => setCurrentPage(1)}
+      >
+        {!isEmployee && (
+          <div>
+            <div className="mobile-filter-group-title">Department</div>
+            <div className="mobile-filter-chips-grid">
+              {['All', ...departments.map(d => d.name)].map(dept => (
+                <button
+                  key={dept}
+                  type="button"
+                  className={`mobile-filter-select-chip ${selectedDept === dept ? 'selected' : ''}`}
+                  onClick={() => setSelectedDept(dept)}
+                >
+                  {dept === 'All' ? 'All Departments' : dept}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className="mobile-filter-group-title">Workflow Stage</div>
+          <div className="mobile-filter-chips-grid">
+            {['All', 'Pending', 'In Process', 'Under Review', 'Completed'].map(stage => (
+              <button
+                key={stage}
+                type="button"
+                className={`mobile-filter-select-chip ${selectedStatus === stage ? 'selected' : ''}`}
+                onClick={() => setSelectedStatus(stage)}
+              >
+                {stage === 'All' ? 'All Stages' : stage}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mobile-filter-group-title">Report Date</div>
+          <DateInput
+            value={selectedDate}
+            onChange={e => setSelectedDate(e.target.value)}
+            className="form-control"
+            style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+          />
+        </div>
+      </MobileFilterSheet>
 
       {/* 4. Data Table Container per AGENTS.md */}
       <div style={{ 

@@ -52,6 +52,7 @@ interface UnifiedPaymentItem {
     paymentDate?: string;
     paymentMode?: string;
     transactionRef?: string;
+    paymentProofPath?: string;
     remarks?: string;
     disbursedBy?: string;
   };
@@ -81,6 +82,8 @@ export const AccountsPaymentDashboard: React.FC = () => {
   );
   const [paymentMode, setPaymentMode] = useState<'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque' | 'NEFT' | 'IMPS'>('Bank Transfer');
   const [transactionRef, setTransactionRef] = useState<string>('');
+  const [paymentProofPath, setPaymentProofPath] = useState<string>('');
+  const [paymentProofName, setPaymentProofName] = useState<string>('');
   const [remarks, setRemarks] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -245,6 +248,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
           paymentDate: distribution?.distribution_date,
           paymentMode: distribution?.payment_method || 'Paid',
           transactionRef: distribution?.reference_number || undefined,
+          paymentProofPath: distribution?.payment_proof_path || undefined,
           remarks: distribution?.remarks || undefined,
           disbursedBy: distribution?.distributor_name || 'Accounts Dept',
         } : undefined,
@@ -329,9 +333,35 @@ export const AccountsPaymentDashboard: React.FC = () => {
     setAmountPaid(item.approvedAmount);
     setPaymentMode('Bank Transfer');
     setTransactionRef('');
+    setPaymentProofPath('');
+    setPaymentProofName('');
     setRemarks('');
     setModalError(null);
     setSuccessMessage(null);
+  };
+
+  const handlePaymentProof = (file?: File) => {
+    if (!file) {
+      setPaymentProofPath('');
+      setPaymentProofName('');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setModalError('Payment proof must be 2 MB or smaller.');
+      return;
+    }
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      setModalError('Upload an image or PDF payment proof.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPaymentProofPath(String(reader.result || ''));
+      setPaymentProofName(file.name);
+      setModalError(null);
+    };
+    reader.onerror = () => setModalError('Unable to read the selected payment proof.');
+    reader.readAsDataURL(file);
   };
 
   // Submit Disbursement Execution
@@ -360,6 +390,11 @@ export const AccountsPaymentDashboard: React.FC = () => {
 
     if (['Bank Transfer', 'UPI', 'Cheque', 'NEFT', 'IMPS'].includes(paymentMode) && !transactionRef.trim()) {
       setModalError(`Transaction reference / UTR is mandatory for ${paymentMode}.`);
+      return;
+    }
+
+    if (selectedItem.sourceType === 'FIELD_ALLOWANCE' && paymentMode !== 'Cash' && !paymentProofPath) {
+      setModalError('Payment proof is mandatory for non-cash Field Allowance distribution.');
       return;
     }
 
@@ -444,6 +479,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
           distributionDate: paymentDate,
           paymentMethod: paymentMode,
           referenceNumber: transactionRef.trim() || (paymentMode === 'Cash' ? 'CASH-DISBURSEMENT' : undefined),
+          paymentProofPath: paymentMode === 'Cash' ? undefined : paymentProofPath,
           remarks: remarks.trim() || undefined,
         });
 
@@ -902,6 +938,11 @@ export const AccountsPaymentDashboard: React.FC = () => {
                                 Ref: {item.paymentDetails.transactionRef}
                               </div>
                             )}
+                            {item.paymentDetails?.paymentProofPath && (
+                              <a href={item.paymentDetails.paymentProofPath} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: '#0E7490', fontWeight: 700, marginTop: '3px' }}>
+                                View proof
+                              </a>
+                            )}
                           </div>
                         )}
                       </td>
@@ -1025,6 +1066,9 @@ export const AccountsPaymentDashboard: React.FC = () => {
                         <span>Mode: <strong style={{ color: '#1E293B' }}>{item.paymentDetails?.paymentMode || 'Paid'}</strong></span>
                         {item.paymentDetails?.transactionRef && (
                           <span style={{ fontFamily: 'monospace' }}>Ref: {item.paymentDetails.transactionRef}</span>
+                        )}
+                        {item.paymentDetails?.paymentProofPath && (
+                          <a href={item.paymentDetails.paymentProofPath} target="_blank" rel="noreferrer" style={{ color: '#0E7490', fontWeight: 700 }}>View proof</a>
                         )}
                       </div>
                     )}
@@ -1222,6 +1266,33 @@ export const AccountsPaymentDashboard: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {selectedItem.sourceType === 'FIELD_ALLOWANCE' && (
+                <div style={{ marginBottom: '14px' }}>
+                  {paymentMode === 'Cash' ? (
+                    <div style={{ padding: '10px 12px', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#64748B', fontSize: '0.78rem' }}>
+                      Payment proof is not required for Cash Distribution.
+                    </div>
+                  ) : (
+                    <>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                        Payment Proof *
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf,application/pdf"
+                        onChange={(event) => handlePaymentProof(event.target.files?.[0])}
+                        required
+                        className="form-control"
+                        style={{ padding: '8px', fontSize: '0.78rem' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: paymentProofName ? '#15803D' : '#64748B', marginTop: '4px' }}>
+                        {paymentProofName ? `${paymentProofName} selected` : 'Upload bank receipt, UPI screenshot, cheque proof, or PDF (max 2 MB).'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Remarks */}
               <div style={{ marginBottom: '20px' }}>

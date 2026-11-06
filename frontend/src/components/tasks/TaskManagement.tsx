@@ -323,7 +323,9 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
                 padding: '0 14px'
               }}
             >
-              <Plus size={16} /> <span>Assign Task</span>
+              <Plus size={16} />
+              <span className="desktop-only-inline">Assign Task</span>
+              <span className="mobile-only-inline">New</span>
             </button>
           )}
         </div>
@@ -410,7 +412,7 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
 
           {/* Mobile Apple-Inspired Segmented Tab Bar (< 768px): My Tasks | Assigned | Team | Reports */}
           <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
-            <div className="mobile-segmented-tab-bar">
+            <div className="mobile-segmented-tab-bar manager-task-mobile-tabs">
               {[
                 { id: 'my_tasks', label: 'My Tasks', badge: myTasksCount },
                 { id: 'assigned_tasks', label: 'Assigned', badge: assignedTasksCount },
@@ -506,7 +508,7 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
 
           {/* Mobile Segmented Tab Bar (< 768px): My Tasks | Assigned | Team | Reports */}
           <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
-            <div className="mobile-segmented-tab-bar">
+            <div className="mobile-segmented-tab-bar employee-task-mobile-tabs">
               {[
                 { id: 'my_tasks', label: 'My Tasks', icon: User, badge: myTasksCount },
                 { id: 'assigned_tasks', label: 'Assigned', icon: CheckSquare, badge: assignedTasksCount },

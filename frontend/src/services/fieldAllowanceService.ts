@@ -36,7 +36,7 @@ export const fieldAllowanceService = {
   update: (id: string, payload: FieldAllowanceRequestPayload) => request<FieldAllowanceRequest>(`/requests/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   decide: (id: string, payload: { decision: FieldAllowanceDecision; approvedAmount?: number; remarks?: string }) =>
     request<FieldAllowanceRequest>(`/requests/${id}/decision`, { method: 'POST', body: JSON.stringify(payload) }),
-  distribute: (id: string, payload: { distributedAmount: number; distributionDate: string; paymentMethod: string; referenceNumber?: string; remarks?: string }) =>
+  distribute: (id: string, payload: { distributedAmount: number; distributionDate: string; paymentMethod: string; referenceNumber?: string; paymentProofPath?: string; remarks?: string }) =>
     request<FieldAllowanceDistribution>(`/requests/${id}/distributions`, { method: 'POST', body: JSON.stringify(payload) }),
   addDailyReport: (id: string, payload: { expenseDate: string; category: string; amount: number; description: string; attachmentPath?: string }) =>
     request(`/requests/${id}/daily-reports`, { method: 'POST', body: JSON.stringify(payload) }),

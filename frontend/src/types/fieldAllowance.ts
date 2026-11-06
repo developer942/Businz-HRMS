@@ -18,6 +18,7 @@ export interface FieldAllowanceApproval {
 export interface FieldAllowanceDistribution {
   id: string; request_id: string; distributed_by: string; distributor_name: string; distributed_amount: number;
   distribution_date: string; payment_method: string; reference_number?: string | null; remarks?: string | null;
+  payment_proof_path?: string | null;
   created_at: string; trip_code?: string; employee_name?: string; status?: FieldAllowanceStatus;
 }
 

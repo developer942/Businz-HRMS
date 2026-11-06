@@ -138,7 +138,7 @@ export class FieldAllowanceRepository {
     });
   }
 
-  async distribute(input: { companyId: string; requestId: string; distributedBy: string; distributorName: string; distributedAmount: number; distributionDate: string; paymentMethod: string; referenceNumber?: string | null; remarks?: string | null }): Promise<FieldAllowanceDistribution | null> {
+  async distribute(input: { companyId: string; requestId: string; distributedBy: string; distributorName: string; distributedAmount: number; distributionDate: string; paymentMethod: string; referenceNumber?: string | null; paymentProofPath?: string | null; remarks?: string | null }): Promise<FieldAllowanceDistribution | null> {
     return withTransaction(async (client) => {
       const locked = await client.query(
         `SELECT approved_amount, status FROM public.field_allowance_requests WHERE company_id=$1 AND id=$2 FOR UPDATE`,
@@ -151,9 +151,9 @@ export class FieldAllowanceRepository {
       }
       const created = await client.query(
         `INSERT INTO public.field_allowance_distributions
-         (request_id, distributed_by, distributor_name, distributed_amount, distribution_date, payment_method, reference_number, remarks)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [input.requestId, input.distributedBy, input.distributorName, input.distributedAmount, input.distributionDate, input.paymentMethod, input.referenceNumber, input.remarks]
+         (request_id, distributed_by, distributor_name, distributed_amount, distribution_date, payment_method, reference_number, payment_proof_path, remarks)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [input.requestId, input.distributedBy, input.distributorName, input.distributedAmount, input.distributionDate, input.paymentMethod, input.referenceNumber, input.paymentProofPath, input.remarks]
       );
       await client.query("UPDATE public.field_allowance_requests SET status='AMOUNT_DISTRIBUTED', updated_at=NOW() WHERE id=$1", [input.requestId]);
       const row = created.rows[0];

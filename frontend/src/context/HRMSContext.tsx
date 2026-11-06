@@ -6245,7 +6245,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (module === 'profile') return true;
     if (module === 'face_attendance' && (action === 'view' || action === 'create')) return true;
-    if (module === 'attendance_log' && action === 'view') return true;
+    if (module === 'attendance_log' && action === 'view') {
+      const role = String(currentUser.role || '').toLowerCase();
+      const department = String(currentUser.department || '').toLowerCase();
+      const designation = String(currentUser.designation || '').toLowerCase();
+      const isHrUser = role.includes('hr') || department.includes('human resource') || department === 'hr' || designation.includes('hr');
+      // Attendance Log is employee self-service only. HR/CEO/Accounts continue
+      // to use the existing Attendance and Reports modules.
+      return !isCeoAuthority && !isFinanceStaff && !isHrUser;
+    }
     if (module === 'dashboard' && action === 'view') return true;
     if (module === 'leaves' && (action === 'view' || action === 'create')) return true;
     if (module === 'tracking') return true;
