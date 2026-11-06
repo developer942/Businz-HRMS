@@ -54,14 +54,21 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   const [zoom, setZoom] = useState<number>(1);
   const [rotation, setRotation] = useState<number>(0);
 
-  // Strict approval authority: CEO alone
+  // Approval authority: CEO and HR
   const isCEOUser = 
     currentUser.role === 'CEO' || 
     currentUser.role === 'Super Admin' || 
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
 
-  const isApprovalAuthority = isCEOUser;
+  const isHrUser = 
+    currentUser.role === 'HR Manager' || 
+    currentUser.role === 'HR Admin' || 
+    currentUser.role === 'HR' ||
+    Boolean(currentUser.department && currentUser.department.toLowerCase().includes('hr')) ||
+    Boolean(currentUser.designation && currentUser.designation.toLowerCase().includes('hr'));
+
+  const isApprovalAuthority = isCEOUser || isHrUser;
 
   // Accounts Department users: Finance Manager or Accounts/Finance department/designation
   const isAccountsUser = 
@@ -71,10 +78,9 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
   // Accounts staff have normal employee access in ExpenseManagement (viewing and submitting only their own claims)
   const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isApprovalAuthority;
-  const isHrUser = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || currentUser.role === 'HR';
   const canSubmitClaim = isEmployeeRole || isHrUser;
   const canApprove = isApprovalAuthority;
-  // Accounts disburse CEO-approved claims in the Accounts Payment Dashboard
+  // Accounts disburse CEO/HR-approved claims in the Accounts Payment Dashboard
   const canDisburse = isAccountsUser;
   const isAccountsOnly = isAccountsUser && !isApprovalAuthority;
 

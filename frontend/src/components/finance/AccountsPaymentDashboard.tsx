@@ -142,7 +142,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
         approvedAmount: Number(exp.amount),
         requestedAmount: Number(exp.amount),
         approvedDate: exp.date || 'Recent',
-        approvedBy: 'CEO (Velmurugan)',
+        approvedBy: exp.approvedBy || 'HR / CEO',
         purpose: exp.description || 'Employee Expense Reimbursement',
         status: isApproved ? 'PENDING_DISBURSEMENT' : 'DISBURSED',
         paymentDetails: isReimbursed ? {

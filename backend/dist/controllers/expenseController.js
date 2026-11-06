@@ -55,7 +55,7 @@ export const approveExpenseClaim = async (req, res, next) => {
         }
         const approvedById = req.user?.id || req.user?.employeeId;
         const expense = await expenseRepository.approve(id, approvedById);
-        res.json({ success: true, data: expense, message: 'Expense claim approved by CEO.' });
+        res.json({ success: true, data: expense, message: 'Expense claim approved.' });
     }
     catch (error) {
         res.status(400).json({ success: false, error: { code: 'APPROVAL_FAILED', message: error.message || 'Approval failed.', details: [] } });
@@ -75,7 +75,7 @@ export const rejectExpenseClaim = async (req, res, next) => {
         }
         const approvedById = req.user?.id || req.user?.employeeId;
         const expense = await expenseRepository.reject(id, rejectionReason.trim(), approvedById);
-        res.json({ success: true, data: expense, message: 'Expense claim rejected by CEO.' });
+        res.json({ success: true, data: expense, message: 'Expense claim rejected.' });
     }
     catch (error) {
         res.status(400).json({ success: false, error: { code: 'REJECTION_FAILED', message: error.message || 'Rejection failed.', details: [] } });

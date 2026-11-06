@@ -200,7 +200,7 @@ import {
   ShiftWindowEvaluation
 } from '../services/shiftAttendanceEngine';
 import { formatTimeDisplay, formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../utils/dateUtils';
-import { createExpenseClaim, fetchExpenseClaims } from '../services/expenseService';
+import { createExpenseClaim, fetchExpenseClaims, approveExpenseApi, rejectExpenseApi } from '../services/expenseService';
 import { 
   getTodayKolkata, 
   validateRequestDate, 
@@ -9623,6 +9623,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const approveExpense = (id: string, approvedBy: string, nextStatus: Expense['status']) => {
+    const targetExp = expenses.find(e => e.id === id);
     setExpenses(prev => prev.map(e => {
       if (e.id !== id) return e;
       // Accounts hands over the amount after HR/CEO approval — keep the original approver
@@ -9638,7 +9639,41 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { ...e, status: nextStatus, approvedBy };
     }));
     if (id.length === 36) {
-      supabaseDirect.updateExpenseStatus(id, nextStatus);
+      supabaseDirect.updateExpenseStatus(id, nextStatus, approvedBy).catch(() => {});
+      if (nextStatus === 'Approved') {
+        approveExpenseApi(id).catch(() => {});
+      } else if (nextStatus === 'Rejected') {
+        rejectExpenseApi(id, `Rejected by ${approvedBy}`).catch(() => {});
+      }
+    }
+
+    if (targetExp) {
+      const isApproved = nextStatus === 'Approved';
+      const isRejected = nextStatus === 'Rejected';
+      const isReimbursed = nextStatus === 'Reimbursed';
+      const claimantTargets = [targetExp.employeeId, targetExp.employeeName].filter(Boolean) as string[];
+
+      if (isApproved || isRejected) {
+        pushSharedNotification({
+          title: isApproved ? 'Expense Claim Approved' : 'Expense Claim Rejected',
+          message: isApproved 
+            ? `Your expense claim of ₹${targetExp.amount} for "${targetExp.description || targetExp.category}" was approved by ${approvedBy} and forwarded to Accounts.`
+            : `Your expense claim of ₹${targetExp.amount} for "${targetExp.description || targetExp.category}" was rejected by ${approvedBy}.`,
+          priority: isApproved ? 'Normal' : 'Important',
+          category: 'Finance',
+          link: 'finance',
+          targetEmployeeIds: claimantTargets
+        });
+      } else if (isReimbursed) {
+        pushSharedNotification({
+          title: 'Expense Claim Paid',
+          message: `Your approved expense claim of ₹${targetExp.amount} was paid by Accounts (${approvedBy}).`,
+          priority: 'Normal',
+          category: 'Finance',
+          link: 'finance',
+          targetEmployeeIds: claimantTargets
+        });
+      }
     }
   };
 
