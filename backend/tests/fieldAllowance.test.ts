@@ -14,6 +14,7 @@ import { FieldAllowanceService } from '../src/services/fieldAllowanceService.js'
 const employee = { id: 'user-1', employeeId: 'EMP-101', name: 'Test Employee', email: 'employee@test.com', role: 'Employee', department: 'Sales', company_id: 'company-a' };
 const hr = { ...employee, id: 'hr-1', employeeId: 'EMP-001', role: 'HR Manager', name: 'HR Manager' };
 const accounts = { ...employee, id: 'acc-1', employeeId: 'EMP-002', role: 'Finance Manager', name: 'Accounts' };
+const accountsDepartmentEmployee = { ...employee, id: 'acc-2', employeeId: 'EMP-003', role: 'Employee', department: 'Accounts', designation: 'Accounts Executive', name: 'Accounts User' };
 const baseRequest = {
   id: 'trip-1', company_id: 'company-a', trip_code: 'FA-2026-TEST', employee_id: 'EMP-101', employee_name: 'Test Employee',
   department_name: 'Sales', purpose: 'Customer visit', destination: 'Chennai', start_date: '2026-11-05', end_date: '2026-11-08',
@@ -46,6 +47,15 @@ describe('Field Allowance business workflow', () => {
     expect(repository.decide).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'trip-1', decision: 'APPROVED', approvedAmount: 6000 }));
     await service.distribute(accounts, 'trip-1', { distributedAmount: 6000, distributionDate: '2026-11-05', paymentMethod: 'Bank Transfer' });
     expect(repository.distribute).toHaveBeenCalledWith(expect.objectContaining({ distributedAmount: 6000, distributedBy: 'acc-1' }));
+  });
+
+  it('recognizes an Accounts department employee even when the base role is Employee', async () => {
+    repository.list.mockResolvedValue([]);
+    repository.distribute.mockResolvedValue({ id: 'dist-2', distributed_amount: 6000 });
+    await service.list(accountsDepartmentEmployee, {});
+    expect(repository.list).toHaveBeenCalledWith('company-a', expect.objectContaining({ employeeId: undefined }));
+    await service.distribute(accountsDepartmentEmployee, 'trip-1', { distributedAmount: 6000, distributionDate: '2026-11-06', paymentMethod: 'Bank Transfer' });
+    expect(repository.distribute).toHaveBeenCalledWith(expect.objectContaining({ distributedBy: 'acc-2', distributedAmount: 6000 }));
   });
 
   it('permits personal spending with zero allocation after approval when no advance was requested', async () => {

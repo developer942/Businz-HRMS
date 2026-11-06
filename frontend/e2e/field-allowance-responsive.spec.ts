@@ -36,3 +36,28 @@ test('employee Field Allowance overview stays usable across target breakpoints',
     expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
   }
 });
+
+test('Accounts department user sees approved Field Allowance in Payment Disbursement', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vrm_auth_token', 'accounts-test-token');
+    sessionStorage.setItem('vrm_auth_token', 'accounts-test-token');
+  });
+  await page.route('**/api/**', async route => {
+    const url = route.request().url();
+    if (url.includes('/auth/me')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { id: 'accounts-1', email: 'accounts@test.com', name: 'Accounts User', role: 'Employee', employeeId: 'EMP-003', department: 'Accounts', designation: 'Accounts Executive', company_id: 'company-a' } }) });
+      return;
+    }
+    if (url.includes('/field-allowance/requests')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [{ ...trip, status: 'APPROVED', allocated_amount: 0, total_spent: 0, balance: 0 }] }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) });
+  });
+  await page.goto('/');
+  await page.waitForFunction(() => typeof (window as any).__setModule === 'function');
+  await page.evaluate(() => (window as any).__setModule('accounts_payment'));
+  await expect(page.getByRole('heading', { name: 'Accounts Payment Disbursement' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Field Allowance \(1\)/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Distribute Payment/i }).first()).toBeVisible();
+});

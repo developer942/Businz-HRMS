@@ -1,10 +1,16 @@
 import { fieldAllowanceRepository } from '../repositories/fieldAllowanceRepository.js';
 const managementRoles = new Set(['CEO', 'Super Admin', 'Admin', 'HR', 'HR Manager', 'HR Admin', 'Management', 'ERP Administrator']);
-const accountsRoles = new Set(['Finance Manager', 'Finance', 'Accountant']);
+const accountsRoles = new Set(['finance manager', 'finance', 'accountant', 'accounts', 'accounts manager', 'accounts executive']);
 const employeeKey = (actor) => actor.employeeId || actor.id;
 export class FieldAllowanceService {
     isManagement(actor) { return managementRoles.has(actor.role); }
-    isAccounts(actor) { return accountsRoles.has(actor.role) || this.isManagement(actor); }
+    isAccounts(actor) {
+        const role = actor.role.trim().toLowerCase();
+        const department = (actor.department || '').trim().toLowerCase();
+        const designation = (actor.designation || '').trim().toLowerCase();
+        return accountsRoles.has(role) || department.includes('accounts') || department.includes('finance') ||
+            designation.includes('account') || designation.includes('finance');
+    }
     company(actor) { return actor.company_id || actor.companyId || 'company-a'; }
     async create(actor, payload) {
         return fieldAllowanceRepository.create({
@@ -27,9 +33,10 @@ export class FieldAllowanceService {
         }, payload.submit);
     }
     async list(actor, filters) {
+        const { scope, ...repositoryFilters } = filters;
         return fieldAllowanceRepository.list(this.company(actor), {
-            ...filters,
-            employeeId: this.isManagement(actor) || this.isAccounts(actor) ? undefined : employeeKey(actor),
+            ...repositoryFilters,
+            employeeId: scope === 'mine' || (!this.isManagement(actor) && !this.isAccounts(actor)) ? employeeKey(actor) : undefined,
         });
     }
     async detail(actor, id) {
@@ -88,7 +95,7 @@ export class FieldAllowanceService {
         return fieldAllowanceRepository.complete(this.company(actor), requestId, employeeKey(actor));
     }
     async history(actor, filters) {
-        if (!this.isAccounts(actor))
+        if (!this.isAccounts(actor) && !this.isManagement(actor))
             throw new Error('Only Accounts, HR, or CEO can view distribution history');
         return fieldAllowanceRepository.distributionHistory(this.company(actor), filters.search, filters.startDate, filters.endDate);
     }

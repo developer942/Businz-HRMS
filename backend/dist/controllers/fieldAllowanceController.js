@@ -31,6 +31,7 @@ export class FieldAllowanceController {
             const data = await fieldAllowanceService.list(req.user, {
                 status: req.query.status, department: req.query.department,
                 search: req.query.search,
+                scope: req.query.scope === 'mine' ? 'mine' : undefined,
             });
             res.json({ success: true, data });
         }

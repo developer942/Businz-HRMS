@@ -6,12 +6,12 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { fieldAllowanceService } from '../../services/fieldAllowanceService';
 import type {
-  FieldAllowanceDecision, FieldAllowanceDetail, FieldAllowanceDistribution, FieldAllowanceRequest,
+  FieldAllowanceDecision, FieldAllowanceDetail, FieldAllowanceRequest,
   FieldAllowanceRequestPayload, FieldAllowanceStatus, FieldAllowanceSummary,
 } from '../../types/fieldAllowance';
 import './FieldAllowance.css';
 
-type Screen = 'home' | 'approvals' | 'history' | 'new' | 'detail';
+type Screen = 'home' | 'approvals' | 'new' | 'detail';
 
 const STATUS_LABELS: Record<FieldAllowanceStatus, string> = {
   DRAFT: 'Draft', PENDING_APPROVAL: 'Pending Approval', CORRECTION_REQUESTED: 'Correction Requested',
@@ -52,12 +52,16 @@ export const FieldAllowanceModule: React.FC = () => {
   const { currentUser } = useHRMS();
   const role = currentUser.role || '';
   const isManagement = ['CEO', 'Super Admin', 'Admin', 'HR', 'HR Manager', 'HR Admin', 'Management', 'ERP Administrator'].includes(role);
-  const isAccounts = ['Finance Manager', 'Finance', 'Accountant'].includes(role);
+  const roleKey = role.trim().toLowerCase();
+  const departmentKey = (currentUser.department || '').trim().toLowerCase();
+  const designationKey = (currentUser.designation || '').trim().toLowerCase();
+  const isAccountsUser = ['finance manager', 'finance', 'accountant', 'accounts', 'accounts manager', 'accounts executive'].includes(roleKey) ||
+    departmentKey.includes('accounts') || departmentKey.includes('finance') ||
+    designationKey.includes('account') || designationKey.includes('finance');
   const [screen, setScreen] = useState<Screen>('home');
   const [rows, setRows] = useState<FieldAllowanceRequest[]>([]);
   const [detail, setDetail] = useState<FieldAllowanceDetail | null>(null);
   const [summary, setSummary] = useState<FieldAllowanceSummary | null>(null);
-  const [history, setHistory] = useState<FieldAllowanceDistribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -69,15 +73,14 @@ export const FieldAllowanceModule: React.FC = () => {
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [requestRows, summaryData, distributionRows] = await Promise.all([
-        fieldAllowanceService.list(),
+      const [requestRows, summaryData] = await Promise.all([
+        fieldAllowanceService.list(isAccountsUser && !isManagement ? { scope: 'mine' } : {}),
         isManagement ? fieldAllowanceService.summary() : Promise.resolve(null),
-        isAccounts ? fieldAllowanceService.distributions() : Promise.resolve([]),
       ]);
-      setRows(requestRows); setSummary(summaryData); setHistory(distributionRows);
+      setRows(requestRows); setSummary(summaryData);
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load Field Allowance'); }
     finally { setLoading(false); }
-  }, [isAccounts, isManagement]);
+  }, [isAccountsUser, isManagement]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => void refresh(), 0);
@@ -118,7 +121,7 @@ export const FieldAllowanceModule: React.FC = () => {
         finally { setBusy(false); }
       }} />}
 
-      {screen === 'detail' && detail && <TripDetail detail={detail} isManagement={isManagement} isAccounts={isAccounts} busy={busy} onBack={goHome} onEdit={() => { setEditing(detail); setScreen('new'); }} onChanged={async (message: string) => {
+      {screen === 'detail' && detail && <TripDetail detail={detail} isManagement={isManagement} isAccounts={false} busy={busy} onBack={goHome} onEdit={() => { setEditing(detail); setScreen('new'); }} onChanged={async (message: string) => {
         setBusy(true); setError('');
         try { const fresh = await fieldAllowanceService.detail(detail.id); setDetail(fresh); await refresh(); flash(message); }
         catch (err) { setError(err instanceof Error ? err.message : 'Unable to update trip'); }
@@ -127,22 +130,20 @@ export const FieldAllowanceModule: React.FC = () => {
 
       {!['new', 'detail'].includes(screen) && <>
         <header className="fa-page-header">
-          <div><p className="fa-eyebrow">Finance & Payroll</p><h1>{isManagement ? 'Field Allowance' : isAccounts ? 'Field Allowance Distribution' : 'My Field Allowance'}</h1><p>Manage field visit advances and day-wise business expenses.</p></div>
-          {!isManagement && !isAccounts && <button className="fa-button fa-button--primary" onClick={() => { setEditing(null); setScreen('new'); }}><Plus size={18} />New request</button>}
+          <div><p className="fa-eyebrow">Finance & Payroll</p><h1>{isManagement ? 'Field Allowance' : 'My Field Allowance'}</h1><p>Manage field visit advances and day-wise business expenses.</p></div>
+          {!isManagement && <button className="fa-button fa-button--primary" onClick={() => { setEditing(null); setScreen('new'); }}><Plus size={18} />New request</button>}
         </header>
 
-        {(isManagement || isAccounts) && <nav className="fa-segment" aria-label="Field Allowance views">
+        {isManagement && <nav className="fa-segment" aria-label="Field Allowance views">
           <button className={screen === 'home' ? 'active' : ''} onClick={() => setScreen('home')}>{isManagement ? 'Overview' : 'Approved requests'}</button>
-          <button className={screen === (isManagement ? 'approvals' : 'history') ? 'active' : ''} onClick={() => setScreen(isManagement ? 'approvals' : 'history')}>
-            {isManagement ? 'Approvals' : 'Distribution history'}
+          <button className={screen === 'approvals' ? 'active' : ''} onClick={() => setScreen('approvals')}>
+            Approvals
           </button>
         </nav>}
 
         {screen === 'home' && isManagement && <ManagementDashboard summary={summary} rows={filtered} onOpen={openDetail} />}
         {screen === 'approvals' && isManagement && <ApprovalList rows={filtered} search={search} setSearch={setSearch} status={statusFilter} setStatus={setStatusFilter} onOpen={openDetail} />}
-        {screen === 'home' && isAccounts && <DistributionList rows={filtered.filter(row => row.status === 'APPROVED' && row.advance_required)} search={search} setSearch={setSearch} onOpen={openDetail} />}
-        {screen === 'history' && isAccounts && <DistributionHistory rows={history} search={search} setSearch={setSearch} />}
-        {screen === 'home' && !isManagement && !isAccounts && <EmployeeOverview rows={filtered} onOpen={openDetail} onNew={() => setScreen('new')} />}
+        {screen === 'home' && !isManagement && <EmployeeOverview rows={filtered} onOpen={openDetail} onNew={() => setScreen('new')} />}
       </>}
     </section>
   );
@@ -184,19 +185,6 @@ const ApprovalList = ({ rows, search, setSearch, status, setStatus, onOpen }: an
   <Toolbar search={search} setSearch={setSearch} status={status} setStatus={setStatus} />
   {!rows.length ? <EmptyState title="No matching requests" text="New requests will appear here when employees submit them." /> : <RequestTable rows={rows} onOpen={onOpen} showEmployee actionLabel="Review" />}
 </div>;
-
-const DistributionList = ({ rows, search, setSearch, onOpen }: any) => <div className="fa-panel">
-  <div className="fa-panel__head"><div><h2>Approved requests</h2><p>Record payment details for allowances approved by HR or CEO.</p></div></div>
-  <Toolbar search={search} setSearch={setSearch} />
-  {!rows.length ? <EmptyState title="No requests awaiting distribution" text="Approved allowance requests will appear here." /> : <RequestTable rows={rows} onOpen={onOpen} showEmployee actionLabel="Distribute amount" />}
-</div>;
-
-const DistributionHistory = ({ rows, search, setSearch }: { rows: FieldAllowanceDistribution[]; search: string; setSearch: (v: string) => void }) => {
-  const shown = rows.filter(row => !search.trim() || [row.trip_code, row.employee_name, row.reference_number].some(v => v?.toLowerCase().includes(search.toLowerCase())));
-  return <div className="fa-panel"><div className="fa-panel__head"><div><h2>Distribution history</h2><p>Auditable trip-wise payment records.</p></div></div><Toolbar search={search} setSearch={setSearch} />
-    {!shown.length ? <EmptyState title="No distributions found" text="Completed payments will be listed here." /> : <div className="fa-table-wrap"><table className="fa-table"><thead><tr><th>Trip ID</th><th>Employee</th><th>Amount</th><th>Date</th><th>Method</th><th>Reference</th><th>Status</th></tr></thead><tbody>{shown.map(row => <tr key={row.id}><td><b>{row.trip_code}</b></td><td>{row.employee_name}</td><td>{money(row.distributed_amount)}</td><td>{displayDate(row.distribution_date)}</td><td>{row.payment_method}</td><td>{row.reference_number || '—'}</td><td>{row.status && <StatusBadge status={row.status} />}</td></tr>)}</tbody></table></div>}
-  </div>;
-};
 
 const RequestTable = ({ rows, onOpen, showEmployee = false, actionLabel = 'View details' }: { rows: FieldAllowanceRequest[]; onOpen: (r: FieldAllowanceRequest) => void; showEmployee?: boolean; actionLabel?: string }) => <>
   <div className="fa-table-wrap"><table className="fa-table"><thead><tr>{showEmployee && <th>Employee</th>}<th>Trip ID / Purpose</th><th>Destination</th><th>Dates</th><th>Status</th><th>Allocated</th><th>Spent</th><th>Balance</th><th></th></tr></thead><tbody>{rows.map(row => <tr key={row.id}>{showEmployee && <td><b>{row.employee_name}</b><small>{row.employee_id} · {row.department_name || '—'}</small></td>}<td><b>{row.trip_code}</b><small>{row.purpose}</small></td><td>{row.destination}</td><td>{displayDate(row.start_date)}<small>to {displayDate(row.end_date)}</small></td><td><StatusBadge status={row.status} /></td><td>{money(row.allocated_amount)}</td><td>{money(row.total_spent)}</td><td className={row.balance < 0 ? 'fa-negative' : 'fa-positive'}>{money(row.balance)}</td><td><button className="fa-table-action" onClick={() => onOpen(row)}>{actionLabel}<ChevronRight size={15} /></button></td></tr>)}</tbody></table></div>

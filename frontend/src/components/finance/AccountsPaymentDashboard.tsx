@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { pettyCashService } from '../../services/pettyCashService';
+import { fieldAllowanceService } from '../../services/fieldAllowanceService';
 import { PettyCashRequest } from '../../types/pettyCash';
+import type { FieldAllowanceDistribution, FieldAllowanceRequest } from '../../types/fieldAllowance';
 import { Expense, LoanRecord } from '../../types/hrms';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
@@ -21,21 +23,19 @@ import {
   Wallet, 
   Search, 
   ArrowUpRight, 
-  FileText, 
   X, 
   RefreshCw,
-  Building2,
   Calendar,
   Check,
   History,
-  Lock
+  MapPin
 } from 'lucide-react';
 
-type PaymentTab = 'ALL' | 'EXPENSES' | 'ADVANCES' | 'PETTY_CASH' | 'HISTORY';
+type PaymentTab = 'ALL' | 'EXPENSES' | 'ADVANCES' | 'PETTY_CASH' | 'FIELD_ALLOWANCE' | 'HISTORY';
 
 interface UnifiedPaymentItem {
   id: string;
-  sourceType: 'EXPENSE' | 'ADVANCE' | 'PETTY_CASH';
+  sourceType: 'EXPENSE' | 'ADVANCE' | 'PETTY_CASH' | 'FIELD_ALLOWANCE';
   typeLabel: string;
   requestNumber: string;
   employeeName: string;
@@ -55,12 +55,11 @@ interface UnifiedPaymentItem {
     remarks?: string;
     disbursedBy?: string;
   };
-  rawRecord: Expense | LoanRecord | PettyCashRequest;
+  rawRecord: Expense | LoanRecord | PettyCashRequest | FieldAllowanceRequest;
 }
 
 export const AccountsPaymentDashboard: React.FC = () => {
   const { 
-    currentUser, 
     expenses = [], 
     loanRecords = [], 
     disburseLoan, 
@@ -71,7 +70,8 @@ export const AccountsPaymentDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<PaymentTab>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [pettyCashRequests, setPettyCashRequests] = useState<PettyCashRequest[]>([]);
-  const [isLoadingPettyCash, setIsLoadingPettyCash] = useState<boolean>(false);
+  const [fieldAllowanceRequests, setFieldAllowanceRequests] = useState<FieldAllowanceRequest[]>([]);
+  const [fieldAllowanceDistributions, setFieldAllowanceDistributions] = useState<FieldAllowanceDistribution[]>([]);
 
   // Disbursement Modal State
   const [selectedItem, setSelectedItem] = useState<UnifiedPaymentItem | null>(null);
@@ -89,21 +89,35 @@ export const AccountsPaymentDashboard: React.FC = () => {
   // Fetch approved petty cash requests from backend service
   const fetchPettyCashRequests = async () => {
     try {
-      setIsLoadingPettyCash(true);
       const reqs = await pettyCashService.getRequests();
       setPettyCashRequests(reqs || []);
     } catch (err) {
       console.warn('[AccountsPaymentDashboard] Could not fetch petty cash requests:', err);
-    } finally {
-      setIsLoadingPettyCash(false);
+    }
+  };
+
+  const fetchFieldAllowancePayments = async () => {
+    try {
+      const [requests, distributions] = await Promise.all([
+        fieldAllowanceService.list(),
+        fieldAllowanceService.distributions(),
+      ]);
+      setFieldAllowanceRequests(requests || []);
+      setFieldAllowanceDistributions(distributions || []);
+    } catch (err) {
+      console.warn('[AccountsPaymentDashboard] Could not fetch field allowance payments:', err);
     }
   };
 
   useEffect(() => {
-    fetchPettyCashRequests();
+    const handle = window.setTimeout(() => {
+      void fetchPettyCashRequests();
+      void fetchFieldAllowancePayments();
+    }, 0);
+    return () => window.clearTimeout(handle);
   }, []);
 
-  // Map and consolidate all 3 financial sources into unified queue
+  // Map and consolidate all financial sources into one Accounts payment queue
   const unifiedItems: UnifiedPaymentItem[] = useMemo(() => {
     const list: UnifiedPaymentItem[] = [];
 
@@ -202,13 +216,49 @@ export const AccountsPaymentDashboard: React.FC = () => {
       });
     });
 
+    // 4. Field Allowance advances approved by HR / CEO
+    const fieldDistributionByRequest = new Map(
+      (fieldAllowanceDistributions || []).map(distribution => [distribution.request_id, distribution])
+    );
+    (fieldAllowanceRequests || []).forEach(request => {
+      if (!request.advance_required) return;
+      const isApproved = request.status === 'APPROVED';
+      const isDisbursed = ['AMOUNT_DISTRIBUTED', 'IN_PROGRESS', 'COMPLETED'].includes(request.status);
+      if (!isApproved && !isDisbursed) return;
+      const distribution = fieldDistributionByRequest.get(request.id);
+      list.push({
+        id: `FA-${request.id}`,
+        sourceType: 'FIELD_ALLOWANCE',
+        typeLabel: 'Field Allowance',
+        requestNumber: request.trip_code,
+        employeeName: request.employee_name,
+        employeeId: request.employee_id,
+        department: request.department_name || 'Operations',
+        approvedAmount: Number(request.approved_amount || 0),
+        requestedAmount: Number(request.requested_amount || 0),
+        approvedDate: request.updated_at?.slice(0, 10) || request.created_at.slice(0, 10),
+        approvedBy: 'HR / CEO',
+        purpose: `${request.purpose} · ${request.destination}`,
+        status: isApproved ? 'PENDING_DISBURSEMENT' : 'DISBURSED',
+        paymentDetails: isDisbursed ? {
+          paidAmount: Number(distribution?.distributed_amount || request.allocated_amount || request.approved_amount),
+          paymentDate: distribution?.distribution_date,
+          paymentMode: distribution?.payment_method || 'Paid',
+          transactionRef: distribution?.reference_number || undefined,
+          remarks: distribution?.remarks || undefined,
+          disbursedBy: distribution?.distributor_name || 'Accounts Dept',
+        } : undefined,
+        rawRecord: request,
+      });
+    });
+
     // Sort: Pending items first, then chronologically descending
     return list.sort((a, b) => {
       if (a.status === 'PENDING_DISBURSEMENT' && b.status !== 'PENDING_DISBURSEMENT') return -1;
       if (a.status !== 'PENDING_DISBURSEMENT' && b.status === 'PENDING_DISBURSEMENT') return 1;
       return b.approvedDate.localeCompare(a.approvedDate);
     });
-  }, [expenses, loanRecords, pettyCashRequests, employees]);
+  }, [expenses, loanRecords, pettyCashRequests, fieldAllowanceRequests, fieldAllowanceDistributions, employees]);
 
   // Tab Filtering & Search
   const filteredItems = useMemo(() => {
@@ -217,6 +267,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
       if (activeTab === 'EXPENSES' && item.sourceType !== 'EXPENSE') return false;
       if (activeTab === 'ADVANCES' && item.sourceType !== 'ADVANCE') return false;
       if (activeTab === 'PETTY_CASH' && item.sourceType !== 'PETTY_CASH') return false;
+      if (activeTab === 'FIELD_ALLOWANCE' && item.sourceType !== 'FIELD_ALLOWANCE') return false;
       if (activeTab === 'HISTORY' && item.status !== 'DISBURSED') return false;
       if (activeTab !== 'HISTORY' && item.status !== 'PENDING_DISBURSEMENT') return false;
 
@@ -250,6 +301,9 @@ export const AccountsPaymentDashboard: React.FC = () => {
     const pendingPettyCash = pendingItems.filter(i => i.sourceType === 'PETTY_CASH');
     const pendingPettyCashTotal = pendingPettyCash.reduce((sum, i) => sum + i.approvedAmount, 0);
 
+    const pendingFieldAllowance = pendingItems.filter(i => i.sourceType === 'FIELD_ALLOWANCE');
+    const pendingFieldAllowanceTotal = pendingFieldAllowance.reduce((sum, i) => sum + i.approvedAmount, 0);
+
     const disbursedItems = unifiedItems.filter(i => i.status === 'DISBURSED');
     const disbursedTotal = disbursedItems.reduce((sum, i) => sum + (i.paymentDetails?.paidAmount || i.approvedAmount), 0);
 
@@ -262,6 +316,8 @@ export const AccountsPaymentDashboard: React.FC = () => {
       pendingAdvancesTotal,
       pendingPettyCashCount: pendingPettyCash.length,
       pendingPettyCashTotal,
+      pendingFieldAllowanceCount: pendingFieldAllowance.length,
+      pendingFieldAllowanceTotal,
       disbursedCount: disbursedItems.length,
       disbursedTotal
     };
@@ -381,6 +437,25 @@ export const AccountsPaymentDashboard: React.FC = () => {
         });
 
         await fetchPettyCashRequests();
+      } else if (selectedItem.sourceType === 'FIELD_ALLOWANCE') {
+        const allowance = selectedItem.rawRecord as FieldAllowanceRequest;
+        await fieldAllowanceService.distribute(allowance.id, {
+          distributedAmount: amountPaid,
+          distributionDate: paymentDate,
+          paymentMethod: paymentMode,
+          referenceNumber: transactionRef.trim() || (paymentMode === 'Cash' ? 'CASH-DISBURSEMENT' : undefined),
+          remarks: remarks.trim() || undefined,
+        });
+
+        addNotification({
+          title: 'Field Allowance Distributed',
+          message: `${formatCurrency(amountPaid)} was distributed for field visit ${allowance.trip_code}. Daily expense reporting is now enabled.`,
+          priority: 'Important',
+          category: 'Payroll',
+          targetEmployeeIds: [selectedItem.employeeId]
+        });
+
+        await fetchFieldAllowancePayments();
       }
 
       setSuccessMessage(`Payment of ${formatCurrency(amountPaid)} recorded successfully for ${selectedItem.employeeName} (${selectedItem.requestNumber}).`);
@@ -551,6 +626,22 @@ export const AccountsPaymentDashboard: React.FC = () => {
             {metrics.pendingPettyCashCount} custodian request(s)
           </div>
         </div>
+
+        {/* Field Allowance Advances */}
+        <div className="card" style={{ padding: '18px 20px', borderLeft: '4px solid #7C3AED' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+              Field Allowance
+            </span>
+            <MapPin size={17} color="#7C3AED" />
+          </div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
+            {formatCurrency(metrics.pendingFieldAllowanceTotal)}
+          </div>
+          <div style={{ fontSize: '0.74rem', color: '#7C3AED', fontWeight: 600, marginTop: '4px' }}>
+            {metrics.pendingFieldAllowanceCount} approved trip(s) ready for payout
+          </div>
+        </div>
       </div>
 
       {/* 3. Controls & Filter Bar */}
@@ -589,6 +680,14 @@ export const AccountsPaymentDashboard: React.FC = () => {
               style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
             >
               Petty Cash ({metrics.pendingPettyCashCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('FIELD_ALLOWANCE')}
+              className={`btn ${activeTab === 'FIELD_ALLOWANCE' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
+            >
+              Field Allowance ({metrics.pendingFieldAllowanceCount})
             </button>
             <button
               type="button"
@@ -635,7 +734,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
                 <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Type & Category</th>
                 <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Claimant / Employee</th>
                 <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Approved Amount</th>
-                <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>CEO Approval Date</th>
+                <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Approval Date</th>
                 <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Status</th>
                 <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', textAlign: 'right' }}>Payment Action</th>
               </tr>
@@ -652,7 +751,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
                       <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>
                         {activeTab === 'HISTORY' 
                           ? 'No past disbursements recorded yet.' 
-                          : 'All CEO-approved requests have been processed. New requests will appear here once approved by the CEO.'}
+                          : 'All approved requests have been processed. New requests will appear here after approval.'}
                       </span>
                     </div>
                   </td>
@@ -694,6 +793,11 @@ export const AccountsPaymentDashboard: React.FC = () => {
                           {item.sourceType === 'PETTY_CASH' && (
                             <span style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: '#ECFEFF', color: '#0891B2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <Wallet size={15} />
+                            </span>
+                          )}
+                          {item.sourceType === 'FIELD_ALLOWANCE' && (
+                            <span style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: '#F5F3FF', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <MapPin size={15} />
                             </span>
                           )}
                           <div>
@@ -1004,7 +1108,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
                   <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{selectedItem.employeeId} ({selectedItem.department})</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.72rem', color: '#0891B2', fontWeight: 700, textTransform: 'uppercase' }}>Approved by CEO</div>
+                  <div style={{ fontSize: '0.72rem', color: '#0891B2', fontWeight: 700, textTransform: 'uppercase' }}>Approved Amount</div>
                   <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0E7490' }}>{formatCurrency(selectedItem.approvedAmount)}</div>
                   <div style={{ fontSize: '0.72rem', color: '#15803D', fontWeight: 600 }}>Sanctioned on {selectedItem.approvedDate}</div>
                 </div>

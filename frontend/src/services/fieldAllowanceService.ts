@@ -29,7 +29,7 @@ const queryString = (filters: Record<string, string | undefined>) => {
 };
 
 export const fieldAllowanceService = {
-  list: (filters: { status?: string; department?: string; search?: string } = {}) =>
+  list: (filters: { status?: string; department?: string; search?: string; scope?: 'mine' } = {}) =>
     request<FieldAllowanceRequest[]>(`/requests${queryString(filters)}`),
   detail: (id: string) => request<FieldAllowanceDetail>(`/requests/${id}`),
   create: (payload: FieldAllowanceRequestPayload) => request<FieldAllowanceRequest>('/requests', { method: 'POST', body: JSON.stringify(payload) }),

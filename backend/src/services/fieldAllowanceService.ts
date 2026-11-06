@@ -2,7 +2,7 @@ import { fieldAllowanceRepository } from '../repositories/fieldAllowanceReposito
 import type { FieldAllowanceDecision, FieldAllowanceRequest, FieldAllowanceStatus } from '../types/fieldAllowance.js';
 
 const managementRoles = new Set(['CEO', 'Super Admin', 'Admin', 'HR', 'HR Manager', 'HR Admin', 'Management', 'ERP Administrator']);
-const accountsRoles = new Set(['Finance Manager', 'Finance', 'Accountant']);
+const accountsRoles = new Set(['finance manager', 'finance', 'accountant', 'accounts', 'accounts manager', 'accounts executive']);
 
 export interface FieldAllowanceActor {
   id: string;
@@ -11,6 +11,7 @@ export interface FieldAllowanceActor {
   email: string;
   role: string;
   department?: string;
+  designation?: string;
   company_id?: string;
   companyId?: string;
 }
@@ -19,7 +20,13 @@ const employeeKey = (actor: FieldAllowanceActor) => actor.employeeId || actor.id
 
 export class FieldAllowanceService {
   isManagement(actor: FieldAllowanceActor): boolean { return managementRoles.has(actor.role); }
-  isAccounts(actor: FieldAllowanceActor): boolean { return accountsRoles.has(actor.role) || this.isManagement(actor); }
+  isAccounts(actor: FieldAllowanceActor): boolean {
+    const role = actor.role.trim().toLowerCase();
+    const department = (actor.department || '').trim().toLowerCase();
+    const designation = (actor.designation || '').trim().toLowerCase();
+    return accountsRoles.has(role) || department.includes('accounts') || department.includes('finance') ||
+      designation.includes('account') || designation.includes('finance');
+  }
   company(actor: FieldAllowanceActor): string { return actor.company_id || actor.companyId || 'company-a'; }
 
   async create(actor: FieldAllowanceActor, payload: any) {
@@ -44,10 +51,11 @@ export class FieldAllowanceService {
     }, payload.submit);
   }
 
-  async list(actor: FieldAllowanceActor, filters: { status?: string; department?: string; search?: string }) {
+  async list(actor: FieldAllowanceActor, filters: { status?: string; department?: string; search?: string; scope?: 'mine' }) {
+    const { scope, ...repositoryFilters } = filters;
     return fieldAllowanceRepository.list(this.company(actor), {
-      ...filters,
-      employeeId: this.isManagement(actor) || this.isAccounts(actor) ? undefined : employeeKey(actor),
+      ...repositoryFilters,
+      employeeId: scope === 'mine' || (!this.isManagement(actor) && !this.isAccounts(actor)) ? employeeKey(actor) : undefined,
     });
   }
 
@@ -103,7 +111,7 @@ export class FieldAllowanceService {
   }
 
   async history(actor: FieldAllowanceActor, filters: { search?: string; startDate?: string; endDate?: string }) {
-    if (!this.isAccounts(actor)) throw new Error('Only Accounts, HR, or CEO can view distribution history');
+    if (!this.isAccounts(actor) && !this.isManagement(actor)) throw new Error('Only Accounts, HR, or CEO can view distribution history');
     return fieldAllowanceRepository.distributionHistory(this.company(actor), filters.search, filters.startDate, filters.endDate);
   }
 
