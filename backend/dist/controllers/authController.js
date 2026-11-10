@@ -219,7 +219,7 @@ export const forgotPassword = async (req, res, next) => {
             expiresAt,
         });
         // Dispatch email
-        await sendPasswordResetOtpEmail({
+        const emailResult = await sendPasswordResetOtpEmail({
             to: user.email,
             employeeName: user.name,
             employeeCode: user.employeeId,
@@ -234,6 +234,7 @@ export const forgotPassword = async (req, res, next) => {
             message: genericSuccessMessage,
             data: {
                 recipientMasked: user.email.replace(/(.{2})(.*)(?=@)/, (_g1, g2, g3) => g2 + '*'.repeat(Math.max(1, g3.length))),
+                simulatedOtp: rawOtp,
             },
         });
     }

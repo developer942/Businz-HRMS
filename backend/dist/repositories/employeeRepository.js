@@ -12,6 +12,9 @@ function mapDbRowToEmployee(data) {
         delete rawProfile.systemAccess.password;
     }
     const profile = rawProfile;
+    const cleanPortalPassword = (profile.portalPassword && !String(profile.portalPassword).startsWith('$2'))
+        ? String(profile.portalPassword)
+        : ((data.password && !String(data.password).startsWith('$2')) ? String(data.password) : 'Password@123');
     const basic = Number(data.basic_salary ?? profile.basicSalary) || 0;
     const explicitCtc = Number(profile.salaryDetails?.monthlyCtc || profile.monthlyCtc || data.gross_salary || profile.grossSalary || 0);
     const derivedCtc = explicitCtc > 0 ? explicitCtc : (basic > 0 ? Math.round(basic / 0.4) : 0);
@@ -78,6 +81,8 @@ function mapDbRowToEmployee(data) {
             uanNumber: data.uan_number || profile.salaryDetails?.uanNumber || profile.uanNumber || '',
         },
         mustChangePassword: data.must_change_password ?? false,
+        portalPassword: cleanPortalPassword,
+        password: cleanPortalPassword,
         accountStatus: data.account_status,
         credentialEmailStatus: data.credential_email_status,
         credentialEmailSentAt: data.credential_email_sent_at,
@@ -420,6 +425,11 @@ export class EmployeeRepository {
         const basicVal = Number(data.basicSalary || data.basic_salary || 0);
         const explicitCtcVal = Number(data.salaryDetails?.monthlyCtc || data.monthlyCtc || data.monthly_ctc || data.grossSalary || data.gross_salary || 0);
         const resolvedCtcVal = explicitCtcVal > 0 ? explicitCtcVal : (basicVal > 0 ? Math.round(basicVal / 0.4) : 0);
+        const rawPlainPassword = (data.password && !data.password.startsWith('$2'))
+            ? data.password
+            : (data.portalPassword && !data.portalPassword.startsWith('$2')
+                ? data.portalPassword
+                : 'Password@123');
         const insertPayload = {
             employee_id: empId,
             first_name: data.firstName || '',
@@ -446,9 +456,9 @@ export class EmployeeRepository {
             must_change_password: data.mustChangePassword ?? true,
             account_status: data.accountStatus || 'ACTIVE',
             credential_email_status: data.credentialEmailStatus || 'PENDING',
-            password: data.password
-                ? (/^\$2[aby]\$\d{2}\$/.test(data.password) ? data.password : await bcrypt.hash(data.password, 12))
-                : null,
+            password: (data.password && /^\$2[aby]\$\d{2}\$/.test(data.password))
+                ? data.password
+                : await bcrypt.hash(rawPlainPassword, 12),
         };
         // Banking & Statutory
         const bankName = data.bankName || data.bankDetails?.bankName;
@@ -535,6 +545,7 @@ export class EmployeeRepository {
         // Build comprehensive profile_data JSONB to ensure 100% data preservation
         const structuredProfile = {
             ...(typeof data.profile_data === 'object' && data.profile_data !== null ? data.profile_data : {}),
+            portalPassword: rawPlainPassword,
             firstName: data.firstName || '',
             lastName: data.lastName || '',
             email: (data.email || '').toLowerCase().trim(),
@@ -761,6 +772,14 @@ export class EmployeeRepository {
                     ...(updates.educationalDetails ? { educationalDetails: { ...(existingProfile.educationalDetails || {}), ...updates.educationalDetails } } : {}),
                     ...(updates.experienceDetails ? { experienceDetails: { ...(existingProfile.experienceDetails || {}), ...updates.experienceDetails } } : {}),
                 };
+                if (updates.password && !updates.password.startsWith('$2')) {
+                    payload.password = await bcrypt.hash(updates.password, 12);
+                    payload.profile_data.portalPassword = updates.password;
+                }
+                else if (updates.portalPassword && !updates.portalPassword.startsWith('$2')) {
+                    payload.password = await bcrypt.hash(updates.portalPassword, 12);
+                    payload.profile_data.portalPassword = updates.portalPassword;
+                }
                 await supabase
                     .from('employees')
                     .update(payload)

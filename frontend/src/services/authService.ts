@@ -316,11 +316,12 @@ export const authService = {
       body: JSON.stringify({ email_or_employee_id: cleanId }),
     });
     if (!response.ok) throw new Error(await readError(response, 'Password reset request failed.'));
-    const body = (await response.json()) as ApiResponse<{ recipientMasked?: string }>;
+    const body = (await response.json()) as ApiResponse<{ recipientMasked?: string; simulatedOtp?: string }>;
     return {
       success: true,
       message: 'If this account exists, a verification code has been sent.',
       recipientMasked: body.data?.recipientMasked,
+      simulatedOtp: body.data?.simulatedOtp,
     };
   },
 

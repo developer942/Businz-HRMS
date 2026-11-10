@@ -171,7 +171,8 @@ export const createEmployee = async (req, res, next) => {
             mustChangePassword: true,
             accountStatus: 'ACTIVE',
             status: 'Active',
-            password: await bcrypt.hash(temporaryPassword, 12),
+            password: temporaryPassword,
+            portalPassword: temporaryPassword,
         });
         // STEP 5: Create linked authentication account & persist credentials
         const { user: authUser } = await authRepository.createLoginAccount({

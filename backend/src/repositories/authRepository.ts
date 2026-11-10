@@ -246,9 +246,11 @@ export class AuthRepository {
 
     const updateResult = await query(
       `UPDATE employees SET password = $1, must_change_password = TRUE, account_status = 'ACTIVE',
-                            credential_email_status = 'PENDING', updated_at = NOW()
+                            credential_email_status = 'PENDING',
+                            profile_data = jsonb_set(COALESCE(profile_data, '{}'::jsonb), '{portalPassword}', to_jsonb($3::text)),
+                            updated_at = NOW()
        WHERE id = $2`,
-      [passwordHash, params.employeeDbId]
+      [passwordHash, params.employeeDbId, temporaryPassword]
     );
     if (!updateResult.rowCount) throw new Error('Employee login account could not be persisted');
 
@@ -318,9 +320,13 @@ export class AuthRepository {
     );
 
     await query(
-      `UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
+      `UPDATE employees 
+       SET password = $1, 
+           must_change_password = FALSE, 
+           profile_data = jsonb_set(COALESCE(profile_data, '{}'::jsonb), '{portalPassword}', to_jsonb($4::text)),
+           updated_at = NOW()
        WHERE LOWER(email) = LOWER($2) OR LOWER(employee_id) = LOWER($3)`,
-      [user.passwordHash, user.email, user.employeeId]
+      [user.passwordHash, user.email, user.employeeId, newPassword]
     );
 
     // Sync company_settings employee_profiles_data WITHOUT storing plaintext or hashed passwords
@@ -407,9 +413,11 @@ export class AuthRepository {
     await query(
       `UPDATE employees
        SET password = $1, must_change_password = TRUE, credential_email_status = $2,
-           credential_email_sent_at = $3, updated_at = NOW()
+           credential_email_sent_at = $3,
+           profile_data = jsonb_set(COALESCE(profile_data, '{}'::jsonb), '{portalPassword}', to_jsonb($5::text)),
+           updated_at = NOW()
        WHERE LOWER(employee_id) = LOWER($4) OR LOWER(email) = LOWER($4)`,
-      [user.passwordHash, emailResult.status, emailResult.sentAt, user.employeeId]
+      [user.passwordHash, emailResult.status, emailResult.sentAt, user.employeeId, newTempPassword]
     );
 
     try {
@@ -473,15 +481,20 @@ export class AuthRepository {
     const newPasswordHash = isHashed
       ? newPasswordOrHash
       : await bcrypt.hash(newPasswordOrHash, BCRYPT_ROUNDS);
+    const plainPasswordForPortal = !isHashed ? newPasswordOrHash : (user.plainPassword || 'Password@123');
 
     user.passwordHash = newPasswordHash;
-    user.plainPassword = undefined;
+    user.plainPassword = !isHashed ? newPasswordOrHash : undefined;
     user.mustChangePassword = false;
 
     const updateResult = await query(
-      `UPDATE employees SET password = $1, must_change_password = FALSE, updated_at = NOW()
+      `UPDATE employees 
+       SET password = $1, 
+           must_change_password = FALSE, 
+           profile_data = jsonb_set(COALESCE(profile_data, '{}'::jsonb), '{portalPassword}', to_jsonb($3::text)),
+           updated_at = NOW()
        WHERE LOWER(employee_id) = LOWER($2) OR LOWER(email) = LOWER($2)`,
-      [newPasswordHash, user.employeeId]
+      [newPasswordHash, user.employeeId, plainPasswordForPortal]
     );
     if (!updateResult.rowCount) return false;
 

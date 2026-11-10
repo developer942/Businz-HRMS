@@ -261,7 +261,7 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     });
 
     // Dispatch email
-    await sendPasswordResetOtpEmail({
+    const emailResult = await sendPasswordResetOtpEmail({
       to: user.email,
       employeeName: user.name,
       employeeCode: user.employeeId,
@@ -278,6 +278,7 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
       message: genericSuccessMessage,
       data: {
         recipientMasked: user.email.replace(/(.{2})(.*)(?=@)/, (_g1, g2, g3) => g2 + '*'.repeat(Math.max(1, g3.length))),
+        simulatedOtp: rawOtp,
       },
     });
   } catch (err) {

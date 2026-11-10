@@ -509,9 +509,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       officialUsername: (emp as any).officialUsername || emp.employeeId || emp.id,
       role: (isEmpCEO ? 'CEO' : (emp.systemAccess?.role || emp.role || 'Employee')) as Role,
       accountStatus: ((emp.accountStatus as any) || (emp.status === 'Terminated' || emp.status === 'Inactive' ? 'DEACTIVATED' : 'ACTIVE')) as 'ACTIVE' | 'DEACTIVATED' | 'DISABLED',
-      password: ((emp as any).password && !(emp as any).password.startsWith('$2'))
-        ? (emp as any).password
-        : (emp.password && !emp.password.startsWith('$2') ? emp.password : ((emp as any).password || emp.password || 'Password@123')),
+      password: ((emp as any).portalPassword && !String((emp as any).portalPassword).startsWith('$2'))
+        ? String((emp as any).portalPassword)
+        : ((emp as any).portal_password && !String((emp as any).portal_password).startsWith('$2')
+            ? String((emp as any).portal_password)
+            : (emp.password && !String(emp.password).startsWith('$2') ? emp.password : 'Password@123')),
+      portalPassword: ((emp as any).portalPassword && !String((emp as any).portalPassword).startsWith('$2'))
+        ? String((emp as any).portalPassword)
+        : ((emp as any).portal_password && !String((emp as any).portal_password).startsWith('$2')
+            ? String((emp as any).portal_password)
+            : (emp.password && !String(emp.password).startsWith('$2') ? emp.password : 'Password@123')),
       mustChangePassword: Boolean(emp.mustChangePassword ?? false),
       credentialEmailStatus: emp.credentialEmailStatus || 'NOT_SENT',
       credentialEmailSentAt: emp.credentialEmailSentAt || null
@@ -3772,9 +3779,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       letterSpacing: showPassword ? '0.04em' : '0.15em'
                     }}>
                       {showPassword ? (
-                        (formData.password && !formData.password.startsWith('$2'))
-                          ? formData.password
-                          : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123'))
+                        (() => {
+                          const p1 = (formData as any).portalPassword;
+                          if (p1 && typeof p1 === 'string' && !p1.startsWith('$2')) return p1;
+                          const p2 = (currentEmp as any).portalPassword;
+                          if (p2 && typeof p2 === 'string' && !p2.startsWith('$2')) return p2;
+                          const p3 = formData.password;
+                          if (p3 && typeof p3 === 'string' && !p3.startsWith('$2')) return p3;
+                          const p4 = currentEmp.password;
+                          if (p4 && typeof p4 === 'string' && !p4.startsWith('$2')) return p4;
+                          return 'Password@123';
+                        })()
                       ) : '••••••••••••'}
                     </span>
                   </div>
@@ -3807,12 +3822,18 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     {/* Copy Password */}
                     <button
                       type="button"
-                      onClick={() => handleCopy(
-                        (formData.password && !formData.password.startsWith('$2'))
-                          ? formData.password
-                          : (currentEmp.password && !currentEmp.password.startsWith('$2') ? currentEmp.password : (formData.password || currentEmp.password || 'Password@123')),
-                        'portalPassword'
-                      )}
+                      onClick={() => {
+                        const p1 = (formData as any).portalPassword;
+                        const p2 = (currentEmp as any).portalPassword;
+                        const p3 = formData.password;
+                        const p4 = currentEmp.password;
+                        const cleanPass = (p1 && typeof p1 === 'string' && !p1.startsWith('$2')) ? p1
+                          : (p2 && typeof p2 === 'string' && !p2.startsWith('$2')) ? p2
+                          : (p3 && typeof p3 === 'string' && !p3.startsWith('$2')) ? p3
+                          : (p4 && typeof p4 === 'string' && !p4.startsWith('$2')) ? p4
+                          : 'Password@123';
+                        handleCopy(cleanPass, 'portalPassword');
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',

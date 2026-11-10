@@ -59,6 +59,12 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
     setActiveTab(tab);
     try {
       sessionStorage.setItem('vrm_task_active_tab', tab);
+      if (tab === 'daily_reports') {
+        localStorage.setItem('vrm_task_daily_reports_viewed_at', new Date().toISOString());
+      }
+      if (tab === 'team_tasks') {
+        localStorage.setItem('vrm_task_team_tasks_viewed_at', new Date().toISOString());
+      }
     } catch (e) {}
   };
 
@@ -208,8 +214,8 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
     t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED'
   ).length;
 
-  // Count active team tasks requiring action (assigned to 2 or more members)
-  const teamTasksCount = enhancedTasks.filter(t => {
+  // Count active team tasks requiring action (auto-closes when user opens Team Tasks tab)
+  const teamTasksCount = activeTab === 'team_tasks' ? 0 : enhancedTasks.filter(t => {
     const count = t.assignees ? t.assignees.length : 0;
     if (count <= 1) return false;
     if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED' || t.overallStatus === 'CANCELLED') return false;
@@ -241,14 +247,24 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
     return t.assignees.some(a => a.individualStatus !== 'Completed');
   }).length;
 
-  // Count daily reports visible to the current user
-  const dailyReportsCount = enhancedTasks.reduce((acc, t) => {
-    const reportCount = t.dailyReports?.length || 0;
-    if (reportCount === 0) return acc;
+  // Count unviewed/fresh daily reports (auto-closes when user opens Daily Reports tab)
+  const dailyReportsCount = activeTab === 'daily_reports' ? 0 : enhancedTasks.reduce((acc, t) => {
+    const reports = t.dailyReports || [];
+    if (reports.length === 0) return acc;
+
+    const lastViewedAt = localStorage.getItem('vrm_task_daily_reports_viewed_at');
+    const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
+    const currentName = (currentUser.name || '').toLowerCase().trim();
+
+    const unviewedReports = reports.filter(r => {
+      if (lastViewedAt && r.submittedAt && r.submittedAt <= lastViewedAt) return false;
+      if (currentEmpId && r.seenBy?.some(s => s.toLowerCase() === currentEmpId)) return false;
+      return true;
+    });
+
+    if (unviewedReports.length === 0) return acc;
 
     if (isEmployee) {
-      const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
-      const currentName = (currentUser.name || '').toLowerCase().trim();
       const isAssignedToMe = t.assignees.some(a => {
         const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
         const assigneeName = (a.employeeName || '').toLowerCase().trim();
@@ -257,7 +273,7 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
           (currentName && assigneeName.includes(currentName))
         );
       });
-      const isReporter = t.dailyReports?.some(r => {
+      const isReporter = unviewedReports.some(r => {
         const reporterEmpId = (r.employeeId || '').toLowerCase().trim();
         const reporterName = (r.employeeName || '').toLowerCase().trim();
         return (
@@ -266,14 +282,14 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
         );
       });
       const isAssigner = isTaskAssignedByMe(t, currentUser);
-      return (isAssignedToMe || isReporter || isAssigner) ? acc + reportCount : acc;
+      return (isAssignedToMe || isReporter || isAssigner) ? acc + unviewedReports.length : acc;
     }
 
     if (isManager && currentUser.department && !isCEO && !isHR && t.department !== currentUser.department) {
       return acc;
     }
 
-    return acc + reportCount;
+    return acc + unviewedReports.length;
   }, 0);
 
   return (
@@ -402,9 +418,9 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
                     >
                       <Icon size={16} />
                       <span>{t.label}</span>
-                      {t.badge !== undefined && t.badge > 0 && (
+                      {t.badge !== undefined && t.badge > 0 && !isActive && (
                         <span style={{ 
-                          background: isActive ? 'rgba(255, 255, 255, 0.25)' : '#EF4444', 
+                          background: '#EF4444', 
                           color: '#ffffff', 
                           fontSize: '0.7rem', 
                           fontWeight: 700, 
@@ -442,7 +458,7 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
                     onClick={() => handleTabChange(t.id as any)}
                   >
                     <span>{t.label}</span>
-                    {t.badge !== undefined && t.badge > 0 && (
+                    {t.badge !== undefined && t.badge > 0 && !isActive && (
                       <span className="mobile-tab-badge">
                         {t.badge}
                       </span>
@@ -499,9 +515,9 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
                   >
                     <Icon size={16} />
                     <span>{t.label}</span>
-                    {t.badge !== undefined && t.badge > 0 && (
+                    {t.badge !== undefined && t.badge > 0 && !isActive && (
                       <span style={{ 
-                        background: isActive ? 'rgba(255, 255, 255, 0.25)' : '#0E7490', 
+                        background: '#0E7490', 
                         color: '#ffffff', 
                         fontSize: '0.7rem', 
                         fontWeight: 700, 
