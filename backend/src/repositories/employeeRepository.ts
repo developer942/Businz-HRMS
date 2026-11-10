@@ -72,10 +72,15 @@ export interface EmployeeRecord {
   lastDrawnSalary?: number;
   previousCompanyLocation?: string;
   currentAddress?: any;
+  permanentAddress?: any;
+  emergencyContact?: any;
   educationalDetails?: any;
   experienceDetails?: any;
+  professionalDetails?: any;
   bankDetails?: any;
   salaryDetails?: any;
+  allowances?: any;
+  profile_data?: any;
 }
 
 export interface EmployeeSalaryStructureRecord extends SalaryStructureInput {
@@ -99,7 +104,9 @@ function mapDbRowToEmployee(data: any): EmployeeRecord {
   }
   const profile = rawProfile;
   const basic = Number(data.basic_salary ?? profile.basicSalary) || 0;
-  const gross = Number(data.gross_salary ?? profile.grossSalary) || basic || 0;
+  const explicitCtc = Number(profile.salaryDetails?.monthlyCtc || profile.monthlyCtc || data.gross_salary || profile.grossSalary || 0);
+  const derivedCtc = explicitCtc > 0 ? explicitCtc : (basic > 0 ? Math.round(basic / 0.4) : 0);
+  const gross = derivedCtc > 0 ? derivedCtc : (basic > 0 ? Math.round(basic / 0.4) : 0);
   const todayIso = new Date().toISOString().slice(0, 10);
   const rawUpcomingShift = profile.upcomingShift || profile.shiftDetails?.upcomingShift || null;
   const rawUpcomingEffectiveFrom = profile.upcomingShiftEffectiveFrom || profile.shiftDetails?.upcomingShiftEffectiveFrom || null;
@@ -109,6 +116,12 @@ function mapDbRowToEmployee(data: any): EmployeeRecord {
     : (data.work_shift || profile.workShift || profile.shiftDetails?.assignedShift || undefined);
   const resolvedUpcomingShift = isUpcomingDue ? null : rawUpcomingShift;
   const resolvedUpcomingEffectiveFrom = isUpcomingDue ? null : rawUpcomingEffectiveFrom;
+
+  const resolvedHra = Number(data.allowances_hra ?? profile.allowances?.hra ?? profile.salaryDetails?.hra ?? (derivedCtc > 0 ? Math.round(derivedCtc * 0.35) : 0));
+  const resolvedTransport = Number(data.allowances_transport ?? profile.allowances?.transport ?? profile.salaryDetails?.conveyance ?? (derivedCtc > 0 ? Math.round(derivedCtc * 0.05) : 0));
+  const resolvedDa = Number(profile.allowances?.da ?? profile.salaryDetails?.da ?? (derivedCtc > 0 ? Math.round(derivedCtc * 0.20) : 0));
+  const resolvedMedical = Number(data.allowances_medical ?? profile.allowances?.medical ?? 0);
+  const resolvedSpecial = Number(data.allowances_special ?? profile.allowances?.special ?? 0);
 
   return {
     ...profile,
@@ -128,10 +141,12 @@ function mapDbRowToEmployee(data: any): EmployeeRecord {
     basicSalary: basic,
     grossSalary: gross,
     allowances: {
-      hra: Number(data.allowances_hra ?? profile.allowances?.hra ?? 0),
-      transport: Number(data.allowances_transport ?? profile.allowances?.transport ?? 0),
-      medical: Number(data.allowances_medical ?? profile.allowances?.medical ?? 0),
-      special: Number(data.allowances_special ?? profile.allowances?.special ?? 0),
+      hra: resolvedHra,
+      transport: resolvedTransport,
+      medical: resolvedMedical,
+      special: resolvedSpecial,
+      da: resolvedDa,
+      conveyance: resolvedTransport,
     },
     bankName: data.bank_name || profile.bankDetails?.bankName || undefined,
     accountNumber: data.account_number || profile.bankDetails?.accountNumber || undefined,
@@ -142,6 +157,18 @@ function mapDbRowToEmployee(data: any): EmployeeRecord {
       accountNumber: data.account_number || profile.bankDetails?.accountNumber || '',
       ifscCode: data.ifsc_code || profile.bankDetails?.ifscCode || '',
       branch: data.branch || profile.bankDetails?.branch || '',
+    },
+    salaryDetails: {
+      ...(profile.salaryDetails || {}),
+      monthlyCtc: derivedCtc,
+      basicSalary: basic,
+      hra: resolvedHra,
+      da: resolvedDa,
+      conveyance: resolvedTransport,
+      withPf: profile.salaryDetails?.withPf ?? true,
+      salaryScheme: profile.salaryDetails?.salaryScheme || 'WITH_PF',
+      panNumber: data.pan_number || profile.salaryDetails?.panNumber || profile.panNumber || '',
+      uanNumber: data.uan_number || profile.salaryDetails?.uanNumber || profile.uanNumber || '',
     },
     mustChangePassword: data.must_change_password ?? false,
     accountStatus: data.account_status,
@@ -184,6 +211,21 @@ function mapDbRowToEmployee(data: any): EmployeeRecord {
       state: data.state || profile.currentAddress?.state || '',
       country: data.country || profile.currentAddress?.country || 'India',
       pincode: data.pincode || profile.currentAddress?.pincode || '',
+    },
+    permanentAddress: profile.permanentAddress || {
+      sameAsCurrent: true,
+      line1: data.address_line1 || profile.currentAddress?.line1 || '',
+      line2: data.address_line2 || profile.currentAddress?.line2 || '',
+      city: data.city || profile.currentAddress?.city || '',
+      state: data.state || profile.currentAddress?.state || '',
+      country: data.country || profile.currentAddress?.country || 'India',
+      pincode: data.pincode || profile.currentAddress?.pincode || '',
+    },
+    emergencyContact: profile.emergencyContact || {
+      name: (data as any).emergency_contact_name || '',
+      relationship: (data as any).emergency_contact_relationship || 'Parent',
+      mobile: (data as any).emergency_contact_phone || '',
+      alternateMobile: '',
     },
     highestQualification: data.highest_qualification || profile.educationalDetails?.highestQualification || undefined,
     degreeName: data.degree_name || profile.educationalDetails?.degreeName || undefined,
@@ -501,19 +543,33 @@ export class EmployeeRepository {
       }
     }
 
+    const basicVal = Number(data.basicSalary || (data as any).basic_salary || 0);
+    const explicitCtcVal = Number(data.salaryDetails?.monthlyCtc || (data as any).monthlyCtc || (data as any).monthly_ctc || data.grossSalary || (data as any).gross_salary || 0);
+    const resolvedCtcVal = explicitCtcVal > 0 ? explicitCtcVal : (basicVal > 0 ? Math.round(basicVal / 0.4) : 0);
+
     const insertPayload: any = {
       employee_id: empId,
       first_name: data.firstName || '',
       last_name: data.lastName || '',
       email: (data.email || '').toLowerCase().trim(),
-      basic_salary: data.basicSalary || 0,
+      basic_salary: basicVal,
       designation: data.designation || 'Staff',
       department_id: deptId || null,
-      phone: data.phone || null,
-      branch: data.branch || null,
+      phone: data.phone || (data as any).mobile || null,
+      dob: data.dob || (data as any).profile_data?.dob || null,
+      gender: data.gender || (data as any).profile_data?.gender || 'Male',
+      joining_date: data.joiningDate || (data as any).joining_date || (data as any).profile_data?.joiningDate || null,
+      employment_type: data.employmentType || (data as any).employment_type || (data as any).profile_data?.employmentType || 'Full-Time',
+      work_shift: data.workShift || (data as any).work_shift || (data as any).shift || 'SH-01',
+      branch: data.branch || (data as any).workLocation || null,
       role_id: roleId,
       status: data.status || 'Active',
       attendance_method: data.attendanceMethod || 'Face Scan',
+      gps_allowed: (data as any).gpsAllowed ?? (data as any).gps_allowed ?? true,
+      allowances_hra: Number((data as any).hra ?? data.allowances?.hra ?? data.salaryDetails?.hra ?? (data as any).allowances_hra ?? (resolvedCtcVal > 0 ? Math.round(resolvedCtcVal * 0.35) : 0)),
+      allowances_transport: Number((data as any).conveyance ?? (data as any).transport ?? data.allowances?.transport ?? data.salaryDetails?.conveyance ?? (data as any).allowances_transport ?? (resolvedCtcVal > 0 ? Math.round(resolvedCtcVal * 0.05) : 0)),
+      allowances_medical: Number((data as any).medical ?? data.allowances?.medical ?? (data as any).allowances_medical ?? 0),
+      allowances_special: Number((data as any).special ?? data.allowances?.special ?? (data as any).allowances_special ?? 0),
       must_change_password: data.mustChangePassword ?? true,
       account_status: data.accountStatus || 'ACTIVE',
       credential_email_status: data.credentialEmailStatus || 'PENDING',
@@ -603,6 +659,91 @@ export class EmployeeRepository {
 
     const previousCompanyLocation = data.previousCompanyLocation || (data as any).companyLocation || data.experienceDetails?.companyLocation;
     if (previousCompanyLocation !== undefined) insertPayload.previous_company_location = previousCompanyLocation;
+
+    // Build comprehensive profile_data JSONB to ensure 100% data preservation
+    const structuredProfile: any = {
+      ...(typeof (data as any).profile_data === 'object' && (data as any).profile_data !== null ? (data as any).profile_data : {}),
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      email: (data.email || '').toLowerCase().trim(),
+      personalEmail: (data as any).personalEmail || (data as any).personal_email || (data.email || '').toLowerCase().trim(),
+      phone: data.phone || (data as any).mobile || null,
+      dob: insertPayload.dob,
+      gender: insertPayload.gender,
+      department: data.department || 'General',
+      designation: data.designation || 'Staff',
+      joiningDate: insertPayload.joining_date,
+      employmentType: insertPayload.employment_type,
+      workLocation: insertPayload.branch,
+      workShift: insertPayload.work_shift,
+      attendanceMethod: insertPayload.attendance_method,
+      gpsAllowed: insertPayload.gps_allowed,
+      currentAddress: data.currentAddress || {
+        line1: insertPayload.address_line1 || '',
+        line2: insertPayload.address_line2 || '',
+        city: insertPayload.city || '',
+        state: insertPayload.state || '',
+        country: insertPayload.country || 'India',
+        pincode: insertPayload.pincode || '',
+      },
+      permanentAddress: (data as any).permanentAddress || {
+        sameAsCurrent: true,
+        line1: insertPayload.address_line1 || '',
+        line2: insertPayload.address_line2 || '',
+        city: insertPayload.city || '',
+        state: insertPayload.state || '',
+        country: insertPayload.country || 'India',
+        pincode: insertPayload.pincode || '',
+      },
+      emergencyContact: (data as any).emergencyContact || {
+        name: (data as any).emergencyName || (data as any).emergency_contact_name || '',
+        relationship: (data as any).emergencyRelationship || (data as any).emergency_contact_relationship || 'Parent',
+        mobile: (data as any).emergencyMobile || (data as any).emergency_contact_phone || '',
+        alternateMobile: (data as any).emergencyAltMobile || '',
+      },
+      bankDetails: data.bankDetails || {
+        bankName: insertPayload.bank_name || '',
+        accountNumber: insertPayload.account_number || '',
+        ifscCode: insertPayload.ifsc_code || '',
+        branch: insertPayload.branch || insertPayload.city || '',
+      },
+      salaryDetails: {
+        ...(data.salaryDetails || {}),
+        monthlyCtc: resolvedCtcVal,
+        basicSalary: basicVal,
+        hra: insertPayload.allowances_hra,
+        da: Number(data.salaryDetails?.da || (resolvedCtcVal > 0 ? Math.round(resolvedCtcVal * 0.20) : 0)),
+        conveyance: insertPayload.allowances_transport,
+        salaryScheme: data.salaryDetails?.salaryScheme || ((data as any).withPf ? 'WITH_PF' : 'WITHOUT_PF'),
+        withPf: (data as any).withPf ?? data.salaryDetails?.withPf ?? true,
+        panNumber: insertPayload.pan_number || '',
+        uanNumber: insertPayload.uan_number || '',
+      },
+      educationalDetails: data.educationalDetails || {
+        highestQualification: insertPayload.highest_qualification || '',
+        degreeName: insertPayload.degree_name || '',
+        specialization: insertPayload.specialization || '',
+        university: insertPayload.university || '',
+        yearOfPassing: insertPayload.year_of_passing ? String(insertPayload.year_of_passing) : '',
+        gradePercentage: insertPayload.grade_percentage ? String(insertPayload.grade_percentage) : '',
+      },
+      experienceDetails: data.experienceDetails || {
+        experienceType: insertPayload.experience_profile || 'Fresher',
+        totalExperience: insertPayload.total_experience ? String(insertPayload.total_experience) : '0',
+        previousCompany: insertPayload.previous_company || '',
+        previousDesignation: insertPayload.previous_designation || '',
+        previousDepartment: insertPayload.previous_department || '',
+        startDate: insertPayload.employment_start_date || '',
+        endDate: insertPayload.employment_end_date || '',
+        lastDrawnSalary: insertPayload.last_drawn_salary ? String(insertPayload.last_drawn_salary) : '',
+        companyLocation: insertPayload.previous_company_location || '',
+      },
+      professionalDetails: (data as any).professionalDetails || {
+        skills: (data as any).skills || [],
+      },
+    };
+
+    insertPayload.profile_data = structuredProfile;
 
     const insertRes = await supabase.from('employees').insert(insertPayload).select('*, department:departments!employees_department_id_fkey(name)').single();
     if (insertRes.error || !insertRes.data) {
@@ -729,6 +870,20 @@ export class EmployeeRepository {
             payload.department_id = deptData.id;
           }
         }
+
+        // Merge profile_data so JSONB remains completely up-to-date
+        const existingProfile = (emp as any).profile_data || {};
+        payload.profile_data = {
+          ...existingProfile,
+          ...(updates.profile_data || {}),
+          ...(updates.currentAddress ? { currentAddress: { ...(existingProfile.currentAddress || {}), ...updates.currentAddress } } : {}),
+          ...(updates.permanentAddress ? { permanentAddress: { ...(existingProfile.permanentAddress || {}), ...updates.permanentAddress } } : {}),
+          ...(updates.emergencyContact ? { emergencyContact: { ...(existingProfile.emergencyContact || {}), ...updates.emergencyContact } } : {}),
+          ...(updates.bankDetails ? { bankDetails: { ...(existingProfile.bankDetails || {}), ...updates.bankDetails } } : {}),
+          ...(updates.salaryDetails ? { salaryDetails: { ...(existingProfile.salaryDetails || {}), ...updates.salaryDetails } } : {}),
+          ...(updates.educationalDetails ? { educationalDetails: { ...(existingProfile.educationalDetails || {}), ...updates.educationalDetails } } : {}),
+          ...(updates.experienceDetails ? { experienceDetails: { ...(existingProfile.experienceDetails || {}), ...updates.experienceDetails } } : {}),
+        };
 
         await supabase
           .from('employees')

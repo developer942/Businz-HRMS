@@ -238,7 +238,8 @@ export const supabaseDirect = {
         'previous_company', 'previous_designation', 'previous_department',
         'employment_start_date', 'employment_end_date', 'last_drawn_salary',
         'previous_company_location', 'avatar_url', 'allowances_hra',
-        'allowances_transport', 'allowances_medical', 'allowances_special'
+        'allowances_transport', 'allowances_medical', 'allowances_special',
+        'profile_data'
       ]);
 
       const payload: Record<string, any> = {

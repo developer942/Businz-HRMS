@@ -1559,13 +1559,13 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         salaryStructure: formData.salaryStructure,
         salaryScheme: formData.salaryScheme,
         withPf: formData.withPf,
-        monthlyCtc: Number(formData.monthlyCtc),
-        basicSalary: Number(formData.basicSalary),
-        da: Number(formData.da),
-        conveyance: Number(formData.conveyance),
-        hra: Number(formData.hra),
-        panNumber: formData.panNumber,
-        uanNumber: formData.uanNumber,
+        monthlyCtc: Number(formData.monthlyCtc) || (Number(formData.basicSalary) ? Math.round(Number(formData.basicSalary) / 0.4) : 0),
+        basicSalary: Number(formData.basicSalary) || 0,
+        da: Number(formData.da) || (Number(formData.basicSalary) ? Math.round(Number(formData.basicSalary) / 0.4 * 0.20) : 0),
+        conveyance: Number(formData.conveyance) || (Number(formData.basicSalary) ? Math.round(Number(formData.basicSalary) / 0.4 * 0.05) : 0),
+        hra: Number(formData.hra) || (Number(formData.basicSalary) ? Math.round(Number(formData.basicSalary) / 0.4 * 0.35) : 0),
+        panNumber: formData.panNumber ? formData.panNumber.toUpperCase().trim() : '',
+        uanNumber: formData.uanNumber || '',
         ...(formData.customComponents || {})
       },
       shiftDetails: {
@@ -1608,6 +1608,91 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         ? '42a8b0c3-22e5-40a0-bf78-2dd14475c6d6' 
         : (newEmp.role === 'Super Admin' ? 'c4f29eb9-d1ae-4d1e-a7ff-15908b2afd59' : undefined);
 
+    const fullEmployeePayload: Record<string, any> = {
+      employeeId: cleanEmpCode,
+      firstName: newEmp.firstName,
+      lastName: newEmp.lastName || '',
+      email: primaryEmail,
+      personalEmail: targetEmail,
+      password: targetPassword,
+      phone: newEmp.phone || formData.phone || (formData as any).mobile || null,
+      mobile: newEmp.phone || formData.phone || (formData as any).mobile || null,
+      department: newEmp.department,
+      departmentId: newEmp.departmentId,
+      designation: newEmp.designation,
+      role: newEmp.role,
+      roleId: assignedRoleId,
+      reportingManagerId: newEmp.reportingManagerId || null,
+      reportingManagerName: newEmp.reportingManagerName || null,
+      dob: newEmp.dob || formData.dob || null,
+      gender: newEmp.gender || formData.gender || 'Male',
+      joiningDate: newEmp.joiningDate || formData.joiningDate || null,
+      employmentType: newEmp.employmentType || formData.employmentType || 'Full-Time',
+      status: newEmp.status || 'Active',
+      attendanceMethod: newEmp.attendanceMethod || formData.attendanceMethod || 'Face Scan',
+      branch: newEmp.workLocation || formData.workLocation || null,
+      workLocation: newEmp.workLocation || formData.workLocation || null,
+      workShift: formData.shift || newEmp.workShift || 'SH-01',
+      gpsAllowed: formData.gpsAllowed ?? true,
+      basicSalary: newEmp.basicSalary,
+      grossSalary: newEmp.salaryDetails?.monthlyCtc || (newEmp.basicSalary ? Math.round(newEmp.basicSalary / 0.4) : 0),
+
+      // Structured nested objects (preserved into profile_data JSONB)
+      currentAddress: newEmp.currentAddress,
+      permanentAddress: newEmp.permanentAddress,
+      emergencyContact: newEmp.emergencyContact,
+      bankDetails: newEmp.bankDetails,
+      salaryDetails: newEmp.salaryDetails,
+      educationalDetails: newEmp.educationalDetails,
+      experienceDetails: newEmp.experienceDetails,
+      professionalDetails: newEmp.professionalDetails,
+      shiftDetails: newEmp.shiftDetails,
+      systemAccess: newEmp.systemAccess,
+
+      // Flat database columns
+      address_line1: formData.currentLine1 || null,
+      address_line2: formData.currentLine2 || null,
+      city: formData.currentCity || null,
+      state: formData.currentState || null,
+      country: formData.currentCountry || 'India',
+      pincode: formData.currentPincode || null,
+      bank_name: formData.bankName || null,
+      account_number: formData.accountNumber || null,
+      ifsc_code: formData.ifscCode ? formData.ifscCode.toUpperCase().trim() : null,
+      pan_number: formData.panNumber ? formData.panNumber.toUpperCase().trim() : null,
+      uan_number: formData.uanNumber || null,
+      highest_qualification: formData.qualification || null,
+      degree_name: formData.degreeName || null,
+      specialization: formData.specialization || null,
+      university: formData.university || null,
+      year_of_passing: formData.yearOfPassing ? parseInt(formData.yearOfPassing, 10) : null,
+      grade_percentage: formData.gradePercentage ? parseFloat(formData.gradePercentage) : null,
+      experience_profile: isFresher ? 'Fresher' : 'Experienced',
+      total_experience: isFresher ? 0 : (formData.totalExperience ? parseFloat(formData.totalExperience) : null),
+      previous_company: isFresher ? null : (formData.previousCompany || null),
+      previous_designation: isFresher ? null : (formData.previousDesignation || null),
+      previous_department: isFresher ? null : (formData.previousDepartment || null),
+      employment_start_date: isFresher ? null : (formData.expStartDate || null),
+      employment_end_date: isFresher ? null : (formData.expEndDate || null),
+      last_drawn_salary: isFresher ? null : (formData.lastDrawnSalary ? parseFloat(formData.lastDrawnSalary) : null),
+      previous_company_location: isFresher ? null : (formData.previousCompanyLocation || null),
+      allowances_hra: Number(formData.hra) || Number(newEmp.salaryDetails?.hra) || 0,
+      allowances_transport: Number(formData.conveyance) || Number(newEmp.salaryDetails?.conveyance) || 0,
+      work_shift: formData.shift || null,
+      gps_allowed: formData.gpsAllowed ?? true,
+      profile_data: {
+        ...newEmp,
+        currentAddress: newEmp.currentAddress,
+        permanentAddress: newEmp.permanentAddress,
+        emergencyContact: newEmp.emergencyContact,
+        bankDetails: newEmp.bankDetails,
+        salaryDetails: newEmp.salaryDetails,
+        educationalDetails: newEmp.educationalDetails,
+        experienceDetails: newEmp.experienceDetails,
+        professionalDetails: newEmp.professionalDetails,
+      }
+    };
+
     // 1. Attempt backend API first
     try {
       const token = 
@@ -1621,21 +1706,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({
-          employeeId: cleanEmpCode,
-          firstName: newEmp.firstName,
-          lastName: newEmp.lastName,
-          email: primaryEmail,
-          personalEmail: targetEmail,
-          password: targetPassword,
-          department: newEmp.department,
-          designation: newEmp.designation,
-          role: newEmp.role,
-          dob: newEmp.dob,
-          gender: newEmp.gender,
-          basicSalary: newEmp.basicSalary,
-          grossSalary: newEmp.salaryDetails?.monthlyCtc || newEmp.basicSalary * 2.5
-        })
+        body: JSON.stringify(fullEmployeePayload)
       });
 
       if (apiRes && apiRes.ok) {
@@ -1703,6 +1774,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           allowances_transport: Number(formData.conveyance) || 0,
           work_shift: formData.shift || null,
           gps_allowed: formData.gpsAllowed ?? true,
+          profile_data: fullEmployeePayload.profile_data,
         });
 
         if (sbRes.success) {

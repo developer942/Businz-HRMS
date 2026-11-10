@@ -1537,20 +1537,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       country: raw?.country || d.currentAddress?.country || d.country || '',
       pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
     },
-    permanentAddress: d.permanentAddress || {
+    permanentAddress: (d.permanentAddress && (d.permanentAddress.line1 || d.permanentAddress.city)) ? d.permanentAddress : {
       sameAsCurrent: true,
-      line1: d.address_line1 || '',
-      line2: d.address_line2 || '',
-      city: d.city || '',
-      state: d.state || '',
-      country: d.country || '',
-      pincode: d.pincode || '',
+      line1: raw?.address_line1 || d.currentAddress?.line1 || d.address_line1 || '',
+      line2: raw?.address_line2 || d.currentAddress?.line2 || d.address_line2 || '',
+      city: raw?.city || d.currentAddress?.city || d.city || '',
+      state: raw?.state || d.currentAddress?.state || d.state || '',
+      country: raw?.country || d.currentAddress?.country || d.country || 'India',
+      pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
     },
-    emergencyContact: d.emergencyContact || {
-      name: d.emergency_contact_name || '',
-      relationship: d.emergency_contact_relationship || 'Parent',
-      mobile: d.emergency_contact_phone || '',
-      alternateMobile: ''
+    emergencyContact: {
+      name: d.emergencyContact?.name || d.emergency_contact_name || (raw?.profile_data?.emergencyContact?.name) || '',
+      relationship: d.emergencyContact?.relationship || d.emergency_contact_relationship || (raw?.profile_data?.emergencyContact?.relationship) || 'Parent',
+      mobile: d.emergencyContact?.mobile || d.emergency_contact_phone || (raw?.profile_data?.emergencyContact?.mobile) || '',
+      alternateMobile: d.emergencyContact?.alternateMobile || (raw?.profile_data?.emergencyContact?.alternateMobile) || ''
     },
     educationalDetails: {
       highestQualification: raw?.highest_qualification || d.educationalDetails?.highestQualification || d.highest_qualification || '',
@@ -1584,27 +1584,48 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     status: (d.profile_data?.status || raw?.status || d.status) === 'Inactive' ? 'Inactive' : ((d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active'),
     avatar: raw?.avatar_url || d.avatar || d.avatar_url || '',
     workLocation: raw?.branch || d.workLocation || d.work_location || d.branch || '',
-    basicSalary: Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 15000,
-    allowances: {
-      hra: Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra) || 0,
-      transport: Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport) || 0,
-      medical: Number(raw?.allowances_medical ?? d.allowances?.medical ?? d.allowances_medical) || 0,
-      special: Number(raw?.allowances_special ?? d.allowances?.special ?? d.allowances_special) || 0,
-      da: Number(d.allowances?.da ?? d.da) || 0,
-      conveyance: Number(d.allowances?.conveyance ?? d.conveyance) || 0,
-    },
-    salaryDetails: {
-      ...(d.salaryDetails || d.salary_details || {}),
-      monthlyCtc: d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc,
-      basicSalary: d.salaryDetails?.basicSalary ?? d.salary_details?.basicSalary ?? d.salary_details?.basic_salary ?? raw?.basic_salary ?? d.basicSalary ?? d.basic_salary,
-      hra: d.salaryDetails?.hra ?? d.salary_details?.hra ?? (Number(d.hra) > 0 ? Number(d.hra) : (Number(d.allowances_hra) > 0 ? Number(d.allowances_hra) : undefined)),
-      da: d.salaryDetails?.da ?? d.salary_details?.da ?? d.da,
-      conveyance: d.salaryDetails?.conveyance ?? d.salary_details?.conveyance ?? d.conveyance,
-      withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf,
-      salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme,
-      panNumber: raw?.pan_number || d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
-      uanNumber: raw?.uan_number || d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
-    },
+    basicSalary: (() => {
+      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+      return b > 0 ? b : (c > 0 ? Math.round(c * 0.4) : 15000);
+    })(),
+    grossSalary: (() => {
+      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+      return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+    })(),
+    allowances: (() => {
+      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+      const resolvedCtc = c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+      const hra = Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra ?? d.salaryDetails?.hra) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.35) : 0);
+      const transport = Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport ?? d.salaryDetails?.conveyance) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.05) : 0);
+      const da = Number(d.allowances?.da ?? d.da ?? d.salaryDetails?.da) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.20) : 0);
+      const medical = Number(raw?.allowances_medical ?? d.allowances?.medical ?? d.allowances_medical) || 0;
+      const special = Number(raw?.allowances_special ?? d.allowances?.special ?? d.allowances_special) || 0;
+      return { hra, transport, medical, special, da, conveyance: transport };
+    })(),
+    salaryDetails: (() => {
+      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+      const resolvedCtc = c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+      const resolvedBasic = b > 0 ? b : (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.4) : 15000);
+      const hra = Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra ?? d.salaryDetails?.hra) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.35) : 0);
+      const transport = Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport ?? d.salaryDetails?.conveyance) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.05) : 0);
+      const da = Number(d.allowances?.da ?? d.da ?? d.salaryDetails?.da) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.20) : 0);
+      return {
+        ...(d.salaryDetails || d.salary_details || {}),
+        monthlyCtc: resolvedCtc,
+        basicSalary: resolvedBasic,
+        hra,
+        da,
+        conveyance: transport,
+        withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf ?? true,
+        salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme ?? 'WITH_PF',
+        panNumber: raw?.pan_number || d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
+        uanNumber: raw?.uan_number || d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
+      };
+    })(),
     withPf: resolveEmployeeWithPf({
       withPf: d.withPf,
       salaryDetails: {

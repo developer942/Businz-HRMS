@@ -405,43 +405,43 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       status: (emp.status || 'Active') as Employee['status'],
 
       // 3. Address & Emergency Contacts
-      currentLine1: emp.currentAddress?.line1 || (typeof emp.address === 'string' ? emp.address.split(',')[0] || '' : ''),
-      currentLine2: emp.currentAddress?.line2 || '',
-      currentCity: emp.currentAddress?.city || '',
-      currentState: emp.currentAddress?.state || '',
-      currentCountry: emp.currentAddress?.country || '',
-      currentPincode: emp.currentAddress?.pincode || '',
+      currentLine1: emp.currentAddress?.line1 || (emp as any).address_line1 || (typeof emp.address === 'string' ? emp.address.split(',')[0] || '' : ''),
+      currentLine2: emp.currentAddress?.line2 || (emp as any).address_line2 || '',
+      currentCity: emp.currentAddress?.city || (emp as any).city || '',
+      currentState: emp.currentAddress?.state || (emp as any).state || '',
+      currentCountry: emp.currentAddress?.country || (emp as any).country || 'India',
+      currentPincode: emp.currentAddress?.pincode || (emp as any).pincode || '',
       sameAsCurrent: emp.permanentAddress?.sameAsCurrent ?? true,
-      permanentLine1: emp.permanentAddress?.line1 || emp.currentAddress?.line1 || '',
-      permanentLine2: emp.permanentAddress?.line2 || emp.currentAddress?.line2 || '',
-      permanentCity: emp.permanentAddress?.city || emp.currentAddress?.city || '',
-      permanentState: emp.permanentAddress?.state || emp.currentAddress?.state || '',
-      permanentCountry: emp.permanentAddress?.country || emp.currentAddress?.country || '',
-      permanentPincode: emp.permanentAddress?.pincode || emp.currentAddress?.pincode || '',
-      emergencyName: emp.emergencyContact?.name || '',
-      emergencyRelationship: emp.emergencyContact?.relationship || 'Parent',
-      emergencyMobile: extractLocalDigits(emp.emergencyContact?.mobile, initialEmCode),
+      permanentLine1: emp.permanentAddress?.line1 || emp.currentAddress?.line1 || (emp as any).address_line1 || '',
+      permanentLine2: emp.permanentAddress?.line2 || emp.currentAddress?.line2 || (emp as any).address_line2 || '',
+      permanentCity: emp.permanentAddress?.city || emp.currentAddress?.city || (emp as any).city || '',
+      permanentState: emp.permanentAddress?.state || emp.currentAddress?.state || (emp as any).state || '',
+      permanentCountry: emp.permanentAddress?.country || emp.currentAddress?.country || (emp as any).country || 'India',
+      permanentPincode: emp.permanentAddress?.pincode || emp.currentAddress?.pincode || (emp as any).pincode || '',
+      emergencyName: emp.emergencyContact?.name || (emp as any).emergency_contact_name || '',
+      emergencyRelationship: emp.emergencyContact?.relationship || (emp as any).emergency_contact_relationship || 'Parent',
+      emergencyMobile: extractLocalDigits(emp.emergencyContact?.mobile || (emp as any).emergency_contact_phone, initialEmCode),
       emergencyAltMobile: extractLocalDigits(emp.emergencyContact?.alternateMobile, initialAltEmCode),
 
       // 4. Educational Details
-      qualification: normalizeQualification(emp.educationalDetails?.highestQualification || emp.professionalDetails?.qualification),
-      degreeName: emp.educationalDetails?.degreeName || '',
-      specialization: emp.educationalDetails?.specialization || emp.professionalDetails?.specialization || '',
-      university: emp.educationalDetails?.university || '',
-      yearOfPassing: emp.educationalDetails?.yearOfPassing || '',
-      gradePercentage: emp.educationalDetails?.gradePercentage || '',
+      qualification: normalizeQualification(emp.educationalDetails?.highestQualification || (emp as any).highest_qualification || emp.professionalDetails?.qualification),
+      degreeName: emp.educationalDetails?.degreeName || (emp as any).degree_name || '',
+      specialization: emp.educationalDetails?.specialization || (emp as any).specialization || emp.professionalDetails?.specialization || '',
+      university: emp.educationalDetails?.university || (emp as any).university || '',
+      yearOfPassing: emp.educationalDetails?.yearOfPassing || ((emp as any).year_of_passing != null ? String((emp as any).year_of_passing) : ''),
+      gradePercentage: emp.educationalDetails?.gradePercentage || ((emp as any).grade_percentage != null ? String((emp as any).grade_percentage) : ''),
 
       // 5. Work Experience & Skills
-      experienceType: (isEmpFresher ? 'Fresher' : (emp.experienceDetails?.experienceType || 'Experienced')) as 'Fresher' | 'Experienced',
-      totalExperience: isEmpCEO ? (emp.experienceDetails?.totalExperience || 'Executive Leadership') : (isEmpFresher ? '0' : (emp.experienceDetails?.totalExperience || emp.professionalDetails?.totalExperience || '')),
+      experienceType: (isEmpFresher ? 'Fresher' : (emp.experienceDetails?.experienceType || (emp as any).experience_profile || 'Experienced')) as 'Fresher' | 'Experienced',
+      totalExperience: isEmpCEO ? 'Executive Leadership' : (isEmpFresher ? '0' : (emp.experienceDetails?.totalExperience || ((emp as any).total_experience != null ? String((emp as any).total_experience) : '') || emp.professionalDetails?.totalExperience || '')),
       relevantExperience: isEmpCEO ? 'Executive Leadership' : (isEmpFresher ? '' : (emp.professionalDetails?.relevantExperience || '')),
-      previousCompany: isEmpCEO ? (emp.experienceDetails?.previousCompany || 'N/A') : (isEmpFresher ? '' : (emp.experienceDetails?.previousCompany || emp.professionalDetails?.previousCompany || '')),
-      previousDesignation: isEmpCEO ? (emp.experienceDetails?.previousDesignation || 'Director / Executive') : (isEmpFresher ? '' : (emp.experienceDetails?.previousDesignation || '')),
-      previousDepartment: isEmpCEO ? (emp.experienceDetails?.previousDepartment || 'Executive') : (isEmpFresher ? '' : (emp.experienceDetails?.previousDepartment || '')),
-      expStartDate: (isEmpCEO || isEmpFresher) ? '' : normalizeToYYYYMMDD(emp.experienceDetails?.startDate || ''),
-      expEndDate: (isEmpCEO || isEmpFresher) ? '' : normalizeToYYYYMMDD(emp.experienceDetails?.endDate || ''),
-      lastDrawnSalary: isEmpCEO ? 'Exempt' : (isEmpFresher ? '' : (emp.experienceDetails?.lastDrawnSalary || '')),
-      previousCompanyLocation: isEmpCEO ? 'N/A' : (isEmpFresher ? '' : (emp.experienceDetails?.companyLocation || '')),
+      previousCompany: isEmpCEO ? 'N/A' : (isEmpFresher ? '' : (emp.experienceDetails?.previousCompany || (emp as any).previous_company || emp.professionalDetails?.previousCompany || '')),
+      previousDesignation: isEmpCEO ? 'Director / Executive' : (isEmpFresher ? '' : (emp.experienceDetails?.previousDesignation || (emp as any).previous_designation || '')),
+      previousDepartment: isEmpCEO ? 'Executive' : (isEmpFresher ? '' : (emp.experienceDetails?.previousDepartment || (emp as any).previous_department || '')),
+      expStartDate: (isEmpCEO || isEmpFresher) ? '' : normalizeToYYYYMMDD(emp.experienceDetails?.startDate || (emp as any).employment_start_date || ''),
+      expEndDate: (isEmpCEO || isEmpFresher) ? '' : normalizeToYYYYMMDD(emp.experienceDetails?.endDate || (emp as any).employment_end_date || ''),
+      lastDrawnSalary: isEmpCEO ? 'Exempt' : (isEmpFresher ? '' : (emp.experienceDetails?.lastDrawnSalary || ((emp as any).last_drawn_salary != null ? String((emp as any).last_drawn_salary) : '') || '')),
+      previousCompanyLocation: isEmpCEO ? 'N/A' : (isEmpFresher ? '' : (emp.experienceDetails?.companyLocation || (emp as any).previous_company_location || '')),
       skills: Array.isArray(emp.professionalDetails?.skills)
         ? emp.professionalDetails.skills.join(', ')
         : (emp.skills ? emp.skills.join(', ') : (isEmpCEO ? 'Enterprise Strategy, Executive Leadership, Corporate Governance' : '')),
@@ -453,21 +453,45 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       salaryScheme: (emp.salaryDetails?.salaryScheme || (emp.withPf ? 'WITH_PF' : 'WITHOUT_PF')) as 'WITH_PF' | 'WITHOUT_PF',
       withPf: isEmpCEO ? false : Boolean(emp.withPf ?? emp.salaryDetails?.withPf),
       payrollEligible: emp.payrollEligible ?? !['Inactive', 'Terminated'].includes(emp.status),
-      monthlyCtc: isEmpCEO ? (emp.salaryDetails?.monthlyCtc ?? 0) : Number(emp.salaryDetails?.monthlyCtc || 0),
-      basicSalary: isEmpCEO ? (emp.salaryDetails?.basicSalary ?? 0) : Number(emp.salaryDetails?.basicSalary || emp.basicSalary || 0),
-      da: isEmpCEO ? (emp.salaryDetails?.da ?? 0) : Number(emp.salaryDetails?.da ?? emp.allowances?.da ?? 0),
-      conveyance: isEmpCEO ? (emp.salaryDetails?.conveyance ?? 0) : Number(emp.salaryDetails?.conveyance ?? emp.allowances?.conveyance ?? 0),
-      hra: isEmpCEO ? (emp.salaryDetails?.hra ?? 0) : Number(emp.salaryDetails?.hra ?? emp.allowances?.hra ?? 0),
-      transport: Number(emp.allowances?.transport || 0),
-      medical: Number(emp.allowances?.medical || 0),
-      special: Number(emp.allowances?.special || 0),
+      monthlyCtc: isEmpCEO ? 0 : (() => {
+        const rawBasic = Number(emp.salaryDetails?.basicSalary || emp.basicSalary || (emp as any).basic_salary || 0);
+        const explicitCtc = Number(emp.salaryDetails?.monthlyCtc || (emp as any).monthly_ctc || 0);
+        return explicitCtc > 0 ? explicitCtc : (rawBasic > 0 ? Math.round(rawBasic / 0.4) : 0);
+      })(),
+      basicSalary: isEmpCEO ? 0 : (() => {
+        const rawBasic = Number(emp.salaryDetails?.basicSalary || emp.basicSalary || (emp as any).basic_salary || 0);
+        const explicitCtc = Number(emp.salaryDetails?.monthlyCtc || (emp as any).monthly_ctc || 0);
+        const ctc = explicitCtc > 0 ? explicitCtc : (rawBasic > 0 ? Math.round(rawBasic / 0.4) : 0);
+        return rawBasic > 0 ? rawBasic : (ctc > 0 ? Math.round(ctc * 0.4) : 0);
+      })(),
+      da: isEmpCEO ? 0 : (() => {
+        const rawBasic = Number(emp.salaryDetails?.basicSalary || emp.basicSalary || (emp as any).basic_salary || 0);
+        const explicitCtc = Number(emp.salaryDetails?.monthlyCtc || (emp as any).monthly_ctc || 0);
+        const ctc = explicitCtc > 0 ? explicitCtc : (rawBasic > 0 ? Math.round(rawBasic / 0.4) : 0);
+        return Number(emp.salaryDetails?.da ?? emp.allowances?.da ?? (ctc > 0 ? Math.round(ctc * 0.20) : 0));
+      })(),
+      conveyance: isEmpCEO ? 0 : (() => {
+        const rawBasic = Number(emp.salaryDetails?.basicSalary || emp.basicSalary || (emp as any).basic_salary || 0);
+        const explicitCtc = Number(emp.salaryDetails?.monthlyCtc || (emp as any).monthly_ctc || 0);
+        const ctc = explicitCtc > 0 ? explicitCtc : (rawBasic > 0 ? Math.round(rawBasic / 0.4) : 0);
+        return Number(emp.salaryDetails?.conveyance ?? emp.allowances?.conveyance ?? (emp as any).allowances_transport ?? (ctc > 0 ? Math.round(ctc * 0.05) : 0));
+      })(),
+      hra: isEmpCEO ? 0 : (() => {
+        const rawBasic = Number(emp.salaryDetails?.basicSalary || emp.basicSalary || (emp as any).basic_salary || 0);
+        const explicitCtc = Number(emp.salaryDetails?.monthlyCtc || (emp as any).monthly_ctc || 0);
+        const ctc = explicitCtc > 0 ? explicitCtc : (rawBasic > 0 ? Math.round(rawBasic / 0.4) : 0);
+        return Number(emp.salaryDetails?.hra ?? emp.allowances?.hra ?? (emp as any).allowances_hra ?? (ctc > 0 ? Math.round(ctc * 0.35) : 0));
+      })(),
+      transport: Number(emp.allowances?.transport || (emp as any).allowances_transport || 0),
+      medical: Number(emp.allowances?.medical || (emp as any).allowances_medical || 0),
+      special: Number(emp.allowances?.special || (emp as any).allowances_special || 0),
       customComponents: ((emp.allowances as any) || {}) as Record<string, number>,
-      panNumber: emp.salaryDetails?.panNumber || '',
-      uanNumber: emp.salaryDetails?.uanNumber || '',
-      bankName: emp.bankDetails?.bankName || '',
-      accountNumber: emp.bankDetails?.accountNumber || '',
-      ifscCode: emp.bankDetails?.ifscCode || '',
-      branch: emp.bankDetails?.branch || '',
+      panNumber: emp.salaryDetails?.panNumber || (emp as any).pan_number || '',
+      uanNumber: emp.salaryDetails?.uanNumber || (emp as any).uan_number || '',
+      bankName: emp.bankDetails?.bankName || (emp as any).bank_name || '',
+      accountNumber: emp.bankDetails?.accountNumber || (emp as any).account_number || '',
+      ifscCode: emp.bankDetails?.ifscCode || (emp as any).ifsc_code || '',
+      branch: emp.bankDetails?.branch || (emp as any).branch || '',
 
       // 7. Shift & Attendance Policies
       attendanceMethod: (isEmpCEO ? 'Exempt' : (emp.attendanceMethod || 'Face Scan')) as Employee['attendanceMethod'],
@@ -751,13 +775,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       };
     }
 
+    const basic = configuredSalaryBreakdown.basicSalary || formData.basicSalary || 0;
+    const hra = configuredSalaryBreakdown.hra || formData.hra || (basic > 0 ? Math.round((basic / 0.4) * 0.35) : 0);
+    const da = configuredSalaryBreakdown.da || formData.da || (basic > 0 ? Math.round((basic / 0.4) * 0.20) : 0);
+    const conveyance = configuredSalaryBreakdown.conveyance || formData.conveyance || (basic > 0 ? Math.round((basic / 0.4) * 0.05) : 0);
+    const gross = configuredSalaryBreakdown.grossSalary || formData.monthlyCtc || (basic + hra + da + conveyance);
+
     return {
-      basicSalary: configuredSalaryBreakdown.basicSalary,
-      da: configuredSalaryBreakdown.da,
-      conveyance: configuredSalaryBreakdown.conveyance,
-      hra: configuredSalaryBreakdown.hra,
-      customComponents: configuredSalaryBreakdown.customComponents,
-      grossSalary: configuredSalaryBreakdown.grossSalary
+      basicSalary: basic,
+      da,
+      conveyance,
+      hra,
+      customComponents: configuredSalaryBreakdown.customComponents || formData.customComponents || {},
+      grossSalary: gross
     };
   }, [activeEarnings.length, configuredSalaryBreakdown, formData]);
 
@@ -1164,7 +1194,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         salaryStructure: formData.salaryStructure,
         salaryScheme: formData.salaryScheme,
         withPf: formData.withPf,
-        monthlyCtc: Number(formData.monthlyCtc),
+        monthlyCtc: Number(formData.monthlyCtc) || (Number(salaryComponentValues.basicSalary) ? Math.round(Number(salaryComponentValues.basicSalary) / 0.4) : 0),
         basicSalary: Number(salaryComponentValues.basicSalary),
         da: Number(salaryComponentValues.da),
         conveyance: Number(salaryComponentValues.conveyance),
