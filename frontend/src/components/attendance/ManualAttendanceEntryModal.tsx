@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   UserCheck,
@@ -10,7 +10,10 @@ import {
   Timer,
   Building2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Search,
+  Check,
+  ChevronDown
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
@@ -111,20 +114,73 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   const successTimeoutRef = React.useRef<any>(null);
   const initializedRecordKey = React.useRef<string>('');
 
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const employeeDropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Filtered employees list based on search query (name, employeeId, department, designation)
+  const filteredEmployees = useMemo(() => {
+    if (!searchQuery.trim()) return employees;
+    const q = searchQuery.toLowerCase().trim();
+    return employees.filter(emp => {
+      const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.toLowerCase();
+      const empId = (emp.employeeId || emp.id || '').toLowerCase();
+      const dept = (emp.department || '').toLowerCase();
+      const desig = (emp.designation || '').toLowerCase();
+      return fullName.includes(q) || empId.includes(q) || dept.includes(q) || desig.includes(q);
+    });
+  }, [employees, searchQuery]);
+
+  // Auto-focus search input when dropdown opens
+  useEffect(() => {
+    if (isDropdownOpen) {
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isDropdownOpen]);
+
+  // Reset dropdown and search query when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setIsDropdownOpen(false);
+      setSearchQuery('');
+    }
+  }, [isOpen]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (employeeDropdownRef.current && !employeeDropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const currentEmpIndex = useMemo(() => {
     return employees.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
   }, [employees, selectedEmpId]);
 
   const handlePrevEmployee = () => {
     if (employees.length === 0) return;
-    const prevIndex = currentEmpIndex > 0 ? currentEmpIndex - 1 : employees.length - 1;
-    setSelectedEmpId(employees[prevIndex].id);
+    const list = searchQuery.trim() && filteredEmployees.length > 0 ? filteredEmployees : employees;
+    const idx = list.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
+    const prevIndex = idx > 0 ? idx - 1 : list.length - 1;
+    setSelectedEmpId(list[prevIndex].id);
   };
 
   const handleNextEmployee = () => {
     if (employees.length === 0) return;
-    const nextIndex = currentEmpIndex < employees.length - 1 ? currentEmpIndex + 1 : 0;
-    setSelectedEmpId(employees[nextIndex].id);
+    const list = searchQuery.trim() && filteredEmployees.length > 0 ? filteredEmployees : employees;
+    const idx = list.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
+    const nextIndex = idx < list.length - 1 ? idx + 1 : 0;
+    setSelectedEmpId(list[nextIndex].id);
   };
 
   // Sync selectedEmpId when defaultEmployeeId changes or on open
@@ -553,30 +609,274 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                   </button>
                 </div>
               </div>
-              <select
-                value={selectedEmpId}
-                onChange={e => setSelectedEmpId(e.target.value)}
-                style={{
-                  width: '100%',
-                  height: '42px',
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '0.86rem',
-                  fontWeight: 600,
-                  color: '#1E293B',
-                  backgroundColor: '#FFFFFF',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }}
-                required
-              >
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.firstName} {emp.lastName} ({emp.employeeId}) — {emp.department}
-                  </option>
-                ))}
-              </select>
+              {/* Custom Searchable Employee Combobox */}
+              <div ref={employeeDropdownRef} style={{ position: 'relative' }}>
+                <div
+                  onClick={() => setIsDropdownOpen(prev => !prev)}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setIsDropdownOpen(true);
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    minHeight: '42px',
+                    padding: '6px 12px',
+                    borderRadius: '10px',
+                    border: isDropdownOpen ? '2px solid #0E7490' : '1px solid #CBD5E1',
+                    backgroundColor: '#FFFFFF',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxSizing: 'border-box',
+                    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+                    boxShadow: isDropdownOpen ? '0 0 0 3px rgba(14, 116, 144, 0.15)' : 'none'
+                  }}
+                  role="combobox"
+                  aria-expanded={isDropdownOpen}
+                  aria-haspopup="listbox"
+                  title="Click to search or select employee"
+                >
+                  {selectedEmployee ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '50%',
+                          backgroundColor: '#ECFEFF',
+                          color: '#0E7490',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: '1px solid #CFFAFE',
+                          flexShrink: 0
+                        }}
+                      >
+                        {selectedEmployee.firstName?.[0] || 'E'}{selectedEmployee.lastName?.[0] || ''}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0F172A', whiteSpace: 'nowrap' }}>
+                          {selectedEmployee.firstName} {selectedEmployee.lastName}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            color: '#0E7490',
+                            backgroundColor: '#ECFEFF',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            border: '1px solid #CFFAFE',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {selectedEmployee.employeeId}
+                        </span>
+                        <span style={{ fontSize: '0.76rem', color: '#64748B', whiteSpace: 'nowrap' }}>
+                          — {selectedEmployee.department}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: '0.86rem', color: '#94A3B8' }}>Select an employee...</span>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748B', flexShrink: 0, marginLeft: '8px' }}>
+                    <Search size={14} style={{ opacity: 0.6 }} />
+                    <ChevronDown size={16} style={{ transform: isDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </div>
+                </div>
+
+                {/* Dropdown Menu */}
+                {isDropdownOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: '12px',
+                      border: '1px solid #CBD5E1',
+                      boxShadow: '0 12px 28px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                      zIndex: 1000,
+                      overflow: 'hidden'
+                    }}
+                  >
+                    {/* Search Input inside Dropdown */}
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderBottom: '1px solid #E2E8F0',
+                        backgroundColor: '#F8FAFC',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <Search size={16} color="#0E7490" style={{ flexShrink: 0 }} />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          preventSpaceEnterPropagation(e);
+                          if (e.key === 'Escape') {
+                            setIsDropdownOpen(false);
+                          } else if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (filteredEmployees.length > 0) {
+                              setSelectedEmpId(filteredEmployees[0].id);
+                              setIsDropdownOpen(false);
+                              setSearchQuery('');
+                            }
+                          }
+                        }}
+                        placeholder="Search employee name or ID (e.g. Arun, VRM-013)..."
+                        style={{
+                          width: '100%',
+                          border: 'none',
+                          background: 'transparent',
+                          outline: 'none',
+                          fontSize: '0.84rem',
+                          fontWeight: 500,
+                          color: '#0F172A'
+                        }}
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: '2px',
+                            cursor: 'pointer',
+                            color: '#94A3B8',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                          title="Clear search"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Results Count Header */}
+                    <div
+                      style={{
+                        padding: '5px 12px',
+                        backgroundColor: '#F1F5F9',
+                        fontSize: '11px',
+                        color: '#64748B',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <span>
+                        {filteredEmployees.length} of {employees.length} employees
+                      </span>
+                      {searchQuery && filteredEmployees.length > 0 && (
+                        <span style={{ color: '#0E7490', fontSize: '10.5px' }}>Press Enter to select</span>
+                      )}
+                    </div>
+
+                    {/* Employee Options List */}
+                    <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                      {filteredEmployees.length === 0 ? (
+                        <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748B', fontSize: '0.82rem' }}>
+                          No employee found matching "<strong>{searchQuery}</strong>"
+                        </div>
+                      ) : (
+                        filteredEmployees.map(emp => {
+                          const isSelected = emp.id === selectedEmpId || emp.employeeId === selectedEmpId;
+                          return (
+                            <div
+                              key={emp.id}
+                              onClick={() => {
+                                setSelectedEmpId(emp.id);
+                                setIsDropdownOpen(false);
+                                setSearchQuery('');
+                              }}
+                              style={{
+                                padding: '9px 12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer',
+                                backgroundColor: isSelected ? '#ECFEFF' : 'transparent',
+                                borderLeft: isSelected ? '3px solid #0E7490' : '3px solid transparent',
+                                transition: 'background-color 0.12s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) e.currentTarget.style.backgroundColor = '#F8FAFC';
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div
+                                  style={{
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '50%',
+                                    backgroundColor: isSelected ? '#0E7490' : '#E2E8F0',
+                                    color: isSelected ? '#FFFFFF' : '#475569',
+                                    fontWeight: 700,
+                                    fontSize: '11px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  {emp.firstName?.[0] || 'E'}{emp.lastName?.[0] || ''}
+                                </div>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ fontWeight: 700, fontSize: '0.84rem', color: isSelected ? '#0E7490' : '#0F172A' }}>
+                                      {emp.firstName} {emp.lastName}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700,
+                                        color: '#0E7490',
+                                        backgroundColor: '#ECFEFF',
+                                        padding: '1px 5px',
+                                        borderRadius: '3px',
+                                        border: '1px solid #CFFAFE'
+                                      }}
+                                    >
+                                      {emp.employeeId}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                                    {emp.department} {emp.designation ? `• ${emp.designation}` : ''}
+                                  </div>
+                                </div>
+                              </div>
+                              {isSelected && <Check size={16} color="#0E7490" />}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Date & Status Row */}
