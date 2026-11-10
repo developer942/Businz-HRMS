@@ -478,7 +478,7 @@ export const Dashboard: React.FC = () => {
     filterReports.employmentTypes.length + 
     filterReports.modesOfWork.length;
 
-  // Filtered workforce (exclude Super Admin / Businz Admin)
+  // Filtered workforce (exclude Super Admin / Businz Admin and Inactive employees)
   const filteredEmployees = employees.filter(emp => {
     if (
       emp.employeeId === 'EMP-000' || 
@@ -486,6 +486,10 @@ export const Dashboard: React.FC = () => {
       emp.email?.toLowerCase() === 'developer@businz.com' ||
       emp.designation === 'Super Administrator'
     ) {
+      return false;
+    }
+    // Dashboard strictly monitors Active workforce (exclude Inactive / Resigned / Terminated employees)
+    if (emp.status && emp.status.toLowerCase() !== 'active') {
       return false;
     }
     // Dynamic Branch Filter
@@ -722,7 +726,7 @@ export const Dashboard: React.FC = () => {
     const curDay = today.getDate();
     const results: Array<{ id: string; name: string; type: 'Birthday' | 'Anniversary'; label: string }> = [];
 
-    employees.forEach(emp => {
+    filteredEmployees.forEach(emp => {
       if (emp.dob) {
         const parts = emp.dob.split('-').map(Number);
         const m = parts[1];
