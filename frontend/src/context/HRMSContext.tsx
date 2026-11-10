@@ -2512,11 +2512,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       submittedAt: formatDateTimeDDMMYYYY(new Date())
     };
     setMissedPunchRequests(prev => [newReq, ...prev]);
+
+    // 1. Notify approvers (CEO & HR) across accounts on their own login
+    pushSharedNotification({
+      title: 'Missed Punch Request',
+      message: `${req.employeeName} (${req.employeeId}) submitted a ${req.requestType} for ${formatDateDDMMYYYY(req.date)}.`,
+      priority: 'Important',
+      category: 'Attendance',
+      link: 'attendance',
+      targetRoles: ['CEO', 'HR']
+    });
+
+    // 2. Local feedback for applicant
     addNotification({
-      title: 'Correction Request Submitted',
-      message: `${req.employeeName} submitted a ${req.requestType} request for ${formatDateDDMMYYYY(req.date)}.`,
+      title: 'Missed Punch Request Submitted',
+      message: `Your ${req.requestType} for ${formatDateDDMMYYYY(req.date)} was submitted to HR & CEO for review.`,
       priority: 'Normal',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
     return { success: true, message: 'Attendance correction request submitted successfully.' };
   };
@@ -2670,11 +2683,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       timestamp: `${dateStr} ${timeStr}`
     }, ...prev]);
 
+    pushSharedNotification({
+      title: 'Missed Punch Approved',
+      message: `Your ${target.requestType} request for ${formatDateDDMMYYYY(target.date)} was approved by ${reviewedBy}. Check-In: ${targetCheckIn}, Check-Out: ${targetCheckOut}.`,
+      priority: 'Normal',
+      category: 'Attendance',
+      link: 'attendance',
+      targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
+    });
+
     addNotification({
       title: 'Correction Approved',
       message: `Attendance request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was approved.`,
       priority: 'Normal',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
   };
 
@@ -2699,11 +2722,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       hrRemarks: remarks || 'Rejected by HR/CEO'
     } : r));
 
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    pushSharedNotification({
+      title: 'Missed Punch Rejected',
+      message: `Your ${target.requestType} request for ${formatDateDDMMYYYY(target.date)} was rejected by ${reviewedBy}.${remarks ? ` Reason: ${remarks}` : ''}`,
+      priority: 'Urgent',
+      category: 'Attendance',
+      link: 'attendance',
+      targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
+    });
+
     addNotification({
       title: 'Correction Rejected',
       message: `Correction request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was rejected.`,
       priority: 'Urgent',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
   };
 
@@ -2851,11 +2885,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       timestamp: `${dateStr} ${timeStr}`
     }, ...prev]);
 
+    pushSharedNotification({
+      title: 'Missed Punch Adjusted & Approved',
+      message: `Your ${target.requestType} request for ${formatDateDDMMYYYY(target.date)} was adjusted and approved by ${reviewedBy}. Adjusted: ${adjustedCheckIn} - ${adjustedCheckOut}.`,
+      priority: 'Normal',
+      category: 'Attendance',
+      link: 'attendance',
+      targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
+    });
+
     addNotification({
       title: 'Correction Adjusted & Approved',
       message: `Attendance for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} adjusted to ${adjustedCheckIn} - ${adjustedCheckOut}.`,
       priority: 'Normal',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
   };
 
@@ -2894,11 +2938,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setOvertimeRequests(prev => [newReq, ...prev]);
 
+    pushSharedNotification({
+      title: 'New Overtime Request',
+      message: `${req.employeeName} (${req.employeeId}) submitted an OT request for ${req.requestedOtHours} hrs on ${formatDateDDMMYYYY(req.date)}.`,
+      priority: 'Important',
+      category: 'Attendance',
+      link: 'attendance',
+      targetRoles: ['CEO', 'HR']
+    });
+
     addNotification({
       title: 'Overtime Request Submitted',
-      message: `${req.employeeName} submitted OT request for ${req.requestedOtHours} hrs on ${formatDateDDMMYYYY(req.date)}.`,
+      message: `Your OT request for ${req.requestedOtHours} hrs on ${formatDateDDMMYYYY(req.date)} has been submitted and is pending HR / CEO review.`,
       priority: 'Normal',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
     return { success: true, message: 'Overtime request submitted successfully.' };
   };
@@ -2981,11 +3035,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       timestamp: `${dateStr} ${timeStr}`
     }, ...prev]);
 
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    pushSharedNotification({
+      title: approvedHours < target.requestedOtHours ? 'Overtime Partially Approved' : 'Overtime Approved',
+      message: `Your OT request for ${formatDateDDMMYYYY(target.date)} was approved for ${approvedHours} hrs by ${reviewedBy}.${remarks ? ` Remarks: ${remarks}` : ''}`,
+      priority: 'Normal',
+      category: 'Attendance',
+      link: 'attendance',
+      targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
+    });
+
     addNotification({
       title: 'OT Request Approved',
       message: `Approved ${approvedHours} hrs OT for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} by ${reviewedBy}.`,
       priority: 'Normal',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
   };
 
@@ -3022,11 +3087,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return a;
     }));
 
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    pushSharedNotification({
+      title: 'Overtime Request Rejected',
+      message: `Your OT request for ${formatDateDDMMYYYY(target.date)} was rejected by ${reviewedBy}.${remarks ? ` Reason: ${remarks}` : ''}`,
+      priority: 'Urgent',
+      category: 'Attendance',
+      link: 'attendance',
+      targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
+    });
+
     addNotification({
       title: 'OT Request Rejected',
       message: `OT request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was rejected by ${reviewedBy}.`,
       priority: 'Urgent',
-      category: 'Attendance'
+      category: 'Attendance',
+      link: 'attendance'
     });
   };
 
@@ -5342,6 +5418,26 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       status: 'Pending'
     };
     setAttendanceCorrections(prev => [newReq, ...prev]);
+
+    // 1. Notify approvers (CEO & HR) across accounts on their own login
+    pushSharedNotification({
+      title: 'Attendance Correction Submitted',
+      message: `${req.employeeName} (${req.employeeId}) submitted an attendance correction request for ${formatDateDDMMYYYY(req.date)}.`,
+      priority: 'Important',
+      category: 'Attendance',
+      link: 'attendance',
+      targetRoles: ['CEO', 'HR']
+    });
+
+    // 2. Local feedback for applicant
+    addNotification({
+      title: 'Correction Request Submitted',
+      message: `Your attendance correction request for ${formatDateDDMMYYYY(req.date)} has been submitted and is pending HR / CEO review.`,
+      priority: 'Normal',
+      category: 'Attendance',
+      link: 'attendance'
+    });
+
     triggerToast('Attendance correction request submitted to HR for review.');
   };
 
@@ -5372,11 +5468,35 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return c;
     }));
 
+    const checkInVal = adjustedTime?.checkIn || target.requestedCheckIn || '09:30';
+    const checkOutVal = adjustedTime?.checkOut || target.requestedCheckOut || '18:30';
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+
+    // 1. Notify strictly and ONLY the applicant employee
+    pushSharedNotification({
+      title: decision === 'Approved' ? 'Attendance Correction Approved' : 'Attendance Correction Rejected',
+      message: decision === 'Approved'
+        ? `Your attendance correction request for ${formatDateDDMMYYYY(target.date)} was approved by ${reviewerName}. Check-In: ${checkInVal}, Check-Out: ${checkOutVal}.`
+        : `Your attendance correction request for ${formatDateDDMMYYYY(target.date)} was rejected by ${reviewerName}.${comment ? ` Reason: ${comment}` : ''}`,
+      priority: decision === 'Approved' ? 'Normal' : 'Urgent',
+      category: 'Attendance',
+      link: 'attendance',
+      targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
+    });
+
+    // 2. Local notification for the reviewer
+    addNotification({
+      title: decision === 'Approved' ? 'Attendance Correction Approved' : 'Attendance Correction Rejected',
+      message: decision === 'Approved'
+        ? `Attendance correction for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was approved.`
+        : `Attendance correction for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was rejected.`,
+      priority: decision === 'Approved' ? 'Normal' : 'Urgent',
+      category: 'Attendance',
+      link: 'attendance'
+    });
+
     // When Approved: The Attendance Record MUST Automatically Update!
     if (decision === 'Approved') {
-      const checkInVal = adjustedTime?.checkIn || target.requestedCheckIn || '09:30';
-      const checkOutVal = adjustedTime?.checkOut || target.requestedCheckOut || '18:30';
-
       setAttendanceRecords(prev => {
         const cleanTargetDate = String(target.date || '').split('T')[0];
         const existingIdx = prev.findIndex(r =>
@@ -5428,7 +5548,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         checkOutVal
       );
 
-      const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
       supabaseDirect.upsertAttendanceRecord({
         employee_id: targetEmpObj?.id || target.employeeId,
         date: String(target.date || '').split('T')[0],
