@@ -264,17 +264,21 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
               id="add-employee-btn"
               className="btn btn-primary btn-sm" 
               onClick={() => setIsAddModalOpen(true)}
+              title="Add Employee"
+              aria-label="Add Employee"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '7px 16px',
+                justifyContent: 'center',
+                width: '36px',
+                height: '36px',
+                padding: 0,
                 borderRadius: '10px',
                 fontWeight: 600,
                 fontSize: '0.84rem'
               }}
             >
-              <Plus size={16} /> Add Employee
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
         </div>

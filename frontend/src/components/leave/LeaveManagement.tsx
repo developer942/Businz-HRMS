@@ -791,28 +791,34 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               type="button"
               className="btn btn-outline-primary btn-sm" 
               onClick={openWfhRequestModal}
+              title="Request WFH"
+              aria-label="Request WFH"
               style={{ 
                 borderColor: '#0E7490', 
                 color: '#0E7490', 
                 backgroundColor: '#ECFEFF',
                 display: 'inline-flex', 
                 alignItems: 'center', 
-                gap: '6px', 
+                justifyContent: 'center',
                 fontWeight: 700,
-                padding: '7px 12px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 borderRadius: '10px',
                 fontSize: '0.8rem'
               }}
             >
-              <Home size={15} /> Request WFH
+              <Home size={16} />
             </button>
             <button 
               type="button"
               className="btn btn-primary btn-sm" 
               onClick={openLeaveModal}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '10px', padding: '7px 14px', fontSize: '0.8rem', fontWeight: 700 }}
+              title="Apply Leave"
+              aria-label="Apply Leave"
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', width: '38px', height: '38px', padding: 0, fontSize: '0.8rem', fontWeight: 700 }}
             >
-              <Plus size={15} /> Apply Leave
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           </div>
         )}

@@ -510,8 +510,23 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
           )}
 
           {canSubmitClaim && (
-            <button type="button" className="btn btn-primary" onClick={() => setShowModal(true)}>
-              <Plus size={16} /> Submit Expense Claim
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowModal(true)}
+              title="Submit Expense Claim"
+              aria-label="Submit Expense Claim"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '38px',
+                height: '38px',
+                padding: 0,
+                borderRadius: '10px'
+              }}
+            >
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
 

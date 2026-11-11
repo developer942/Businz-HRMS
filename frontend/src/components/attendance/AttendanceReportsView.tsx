@@ -1028,12 +1028,16 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               type="button"
               className="btn btn-primary"
               onClick={() => setIsManualAttendanceModalOpen(true)}
+              title="Manual Attendance"
+              aria-label="Manual Attendance"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
+                justifyContent: 'center',
                 borderRadius: '10px',
-                padding: '9px 18px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 fontSize: '0.84rem',
                 fontWeight: 700,
                 backgroundColor: '#0E7490',
@@ -1042,8 +1046,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                 color: '#FFFFFF'
               }}
             >
-              <Plus size={16} strokeWidth={2.5} />
-              <span>Manual Attendance</span>
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
 

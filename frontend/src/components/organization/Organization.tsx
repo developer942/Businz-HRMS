@@ -437,25 +437,26 @@ export const Organization: React.FC = () => {
                 setShowAddDesigModal(true);
               }
             }}
+            title={activeTab === 'branches' ? 'Add Branch' : activeTab === 'departments' ? 'Add Department' : 'Add Designation'}
+            aria-label={activeTab === 'branches' ? 'Add Branch' : activeTab === 'departments' ? 'Add Department' : 'Add Designation'}
             style={{
               borderRadius: '10px',
-              padding: '10px 22px',
-              background: 'linear-gradient(135deg, #155DFC, #1d4ed8)',
+              width: '38px',
+              height: '38px',
+              padding: 0,
+              background: '#0E7490',
               color: '#ffffff',
               fontWeight: 700,
               fontSize: '0.86rem',
-              boxShadow: '0 4px 14px rgba(21, 93, 252, 0.35)',
+              boxShadow: '0 2px 8px rgba(14, 116, 144, 0.25)',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
+              justifyContent: 'center',
               border: 'none',
               cursor: 'pointer'
             }}
           >
-            <Plus size={16} />
-            <span>
-              {activeTab === 'branches' ? 'Add Branch' : activeTab === 'departments' ? 'Add Department' : 'Add Designation'}
-            </span>
+            <Plus size={18} strokeWidth={2.5} />
           </button>
         </div>
       </div>

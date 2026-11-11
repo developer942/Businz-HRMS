@@ -131,7 +131,17 @@ export const FieldAllowanceModule: React.FC = () => {
       {!['new', 'detail'].includes(screen) && <>
         <header className="fa-page-header">
           <div><p className="fa-eyebrow">Finance & Payroll</p><h1>{isManagement ? 'Field Allowance' : 'My Field Allowance'}</h1><p>Manage field visit advances and day-wise business expenses.</p></div>
-          {!isManagement && <button className="fa-button fa-button--primary" onClick={() => { setEditing(null); setScreen('new'); }}><Plus size={18} />New request</button>}
+          {!isManagement && (
+            <button
+              className="fa-button fa-button--primary"
+              onClick={() => { setEditing(null); setScreen('new'); }}
+              title="New Field Allowance Request"
+              aria-label="New Field Allowance Request"
+              style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
+            >
+              <Plus size={18} strokeWidth={2.5} />
+            </button>
+          )}
         </header>
 
         {isManagement && <nav className="fa-segment" aria-label="Field Allowance views">

@@ -59,26 +59,29 @@ export const TrackingModule: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsAssignModalOpen(true)}
+            title="Assign Field Duty"
+            aria-label="Assign Field Duty"
             style={{
               backgroundColor: '#0E7490',
               color: '#FFFFFF',
               border: 'none',
-              borderRadius: '8px',
-              padding: '6px 13px',
+              borderRadius: '10px',
+              width: '38px',
+              height: '38px',
+              padding: 0,
               fontWeight: 650,
               fontSize: '0.80rem',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '5px',
+              justifyContent: 'center',
               boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)',
               transition: 'background-color 0.15s'
             }}
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#0891B2')}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#0E7490')}
           >
-            <Plus size={14} strokeWidth={2.2} />
-            <span>Assign Field Duty</span>
+            <Plus size={18} strokeWidth={2.5} />
           </button>
         )}
       </div>

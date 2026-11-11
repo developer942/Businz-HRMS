@@ -50,8 +50,14 @@ export const NotificationCenter: React.FC = () => {
           <button className="btn btn-secondary btn-sm" onClick={() => markAllNotificationsRead()}>
             <CheckCheck size={16} /> Mark All Read
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowAnnounceModal(true)}>
-            <Plus size={16} /> Post Announcement
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowAnnounceModal(true)}
+            title="Post Announcement"
+            aria-label="Post Announcement"
+            style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
+          >
+            <Plus size={18} strokeWidth={2.5} />
           </button>
         </div>
       </div>

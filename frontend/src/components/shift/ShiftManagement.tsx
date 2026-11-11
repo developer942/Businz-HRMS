@@ -394,31 +394,52 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
             <button
               type="button"
               onClick={() => setShowAddShiftModal(true)}
+              title="Add Shift"
+              aria-label="Add Shift"
               style={{
                 backgroundColor: '#0E7490',
                 color: '#FFFFFF',
                 border: 'none',
-                borderRadius: '8px',
-                padding: '6px 13px',
+                borderRadius: '10px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 fontWeight: 650,
                 fontSize: '0.80rem',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '5px',
+                justifyContent: 'center',
                 boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)',
                 transition: 'background-color 0.15s'
               }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#0891B2')}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#0E7490')}
             >
-              <Plus size={14} strokeWidth={2.2} />
-              <span>Add Shift</span>
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
           {isEmployee && (
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowSwapModal(true)}>
-              <ArrowRightLeft size={16} /> Request Shift Swap
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => setShowSwapModal(true)}
+              title="Request Shift Swap"
+              aria-label="Request Shift Swap"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '38px',
+                height: '38px',
+                padding: 0,
+                borderRadius: '10px',
+                backgroundColor: '#0E7490',
+                borderColor: '#0E7490',
+                color: '#FFFFFF'
+              }}
+            >
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
         </div>

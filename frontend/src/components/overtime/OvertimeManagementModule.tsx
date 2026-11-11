@@ -493,43 +493,47 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
               type="button"
               className="btn btn-secondary"
               onClick={() => setIsManualModalOpen(true)}
+              title="Add Manual OT"
+              aria-label="Add Manual OT"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
-                borderRadius: '12px',
-                padding: '9px 16px',
+                justifyContent: 'center',
+                borderRadius: '10px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 fontSize: '0.84rem',
                 fontWeight: 600
               }}
             >
-              <Plus size={15} color="#0E7490" />
-              <span>Add Manual OT</span>
+              <Plus size={18} color="#0E7490" strokeWidth={2.5} />
             </button>
           )}
 
-          {!isEmployee && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setIsRequestModalOpen(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                borderRadius: '12px',
-                padding: '9px 18px',
-                fontSize: '0.84rem',
-                fontWeight: 700,
-                backgroundColor: '#0E7490',
-                borderColor: '#0E7490',
-                boxShadow: '0 2px 8px rgba(14, 116, 144, 0.2)'
-              }}
-            >
-              <Plus size={16} strokeWidth={2.5} />
-              <span>Request Overtime</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setIsRequestModalOpen(true)}
+            title="Request Overtime"
+            aria-label="Request Overtime"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '10px',
+              width: '38px',
+              height: '38px',
+              padding: 0,
+              fontSize: '0.84rem',
+              fontWeight: 700,
+              backgroundColor: '#0E7490',
+              borderColor: '#0E7490',
+              boxShadow: '0 2px 8px rgba(14, 116, 144, 0.2)'
+            }}
+          >
+            <Plus size={18} strokeWidth={2.5} />
+          </button>
         </div>
       </div>
 

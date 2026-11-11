@@ -240,22 +240,37 @@ export const PettyCashManagement: React.FC = () => {
           {/* Quick Context Action Buttons for Custodian Employee only */}
           {isCustodian && !isCEO && !isAccounts && (
             <>
-              <button className="btn-secondary" onClick={() => setIsRequestModalOpen(true)}>
-                <Send size={15} /> Request Petty Cash
+              <button
+                className="btn-secondary"
+                onClick={() => setIsRequestModalOpen(true)}
+                title="Request Petty Cash"
+                aria-label="Request Petty Cash"
+                style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
+              >
+                <Send size={16} />
               </button>
               <button
                 className="btn-primary"
                 onClick={() => setIsAddExpenseModalOpen(true)}
                 disabled={currentBalance <= 0}
+                title="Add Daily Expense"
+                aria-label="Add Daily Expense"
+                style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
               >
-                <Plus size={16} /> Add Daily Expense
+                <Plus size={18} strokeWidth={2.5} />
               </button>
             </>
           )}
 
           {isCEO && !activeAccount && (
-            <button className="btn-primary" onClick={() => setIsAssignModalOpen(true)}>
-              <UserCheck size={16} /> Assign Custodian
+            <button
+              className="btn-primary"
+              onClick={() => setIsAssignModalOpen(true)}
+              title="Assign Custodian"
+              aria-label="Assign Custodian"
+              style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
+            >
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
 

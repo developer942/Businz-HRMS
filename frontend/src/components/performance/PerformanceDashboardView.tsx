@@ -225,15 +225,19 @@ export const PerformanceDashboardView: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => alert(`Exporting Performance & KPI Report for ${selectedMonth}...`)}
+            title="Download"
+            aria-label="Download"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '8px 16px',
-              borderRadius: '12px',
-              border: '1px solid #E2E8F0',
+              justifyContent: 'center',
+              width: '38px',
+              height: '38px',
+              padding: 0,
+              borderRadius: '10px',
+              border: '1px solid #CBD5E1',
               background: '#FFFFFF',
-              color: '#334155',
+              color: '#0E7490',
               fontSize: '0.84rem',
               fontWeight: 600,
               cursor: 'pointer',
@@ -243,8 +247,7 @@ export const PerformanceDashboardView: React.FC<Props> = ({
             onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
             onMouseLeave={e => e.currentTarget.style.background = '#FFFFFF'}
           >
-            <Download size={15} />
-            <span>Export</span>
+            <Download size={16} />
           </button>
 
           {/* Department Filter Selector */}

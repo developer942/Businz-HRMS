@@ -476,16 +476,20 @@ export const AssetManagement: React.FC = () => {
                 });
                 setShowAddModal(true);
               }}
+              title="Create Asset"
+              aria-label="Create Asset"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
-                borderRadius: '12px',
-                padding: '9px 18px',
+                justifyContent: 'center',
+                borderRadius: '10px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 fontWeight: 700
               }}
             >
-              <Plus size={16} /> Create Asset
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
         </div>

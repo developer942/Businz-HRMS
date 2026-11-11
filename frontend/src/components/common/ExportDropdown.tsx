@@ -61,9 +61,10 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
   const baseBtnStyle: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '6px',
-    height: isSm ? '36px' : '40px',
-    padding: isSm ? '0 14px' : '0 18px',
+    justifyContent: 'center',
+    width: isSm ? '36px' : '38px',
+    height: isSm ? '36px' : '38px',
+    padding: 0,
     borderRadius: '10px',
     fontSize: isSm ? '0.82rem' : '0.88rem',
     fontWeight: 700,
@@ -87,18 +88,12 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(prev => !prev)}
         style={baseBtnStyle}
+        title={label || 'Download'}
+        aria-label={label || 'Download'}
         aria-haspopup="true"
         aria-expanded={isOpen}
       >
-        <Download size={isSm ? 14 : 16} />
-        <span>{label}</span>
-        <ChevronDown 
-          size={14} 
-          style={{ 
-            transform: isOpen ? 'rotate(180deg)' : 'none', 
-            transition: 'transform 0.18s ease' 
-          }} 
-        />
+        <Download size={isSm ? 16 : 18} />
       </button>
 
       {isOpen && (

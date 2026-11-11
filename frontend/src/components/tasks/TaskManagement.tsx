@@ -379,21 +379,22 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
               type="button"
               className="btn btn-primary btn-sm"
               onClick={() => handleTabChange('new_task')}
+              title="Assign Task"
+              aria-label="Assign Task"
               style={{ 
                 display: 'inline-flex', 
                 alignItems: 'center', 
-                gap: '6px', 
+                justifyContent: 'center',
                 fontWeight: 700, 
                 background: '#0E7490', 
                 borderColor: '#0E7490',
                 borderRadius: '10px',
+                width: '38px',
                 height: '38px',
-                padding: '0 14px'
+                padding: 0
               }}
             >
-              <Plus size={16} />
-              <span className="desktop-only-inline">Assign Task</span>
-              <span className="mobile-only-inline">New</span>
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
         </div>

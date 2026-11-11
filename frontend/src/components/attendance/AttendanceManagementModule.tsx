@@ -354,12 +354,16 @@ export const AttendanceManagementModule: React.FC = () => {
               type="button"
               className="vrm-btn vrm-btn-primary"
               onClick={() => setIsManualAttendanceModalOpen(true)}
+              title="Manual Attendance"
+              aria-label="Manual Attendance"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
+                justifyContent: 'center',
                 borderRadius: '10px',
-                padding: '8px 18px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 fontSize: '0.84rem',
                 fontWeight: 700,
                 backgroundColor: '#0E7490',
@@ -368,8 +372,7 @@ export const AttendanceManagementModule: React.FC = () => {
                 color: '#FFFFFF'
               }}
             >
-              <Plus size={16} strokeWidth={2.5} />
-              <span>Manual Attendance</span>
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
         </div>
@@ -693,18 +696,22 @@ export const AttendanceManagementModule: React.FC = () => {
                   type="button"
                   onClick={() => setIsManualAttendanceModalOpen(true)}
                   className="vrm-btn vrm-btn-primary"
+                  title="Manual Attendance"
+                  aria-label="Manual Attendance"
                   style={{
-                    padding: '7px 14px',
+                    width: '36px',
+                    height: '36px',
+                    padding: 0,
                     fontSize: '12px',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    justifyContent: 'center',
+                    borderRadius: '10px',
                     backgroundColor: '#0E7490',
                     borderColor: '#0E7490'
                   }}
                 >
-                  <Plus size={13} strokeWidth={2.5} />
-                  <span>Manual Attendance</span>
+                  <Plus size={16} strokeWidth={2.5} />
                 </button>
               )}
 

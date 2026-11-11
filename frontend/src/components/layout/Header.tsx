@@ -199,15 +199,23 @@ export const Header: React.FC<HeaderProps> = ({
         <div ref={quickAddRef} className="header-quick-add-wrapper" style={{ position: 'relative' }}>
           <button 
             className="header-quick-add-btn"
+            title="Quick Add"
+            aria-label="Quick Add"
             onClick={() => {
               setShowQuickAddMenu(prev => !prev);
               setShowNotifications(false);
               setShowProfileMenu(false);
             }}
+            style={{
+              width: '36px',
+              height: '36px',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
           >
-            <Plus size={15} strokeWidth={2.5} />
-            <span className="quick-add-text">Quick Add</span>
-            <ChevronDown size={13} strokeWidth={2.5} className="quick-add-chevron" />
+            <Plus size={17} strokeWidth={2.5} />
           </button>
 
           {showQuickAddMenu && (

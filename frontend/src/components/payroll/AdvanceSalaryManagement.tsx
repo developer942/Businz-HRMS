@@ -767,13 +767,16 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
             type="button" 
             className="btn btn-primary"
             onClick={openRequestModal}
-            title="Apply for Advance Salary"
+            title="Request Advance Salary"
+            aria-label="Request Advance Salary"
             style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
-              borderRadius: '12px',
-              padding: '9px 18px',
+              justifyContent: 'center',
+              borderRadius: '10px',
+              width: '38px',
+              height: '38px',
+              padding: 0,
               fontWeight: 700,
               fontSize: '0.84rem',
               backgroundColor: '#0E7490',
@@ -783,8 +786,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
               transition: 'all 0.15s ease'
             }}
           >
-            <Plus size={16} strokeWidth={2.5} />
-            <span>Request Advance Salary</span>
+            <Plus size={18} strokeWidth={2.5} />
           </button>
           )}
         </div>

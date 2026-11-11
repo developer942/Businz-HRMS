@@ -245,16 +245,20 @@ export const RecruitmentPipeline: React.FC = () => {
             <button 
               className="btn btn-primary btn-sm" 
               onClick={() => setShowAddJobModal(true)}
+              title="Create Job Opening"
+              aria-label="Create Job Opening"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
-                borderRadius: '12px',
-                padding: '9px 18px',
+                justifyContent: 'center',
+                borderRadius: '10px',
+                width: '38px',
+                height: '38px',
+                padding: 0,
                 fontWeight: 700
               }}
             >
-              <Plus size={16} /> Create Job Opening
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
 
@@ -266,9 +270,11 @@ export const RecruitmentPipeline: React.FC = () => {
                 setReferralError(null);
                 setShowReferralModal(true);
               }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700, borderRadius: '12px', padding: '9px 18px' }}
+              title="Refer Candidate"
+              aria-label="Refer Candidate"
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, borderRadius: '10px', width: '38px', height: '38px', padding: 0 }}
             >
-              <UserPlus size={16} /> Refer Candidate
+              <Plus size={18} strokeWidth={2.5} />
             </button>
           )}
         </div>

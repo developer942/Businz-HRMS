@@ -217,23 +217,26 @@ export const PipManagementView: React.FC<PipManagementViewProps> = ({
         <button
           type="button"
           onClick={() => setIsNewPipModalOpen(true)}
+          title="Create New PIP"
+          aria-label="Create New PIP"
           style={{
-            padding: '9px 16px',
+            width: '38px',
+            height: '38px',
+            padding: 0,
             backgroundColor: '#0E7490',
             color: '#FFFFFF',
-            borderRadius: '12px',
+            borderRadius: '10px',
             border: 'none',
             fontSize: '13px',
             fontWeight: 700,
             cursor: 'pointer',
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            justifyContent: 'center',
             boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)'
           }}
         >
-          <Plus size={16} />
-          <span>Create New PIP</span>
+          <Plus size={18} strokeWidth={2.5} />
         </button>
       </div>
 
