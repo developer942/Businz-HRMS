@@ -163,6 +163,15 @@ export const AttendanceList: React.FC<AttendanceListProps> = ({ onBackToInsights
     if (a.employeeId === 'EMP-000' || a.employeeId === 'VRM-001') return false;
     if (a.employeeName?.toLowerCase().includes('velmurugan')) return false;
     if (a.department?.toLowerCase() === 'ceo') return false;
+    const targetEmp = employees.find(e => e.employeeId === a.employeeId || e.id === a.employeeId);
+    if (targetEmp) {
+      const s = (targetEmp.status || '').toLowerCase().trim();
+      const as = ((targetEmp as any).accountStatus || '').toLowerCase().trim();
+      const ps = ((targetEmp as any).profile_data?.status || '').toLowerCase().trim();
+      if (s === 'inactive' || s === 'terminated' || as === 'deactivated' || as === 'disabled' || ps === 'inactive' || (targetEmp as any).isActive === false) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -175,7 +184,13 @@ export const AttendanceList: React.FC<AttendanceListProps> = ({ onBackToInsights
     e.email?.toLowerCase() !== 'developer@businz.com' && 
     e.designation !== 'Super Administrator' &&
     !isOwnerOrCEO(e) &&
-    !isAttendanceExemptEmployee(e)
+    !isAttendanceExemptEmployee(e) &&
+    e.status?.toLowerCase() !== 'inactive' &&
+    e.status?.toLowerCase() !== 'terminated' &&
+    (e as any).accountStatus?.toLowerCase() !== 'deactivated' &&
+    (e as any).accountStatus?.toLowerCase() !== 'disabled' &&
+    (e as any).profile_data?.status?.toLowerCase() !== 'inactive' &&
+    (e as any).isActive !== false
   ).length;
   const countPresent = targetDateRecords.filter(a => a.status === 'Present' || a.status === 'Late').length;
   const countLate = targetDateRecords.filter(a => a.status === 'Late').length;

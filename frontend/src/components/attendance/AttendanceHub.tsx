@@ -105,6 +105,22 @@ export const AttendanceHub: React.FC = () => {
   // Dynamically filter employees according to active filter criteria
   const activeEmployees = baseEmployees.filter(emp => {
     if (isAttendanceExemptEmployee(emp) || isOwnerOrCEO(emp)) return false;
+
+    // Strictly show active employees in attendance metrics
+    const statusStr = (emp.status || '').toLowerCase().trim();
+    const accountStatusStr = ((emp as any).accountStatus || '').toLowerCase().trim();
+    const profileStatusStr = ((emp as any).profile_data?.status || '').toLowerCase().trim();
+    if (
+      statusStr === 'inactive' ||
+      statusStr === 'terminated' ||
+      accountStatusStr === 'deactivated' ||
+      accountStatusStr === 'disabled' ||
+      profileStatusStr === 'inactive' ||
+      (emp as any).isActive === false ||
+      emp.employeeId === 'EMP-000'
+    ) {
+      return false;
+    }
     // 1. Branch filter
     if (filterReports.branches && filterReports.branches.length > 0) {
       const empBranch = (emp.workLocation || (emp as any).branch || '').toLowerCase().trim();

@@ -430,6 +430,22 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
       if (isOwnerOrCEO(emp) || isAttendanceExemptEmployee(emp)) return false;
+
+      // Strictly show active employees in Muster Roll
+      const statusStr = (emp.status || '').toLowerCase().trim();
+      const accountStatusStr = ((emp as any).accountStatus || '').toLowerCase().trim();
+      const profileStatusStr = ((emp as any).profile_data?.status || '').toLowerCase().trim();
+      if (
+        statusStr === 'inactive' ||
+        statusStr === 'terminated' ||
+        accountStatusStr === 'deactivated' ||
+        accountStatusStr === 'disabled' ||
+        profileStatusStr === 'inactive' ||
+        (emp as any).isActive === false ||
+        emp.employeeId === 'EMP-000'
+      ) {
+        return false;
+      }
       // Department Filter
       if (selectedDepartment !== 'All' && emp.department !== selectedDepartment) {
         return false;

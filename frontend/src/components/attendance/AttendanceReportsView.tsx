@@ -158,6 +158,22 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     return employees.filter(emp => {
       if (isAttendanceExemptEmployee(emp) || isOwnerOrCEO(emp)) return false;
 
+      // Strictly show active employees in attendance reports
+      const statusStr = (emp.status || '').toLowerCase().trim();
+      const accountStatusStr = ((emp as any).accountStatus || '').toLowerCase().trim();
+      const profileStatusStr = ((emp as any).profile_data?.status || '').toLowerCase().trim();
+      if (
+        statusStr === 'inactive' ||
+        statusStr === 'terminated' ||
+        accountStatusStr === 'deactivated' ||
+        accountStatusStr === 'disabled' ||
+        profileStatusStr === 'inactive' ||
+        (emp as any).isActive === false ||
+        emp.employeeId === 'EMP-000'
+      ) {
+        return false;
+      }
+
       // Scope filters: branch
       if (activeFilters.branches && activeFilters.branches.length > 0) {
         const empBranch = (emp.workLocation || (emp as any).branch || '').toLowerCase().trim();
@@ -248,7 +264,16 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
   // Filtered Leave Requests based on Scope Filters, Search Query, and Date Range
   const filteredLeaveRequests = useMemo(() => {
+    const validEmpCodes = new Set(filteredEmployees.map(e => (e.employeeId || '').toLowerCase().trim()));
+    const validEmpUids = new Set(filteredEmployees.map(e => (e.id || '').toLowerCase().trim()));
+
     return leaveRequests.filter(l => {
+      // Scope to active employees only
+      const lEmp = (l.employeeId || '').toLowerCase().trim();
+      if (lEmp && !validEmpCodes.has(lEmp) && !validEmpUids.has(lEmp)) {
+        return false;
+      }
+
       // Scope filters: branch
       if (activeFilters.branches && activeFilters.branches.length > 0) {
         const leaveBranch = ((l as any).workLocation || (l as any).branch || '').toLowerCase().trim();
@@ -316,7 +341,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
       return true;
     });
-  }, [leaveRequests, activeFilters, searchQuery, fromDate, toDate]);
+  }, [leaveRequests, activeFilters, searchQuery, fromDate, toDate, filteredEmployees]);
 
   // Format date display (e.g. 01/09/2026)
   const formatDateDisplay = (isoStr: string) => {
