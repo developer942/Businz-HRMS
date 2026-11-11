@@ -518,8 +518,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     },
     {
       key: 'remote' as ReportTypeKey,
-      title: 'Field Visit, WFO & WFH',
-      subtitle: 'Field, office & home work logs',
+      title: 'Field Visit & Work From Home (WFH)',
+      subtitle: 'Field & home work logs',
       icon: <MapPin size={19} color="#0891b2" />,
       iconBg: '#cffafe'
     },
@@ -550,7 +550,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         { key: 'name', label: 'Employee Name' },
         { key: 'dept', label: 'Department' },
         ...dateRangeList.map(d => ({ key: `day_${d}`, label: formatDateDisplay(d) })),
-        { key: 'present', label: 'Present (P/WFO/FV)' },
+        { key: 'present', label: 'Present (P/WFH/FV)' },
         { key: 'absent', label: 'Absent (A)' },
         { key: 'holiday', label: 'Holidays (H)' },
         { key: 'rate', label: 'Attendance %' }
@@ -601,10 +601,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           if (st.includes('field') || st.includes('visit') || st.includes('duty') || (rec?.method || '').toLowerCase().includes('field')) {
             pCount++;
             row[`day_${d}`] = 'FV';
-          } else if (st.includes('wfo') || st.includes('office')) {
+          } else if (st.includes('wfh') || st.includes('home') || st.includes('wfo') || st.includes('office')) {
             pCount++;
-            row[`day_${d}`] = 'WFO';
-          } else if (st === 'present' || st === 'late' || st.includes('home') || hasPunch) {
+            row[`day_${d}`] = 'WFH';
+          } else if (st === 'present' || st === 'late' || hasPunch) {
             pCount++;
             row[`day_${d}`] = 'P';
           } else if (st === 'half day') {
@@ -731,7 +731,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           checkIn: formatTimeDisplay(r.checkIn, '--:--'),
           checkOut: r.checkOut && r.checkOut !== '--:--' && !r.checkOut.toLowerCase().includes('progress') ? formatTimeDisplay(r.checkOut, '--:--') : 'In Progress',
           workingHours: dur.isPending ? 'In Progress' : dur.text,
-          verification: isField ? 'Field Visit' : isWfo ? 'Work From Office (WFO)' : isLate ? 'Late Punch' : (r.method || 'Face Recognition')
+          verification: isField ? 'Field Visit' : isWfo ? 'Work From Home (WFH)' : isLate ? 'Late Punch' : (r.method || 'Face Recognition')
         });
       });
     } else if (selectedReportType === 'late') {
@@ -825,7 +825,6 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const st = (r.status || '').toLowerCase();
         const method = (r.method || '').toLowerCase();
         const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || method.includes('field');
-        const isWfo = st.includes('wfo') || st.includes('office');
         const dur = getRecordWorkingDuration(r);
         data.push({
           empId: r.employeeId,
@@ -835,7 +834,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           checkIn: formatTimeDisplay(r.checkIn, '--:--'),
           checkOut: r.checkOut && r.checkOut !== '--:--' && !r.checkOut.toLowerCase().includes('progress') ? formatTimeDisplay(r.checkOut, '--:--') : 'In Progress',
           workingHours: dur.isPending ? 'In Progress' : dur.text,
-          mode: isField ? 'Field Visit' : isWfo ? 'Work From Office (WFO)' : 'Work From Home'
+          mode: isField ? 'Field Visit' : 'Work From Home (WFH)'
         });
       });
       filteredLeaveRequests.filter(l => l.status === 'Approved' && isRemoteDutyRequest(l.leaveType)).forEach(l => {
@@ -848,11 +847,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         });
         if (hasAttendanceRow) return;
 
-        const mode = isWorkFromHomeRequest(l.leaveType)
-          ? 'Work From Home'
-          : l.leaveType.toLowerCase().includes('office') || l.leaveType.toLowerCase().includes('wfo')
-            ? 'Work From Office (WFO)'
-            : 'Field Visit';
+        const mode = isWorkFromHomeRequest(l.leaveType) || l.leaveType.toLowerCase().includes('office') || l.leaveType.toLowerCase().includes('wfo')
+          ? 'Work From Home (WFH)'
+          : 'Field Visit';
         data.push({
           empId: l.employeeId,
           name: l.employeeName,
@@ -1482,7 +1479,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                             </span>
                           ) : isWfo ? (
                             <span style={{ backgroundColor: '#E0E7FF', color: '#4338CA', border: '1px solid #A5B4FC', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                              🏢 Work From Office (WFO)
+                              🏠 Work From Home (WFH)
                             </span>
                           ) : isLate ? (
                             <span style={{ backgroundColor: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
@@ -1658,7 +1655,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     return (
                       <tr>
                         <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: '#0e7490', fontWeight: 600 }}>
-                          No Field Visit, WFO, or WFH records logged for this date range.
+                          No Field Visit or WFH records logged for this date range.
                         </td>
                       </tr>
                     );
@@ -1668,7 +1665,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     const st = (r.status || '').toLowerCase();
                     const method = (r.method || '').toLowerCase();
                     const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || method.includes('field');
-                    const isWfo = st.includes('wfo') || st.includes('office');
+                    const isWfo = st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home');
                     const dur = getRecordWorkingDuration(r);
 
                     return (
@@ -1692,13 +1689,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                             <span style={{ backgroundColor: '#CFFAFE', color: '#0E7490', border: '1px solid #67E8F9', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
                               🚗 Field Visit
                             </span>
-                          ) : isWfo ? (
-                            <span style={{ backgroundColor: '#E0E7FF', color: '#4338CA', border: '1px solid #A5B4FC', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                              🏢 Work From Office (WFO)
-                            </span>
                           ) : (
-                            <span style={{ backgroundColor: '#EDE9FE', color: '#6D28D9', border: '1px solid #DDD6FE', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                              🏠 Work From Home
+                            <span style={{ backgroundColor: '#E0E7FF', color: '#4338CA', border: '1px solid #A5B4FC', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
+                              🏠 Work From Home (WFH)
                             </span>
                           )}
                         </td>
@@ -1723,15 +1716,15 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                         <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Approved Request</td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{
-                            backgroundColor: isWfh ? '#EDE9FE' : isWfo ? '#E0E7FF' : '#CFFAFE',
-                            color: isWfh ? '#6D28D9' : isWfo ? '#4338CA' : '#0E7490',
-                            border: `1px solid ${isWfh ? '#DDD6FE' : isWfo ? '#A5B4FC' : '#67E8F9'}`,
+                            backgroundColor: (isWfh || isWfo) ? '#E0E7FF' : '#CFFAFE',
+                            color: (isWfh || isWfo) ? '#4338CA' : '#0E7490',
+                            border: `1px solid ${(isWfh || isWfo) ? '#A5B4FC' : '#67E8F9'}`,
                             padding: '3px 8px',
                             borderRadius: '6px',
                             fontSize: '0.75rem',
                             fontWeight: 700
                           }}>
-                            {isWfh ? 'Work From Home' : isWfo ? 'Work From Office (WFO)' : 'Field Visit'}
+                            {(isWfh || isWfo) ? 'Work From Home (WFH)' : 'Field Visit'}
                           </span>
                         </td>
                       </tr>

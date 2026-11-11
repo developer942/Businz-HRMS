@@ -89,6 +89,11 @@ export const FilterReportsModal: React.FC<FilterReportsModalProps> = ({
     return uniqueNames.length > 0 ? uniqueNames : ['Full-Time', 'Intern', 'Provisional'];
   }, [orgStructure, employmentTypes]);
 
+  const modeOfWorkOptions = [
+    'Work From Home (WFH)',
+    'On Field / Travel'
+  ];
+
   // Sync state when modal opens, preserving only valid settings-backed options
   useEffect(() => {
     if (isOpen) {
@@ -96,7 +101,9 @@ export const FilterReportsModal: React.FC<FilterReportsModalProps> = ({
       const validDepartments = (currentFilters.departments || []).filter(d => departmentOptions.includes(d));
       const validShifts = (currentFilters.shifts || []).filter(s => shiftOptions.includes(s));
       const validEmploymentTypes = (currentFilters.employmentTypes || []).filter(t => employmentTypeOptions.includes(t));
-      const validModesOfWork = (currentFilters.modesOfWork || []).filter(m => modeOfWorkOptions.includes(m));
+      const validModesOfWork = (currentFilters.modesOfWork || [])
+        .map(m => m === 'Work From Office (WFO)' ? 'Work From Home (WFH)' : m)
+        .filter(m => modeOfWorkOptions.includes(m));
       setLocalFilters({
         ...currentFilters,
         branches: validBranches,
@@ -110,11 +117,6 @@ export const FilterReportsModal: React.FC<FilterReportsModalProps> = ({
   }, [isOpen, currentFilters, branchOptions, departmentOptions, shiftOptions, employmentTypeOptions]);
 
   if (!isOpen) return null;
-
-  const modeOfWorkOptions = [
-    'Work From Office (WFO)',
-    'On Field / Travel'
-  ];
 
   // Helper to toggle simple array options
   const toggleArrayItem = (key: 'branches' | 'departments' | 'shifts' | 'employmentTypes' | 'modesOfWork', item: string) => {

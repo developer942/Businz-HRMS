@@ -62,7 +62,7 @@ export const AttendanceCalendarView: React.FC = () => {
     return attendanceRecords.find(a => a.employeeId === selectedEmpId && a.date === dateStr);
   };
 
-  // Status badge config strictly matching core 5 statuses: Present, Absent, Holiday, WFO, Field Visit
+  // Status badge config strictly matching core 5 statuses: Present, Absent, Holiday, WFH, Field Visit
   const getStatusBadge = (rec?: AttendanceRecord, dayNum?: number) => {
     if (!rec) {
       // Default Sunday check -> Holiday
@@ -75,7 +75,7 @@ export const AttendanceCalendarView: React.FC = () => {
     const st = (rec.status || '').toLowerCase();
     if (st === 'absent') return { code: 'A', label: 'Absent', color: '#B91C1C', bg: '#FEE2E2' };
     if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) {
-      return { code: 'WFO', label: 'Work From Office', color: '#4338CA', bg: '#E0E7FF' };
+      return { code: 'WFH', label: 'Work From Home', color: '#4338CA', bg: '#E0E7FF' };
     }
     if (st.includes('duty') || st.includes('field') || st.includes('visit') || (rec.method || '').toLowerCase().includes('field')) {
       return { code: 'FV', label: 'Field Visit', color: '#0E7490', bg: '#CFFAFE' };
@@ -184,7 +184,7 @@ export const AttendanceCalendarView: React.FC = () => {
           <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#DBEAFE', color: '#1E40AF', fontWeight: 800 }}>H</span> Holiday
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#E0E7FF', color: '#4338CA', fontWeight: 800 }}>WFO</span> Work From Office
+          <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#E0E7FF', color: '#4338CA', fontWeight: 800 }}>WFH</span> Work From Home
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#CFFAFE', color: '#0E7490', fontWeight: 800 }}>FV</span> Field Visit

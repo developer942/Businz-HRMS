@@ -75,24 +75,24 @@ export const ATTENDANCE_STATUS_CONFIG: Record<string, StatusConfig> = {
   P: { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 1.0 },
   A: { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
   H: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
-  WFO: { code: 'WFO', label: 'Work From Office', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
+  WFH: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FV: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
   // Backward-compatible aliases mapped strictly to the core 5 statuses
+  WFO: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FD: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
   OD: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
-  WFH: { code: 'WFO', label: 'Work From Office', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   L: { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
   WO: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   HD: { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 0.5 },
   ML: { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 }
 };
 
-// Exact 5 status items strictly requested by user: Present, Absent, Holiday, WFO, Field Visit
+// Exact 5 status items strictly requested by user: Present, Absent, Holiday, WFH, Field Visit
 export const DISPLAYED_STATUS_CONFIGS: StatusConfig[] = [
   { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 1.0 },
   { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
   { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
-  { code: 'WFO', label: 'Work From Office', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
+  { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
 ];
 
@@ -309,13 +309,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       const lType = (leaveRec.leaveType || '').toLowerCase();
       if (lType.includes('wfo') || lType.includes('office') || lType.includes('wfh') || lType.includes('home')) {
         return {
-          status: 'WFO' as AttendanceStatusCode,
+          status: 'WFH' as AttendanceStatusCode,
           checkIn: '09:00 AM',
           checkOut: '06:00 PM',
           workingHours: '08:30',
           shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
-          location: 'Work From Office (Approved)',
-          remarks: `WFO: ${leaveRec.reason || 'Approved WFO'}`
+          location: 'Work From Home (Approved)',
+          remarks: `WFH: ${leaveRec.reason || 'Approved WFH'}`
         };
       }
       if (lType.includes('field') || lType.includes('visit') || lType.includes('duty')) {
@@ -382,7 +382,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       const st = String(attRec.status || '').toLowerCase();
       if (st === 'absent') code = 'A';
       else if (st === 'holiday') code = 'H';
-      else if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) code = 'WFO';
+      else if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) code = 'WFH';
       else if (st.includes('duty') || st.includes('field') || st.includes('visit') || st.includes('on duty') || attRec.method?.toLowerCase().includes('field')) code = 'FV';
       else code = 'P';
 
@@ -584,7 +584,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       { key: 'totalP', label: 'Present (P)' },
       { key: 'totalA', label: 'Absent (A)' },
       { key: 'totalH', label: 'Holiday (H)' },
-      { key: 'totalWFO', label: 'Work From Office (WFO)' },
+      { key: 'totalWFH', label: 'Work From Home (WFH)' },
       { key: 'totalFV', label: 'Field Visit (FV)' },
       { key: 'totalRate', label: 'Attendance Rate (%)' }
     ];
@@ -592,7 +592,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     const data: Record<string, any>[] = [];
 
     filteredEmployees.forEach(emp => {
-      let p = 0, a = 0, h = 0, wfo = 0, fv = 0;
+      let p = 0, a = 0, h = 0, wfh = 0, fv = 0;
       const row: Record<string, any> = {
         empId: emp.employeeId,
         empName: `${emp.firstName} ${emp.lastName}`,
@@ -607,13 +607,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           case 'P': p++; break;
           case 'A': a++; break;
           case 'H': h++; break;
-          case 'WFO': wfo++; break;
+          case 'WFH':
+          case 'WFO': wfh++; break;
           case 'FV':
           case 'FD':
           case 'OD': fv++; break;
           default:
-            if (att.status === 'WFH') wfo++;
-            else if (att.status === 'L' || att.status === 'ML') a++;
+            if (att.status === 'L' || att.status === 'ML') a++;
             else if (att.status === 'WO') h++;
             else if (att.status === 'HD') { p += 0.5; a += 0.5; }
             else p++;
@@ -622,13 +622,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       });
 
       const workingDays = Math.max(1, calendarDays.length - h);
-      const effectivePresent = p + wfo + fv;
+      const effectivePresent = p + wfh + fv;
       const rate = Math.min(100, Math.round((effectivePresent / workingDays) * 100));
 
       row.totalP = p;
       row.totalA = a;
       row.totalH = h;
-      row.totalWFO = wfo;
+      row.totalWFH = wfh;
       row.totalFV = fv;
       row.totalRate = `${rate}%`;
 
@@ -851,7 +851,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#15803D', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>P</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#B91C1C', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>A</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#1E40AF', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>H</th>
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#4338CA', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>WFO</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#4338CA', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>WFH</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#0E7490', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>FV</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#0F172A', borderBottom: '2px solid #CBD5E1', textAlign: 'center', minWidth: '55px' }}>% Rate</th>
 
@@ -900,7 +900,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   </tr>
                 ) : (
                   paginatedEmployees.map(employee => {
-                    let p = 0, a = 0, h = 0, wfo = 0, fv = 0;
+                    let p = 0, a = 0, h = 0, wfh = 0, fv = 0;
 
                     const dayCells = calendarDays.map(dayItem => {
                       const att = getCellAttendance(employee, dayItem);
@@ -908,13 +908,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                         case 'P': p++; break;
                         case 'A': a++; break;
                         case 'H': h++; break;
-                        case 'WFO': wfo++; break;
+                        case 'WFH':
+                        case 'WFO': wfh++; break;
                         case 'FV':
                         case 'FD':
                         case 'OD': fv++; break;
                         default:
-                          if (att.status === 'WFH') wfo++;
-                          else if (att.status === 'L' || att.status === 'ML') a++;
+                          if (att.status === 'L' || att.status === 'ML') a++;
                           else if (att.status === 'WO') h++;
                           else if (att.status === 'HD') { p += 0.5; a += 0.5; }
                           else p++;
@@ -924,7 +924,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                     });
 
                     const totalWorkingDays = Math.max(1, calendarDays.length - h);
-                    const effectivePresent = p + wfo + fv;
+                    const effectivePresent = p + wfh + fv;
                     const attendanceRate = Math.min(100, Math.round((effectivePresent / totalWorkingDays) * 100));
 
                     return (
@@ -1026,11 +1026,11 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                           );
                         })}
 
-                        {/* Summary Columns: strictly P, A, H, WFO, FV and % Rate */}
+                        {/* Summary Columns: strictly P, A, H, WFH, FV and % Rate */}
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#15803D', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#F0FDF4' }}>{p}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#B91C1C', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#FEF2F2' }}>{a}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#1E40AF', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#EFF6FF' }}>{h}</td>
-                        <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#4338CA', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#EEF2FF' }}>{wfo}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#4338CA', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#EEF2FF' }}>{wfh}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#0E7490', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#ECFEFF' }}>{fv}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#0F172A', borderBottom: '1px solid #F1F5F9', backgroundColor: '#ECFEFF' }}>{attendanceRate}%</td>
 
