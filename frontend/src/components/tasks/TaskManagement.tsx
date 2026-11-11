@@ -64,9 +64,30 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
       }
       if (tab === 'team_tasks') {
         localStorage.setItem('vrm_task_team_tasks_viewed_at', new Date().toISOString());
+        const teamIds = enhancedTasks.filter(t => (t.assignees?.length || 0) > 1).map(t => t.id);
+        const existingSeen: string[] = JSON.parse(localStorage.getItem('vrm_task_team_tasks_seen_ids') || '[]');
+        const merged = Array.from(new Set([...existingSeen, ...teamIds]));
+        localStorage.setItem('vrm_task_team_tasks_seen_ids', JSON.stringify(merged));
       }
     } catch (e) {}
   };
+
+  // Keep seen tracking updated when viewing team tasks or daily reports
+  useEffect(() => {
+    if (activeTab === 'team_tasks') {
+      try {
+        const teamIds = enhancedTasks.filter(t => (t.assignees?.length || 0) > 1).map(t => t.id);
+        const existingSeen: string[] = JSON.parse(localStorage.getItem('vrm_task_team_tasks_seen_ids') || '[]');
+        const merged = Array.from(new Set([...existingSeen, ...teamIds]));
+        localStorage.setItem('vrm_task_team_tasks_seen_ids', JSON.stringify(merged));
+        localStorage.setItem('vrm_task_team_tasks_viewed_at', new Date().toISOString());
+      } catch (e) {}
+    } else if (activeTab === 'daily_reports') {
+      try {
+        localStorage.setItem('vrm_task_daily_reports_viewed_at', new Date().toISOString());
+      } catch (e) {}
+    }
+  }, [activeTab, enhancedTasks]);
 
   // Selected Task for Detail Modal
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -214,38 +235,57 @@ export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, on
     t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED'
   ).length;
 
-  // Count active team tasks requiring action (auto-closes when user opens Team Tasks tab)
-  const teamTasksCount = activeTab === 'team_tasks' ? 0 : enhancedTasks.filter(t => {
-    const count = t.assignees ? t.assignees.length : 0;
-    if (count <= 1) return false;
-    if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED' || t.overallStatus === 'CANCELLED') return false;
+  // Count active team tasks requiring action (auto-closes when user opens Team Tasks tab and stays closed across tabs)
+  const teamTasksCount = (() => {
+    if (activeTab === 'team_tasks') return 0;
+    const seenIds: string[] = (() => {
+      try {
+        return JSON.parse(localStorage.getItem('vrm_task_team_tasks_seen_ids') || '[]');
+      } catch { return []; }
+    })();
+    const lastViewedAt = localStorage.getItem('vrm_task_team_tasks_viewed_at');
 
-    const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
-    const currentName = (currentUser.name || '').toLowerCase().trim();
+    return enhancedTasks.filter(t => {
+      const count = t.assignees ? t.assignees.length : 0;
+      if (count <= 1) return false;
+      if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED' || t.overallStatus === 'CANCELLED') return false;
 
-    // Check if current user is an assignee in this team task
-    const myAssignee = t.assignees.find(a => {
-      const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
-      const assigneeName = (a.employeeName || '').toLowerCase().trim();
-      return (
-        (currentEmpId && assigneeEmpId === currentEmpId) ||
-        (currentName && (assigneeName === currentName || assigneeName.includes(currentName) || currentName.includes(assigneeName)))
-      );
-    });
+      // If user has already visited/seen this team task, do not show persistent badge!
+      if (seenIds.includes(t.id)) return false;
+      if (lastViewedAt) {
+        const taskTime = t.createdAt || t.taskDate || t.startDate;
+        if (taskTime && new Date(taskTime).getTime() <= new Date(lastViewedAt).getTime()) {
+          return false;
+        }
+      }
 
-    // If current user is an assignee, only count if their individual status is NOT completed
-    if (myAssignee) {
-      return myAssignee.individualStatus !== 'Completed';
-    }
+      const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
+      const currentName = (currentUser.name || '').toLowerCase().trim();
 
-    if (!isCEO && !isHR) {
-      return false;
-    }
-    if (isManager && currentUser.department && t.department !== currentUser.department) return false;
+      // Check if current user is an assignee in this team task
+      const myAssignee = t.assignees.find(a => {
+        const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
+        const assigneeName = (a.employeeName || '').toLowerCase().trim();
+        return (
+          (currentEmpId && assigneeEmpId === currentEmpId) ||
+          (currentName && (assigneeName === currentName || assigneeName.includes(currentName) || currentName.includes(assigneeName)))
+        );
+      });
 
-    // For management, only count if at least one member is still not completed
-    return t.assignees.some(a => a.individualStatus !== 'Completed');
-  }).length;
+      // If current user is an assignee, only count if their individual status is NOT completed
+      if (myAssignee) {
+        return myAssignee.individualStatus !== 'Completed';
+      }
+
+      if (!isCEO && !isHR) {
+        return false;
+      }
+      if (isManager && currentUser.department && t.department !== currentUser.department) return false;
+
+      // For management, only count if at least one member is still not completed
+      return t.assignees.some(a => a.individualStatus !== 'Completed');
+    }).length;
+  })();
 
   // Count unviewed/fresh daily reports (auto-closes when user opens Daily Reports tab)
   const dailyReportsCount = activeTab === 'daily_reports' ? 0 : enhancedTasks.reduce((acc, t) => {

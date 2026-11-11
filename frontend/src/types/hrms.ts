@@ -147,6 +147,8 @@ export interface Employee {
   personalEmail?: string;
   companyEmail?: string;
   password?: string;
+  portalPassword?: string;
+  profile_data?: Record<string, any>;
   authUserId?: string;
   mustChangePassword?: boolean;
   accountStatus?: 'ACTIVE' | 'LOCKED' | 'DISABLED' | 'DEACTIVATED';

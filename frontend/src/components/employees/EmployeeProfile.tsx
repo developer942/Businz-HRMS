@@ -56,6 +56,7 @@ import {
 } from './AddEmployeeModal';
 import { CountryCodeDropdown } from '../common/CountryCodeDropdown';
 import { COUNTRY_CODES } from '../../data/countryCodes';
+import { supabaseDirect } from '../../services/supabaseDirectService';
 
 interface EmployeeProfileProps {
   employee: Employee;
@@ -511,14 +512,18 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       accountStatus: ((emp.accountStatus as any) || (emp.status === 'Terminated' || emp.status === 'Inactive' ? 'DEACTIVATED' : 'ACTIVE')) as 'ACTIVE' | 'DEACTIVATED' | 'DISABLED',
       password: ((emp as any).portalPassword && !String((emp as any).portalPassword).startsWith('$2'))
         ? String((emp as any).portalPassword)
-        : ((emp as any).portal_password && !String((emp as any).portal_password).startsWith('$2')
-            ? String((emp as any).portal_password)
-            : (emp.password && !String(emp.password).startsWith('$2') ? emp.password : 'Password@123')),
+        : ((emp as any).profile_data?.portalPassword && !String((emp as any).profile_data?.portalPassword).startsWith('$2')
+            ? String((emp as any).profile_data?.portalPassword)
+            : ((emp as any).portal_password && !String((emp as any).portal_password).startsWith('$2')
+                ? String((emp as any).portal_password)
+                : (emp.password && !String(emp.password).startsWith('$2') ? emp.password : 'Password@123'))),
       portalPassword: ((emp as any).portalPassword && !String((emp as any).portalPassword).startsWith('$2'))
         ? String((emp as any).portalPassword)
-        : ((emp as any).portal_password && !String((emp as any).portal_password).startsWith('$2')
-            ? String((emp as any).portal_password)
-            : (emp.password && !String(emp.password).startsWith('$2') ? emp.password : 'Password@123')),
+        : ((emp as any).profile_data?.portalPassword && !String((emp as any).profile_data?.portalPassword).startsWith('$2')
+            ? String((emp as any).profile_data?.portalPassword)
+            : ((emp as any).portal_password && !String((emp as any).portal_password).startsWith('$2')
+                ? String((emp as any).portal_password)
+                : (emp.password && !String(emp.password).startsWith('$2') ? emp.password : 'Password@123'))),
       mustChangePassword: Boolean(emp.mustChangePassword ?? false),
       credentialEmailStatus: emp.credentialEmailStatus || 'NOT_SENT',
       credentialEmailSentAt: emp.credentialEmailSentAt || null
@@ -1372,10 +1377,32 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         return;
       }
 
+      const newPassword = ((formData as any).portalPassword || formData.password || '').trim();
+      const prevPassword = ((currentEmp as any).portalPassword || (currentEmp as any).profile_data?.portalPassword || currentEmp.password || '').trim();
+      if (newPassword && newPassword !== prevPassword && !newPassword.startsWith('$2')) {
+        try {
+          await supabaseDirect.updateEmployee(currentEmp.id || currentEmp.employeeId, {
+            password: newPassword,
+            profile_data: {
+              ...(currentEmp.profile_data || {}),
+              portalPassword: newPassword,
+            }
+          });
+        } catch (e) {
+          console.warn('[EmployeeProfile] Direct password update warning:', e);
+        }
+      }
+
       const savedEmployee = {
         ...(currentEmp || {}),
         ...updatedData,
         ...((res as any)?.data ? (res as any).data : {}),
+        portalPassword: newPassword || (currentEmp as any).portalPassword || (currentEmp as any).profile_data?.portalPassword,
+        profile_data: {
+          ...(currentEmp.profile_data || {}),
+          ...((updatedData as any).profile_data || {}),
+          ...(newPassword ? { portalPassword: newPassword } : {})
+        },
         dob: updatedData.dob || currentEmp.dob,
         gender: updatedData.gender || currentEmp.gender,
         maritalStatus: updatedData.maritalStatus || currentEmp.maritalStatus,
@@ -3753,114 +3780,163 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </div>
           </div>
 
-          {/* Password (Read-Only in Profile Sync — Protected by Phase 6) */}
+          {/* Password (Editable when isEditing is true for authorized Admin/CEO) */}
           <div>
             <label style={labelStyle}>Portal Login Password</label>
             {canViewPassword ? (
-              <div>
-                <div style={{
-                  ...viewValueStyle,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  backgroundColor: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  gap: '8px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                    <Lock size={15} color="#0E7490" style={{ flexShrink: 0 }} />
-                    <span style={{
-                      color: '#0F172A',
-                      fontWeight: 700,
-                      fontSize: '0.86rem',
-                      fontFamily: showPassword ? "'JetBrains Mono', 'Fira Code', monospace" : 'inherit',
-                      letterSpacing: showPassword ? '0.04em' : '0.15em'
-                    }}>
-                      {showPassword ? (
-                        (() => {
-                          const p1 = (formData as any).portalPassword;
-                          if (p1 && typeof p1 === 'string' && !p1.startsWith('$2')) return p1;
-                          const p2 = (currentEmp as any).portalPassword;
-                          if (p2 && typeof p2 === 'string' && !p2.startsWith('$2')) return p2;
-                          const p3 = formData.password;
-                          if (p3 && typeof p3 === 'string' && !p3.startsWith('$2')) return p3;
-                          const p4 = currentEmp.password;
-                          if (p4 && typeof p4 === 'string' && !p4.startsWith('$2')) return p4;
-                          return 'Password@123';
-                        })()
-                      ) : '••••••••••••'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                    {/* Toggle Visibility */}
+              isEditing ? (
+                <div>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <Lock size={15} color="#0E7490" style={{ position: 'absolute', left: '12px', zIndex: 1 }} />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={(formData as any).portalPassword || formData.password || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setFormData(prev => ({
+                          ...prev,
+                          password: val,
+                          portalPassword: val
+                        }));
+                      }}
+                      placeholder="Enter new portal password"
+                      style={{
+                        ...inputStyle,
+                        paddingLeft: '36px',
+                        paddingRight: '40px',
+                        fontFamily: showPassword ? "'JetBrains Mono', 'Fira Code', monospace" : 'inherit',
+                        fontSize: '0.86rem',
+                        fontWeight: 600
+                      }}
+                    />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid #E2E8F0',
-                        backgroundColor: '#FFFFFF',
-                        color: '#475569',
-                        fontSize: '0.74rem',
-                        fontWeight: 600,
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease'
+                        color: '#64748B',
+                        padding: '4px'
                       }}
                       title={showPassword ? 'Hide password' : 'View password'}
                     >
-                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                      <span>{showPassword ? 'Hide' : 'Show'}</span>
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
-
-                    {/* Copy Password */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const p1 = (formData as any).portalPassword;
-                        const p2 = (currentEmp as any).portalPassword;
-                        const p3 = formData.password;
-                        const p4 = currentEmp.password;
-                        const cleanPass = (p1 && typeof p1 === 'string' && !p1.startsWith('$2')) ? p1
-                          : (p2 && typeof p2 === 'string' && !p2.startsWith('$2')) ? p2
-                          : (p3 && typeof p3 === 'string' && !p3.startsWith('$2')) ? p3
-                          : (p4 && typeof p4 === 'string' && !p4.startsWith('$2')) ? p4
-                          : 'Password@123';
-                        handleCopy(cleanPass, 'portalPassword');
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid #A5F3FC',
-                        backgroundColor: copiedField === 'portalPassword' ? '#DCFCE7' : '#ECFEFF',
-                        color: copiedField === 'portalPassword' ? '#15803D' : '#0E7490',
-                        fontSize: '0.74rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                      title="Copy Password"
-                    >
-                      {copiedField === 'portalPassword' ? <Check size={14} /> : <Copy size={14} />}
-                      <span>{copiedField === 'portalPassword' ? 'Copied!' : 'Copy'}</span>
-                    </button>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#0E7490', marginTop: '4px', fontWeight: 500 }}>
+                    Enter a new password (min 6 characters) to update this employee's portal credentials upon saving.
                   </div>
                 </div>
-                {isEditing && (
-                  <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '4px' }}>
-                    Login passwords are protected during profile edits. Use "Reset Credentials" above to issue a new password.
+              ) : (
+                <div>
+                  <div style={{
+                    ...viewValueStyle,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    padding: '8px 12px',
+                    borderRadius: '10px',
+                    gap: '8px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                      <Lock size={15} color="#0E7490" style={{ flexShrink: 0 }} />
+                      <span style={{
+                        color: '#0F172A',
+                        fontWeight: 700,
+                        fontSize: '0.86rem',
+                        fontFamily: showPassword ? "'JetBrains Mono', 'Fira Code', monospace" : 'inherit',
+                        letterSpacing: showPassword ? '0.04em' : '0.15em'
+                      }}>
+                        {showPassword ? (
+                          (() => {
+                            const p1 = (formData as any).portalPassword;
+                            if (p1 && typeof p1 === 'string' && !p1.startsWith('$2')) return p1;
+                            const p2 = (currentEmp as any).portalPassword;
+                            if (p2 && typeof p2 === 'string' && !p2.startsWith('$2')) return p2;
+                            const p2b = (currentEmp as any).profile_data?.portalPassword;
+                            if (p2b && typeof p2b === 'string' && !p2b.startsWith('$2')) return p2b;
+                            const p3 = formData.password;
+                            if (p3 && typeof p3 === 'string' && !p3.startsWith('$2')) return p3;
+                            const p4 = currentEmp.password;
+                            if (p4 && typeof p4 === 'string' && !p4.startsWith('$2')) return p4;
+                            return 'Password@123';
+                          })()
+                        ) : '••••••••••••'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                      {/* Toggle Visibility */}
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid #E2E8F0',
+                          backgroundColor: '#FFFFFF',
+                          color: '#475569',
+                          fontSize: '0.74rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title={showPassword ? 'Hide password' : 'View password'}
+                      >
+                        {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                        <span>{showPassword ? 'Hide' : 'Show'}</span>
+                      </button>
+
+                      {/* Copy Password */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const p1 = (formData as any).portalPassword;
+                          const p2 = (currentEmp as any).portalPassword;
+                          const p2b = (currentEmp as any).profile_data?.portalPassword;
+                          const p3 = formData.password;
+                          const p4 = currentEmp.password;
+                          const cleanPass = (p1 && typeof p1 === 'string' && !p1.startsWith('$2')) ? p1
+                            : (p2 && typeof p2 === 'string' && !p2.startsWith('$2')) ? p2
+                            : (p2b && typeof p2b === 'string' && !p2b.startsWith('$2')) ? p2b
+                            : (p3 && typeof p3 === 'string' && !p3.startsWith('$2')) ? p3
+                            : (p4 && typeof p4 === 'string' && !p4.startsWith('$2')) ? p4
+                            : 'Password@123';
+                          handleCopy(cleanPass, 'portalPassword');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid #A5F3FC',
+                          backgroundColor: copiedField === 'portalPassword' ? '#DCFCE7' : '#ECFEFF',
+                          color: copiedField === 'portalPassword' ? '#15803D' : '#0E7490',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title="Copy Password"
+                      >
+                        {copiedField === 'portalPassword' ? <Check size={14} /> : <Copy size={14} />}
+                        <span>{copiedField === 'portalPassword' ? 'Copied!' : 'Copy'}</span>
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )
             ) : (
               <div>
                 <div style={{

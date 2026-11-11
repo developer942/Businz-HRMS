@@ -1663,6 +1663,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     credentialEmailSentAt: d.credentialEmailSentAt || d.credential_email_sent_at || '',
     authUserId: d.authUserId || d.auth_id || d.id,
     password: d.password,
+    portalPassword: d.portalPassword || d.portal_password || (raw?.profile_data?.portalPassword) || (raw?.profile_data?.portal_password) || '',
+    profile_data: raw?.profile_data || d.profile_data || {},
     skills: Array.isArray(d.skills) ? d.skills : (typeof d.skills === 'string' ? d.skills.split(',').map((s: string) => s.trim()) : []),
     professionalDetails: d.professionalDetails,
     shiftDetails: {
@@ -1869,6 +1871,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (emp.attendanceMethod !== undefined) updates.attendance_method = emp.attendanceMethod;
     if (emp.gpsAllowed !== undefined) updates.gps_allowed = Boolean(emp.gpsAllowed);
     if (emp.password !== undefined) updates.password = emp.password;
+    if (emp.portalPassword !== undefined) {
+      updates.profile_data = {
+        ...((emp as any).profile_data || {}),
+        portalPassword: emp.portalPassword
+      };
+    }
     if (emp.mustChangePassword !== undefined) updates.must_change_password = emp.mustChangePassword;
     if (emp.accountStatus !== undefined) updates.account_status = emp.accountStatus;
     if (emp.avatar !== undefined) updates.avatar_url = emp.avatar || null;
