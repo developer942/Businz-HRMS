@@ -2099,8 +2099,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               style={selectStyle}
             >
               <option value="Active">Active</option>
-              <option value="On Leave">On Leave</option>
-              <option value="Terminated">Terminated</option>
+              <option value="Inactive">Inactive</option>
             </select>
           ) : (
             <div style={viewValueStyle}>

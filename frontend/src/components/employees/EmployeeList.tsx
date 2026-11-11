@@ -167,7 +167,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
       const matchesLocation = selectedLocation === 'All' || 
         (emp.workLocation && emp.workLocation.toLowerCase().includes(selectedLocation.toLowerCase())) ||
         (emp.address && emp.address.toLowerCase().includes(selectedLocation.toLowerCase()));
-      const matchesStatus = selectedStatus === 'All' || emp.status === selectedStatus;
+      const matchesStatus = selectedStatus === 'All' 
+        ? true 
+        : selectedStatus === 'Inactive' 
+          ? (emp.status === 'Inactive' || emp.status === 'Terminated') 
+          : emp.status === selectedStatus;
 
       return matchesSearch && matchesDept && matchesDesignation && matchesLocation && matchesStatus;
     }).sort((a, b) => {
@@ -413,8 +417,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
               >
                 <option value="All">All Statuses</option>
                 <option value="Active">Active</option>
-                <option value="On Leave">On Leave</option>
-                <option value="Terminated">Terminated</option>
+                <option value="Inactive">Inactive</option>
               </select>
             </div>
           </div>
@@ -486,11 +489,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
 
         <div className="kpi-card compact">
           <div className="kpi-card-header">
-            <span>On Leave</span>
+            <span>Inactive Workforce</span>
             <div className="kpi-icon-wrapper rose"><UserX size={16} /></div>
           </div>
           <div className="kpi-card-body">
-            <div className="kpi-value">{roleScopedEmployees.filter(e => e.status === 'On Leave').length}</div>
+            <div className="kpi-value">{roleScopedEmployees.filter(e => e.status === 'Inactive' || e.status === 'Terminated').length}</div>
           </div>
         </div>
 
@@ -505,9 +508,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
         </div>
       </div>
 
-      {/* Mobile Status Filter Pills (Matches Image 5 Mockup) */}
+      {/* Mobile Status Filter Pills */}
       <div className="employee-mobile-filters-pills">
-        {['All', 'Active', 'On Leave', 'Resigned'].map(status => (
+        {['All', 'Active', 'Inactive'].map(status => (
           <button
             key={status}
             type="button"
@@ -658,8 +661,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
             >
               <option value="All">All Statuses</option>
               <option value="Active">Active</option>
-              <option value="On Leave">On Leave</option>
-              <option value="Terminated">Terminated</option>
+              <option value="Inactive">Inactive</option>
             </select>
           </div>
           {/* Employee Code Sort Order */}
