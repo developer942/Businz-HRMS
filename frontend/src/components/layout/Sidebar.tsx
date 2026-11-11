@@ -190,13 +190,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'attendance', label: 'Attendance Management', icon: CalendarCheck, section: 'TIME & ATTENDANCE' },
     { 
       id: 'leaves', 
-      label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'Leave Request' : 'Leave Management', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Leave Request' : 'Leave Management', 
       icon: CalendarDays, 
       section: 'TIME & ATTENDANCE' 
     },
     { 
       id: 'shifts', 
-      label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'My Shift' : 'Shift Management', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Shift' : 'Shift Management', 
       icon: Clock, 
       section: 'TIME & ATTENDANCE' 
     },
@@ -207,13 +207,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'whatsapp_crm', label: 'WhatsApp CRM', icon: MessageSquare, section: 'WORKFLOW & OPS' },
     { 
       id: 'performance', 
-      label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'My Performance' : 'Performance', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Performance' : 'Performance', 
       icon: TrendingUp, 
       section: 'WORKFLOW & OPS' 
     },
     { 
       id: 'recruitment', 
-      label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'Referral Portal' : 'Recruitment', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Referral Portal' : 'Recruitment', 
       icon: Briefcase, 
       section: 'WORKFLOW & OPS' 
     },
@@ -259,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Workspace & Reports
     { 
       id: 'assets', 
-      label: (currentUser.role === 'Employee' && !isHRorAdmin) ? 'My Assets' : 'Asset Management', 
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Assets' : 'Asset Management', 
       icon: Laptop, 
       section: 'WORKSPACE & REPORTS' 
     },

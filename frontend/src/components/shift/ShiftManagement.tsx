@@ -71,7 +71,12 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     (currentUser?.department && currentUser.department.toLowerCase().includes('human resource')) ||
     (currentUser?.designation && currentUser.designation.toLowerCase().includes('hr'));
 
-  const canManageShifts = isCEO || isHR || userRole === 'Management' || userRole === 'Super Admin' || userRole === 'Admin' || userRole !== 'Employee';
+  const isAccountsStaff =
+    userRole === 'Finance Manager' ||
+    Boolean(currentUser?.department && (currentUser.department.toLowerCase().includes('account') || currentUser.department.toLowerCase().includes('finance'))) ||
+    Boolean(currentUser?.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
+
+  const canManageShifts = (isCEO || isHR || userRole === 'Management' || userRole === 'Super Admin' || userRole === 'Admin') && !isAccountsStaff;
   const isEmployee = !canManageShifts;
 
   // Modal states

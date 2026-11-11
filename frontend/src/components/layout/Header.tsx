@@ -102,16 +102,24 @@ export const Header: React.FC<HeaderProps> = ({
     (currentUser?.department && currentUser.department.toLowerCase().includes('hr')) ||
     (currentUser?.designation && currentUser.designation.toLowerCase().includes('hr'));
 
+  const isAccountsStaff =
+    userRole === 'Finance Manager' ||
+    (currentUser?.department && (currentUser.department.toLowerCase().includes('account') || currentUser.department.toLowerCase().includes('finance'))) ||
+    (currentUser?.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
+
   const isManager = 
-    userRole === 'Manager' || 
-    userRole === 'Department Manager' || 
-    userRole === 'Department Head' || 
-    userRole === 'Team Lead' || 
-    userRole.toLowerCase().includes('manager') || 
-    userRole.toLowerCase().includes('lead');
+    !isAccountsStaff && (
+      userRole === 'Manager' || 
+      userRole === 'Department Manager' || 
+      userRole === 'Department Head' || 
+      userRole === 'Team Lead' || 
+      userRole.toLowerCase().includes('manager') || 
+      userRole.toLowerCase().includes('lead')
+    );
 
   const isAdminOrHR = isSuperAdminOrCEO || isHR;
   const isGeneralEmployee = !isAdminOrHR && !isManager;
+  const isEmployeeOrAccounts = (currentUser.role === 'Employee' || isAccountsStaff) && !isAdminOrHR;
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -123,22 +131,22 @@ export const Header: React.FC<HeaderProps> = ({
       case 'face_attendance': return 'Live Face Attendance';
       case 'attendance_log': return 'Attendance Log';
       case 'attendance': return 'Attendance Management';
-      case 'leaves': return currentUser.role === 'Employee' ? 'Leave Request' : 'Leave Management';
-      case 'shifts': return currentUser.role === 'Employee' ? 'My Shift' : 'Shift Management';
-      case 'overtime': return currentUser.role === 'Employee' ? 'My Overtime Requests' : 'Overtime Management';
+      case 'leaves': return isEmployeeOrAccounts ? 'Leave Request' : 'Leave Management';
+      case 'shifts': return isEmployeeOrAccounts ? 'My Shift' : 'Shift Management';
+      case 'overtime': return isEmployeeOrAccounts ? 'My Overtime Requests' : 'Overtime Management';
       case 'tasks': return 'Tasks';
       case 'performance': return 'Performance';
       case 'notifications': return 'Notifications';
-      case 'recruitment': return currentUser.role === 'Employee' ? 'Referral Portal' : 'Recruitment';
-      case 'finance': return 'Finance & Expenses';
-      case 'payroll': return 'Payroll';
-      case 'advance_salary': return currentUser.role === 'Employee' ? 'My Advance Salary' : 'Advance Salary Management';
-      case 'petty_cash': return currentUser.role === 'Employee' ? 'My Petty Cash Desk' : 'Petty Cash Management';
+      case 'recruitment': return isEmployeeOrAccounts ? 'Referral Portal' : 'Recruitment';
+      case 'finance': return isEmployeeOrAccounts ? 'My Expenses' : 'Finance & Expenses';
+      case 'payroll': return isEmployeeOrAccounts ? 'My Payslip' : 'Payroll';
+      case 'advance_salary': return isEmployeeOrAccounts ? 'My Advance Salary' : 'Advance Salary Management';
+      case 'petty_cash': return isEmployeeOrAccounts ? 'My Petty Cash Desk' : 'Petty Cash Management';
       case 'reports': return 'Attendance Reports';
-      case 'assets': return currentUser.role === 'Employee' ? 'My Assets' : 'Asset Management';
+      case 'assets': return isEmployeeOrAccounts ? 'My Assets' : 'Asset Management';
       case 'settings': return 'Settings';
       case 'profile': return 'My Profile';
-      case 'tracking': return currentUser.role === 'Employee' ? 'My Field Duty & Tracking' : 'Field Duty & GPS Tracking';
+      case 'tracking': return isEmployeeOrAccounts ? 'My Field Duty & Tracking' : 'Field Duty & GPS Tracking';
       case 'customer_data': return 'Contact Card Scanner';
       case 'whatsapp_crm': return 'WhatsApp CRM';
       default: return 'Dashboard';
