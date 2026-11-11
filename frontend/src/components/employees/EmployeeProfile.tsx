@@ -1138,36 +1138,36 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         ? `${[formData.currentLine1, formData.currentCity, formData.currentState].filter(Boolean).join(', ')}${formData.currentPincode ? ` - ${formData.currentPincode}` : ''}`
         : (currentEmp.address || ''),
       currentAddress: {
-        line1: formData.currentLine1,
-        line2: formData.currentLine2,
-        city: formData.currentCity,
-        state: formData.currentState,
-        country: formData.currentCountry,
-        pincode: formData.currentPincode
+        line1: formData.currentLine1 || currentEmp.currentAddress?.line1 || (currentEmp as any).address_line1 || '',
+        line2: formData.currentLine2 || currentEmp.currentAddress?.line2 || (currentEmp as any).address_line2 || '',
+        city: formData.currentCity || currentEmp.currentAddress?.city || (currentEmp as any).city || '',
+        state: formData.currentState || currentEmp.currentAddress?.state || (currentEmp as any).state || '',
+        country: formData.currentCountry || currentEmp.currentAddress?.country || (currentEmp as any).country || 'India',
+        pincode: formData.currentPincode || currentEmp.currentAddress?.pincode || (currentEmp as any).pincode || ''
       },
       permanentAddress: {
         sameAsCurrent: formData.sameAsCurrent,
-        line1: formData.sameAsCurrent ? formData.currentLine1 : formData.permanentLine1,
-        line2: formData.sameAsCurrent ? formData.currentLine2 : formData.permanentLine2,
-        city: formData.sameAsCurrent ? formData.currentCity : formData.permanentCity,
-        state: formData.sameAsCurrent ? formData.currentState : formData.permanentState,
-        country: formData.sameAsCurrent ? formData.currentCountry : formData.permanentCountry,
-        pincode: formData.sameAsCurrent ? formData.currentPincode : formData.permanentPincode
+        line1: formData.sameAsCurrent ? (formData.currentLine1 || currentEmp.currentAddress?.line1 || (currentEmp as any).address_line1 || '') : (formData.permanentLine1 || currentEmp.permanentAddress?.line1 || ''),
+        line2: formData.sameAsCurrent ? (formData.currentLine2 || currentEmp.currentAddress?.line2 || (currentEmp as any).address_line2 || '') : (formData.permanentLine2 || currentEmp.permanentAddress?.line2 || ''),
+        city: formData.sameAsCurrent ? (formData.currentCity || currentEmp.currentAddress?.city || (currentEmp as any).city || '') : (formData.permanentCity || currentEmp.permanentAddress?.city || ''),
+        state: formData.sameAsCurrent ? (formData.currentState || currentEmp.currentAddress?.state || (currentEmp as any).state || '') : (formData.permanentState || currentEmp.permanentAddress?.state || ''),
+        country: formData.sameAsCurrent ? (formData.currentCountry || currentEmp.currentAddress?.country || (currentEmp as any).country || 'India') : (formData.permanentCountry || currentEmp.permanentAddress?.country || 'India'),
+        pincode: formData.sameAsCurrent ? (formData.currentPincode || currentEmp.currentAddress?.pincode || (currentEmp as any).pincode || '') : (formData.permanentPincode || currentEmp.permanentAddress?.pincode || '')
       },
       emergencyContact: {
-        name: formData.emergencyName,
-        relationship: formData.emergencyRelationship,
-        mobile: cleanEmergencyMobile ? (profileEmergencyCountryCode === '+91' ? cleanEmergencyMobile : `${profileEmergencyCountryCode} ${cleanEmergencyMobile}`) : '',
-        alternateMobile: cleanEmergencyAltMobile ? (profileAltEmergencyCountryCode === '+91' ? cleanEmergencyAltMobile : `${profileAltEmergencyCountryCode} ${cleanEmergencyAltMobile}`) : ''
+        name: formData.emergencyName || currentEmp.emergencyContact?.name || '',
+        relationship: formData.emergencyRelationship || currentEmp.emergencyContact?.relationship || 'Parent',
+        mobile: cleanEmergencyMobile ? (profileEmergencyCountryCode === '+91' ? cleanEmergencyMobile : `${profileEmergencyCountryCode} ${cleanEmergencyMobile}`) : (currentEmp.emergencyContact?.mobile || ''),
+        alternateMobile: cleanEmergencyAltMobile ? (profileAltEmergencyCountryCode === '+91' ? cleanEmergencyAltMobile : `${profileAltEmergencyCountryCode} ${cleanEmergencyAltMobile}`) : (currentEmp.emergencyContact?.alternateMobile || '')
       },
 
       educationalDetails: {
-        highestQualification: formData.qualification,
-        degreeName: formData.degreeName,
-        specialization: formData.specialization,
-        university: formData.university,
-        yearOfPassing: formData.yearOfPassing,
-        gradePercentage: formData.gradePercentage
+        highestQualification: formData.qualification || currentEmp.educationalDetails?.highestQualification || (currentEmp as any).highest_qualification || '',
+        degreeName: formData.degreeName || currentEmp.educationalDetails?.degreeName || (currentEmp as any).degree_name || '',
+        specialization: formData.specialization || currentEmp.educationalDetails?.specialization || (currentEmp as any).specialization || '',
+        university: formData.university || currentEmp.educationalDetails?.university || (currentEmp as any).university || '',
+        yearOfPassing: formData.yearOfPassing || currentEmp.educationalDetails?.yearOfPassing || ((currentEmp as any).year_of_passing ? String((currentEmp as any).year_of_passing) : ''),
+        gradePercentage: formData.gradePercentage || currentEmp.educationalDetails?.gradePercentage || ((currentEmp as any).grade_percentage ? String((currentEmp as any).grade_percentage) : '')
       },
 
       experienceDetails: {

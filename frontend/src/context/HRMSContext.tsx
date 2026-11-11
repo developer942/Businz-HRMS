@@ -11373,7 +11373,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const profileExtensions = settings[EMPLOYEE_PROFILES_SETTING_KEY] || {};
         const mapped = rawEmployees.map(e => {
           const empCodeKey = e.employee_id || e.employeeId;
-          const extension = profileExtensions[empCodeKey] || profileExtensions[e.id] || {};
+          const extByCode = (empCodeKey && profileExtensions[empCodeKey]) || {};
+          const extById = (e.id && profileExtensions[e.id]) || {};
+          const extension = { ...extById, ...extByCode };
           const rawProfileData = typeof e.profile_data === 'object' && e.profile_data !== null ? e.profile_data : {};
           const mergedRaw = {
             ...extension,

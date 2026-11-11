@@ -837,23 +837,35 @@ export class EmployeeProfileSyncService {
           : (hasExplicitShiftRequest ? null : (oldProfile.upcomingShiftEffectiveFrom ?? null));
         const nextRowVersion = currentDbVersion + 1;
 
+        const mergeNonBlank = (baseObj: any, incomingObj: any) => {
+          if (!incomingObj || typeof incomingObj !== 'object') return baseObj || {};
+          if (!baseObj || typeof baseObj !== 'object') return incomingObj;
+          const result = { ...baseObj };
+          for (const [k, v] of Object.entries(incomingObj)) {
+            if (v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== 'null') {
+              result[k] = v;
+            }
+          }
+          return result;
+        };
+
         const mergedAddress = sanitizedInput.currentAddress
-          ? { ...(oldProfile.currentAddress || {}), ...sanitizedInput.currentAddress }
+          ? mergeNonBlank(oldProfile.currentAddress, sanitizedInput.currentAddress)
           : oldProfile.currentAddress;
         const mergedPermanentAddress = sanitizedInput.permanentAddress
-          ? { ...(oldProfile.permanentAddress || {}), ...sanitizedInput.permanentAddress }
+          ? mergeNonBlank(oldProfile.permanentAddress, sanitizedInput.permanentAddress)
           : oldProfile.permanentAddress;
         const mergedEmergencyContact = sanitizedInput.emergencyContact
-          ? { ...(oldProfile.emergencyContact || {}), ...sanitizedInput.emergencyContact }
+          ? mergeNonBlank(oldProfile.emergencyContact, sanitizedInput.emergencyContact)
           : oldProfile.emergencyContact;
         const mergedEducation = sanitizedInput.educationalDetails
-          ? { ...(oldProfile.educationalDetails || {}), ...sanitizedInput.educationalDetails }
+          ? mergeNonBlank(oldProfile.educationalDetails, sanitizedInput.educationalDetails)
           : oldProfile.educationalDetails;
         const mergedExperience = sanitizedInput.experienceDetails
-          ? { ...(oldProfile.experienceDetails || {}), ...sanitizedInput.experienceDetails }
+          ? mergeNonBlank(oldProfile.experienceDetails, sanitizedInput.experienceDetails)
           : oldProfile.experienceDetails;
         const mergedProfessional = sanitizedInput.professionalDetails
-          ? { ...(oldProfile.professionalDetails || {}), ...sanitizedInput.professionalDetails }
+          ? mergeNonBlank(oldProfile.professionalDetails, sanitizedInput.professionalDetails)
           : oldProfile.professionalDetails;
         const mergedShiftDetails = {
           ...(oldProfile.shiftDetails || {}),
@@ -1022,72 +1034,49 @@ export class EmployeeProfileSyncService {
           ? (String(input.salaryDetails?.uanNumber ?? input.uanNumber ?? input.uan ?? '').trim() || null)
           : oldEmployee.uan_number;
 
-        const addrLine1Val = (input.currentAddress !== undefined || input.addressLine1 !== undefined)
-          ? (String(input.currentAddress?.line1 ?? input.addressLine1 ?? '').trim() || null)
-          : oldEmployee.address_line1;
-        const addrLine2Val = (input.currentAddress !== undefined || input.addressLine2 !== undefined)
-          ? (String(input.currentAddress?.line2 ?? input.addressLine2 ?? '').trim() || null)
-          : oldEmployee.address_line2;
-        const cityVal = (input.currentAddress !== undefined || input.city !== undefined)
-          ? (String(input.currentAddress?.city ?? input.city ?? '').trim() || null)
-          : oldEmployee.city;
-        const stateVal = (input.currentAddress !== undefined || input.state !== undefined)
-          ? (String(input.currentAddress?.state ?? input.state ?? '').trim() || null)
-          : oldEmployee.state;
-        const countryVal = (input.currentAddress !== undefined || input.country !== undefined)
-          ? (String(input.currentAddress?.country ?? input.country ?? '').trim() || null)
-          : oldEmployee.country;
-        const rawPincode = (input.currentAddress !== undefined || input.pincode !== undefined)
-          ? String(input.currentAddress?.pincode ?? input.pincode ?? '').trim()
-          : (oldEmployee.pincode || '');
-        const pincodeVal = /^[1-9][0-9]{5}$/.test(rawPincode) ? rawPincode : null;
+        const resolveVal = (incoming: any, existing: any) => {
+          if (incoming !== undefined && incoming !== null && String(incoming).trim() !== '' && String(incoming).trim() !== 'null') {
+            return String(incoming).trim();
+          }
+          return existing;
+        };
 
-        const qualVal = input.educationalDetails !== undefined
-          ? (String(input.educationalDetails?.highestQualification || '').trim() || null)
-          : oldEmployee.highest_qualification;
-        const degreeVal = input.educationalDetails !== undefined
-          ? (String(input.educationalDetails?.degreeName || '').trim() || null)
-          : oldEmployee.degree_name;
-        const specVal = input.educationalDetails !== undefined
-          ? (String(input.educationalDetails?.specialization || '').trim() || null)
-          : oldEmployee.specialization;
-        const univVal = input.educationalDetails !== undefined
-          ? (String(input.educationalDetails?.university || '').trim() || null)
-          : oldEmployee.university;
-        const yopVal = input.educationalDetails !== undefined
-          ? (input.educationalDetails?.yearOfPassing ? Number(input.educationalDetails.yearOfPassing) : null)
+        const addrLine1Val = resolveVal(input.currentAddress?.line1 ?? input.addressLine1, oldEmployee.address_line1);
+        const addrLine2Val = resolveVal(input.currentAddress?.line2 ?? input.addressLine2, oldEmployee.address_line2);
+        const cityVal = resolveVal(input.currentAddress?.city ?? input.city, oldEmployee.city);
+        const stateVal = resolveVal(input.currentAddress?.state ?? input.state, oldEmployee.state);
+        const countryVal = resolveVal(input.currentAddress?.country ?? input.country, oldEmployee.country || 'India');
+        const rawPincode = resolveVal(input.currentAddress?.pincode ?? input.pincode, oldEmployee.pincode);
+        const pincodeVal = rawPincode && /^[1-9][0-9]{5}$/.test(rawPincode) ? rawPincode : oldEmployee.pincode;
+
+        const qualVal = resolveVal(input.educationalDetails?.highestQualification, oldEmployee.highest_qualification);
+        const degreeVal = resolveVal(input.educationalDetails?.degreeName, oldEmployee.degree_name);
+        const specVal = resolveVal(input.educationalDetails?.specialization, oldEmployee.specialization);
+        const univVal = resolveVal(input.educationalDetails?.university, oldEmployee.university);
+        const yopVal = (input.educationalDetails?.yearOfPassing && !isNaN(Number(input.educationalDetails.yearOfPassing)))
+          ? Number(input.educationalDetails.yearOfPassing)
           : oldEmployee.year_of_passing;
-        const gradeVal = input.educationalDetails !== undefined
-          ? (input.educationalDetails?.gradePercentage !== undefined && input.educationalDetails?.gradePercentage !== '' ? Number(input.educationalDetails.gradePercentage) : null)
+        const gradeVal = (input.educationalDetails?.gradePercentage !== undefined && input.educationalDetails?.gradePercentage !== '' && !isNaN(Number(input.educationalDetails.gradePercentage)))
+          ? Number(input.educationalDetails.gradePercentage)
           : oldEmployee.grade_percentage;
 
-        const expProfileVal = input.experienceDetails !== undefined
-          ? (String(input.experienceDetails?.experienceType || '').trim() || null)
-          : oldEmployee.experience_profile;
-        const totalExpVal = input.experienceDetails !== undefined
-          ? (input.experienceDetails?.totalExperience !== undefined && input.experienceDetails?.totalExperience !== '' ? Number(input.experienceDetails.totalExperience) : null)
+        const expProfileVal = resolveVal(input.experienceDetails?.experienceType, oldEmployee.experience_profile);
+        const totalExpVal = (input.experienceDetails?.totalExperience !== undefined && input.experienceDetails?.totalExperience !== '' && !isNaN(Number(input.experienceDetails.totalExperience)))
+          ? Number(input.experienceDetails.totalExperience)
           : oldEmployee.total_experience;
-        const prevCompVal = input.experienceDetails !== undefined
-          ? (String(input.experienceDetails?.previousCompany || '').trim() || null)
-          : oldEmployee.previous_company;
-        const prevDesigVal = input.experienceDetails !== undefined
-          ? (String(input.experienceDetails?.previousDesignation || '').trim() || null)
-          : oldEmployee.previous_designation;
-        const prevDeptVal = input.experienceDetails !== undefined
-          ? (String(input.experienceDetails?.previousDepartment || '').trim() || null)
-          : oldEmployee.previous_department;
-        const empStartVal = input.experienceDetails !== undefined
-          ? (normalizeDateText(input.experienceDetails?.startDate) || null)
+        const prevCompVal = resolveVal(input.experienceDetails?.previousCompany, oldEmployee.previous_company);
+        const prevDesigVal = resolveVal(input.experienceDetails?.previousDesignation, oldEmployee.previous_designation);
+        const prevDeptVal = resolveVal(input.experienceDetails?.previousDepartment, oldEmployee.previous_department);
+        const empStartVal = input.experienceDetails?.startDate
+          ? (normalizeDateText(input.experienceDetails.startDate) || oldEmployee.employment_start_date)
           : oldEmployee.employment_start_date;
-        const empEndVal = input.experienceDetails !== undefined
-          ? (normalizeDateText(input.experienceDetails?.endDate) || null)
+        const empEndVal = input.experienceDetails?.endDate
+          ? (normalizeDateText(input.experienceDetails.endDate) || oldEmployee.employment_end_date)
           : oldEmployee.employment_end_date;
-        const lastSalaryVal = input.experienceDetails !== undefined
-          ? (input.experienceDetails?.lastDrawnSalary !== undefined && input.experienceDetails?.lastDrawnSalary !== '' ? Number(input.experienceDetails.lastDrawnSalary) : null)
+        const lastSalaryVal = (input.experienceDetails?.lastDrawnSalary !== undefined && input.experienceDetails?.lastDrawnSalary !== '' && !isNaN(Number(input.experienceDetails.lastDrawnSalary)))
+          ? Number(input.experienceDetails.lastDrawnSalary)
           : oldEmployee.last_drawn_salary;
-        const prevLocVal = input.experienceDetails !== undefined
-          ? (String(input.experienceDetails?.companyLocation || '').trim() || null)
-          : oldEmployee.previous_company_location;
+        const prevLocVal = resolveVal(input.experienceDetails?.companyLocation, oldEmployee.previous_company_location);
 
         const isDeactivatedStatus = ['Inactive', 'Terminated'].includes(statusRawVal);
         const accountStatusVal = isDeactivatedStatus
