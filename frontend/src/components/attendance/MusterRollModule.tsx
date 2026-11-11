@@ -60,7 +60,7 @@ const parseTimeToMinutes = (timeStr?: string | null): number => {
 };
 
 // Attendance Short Code System
-export type AttendanceStatusCode = 'P' | 'A' | 'H' | 'WFO' | 'FV' | 'FD' | 'L' | 'WO' | 'HD' | 'OD' | 'WFH' | 'ML';
+export type AttendanceStatusCode = 'P' | 'A' | 'PL' | 'UL' | 'H' | 'WFO' | 'FV' | 'FD' | 'L' | 'WO' | 'HD' | 'OD' | 'WFH' | 'ML';
 
 export interface StatusConfig {
   code: AttendanceStatusCode;
@@ -73,24 +73,27 @@ export interface StatusConfig {
 
 export const ATTENDANCE_STATUS_CONFIG: Record<string, StatusConfig> = {
   P: { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 1.0 },
-  A: { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
+  PL: { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 },
+  UL: { code: 'UL', label: 'Unpaid Leave (LOP)', badgeBg: '#FEF3C7', badgeColor: '#B45309', borderColor: '#FDE68A', weight: 0.0 },
+  A: { code: 'A', label: 'Absent (LOP)', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
   H: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   WFH: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FV: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
-  // Backward-compatible aliases mapped strictly to the core 5 statuses
+  // Backward-compatible aliases
   WFO: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FD: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
   OD: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
-  L: { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
+  L: { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 },
   WO: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   HD: { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 0.5 },
-  ML: { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 }
+  ML: { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 }
 };
 
-// Exact 5 status items strictly requested by user: Present, Absent, Holiday, WFH, Field Visit
 export const DISPLAYED_STATUS_CONFIGS: StatusConfig[] = [
   { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 1.0 },
-  { code: 'A', label: 'Absent', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
+  { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 },
+  { code: 'UL', label: 'Unpaid Leave (LOP)', badgeBg: '#FEF3C7', badgeColor: '#B45309', borderColor: '#FDE68A', weight: 0.0 },
+  { code: 'A', label: 'Absent (LOP)', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
   { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
@@ -298,21 +301,37 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       };
     }
 
-    // Check Leave Requests
-    const leaveRec = leaveRequests.find(l => 
-      l.employeeId === employee.employeeId && 
-      l.status === 'Approved' && 
-      dayItem.dateStr >= l.startDate && 
-      dayItem.dateStr <= l.endDate
-    );
+    const empCode = (employee.employeeId || '').toLowerCase().trim();
+    const empUid = (employee.id || '').toLowerCase().trim();
+    const empFullName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim().toLowerCase();
+    const targetDateNorm = normalizeToYYYYMMDD(dayItem.dateStr);
+
+    const attRec = attendanceRecords.find(a => {
+      const aEmp = (a.employeeId || '').toLowerCase().trim();
+      const aDate = normalizeToYYYYMMDD(a.date || a.shiftDate);
+      return (aEmp === empCode || (empUid && aEmp === empUid)) && aDate === targetDateNorm;
+    });
+
+    // Check Approved Leave / WFH / Field Visit Requests (with ID, UUID, name & normalized date matching)
+    const leaveRec = leaveRequests.find(l => {
+      if (l.status !== 'Approved') return false;
+      const lEmp = (l.employeeId || '').toLowerCase().trim();
+      const lName = (l.employeeName || '').toLowerCase().trim();
+      const matchEmp = (empCode && lEmp === empCode) || (empUid && lEmp === empUid) || (empFullName && lName === empFullName);
+      if (!matchEmp) return false;
+      const lStart = normalizeToYYYYMMDD(l.startDate) || l.startDate;
+      const lEnd = normalizeToYYYYMMDD(l.endDate) || l.endDate;
+      return targetDateNorm >= lStart && targetDateNorm <= lEnd;
+    });
+
     if (leaveRec) {
       const lType = (leaveRec.leaveType || '').toLowerCase();
       if (lType.includes('wfo') || lType.includes('office') || lType.includes('wfh') || lType.includes('home')) {
         return {
           status: 'WFH' as AttendanceStatusCode,
-          checkIn: '09:00 AM',
-          checkOut: '06:00 PM',
-          workingHours: '08:30',
+          checkIn: attRec?.checkIn ? formatTimeDisplay(attRec.checkIn, '09:00 AM') : '09:00 AM',
+          checkOut: attRec?.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '06:00 PM') : '06:00 PM',
+          workingHours: attRec && toNum(attRec.workingHours) > 0 ? `${toNum(attRec.workingHours).toFixed(1)} hrs` : '08:30',
           shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
           location: 'Work From Home (Approved)',
           remarks: `WFH: ${leaveRec.reason || 'Approved WFH'}`
@@ -321,22 +340,31 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       if (lType.includes('field') || lType.includes('visit') || lType.includes('duty')) {
         return {
           status: 'FV' as AttendanceStatusCode,
-          checkIn: '09:30 AM',
-          checkOut: '06:00 PM',
-          workingHours: '08:30',
+          checkIn: attRec?.checkIn ? formatTimeDisplay(attRec.checkIn, '09:30 AM') : '09:30 AM',
+          checkOut: attRec?.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '06:00 PM') : '06:00 PM',
+          workingHours: attRec && toNum(attRec.workingHours) > 0 ? `${toNum(attRec.workingHours).toFixed(1)} hrs` : '08:30',
           shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
           location: 'Field Visit',
           remarks: `Field Visit: ${leaveRec.reason || 'Client/Site Visit'}`
         };
       }
+
+      const isExplicitUnpaid = lType.includes('unpaid') || lType.includes('lwp') || lType.includes('loss of pay') || lType.includes('without pay');
+      const isOverriddenUnpaid = leaveRec.hrOverride?.adjustedPayType === 'UNPAID_LEAVE';
+      const isOverriddenPaid = leaveRec.hrOverride?.adjustedPayType === 'PAID_LEAVE';
+      const isZeroPaidDays = leaveRec.paidDaysCount !== undefined && leaveRec.unpaidDaysCount !== undefined && leaveRec.paidDaysCount <= 0 && leaveRec.unpaidDaysCount > 0;
+      const isUnpaidLeave = (isExplicitUnpaid || isOverriddenUnpaid || isZeroPaidDays) && !isOverriddenPaid;
+
       return {
-        status: 'A' as AttendanceStatusCode,
+        status: (isUnpaidLeave ? 'UL' : 'PL') as AttendanceStatusCode,
         checkIn: '-',
         checkOut: '-',
         workingHours: '00:00',
         shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
-        location: 'On Leave',
-        remarks: `${leaveRec.leaveType}: ${leaveRec.reason || 'Approved Leave'}`
+        location: isUnpaidLeave ? 'On Leave (Unpaid - LOP)' : 'On Leave (Paid)',
+        remarks: isUnpaidLeave
+          ? `${leaveRec.leaveType} (Unpaid / Loss of Pay): ${leaveRec.reason || 'Approved Unpaid Leave'}`
+          : `${leaveRec.leaveType} (Paid Leave): ${leaveRec.reason || 'Approved Paid Leave'}`
       };
     }
 
@@ -366,20 +394,20 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       };
     }
 
-    // Check Attendance Records with ID fallback and date normalization
-    const empCode = (employee.employeeId || '').toLowerCase().trim();
-    const empUid = (employee.id || '').toLowerCase().trim();
-    const targetDateNorm = normalizeToYYYYMMDD(dayItem.dateStr);
-
-    const attRec = attendanceRecords.find(a => {
-      const aEmp = (a.employeeId || '').toLowerCase().trim();
-      const aDate = normalizeToYYYYMMDD(a.date || a.shiftDate);
-      return (aEmp === empCode || aEmp === empUid) && aDate === targetDateNorm;
-    });
-
     if (attRec) {
-      let code: AttendanceStatusCode = 'P';
       const st = String(attRec.status || '').toLowerCase();
+      if (st === 'on leave') {
+        return {
+          status: 'PL' as AttendanceStatusCode,
+          checkIn: '-',
+          checkOut: '-',
+          workingHours: '00:00',
+          shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
+          location: 'On Leave',
+          remarks: 'Approved Leave'
+        };
+      }
+      let code: AttendanceStatusCode = 'P';
       if (st === 'absent') code = 'A';
       else if (st === 'holiday') code = 'H';
       else if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) code = 'WFH';
@@ -408,11 +436,23 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         workingHours: whDisplay,
         shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
         location: attRec.location?.address || employee.address || 'Main Campus',
-        remarks: attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : 'Regular Attendance')
+        remarks: attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : (code === 'WFH' ? 'Work From Home' : 'Regular Attendance'))
       };
     }
 
-    // Unmarked / No attendance record found in database -> Mark as Absent (A)
+    // Check if employee had a Rejected leave request on this date
+    const rejectedLeave = leaveRequests.find(l => {
+      if (l.status !== 'Rejected') return false;
+      const lEmp = (l.employeeId || '').toLowerCase().trim();
+      const lName = (l.employeeName || '').toLowerCase().trim();
+      const matchEmp = (empCode && lEmp === empCode) || (empUid && lEmp === empUid) || (empFullName && lName === empFullName);
+      if (!matchEmp) return false;
+      const lStart = normalizeToYYYYMMDD(l.startDate) || l.startDate;
+      const lEnd = normalizeToYYYYMMDD(l.endDate) || l.endDate;
+      return targetDateNorm >= lStart && targetDateNorm <= lEnd;
+    });
+
+    // Unmarked / No attendance record found in database -> Mark as Absent (A - Loss of Pay)
     return {
       status: 'A' as AttendanceStatusCode,
       checkIn: '-',
@@ -420,7 +460,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       workingHours: '00:00',
       shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
       location: employee.address || 'Corporate HQ',
-      remarks: 'No punch recorded'
+      remarks: rejectedLeave
+        ? `Absent (Loss of Pay) — ${rejectedLeave.leaveType} Request Rejected`
+        : 'Uninformed Absent (Loss of Pay) — No punch or approved leave'
     };
   };
 
@@ -582,7 +624,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       { key: 'desig', label: 'Designation' },
       ...calendarDays.map(d => ({ key: `day_${d.dayNum}`, label: `${String(d.dayNum).padStart(2, '0')} (${d.dayName})` })),
       { key: 'totalP', label: 'Present (P)' },
-      { key: 'totalA', label: 'Absent (A)' },
+      { key: 'totalPL', label: 'Paid Leave (PL)' },
+      { key: 'totalA', label: 'Absent / LOP (A/UL)' },
       { key: 'totalH', label: 'Holiday (H)' },
       { key: 'totalWFH', label: 'Work From Home (WFH)' },
       { key: 'totalFV', label: 'Field Visit (FV)' },
@@ -592,7 +635,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     const data: Record<string, any>[] = [];
 
     filteredEmployees.forEach(emp => {
-      let p = 0, a = 0, h = 0, wfh = 0, fv = 0;
+      let p = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
       const row: Record<string, any> = {
         empId: emp.employeeId,
         empName: `${emp.firstName} ${emp.lastName}`,
@@ -605,27 +648,29 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         row[`day_${dayItem.dayNum}`] = att.status;
         switch (att.status) {
           case 'P': p++; break;
+          case 'PL':
+          case 'L':
+          case 'ML': pl++; break;
+          case 'UL':
           case 'A': a++; break;
-          case 'H': h++; break;
+          case 'H':
+          case 'WO': h++; break;
           case 'WFH':
           case 'WFO': wfh++; break;
           case 'FV':
           case 'FD':
           case 'OD': fv++; break;
-          default:
-            if (att.status === 'L' || att.status === 'ML') a++;
-            else if (att.status === 'WO') h++;
-            else if (att.status === 'HD') { p += 0.5; a += 0.5; }
-            else p++;
-            break;
+          case 'HD': p += 0.5; a += 0.5; break;
+          default: p++; break;
         }
       });
 
       const workingDays = Math.max(1, calendarDays.length - h);
-      const effectivePresent = p + wfh + fv;
+      const effectivePresent = p + pl + wfh + fv;
       const rate = Math.min(100, Math.round((effectivePresent / workingDays) * 100));
 
       row.totalP = p;
+      row.totalPL = pl;
       row.totalA = a;
       row.totalH = h;
       row.totalWFH = wfh;
@@ -847,12 +892,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                     </th>
                   ))}
 
-                  {/* Dynamic Total Summary Columns: strictly 5 requested statuses + % Rate */}
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#15803D', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>P</th>
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#B91C1C', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>A</th>
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#1E40AF', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>H</th>
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#4338CA', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>WFH</th>
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#0E7490', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }}>FV</th>
+                  {/* Dynamic Total Summary Columns */}
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#15803D', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Present">P</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#7E22CE', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Paid Leave">PL</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#B91C1C', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Absent / Unpaid Leave (Loss of Pay)">A/LOP</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#1E40AF', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Holiday / Weekly Off">H</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#4338CA', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Work From Home">WFH</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#0E7490', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Field Visit">FV</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#0F172A', borderBottom: '2px solid #CBD5E1', textAlign: 'center', minWidth: '55px' }}>% Rate</th>
 
                 </tr>
@@ -900,31 +946,32 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   </tr>
                 ) : (
                   paginatedEmployees.map(employee => {
-                    let p = 0, a = 0, h = 0, wfh = 0, fv = 0;
+                    let p = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
 
                     const dayCells = calendarDays.map(dayItem => {
                       const att = getCellAttendance(employee, dayItem);
                       switch (att.status) {
                         case 'P': p++; break;
+                        case 'PL':
+                        case 'L':
+                        case 'ML': pl++; break;
+                        case 'UL':
                         case 'A': a++; break;
-                        case 'H': h++; break;
+                        case 'H':
+                        case 'WO': h++; break;
                         case 'WFH':
                         case 'WFO': wfh++; break;
                         case 'FV':
                         case 'FD':
                         case 'OD': fv++; break;
-                        default:
-                          if (att.status === 'L' || att.status === 'ML') a++;
-                          else if (att.status === 'WO') h++;
-                          else if (att.status === 'HD') { p += 0.5; a += 0.5; }
-                          else p++;
-                          break;
+                        case 'HD': p += 0.5; a += 0.5; break;
+                        default: p++; break;
                       }
                       return { dayItem, att };
                     });
 
                     const totalWorkingDays = Math.max(1, calendarDays.length - h);
-                    const effectivePresent = p + wfh + fv;
+                    const effectivePresent = p + pl + wfh + fv;
                     const attendanceRate = Math.min(100, Math.round((effectivePresent / totalWorkingDays) * 100));
 
                     return (
@@ -1026,8 +1073,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                           );
                         })}
 
-                        {/* Summary Columns: strictly P, A, H, WFH, FV and % Rate */}
+                        {/* Summary Columns: P, PL, A/LOP, H, WFH, FV and % Rate */}
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#15803D', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#F0FDF4' }}>{p}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#7E22CE', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#FAF5FF' }}>{pl}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#B91C1C', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#FEF2F2' }}>{a}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#1E40AF', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#EFF6FF' }}>{h}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#4338CA', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#EEF2FF' }}>{wfh}</td>

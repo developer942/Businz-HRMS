@@ -598,12 +598,37 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           const st = (rec?.status || '').toLowerCase();
           const hasPunch = Boolean(rec?.checkIn && rec.checkIn !== '--:--');
 
-          if (st.includes('field') || st.includes('visit') || st.includes('duty') || (rec?.method || '').toLowerCase().includes('field')) {
+          const approvedLeave = filteredLeaveRequests.find(l => {
+            const lEmp = (l.employeeId || '').toLowerCase().trim();
+            if (lEmp !== empCode && lEmp !== empUid) return false;
+            if (l.status !== 'Approved') return false;
+            const s = normalizeToYYYYMMDD(l.startDate);
+            const e = normalizeToYYYYMMDD(l.endDate) || s;
+            return s <= d && e >= d;
+          });
+          const approvedLeaveType = (approvedLeave?.leaveType || '').toLowerCase();
+
+          if (approvedLeave && (approvedLeaveType.includes('wfh') || approvedLeaveType.includes('home') || approvedLeaveType.includes('wfo') || approvedLeaveType.includes('office'))) {
+            pCount++;
+            row[`day_${d}`] = 'WFH';
+          } else if (approvedLeave && (approvedLeaveType.includes('field') || approvedLeaveType.includes('visit') || approvedLeaveType.includes('duty'))) {
+            pCount++;
+            row[`day_${d}`] = 'FV';
+          } else if (st.includes('field') || st.includes('visit') || st.includes('duty') || (rec?.method || '').toLowerCase().includes('field')) {
             pCount++;
             row[`day_${d}`] = 'FV';
           } else if (st.includes('wfh') || st.includes('home') || st.includes('wfo') || st.includes('office')) {
             pCount++;
             row[`day_${d}`] = 'WFH';
+          } else if (approvedLeave) {
+            const isUnpaid = approvedLeaveType.includes('unpaid') || approvedLeaveType.includes('lwp') || approvedLeaveType.includes('loss of pay') || (approvedLeave.paidDaysCount !== undefined && approvedLeave.paidDaysCount <= 0 && (approvedLeave.unpaidDaysCount || 0) > 0);
+            if (isUnpaid) {
+              aCount++;
+              row[`day_${d}`] = 'UL';
+            } else {
+              pCount++;
+              row[`day_${d}`] = 'PL';
+            }
           } else if (st === 'present' || st === 'late' || hasPunch) {
             pCount++;
             row[`day_${d}`] = 'P';
@@ -611,23 +636,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             pCount += 0.5;
             row[`day_${d}`] = 'P';
           } else {
-            // Check approved leave
-            const isApprovedLeave = filteredLeaveRequests.some(l => {
-              const lEmp = (l.employeeId || '').toLowerCase().trim();
-              if (lEmp !== empCode && lEmp !== empUid) return false;
-              if (l.status !== 'Approved') return false;
-              const s = normalizeToYYYYMMDD(l.startDate);
-              const e = normalizeToYYYYMMDD(l.endDate) || s;
-              return s <= d && e >= d;
-            });
-
-            if (isApprovedLeave) {
-              aCount++;
-              row[`day_${d}`] = 'A';
-            } else {
-              aCount++;
-              row[`day_${d}`] = 'A';
-            }
+            aCount++;
+            row[`day_${d}`] = 'A';
           }
         });
 
@@ -718,8 +728,15 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         return st === 'present' || st === 'late' || st.includes('wfo') || st.includes('office') || st.includes('field') || st.includes('visit') || st.includes('duty') || st.includes('home') || hasPunch;
       }).forEach(r => {
         const st = (r.status || '').toLowerCase();
+        const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
+        const hasApprovedWfh = filteredLeaveRequests.some(l => {
+          if (l.status !== 'Approved' || !isWorkFromHomeRequest(l.leaveType)) return false;
+          const s = normalizeToYYYYMMDD(l.startDate);
+          const e = normalizeToYYYYMMDD(l.endDate) || s;
+          return l.employeeId === r.employeeId && rDate >= s && rDate <= e;
+        });
         const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || (r.method || '').toLowerCase().includes('field');
-        const isWfo = st.includes('wfo') || st.includes('office') || st.includes('home');
+        const isWfo = st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home') || hasApprovedWfh;
         const isLate = isLateArrivalRecord(r);
         const dur = getRecordWorkingDuration(r);
 
@@ -813,13 +830,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const method = (r.method || '').toLowerCase();
         const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || method.includes('field');
         const isWfo = st.includes('wfo') || st.includes('office');
-        const isWfh = st.includes('home');
-        const isLeaveMatch = filteredLeaveRequests.some(l => 
-          (l.employeeId === r.employeeId) && 
-          isRemoteDutyRequest(l.leaveType) &&
-          l.status === 'Approved' &&
-          l.startDate <= r.date && l.endDate >= r.date
-        );
+        const isWfh = st.includes('wfh') || st.includes('home');
+        const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
+        const isLeaveMatch = filteredLeaveRequests.some(l => {
+          if (l.employeeId !== r.employeeId || !isRemoteDutyRequest(l.leaveType) || l.status !== 'Approved') return false;
+          const s = normalizeToYYYYMMDD(l.startDate);
+          const e = normalizeToYYYYMMDD(l.endDate) || s;
+          return rDate >= s && rDate <= e;
+        });
         return isField || isWfo || isWfh || isLeaveMatch;
       }).forEach(r => {
         const st = (r.status || '').toLowerCase();
@@ -1451,7 +1469,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
                   return presentList.map(r => {
                     const st = (r.status || '').toLowerCase();
-                    const isWfo = st.includes('wfo') || st.includes('office') || st.includes('home');
+                    const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
+                    const hasApprovedWfh = filteredLeaveRequests.some(l => {
+                      if (l.status !== 'Approved' || !isWorkFromHomeRequest(l.leaveType)) return false;
+                      const s = normalizeToYYYYMMDD(l.startDate);
+                      const e = normalizeToYYYYMMDD(l.endDate) || s;
+                      return l.employeeId === r.employeeId && rDate >= s && rDate <= e;
+                    });
+                    const isWfo = st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home') || hasApprovedWfh;
                     const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || (r.method || '').toLowerCase().includes('field');
                     const isLate = isLateArrivalRecord(r);
                     const dur = getRecordWorkingDuration(r);
@@ -1630,13 +1655,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     const method = (r.method || '').toLowerCase();
                     const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || method.includes('field');
                     const isWfo = st.includes('wfo') || st.includes('office');
-                    const isWfh = st.includes('home');
-                    const isLeaveMatch = filteredLeaveRequests.some(l => 
-                      (l.employeeId === r.employeeId) && 
-                      isRemoteDutyRequest(l.leaveType) &&
-                      l.status === 'Approved' &&
-                      l.startDate <= r.date && l.endDate >= r.date
-                    );
+                    const isWfh = st.includes('wfh') || st.includes('home');
+                    const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
+                    const isLeaveMatch = filteredLeaveRequests.some(l => {
+                      if (l.employeeId !== r.employeeId || !isRemoteDutyRequest(l.leaveType) || l.status !== 'Approved') return false;
+                      const s = normalizeToYYYYMMDD(l.startDate);
+                      const e = normalizeToYYYYMMDD(l.endDate) || s;
+                      return rDate >= s && rDate <= e;
+                    });
                     return isField || isWfo || isWfh || isLeaveMatch;
                   });
 

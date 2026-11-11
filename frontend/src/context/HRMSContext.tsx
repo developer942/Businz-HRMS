@@ -199,7 +199,7 @@ import {
   resolveEmployeeAssignedShift,
   ShiftWindowEvaluation
 } from '../services/shiftAttendanceEngine';
-import { formatTimeDisplay, formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../utils/dateUtils';
+import { formatTimeDisplay, formatDateDDMMYYYY, formatDateTimeDDMMYYYY, normalizeToYYYYMMDD } from '../utils/dateUtils';
 import { createExpenseClaim, fetchExpenseClaims, approveExpenseApi, rejectExpenseApi } from '../services/expenseService';
 import { 
   getTodayKolkata, 
@@ -7734,8 +7734,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isSandwichApplied: isSandwich,
       sandwichDays,
       unpaidSandwichDays: unpaidSandwich,
-      paidDaysCount: isWfh ? finalDaysCount : sandwichCalc.paidDays,
-      unpaidDaysCount: isWfh ? 0 : sandwichCalc.unpaidDays
+      paidDaysCount: isWfh ? finalDaysCount : (req.paidDaysCount !== undefined ? req.paidDaysCount : sandwichCalc.paidDays),
+      unpaidDaysCount: isWfh ? 0 : (req.unpaidDaysCount !== undefined ? req.unpaidDaysCount : sandwichCalc.unpaidDays)
     };
 
     const newReqList = [newReq, ...leaveRequests];
@@ -7924,6 +7924,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 faceVerified: false,
                 method: isWfh ? 'Manual Punch' : 'System Auto'
               });
+            }
+
+            if (isWfh) {
+              supabaseDirect.upsertAttendanceRecord({
+                employee_id: l.employeeId,
+                date: item.date,
+                status: 'Work From Home',
+                late_status: 'N/A',
+                method: 'Manual Punch'
+              }).catch(() => {});
             }
           });
           return updated;
@@ -11487,37 +11497,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setShifts([]);
       }
 
-      // Synchronize Attendance (DB table primary, settings fallback)
-      const empPool = mappedEmployees.length > 0 ? mappedEmployees : employees;
-      if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
-        setAttendanceRecords(rawAttendance.map((a: any) => {
-          const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
-          const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
-          return {
-            id: a.id,
-            employeeId: a.employee?.employee_id || emp?.employeeId || a.employee_id,
-            employeeName: fullName,
-            department: emp?.department || 'General',
-            date: a.date,
-            shiftId: a.shift_id,
-            shiftDate: a.shift_date || a.date,
-            checkIn: dbTimestampToLocalHHMM(a.check_in),
-            checkOut: dbTimestampToLocalHHMM(a.check_out),
-            workingHours: a.working_hours ?? 0,
-            status: a.status || 'Present',
-            lateStatus: a.late_status || 'On Time',
-            method: a.method || 'Face Scan',
-            location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: a.location_address || 'Plant HQ', inGeofence: a.in_geofence ?? true },
-            faceVerified: a.face_verified ?? false,
-            checkInPhoto: a.check_in_photo || undefined,
-            checkOutPhoto: a.check_out_photo || undefined,
-          };
-        }));
-      } else {
-        setAttendanceRecords([]);
-      }
-
       // Synchronize Leaves. In Hostinger VPS mode the leave_requests table is the source of truth.
+      const empPool = mappedEmployees.length > 0 ? mappedEmployees : employees;
+      let hydratedLeaves: LeaveRequest[] = [];
       if (Array.isArray(rawLeaves) && rawLeaves.length > 0) {
         const cachedLeavesMap = new Map<string, LeaveRequest>();
         try {
@@ -11551,6 +11533,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           const fullName = l.employee ? `${l.employee.first_name || ''} ${l.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
           const cached = cachedLeavesMap.get(l.id);
+          const normStart = normalizeToYYYYMMDD(l.start_date) || l.start_date;
+          const normEnd = normalizeToYYYYMMDD(l.end_date) || l.end_date;
           const isWfh = l.leave_type === 'Work From Home' || 
             (l.leave_type && l.leave_type.toLowerCase().includes('work from home')) ||
             (l.leave_type && l.leave_type.toLowerCase() === 'wfh');
@@ -11559,11 +11543,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const effectiveSandwichCalc: SandwichCalculationResult | undefined = isWfh ? undefined : (cached?.sandwichDetails || calculateSandwichLeave({
             employee: emp,
             leaveType: l.leave_type || 'Casual Leave',
-            startDate: l.start_date,
-            endDate: l.end_date,
+            startDate: normStart,
+            endDate: normEnd,
             policies: activeSandwichRules,
             holidays: holidayPolicies,
-            existingLeaves: rawLeaves.filter((r: any) => r.id !== l.id).map(r => ({ ...r, employeeId: r.employee_id, startDate: r.start_date, endDate: r.end_date })),
+            existingLeaves: rawLeaves.filter((r: any) => r.id !== l.id).map(r => ({ ...r, employeeId: r.employee_id, startDate: normalizeToYYYYMMDD(r.start_date) || r.start_date, endDate: normalizeToYYYYMMDD(r.end_date) || r.end_date })),
             weeklyOffSchedule: emp?.shiftDetails?.weeklyOff,
             weeklySchedules: Array.isArray(settings.weekly_schedules_data) ? settings.weekly_schedules_data : weeklySchedules
           }));
@@ -11581,8 +11565,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             employeeName: fullName || 'Staff',
             department: emp?.department || 'General',
             leaveType: l.leave_type || 'Casual Leave',
-            startDate: l.start_date,
-            endDate: l.end_date,
+            startDate: normStart,
+            endDate: normEnd,
             daysCount: finalDays,
             reason: l.reason || '',
             status: l.status || 'Pending',
@@ -11594,19 +11578,65 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isSandwichApplied,
             sandwichDays,
             unpaidSandwichDays: effectiveSandwichCalc?.breakdown?.filter(b => b.isSandwich && !b.isPaid).length || 0,
-            paidDaysCount: isWfh ? finalDays : (isExplicitUnpaid ? 0 : (effectiveSandwichCalc?.paidDays ?? finalDays)),
-            unpaidDaysCount: isWfh ? 0 : (isExplicitUnpaid ? finalDays : (effectiveSandwichCalc?.unpaidDays ?? 0)),
+            paidDaysCount: isWfh ? finalDays : (cached?.paidDaysCount !== undefined ? cached.paidDaysCount : (isExplicitUnpaid ? 0 : (effectiveSandwichCalc?.paidDays ?? finalDays))),
+            unpaidDaysCount: isWfh ? 0 : (cached?.unpaidDaysCount !== undefined ? cached.unpaidDaysCount : (isExplicitUnpaid ? finalDays : (effectiveSandwichCalc?.unpaidDays ?? 0))),
             hrOverride: cached?.hrOverride
           };
           return mappedLeave;
         });
+        hydratedLeaves = mappedLeaves;
         setLeaveRequests(mappedLeaves);
         try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(mappedLeaves)); } catch {}
       } else if (Array.isArray(settings.leave_requests_data) && settings.leave_requests_data.length > 0) {
+        hydratedLeaves = settings.leave_requests_data;
         setLeaveRequests(settings.leave_requests_data);
       } else {
         setLeaveRequests([]);
         try { localStorage.removeItem('vrm_hrms_leave_requests_persistent'); } catch {}
+      }
+
+      // Synchronize Attendance (DB table primary, settings fallback) — respecting Approved WFH requests
+      if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
+        setAttendanceRecords(rawAttendance.map((a: any) => {
+          const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
+          const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
+          const empCode = a.employee?.employee_id || emp?.employeeId || a.employee_id;
+          const recDate = normalizeToYYYYMMDD(a.date) || a.date;
+
+          const approvedWfh = hydratedLeaves.find(l => {
+            if (l.status !== 'Approved') return false;
+            const isWfh = l.leaveType === 'Work From Home' ||
+              (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+              (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+            if (!isWfh) return false;
+            const matchEmp = l.employeeId === empCode || (emp?.id && l.employeeId === emp.id) || (fullName && l.employeeName?.toLowerCase() === fullName.toLowerCase());
+            return matchEmp && recDate >= l.startDate && recDate <= l.endDate;
+          });
+
+          return {
+            id: a.id,
+            employeeId: empCode,
+            employeeName: fullName,
+            department: emp?.department || 'General',
+            date: recDate,
+            shiftId: a.shift_id,
+            shiftDate: a.shift_date || recDate,
+            checkIn: dbTimestampToLocalHHMM(a.check_in),
+            checkOut: dbTimestampToLocalHHMM(a.check_out),
+            workingHours: a.working_hours ?? 0,
+            status: approvedWfh ? 'Work From Home' : (a.status || 'Present'),
+            wfhSource: approvedWfh ? 'Approved WFH Request' : undefined,
+            wfhReason: approvedWfh ? (approvedWfh.reason || 'Work From Home Approved') : undefined,
+            lateStatus: a.late_status || 'On Time',
+            method: a.method || 'Face Scan',
+            location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: approvedWfh ? 'Work From Home (Approved)' : (a.location_address || 'Plant HQ'), inGeofence: a.in_geofence ?? true },
+            faceVerified: a.face_verified ?? false,
+            checkInPhoto: a.check_in_photo || undefined,
+            checkOutPhoto: a.check_out_photo || undefined,
+          };
+        }));
+      } else {
+        setAttendanceRecords([]);
       }
 
       // Synchronize Assets (DB table primary, settings fallback)

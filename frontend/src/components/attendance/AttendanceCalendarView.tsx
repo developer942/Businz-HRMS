@@ -15,10 +15,10 @@ import {
   X
 } from 'lucide-react';
 import { AttendanceCorrectionModal } from './AttendanceCorrectionModal';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, normalizeToYYYYMMDD } from '../../utils/dateUtils';
 
 export const AttendanceCalendarView: React.FC = () => {
-  const { employees, attendanceRecords, currentUser } = useHRMS();
+  const { employees, attendanceRecords, leaveRequests, currentUser } = useHRMS();
   
   const [selectedEmpId, setSelectedEmpId] = useState<string>(
     currentUser.role === 'Employee' ? (currentUser.employeeId || 'EMP-001') : 'EMP-001'
@@ -59,11 +59,36 @@ export const AttendanceCalendarView: React.FC = () => {
   // Find attendance for given date & employee
   const getRecordForDate = (dayNum: number) => {
     const dateStr = formatDayString(dayNum);
-    return attendanceRecords.find(a => a.employeeId === selectedEmpId && a.date === dateStr);
+    return attendanceRecords.find(a => (a.employeeId === selectedEmpId || (selectedEmployee?.id && a.employeeId === selectedEmployee.id)) && normalizeToYYYYMMDD(a.date) === dateStr);
   };
 
-  // Status badge config strictly matching core 5 statuses: Present, Absent, Holiday, WFH, Field Visit
+  // Status badge config matching Present, Paid Leave, Unpaid Leave, Absent, Holiday, WFH, Field Visit
   const getStatusBadge = (rec?: AttendanceRecord, dayNum?: number) => {
+    const dateStr = dayNum ? formatDayString(dayNum) : (rec?.date || '');
+    const approvedLeave = leaveRequests.find(l => {
+      if (l.status !== 'Approved') return false;
+      const matchEmp = l.employeeId === selectedEmpId || (selectedEmployee?.id && l.employeeId === selectedEmployee.id);
+      if (!matchEmp) return false;
+      const s = normalizeToYYYYMMDD(l.startDate) || l.startDate;
+      const e = normalizeToYYYYMMDD(l.endDate) || l.endDate;
+      return dateStr >= s && dateStr <= e;
+    });
+
+    if (approvedLeave) {
+      const lType = (approvedLeave.leaveType || '').toLowerCase();
+      if (lType.includes('wfh') || lType.includes('home') || lType.includes('wfo') || lType.includes('office')) {
+        return { code: 'WFH', label: 'Work From Home', color: '#4338CA', bg: '#E0E7FF' };
+      }
+      if (lType.includes('field') || lType.includes('visit') || lType.includes('duty')) {
+        return { code: 'FV', label: 'Field Visit', color: '#0E7490', bg: '#CFFAFE' };
+      }
+      const isUnpaid = lType.includes('unpaid') || lType.includes('lwp') || lType.includes('loss of pay') || (approvedLeave.paidDaysCount !== undefined && approvedLeave.paidDaysCount <= 0 && (approvedLeave.unpaidDaysCount || 0) > 0);
+      if (isUnpaid) {
+        return { code: 'UL', label: 'Unpaid Leave (LOP)', color: '#B45309', bg: '#FEF3C7' };
+      }
+      return { code: 'PL', label: 'Paid Leave', color: '#7E22CE', bg: '#F3E8FF' };
+    }
+
     if (!rec) {
       // Default Sunday check -> Holiday
       const dateObj = new Date(year, month, dayNum || 1);
@@ -74,6 +99,7 @@ export const AttendanceCalendarView: React.FC = () => {
 
     const st = (rec.status || '').toLowerCase();
     if (st === 'absent') return { code: 'A', label: 'Absent', color: '#B91C1C', bg: '#FEE2E2' };
+    if (st === 'on leave') return { code: 'PL', label: 'Paid Leave', color: '#7E22CE', bg: '#F3E8FF' };
     if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) {
       return { code: 'WFH', label: 'Work From Home', color: '#4338CA', bg: '#E0E7FF' };
     }
@@ -178,7 +204,13 @@ export const AttendanceCalendarView: React.FC = () => {
           <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#DCFCE7', color: '#15803D', fontWeight: 800 }}>P</span> Present
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#FEE2E2', color: '#B91C1C', fontWeight: 800 }}>A</span> Absent
+          <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#F3E8FF', color: '#7E22CE', fontWeight: 800 }}>PL</span> Paid Leave
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#FEF3C7', color: '#B45309', fontWeight: 800 }}>UL</span> Unpaid Leave (LOP)
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#FEE2E2', color: '#B91C1C', fontWeight: 800 }}>A</span> Absent (LOP)
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#DBEAFE', color: '#1E40AF', fontWeight: 800 }}>H</span> Holiday

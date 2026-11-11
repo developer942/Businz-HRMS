@@ -30,7 +30,7 @@ import {
 import { LeaveRequest, SandwichCalculationResult, SandwichPayType, SandwichCalculationDayDetail } from '../../types/hrms';
 import { isLeaveTypePaid } from '../../services/sandwichLeaveEngine';
 import { toNum } from '../../utils/numbers';
-import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, normalizeToYYYYMMDD } from '../../utils/dateUtils';
 import { 
   getTodayKolkata, 
   validateDateRange, 
@@ -67,6 +67,7 @@ const DEFAULT_LEAVE_CATEGORY_OPTIONS = [
 export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal, openWfhModal, onCloseQuickAdd }) => {
   const { 
     leaveRequests, 
+    attendanceRecords,
     applyLeave, 
     approveLeave, 
     rejectLeave, 
@@ -121,6 +122,15 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
   };
   const formatReviewDateTime = (value?: string) => formatDateTimeDDMMYYYY(value);
   const minRequestDate = getTodayKolkata();
+  const isPastLeaveRequest = (l?: LeaveRequest | null): boolean => {
+    if (!l) return false;
+    const todayStr = getTodayKolkata();
+    const endNorm = normalizeToYYYYMMDD(l.endDate || l.startDate);
+    const startNorm = normalizeToYYYYMMDD(l.startDate);
+    const targetDate = endNorm || startNorm;
+    if (!targetDate) return false;
+    return targetDate < todayStr;
+  };
   const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
   const [isSubmittingWfh, setIsSubmittingWfh] = useState(false);
   const [leaveReasonError, setLeaveReasonError] = useState<string | null>(null);
@@ -429,14 +439,31 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
   const myLeaveSummary = useMemo(() => {
     return getEmployeeTotalLeaveSummary(
-      currentUser.employeeId,
-      currentUser.name,
+      currentEmployeeId,
+      currentEmployeeName,
       masterLeavePolicies,
       leavePolicies,
       leaveRequests,
-      currentEmployee
+      currentEmployee,
+      attendanceRecords,
+      holidayPolicies
     );
-  }, [currentUser.employeeId, currentUser.name, masterLeavePolicies, leavePolicies, leaveRequests, currentEmployee]);
+  }, [currentEmployeeId, currentEmployeeName, masterLeavePolicies, leavePolicies, leaveRequests, currentEmployee, attendanceRecords, holidayPolicies]);
+
+  const inspectApplicantSummary = useMemo(() => {
+    if (!inspectLeave) return null;
+    const emp = employees.find(e => e.employeeId === inspectLeave.employeeId || e.id === inspectLeave.employeeId);
+    return getEmployeeTotalLeaveSummary(
+      emp?.employeeId || inspectLeave.employeeId,
+      inspectLeave.employeeName,
+      masterLeavePolicies,
+      leavePolicies,
+      leaveRequests,
+      emp,
+      attendanceRecords,
+      holidayPolicies
+    );
+  }, [inspectLeave, employees, masterLeavePolicies, leavePolicies, leaveRequests, attendanceRecords, holidayPolicies]);
 
   // Synchronize form.leaveType default to first available balance type
   useEffect(() => {
@@ -580,6 +607,12 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
 
     try {
       const computedDays = form.isHalfDay ? 0.5 : (liveCalculation?.totalDays || 1);
+      const selectedBal = applicantLeaveBalances.find(b => b.name === form.leaveType);
+      const isPaidType = selectedBal ? selectedBal.isPaid : isLeaveTypePaid(form.leaveType);
+      const availablePaid = selectedBal && selectedBal.isPaid ? Math.max(0, selectedBal.remainingDays) : (isPaidType ? computedDays : 0);
+      const paidDaysCount = isPaidType ? Math.min(computedDays, availablePaid) : 0;
+      const unpaidDaysCount = Math.max(0, computedDays - paidDaysCount);
+
       const leaveReason = form.isHalfDay
         ? `[Half Day - ${form.halfDayType}] ${reasonValidation.value!}`
         : reasonValidation.value!;
@@ -592,6 +625,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
         startDate: form.startDate,
         endDate: effectiveEndDate,
         daysCount: computedDays,
+        paidDaysCount,
+        unpaidDaysCount,
         reason: leaveReason,
         attachmentUrl: form.attachmentUrl || undefined,
         halfDayType: form.isHalfDay ? form.halfDayType : undefined,
@@ -868,7 +903,9 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
               <div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#92400E' }}>Loss of Pay (Unpaid)</div>
                 <div style={{ fontSize: '0.72rem', color: '#B45309', marginTop: '2px' }}>
-                  Deducted from salary like Absent
+                  {myLeaveSummary.totalUnpaidUsed > 0
+                    ? `Unpaid Leave: ${myLeaveSummary.approvedUnpaidDays}d • Absent / Rejected LOP: ${myLeaveSummary.rejectedLeaveAbsentDays + myLeaveSummary.uninformedAbsentDays}d`
+                    : 'Deducted from salary for Unpaid Leave, Rejected Leave & Uninformed Absent'}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -1298,6 +1335,10 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                             <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#166534', backgroundColor: '#DCFCE7', padding: '1px 6px', borderRadius: '4px' }}>
                               Full Pay
                             </span>
+                          ) : l.status === 'Rejected' ? (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#DC2626', backgroundColor: '#FEE2E2', padding: '1px 6px', borderRadius: '4px' }} title="Leave rejected — if absent on this date, treated as Loss of Pay">
+                              Rejected (LOP if Absent)
+                            </span>
                           ) : isUnpaid ? (
                             <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#DC2626', backgroundColor: '#FEE2E2', padding: '1px 6px', borderRadius: '4px' }}>
                               Loss of Pay
@@ -1445,8 +1486,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               </>
                             )}
 
-                            {/* Re-Approve if Rejected */}
-                            {l.status === 'Rejected' && canApprove && (
+                            {/* Re-Approve if Rejected (only for current/future dates) */}
+                            {l.status === 'Rejected' && canApprove && !isPastLeaveRequest(l) && (
                               <button
                                 type="button"
                                 onClick={() => approveLeave(l.id, reviewerName)}
@@ -1479,8 +1520,8 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                               </button>
                             )}
 
-                            {/* Revoke if Approved */}
-                            {l.status === 'Approved' && canApprove && (
+                            {/* Revoke if Approved (only for current/future dates) */}
+                            {l.status === 'Approved' && canApprove && !isPastLeaveRequest(l) && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2599,22 +2640,65 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                   </div>
 
                   <div style={{
-                    backgroundColor: isUnpaidInspect ? '#FEF2F2' : '#F0FDF4',
-                    border: `1px solid ${isUnpaidInspect ? '#FECACA' : '#BBF7D0'}`,
+                    backgroundColor: (isUnpaidInspect || inspectLeave.status === 'Rejected') ? '#FEF2F2' : '#F0FDF4',
+                    border: `1px solid ${(isUnpaidInspect || inspectLeave.status === 'Rejected') ? '#FECACA' : '#BBF7D0'}`,
                     borderRadius: '12px',
                     padding: '12px 14px'
                   }}>
-                    <div style={{ fontSize: '0.70rem', fontWeight: 700, color: isUnpaidInspect ? '#DC2626' : '#166534', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <div style={{ fontSize: '0.70rem', fontWeight: 700, color: (isUnpaidInspect || inspectLeave.status === 'Rejected') ? '#DC2626' : '#166534', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Total Leave Days
                     </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: isUnpaidInspect ? '#DC2626' : '#166534', marginTop: '4px' }}>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: (isUnpaidInspect || inspectLeave.status === 'Rejected') ? '#DC2626' : '#166534', marginTop: '4px' }}>
                       {totalDays} {toNum(totalDays) === 1 ? 'Day' : 'Days'}
                     </div>
-                    <div style={{ fontSize: '0.68rem', color: isUnpaidInspect ? '#DC2626' : '#166534', fontWeight: 600, marginTop: '2px' }}>
-                      {isWfhInspect ? '100% Paid (WFH)' : isUnpaidInspect ? 'Loss of Pay (LOP)' : 'Paid Leave'}
+                    <div style={{ fontSize: '0.68rem', color: (isUnpaidInspect || inspectLeave.status === 'Rejected') ? '#DC2626' : '#166534', fontWeight: 600, marginTop: '2px' }}>
+                      {isWfhInspect ? '100% Paid (WFH)' : inspectLeave.status === 'Rejected' ? 'Rejected (LOP if Absent)' : isUnpaidInspect ? 'Loss of Pay (LOP)' : 'Paid Leave'}
                     </div>
                   </div>
                 </div>
+
+                {/* Employee Leave Balance & LOP Summary Strip */}
+                {inspectApplicantSummary && !isWfhInspect && (
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Employee Leave Balance & LOP Summary ({new Date().getFullYear()})
+                      </span>
+                      <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0E7490' }}>
+                        Paid Remaining: {inspectApplicantSummary.totalPaidRemaining}d / {inspectApplicantSummary.totalAnnualQuota}d ({inspectApplicantSummary.totalPaidUsed}d used)
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '8px' }}>
+                      {inspectApplicantSummary.balances.filter(b => b.isPaid).map(b => (
+                        <div key={b.name} style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1E293B' }}>{b.name}</div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748B' }}>Quota: {b.annualQuota}d • Taken: {b.usedDays}d</div>
+                          </div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 800, color: b.remainingDays > 0 ? '#0E7490' : '#DC2626' }}>
+                            {b.remainingDays}d
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ backgroundColor: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#92400E' }}>Loss of Pay (LOP)</div>
+                          <div style={{ fontSize: '0.68rem', color: '#B45309' }}>
+                            Unpaid: {inspectApplicantSummary.approvedUnpaidDays}d • Absent/Rej: {inspectApplicantSummary.rejectedLeaveAbsentDays + inspectApplicantSummary.uninformedAbsentDays}d
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: inspectApplicantSummary.totalUnpaidUsed > 0 ? '#DC2626' : '#92400E' }}>
+                          {inspectApplicantSummary.totalUnpaidUsed}d
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* HR Override Info */}
                 {inspectLeave.hrOverride?.isOverridden && (
@@ -2748,7 +2832,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                 )}
 
                 {/* Approver Remarks Input (For Reviewer when approving or rejecting) */}
-                {canApprove && (
+                {canApprove && (inspectLeave.status === 'Pending' || !isPastLeaveRequest(inspectLeave)) && (
                   <div style={{
                     backgroundColor: '#FFFFFF',
                     border: '1px solid #E2E8F0',
@@ -2900,7 +2984,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     </>
                   )}
 
-                  {inspectLeave.status === 'Rejected' && canApprove && (
+                  {inspectLeave.status === 'Rejected' && canApprove && !isPastLeaveRequest(inspectLeave) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2936,7 +3020,7 @@ export const LeaveManagement: React.FC<LeaveManagementProps> = ({ openApplyModal
                     </button>
                   )}
 
-                  {inspectLeave.status === 'Approved' && canApprove && (
+                  {inspectLeave.status === 'Approved' && canApprove && !isPastLeaveRequest(inspectLeave) && (
                     <button
                       type="button"
                       onClick={() => {

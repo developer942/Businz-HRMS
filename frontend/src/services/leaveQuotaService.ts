@@ -1,5 +1,7 @@
-import { LeaveRequest, Employee } from '../types/hrms';
+import { LeaveRequest, Employee, AttendanceRecord, HolidayItem } from '../types/hrms';
 import { MasterLeavePolicy } from '../types/settings';
+import { normalizeToYYYYMMDD } from '../utils/dateUtils';
+import { getTodayKolkata } from '../utils/requestValidation';
 
 export interface EmployeeLeaveTypeBalance {
   id: string;
@@ -29,8 +31,29 @@ export interface EmployeeTotalLeaveSummary {
   totalPaidPending: number;
   totalPaidRemaining: number;
   totalUnpaidUsed: number;
+  approvedUnpaidDays: number;
+  rejectedLeaveAbsentDays: number;
+  uninformedAbsentDays: number;
   balances: EmployeeLeaveTypeBalance[];
 }
+
+export const isWfhOrRemoteLeaveType = (leaveType?: string): boolean => {
+  const lt = (leaveType || '').toLowerCase().trim();
+  return (
+    lt.includes('work from home') ||
+    lt === 'wfh' ||
+    lt.includes('wfh') ||
+    lt.includes('wfo') ||
+    lt.includes('work from office') ||
+    lt.includes('field visit') ||
+    lt.includes('on duty')
+  );
+};
+
+export const isExplicitUnpaidLeaveType = (leaveType?: string): boolean => {
+  const lt = (leaveType || '').toLowerCase().trim();
+  return lt.includes('unpaid') || lt.includes('lwp') || lt.includes('loss of pay') || lt.includes('without pay') || lt === 'lop';
+};
 
 /**
  * Normalizes and checks if a leave request's type matches a policy leave type
@@ -41,6 +64,16 @@ export const isMatchingLeaveType = (reqType?: string, policyType?: string): bool
   const p = policyType.toLowerCase().trim();
   if (r === p) return true;
 
+  // Guard: WFH / Remote Duty never matches regular leave policies
+  const rWfh = isWfhOrRemoteLeaveType(r);
+  const pWfh = isWfhOrRemoteLeaveType(p);
+  if (rWfh || pWfh) return rWfh && pWfh;
+
+  // Guard: Unpaid / LWP strictly matches only Unpaid / LWP policies (prevent 'unpaid leave' matching 'paid leave')
+  const rUnpaid = isExplicitUnpaidLeaveType(r);
+  const pUnpaid = isExplicitUnpaidLeaveType(p);
+  if (rUnpaid || pUnpaid) return rUnpaid && pUnpaid;
+
   // Exact normalized match (removing punctuation, spaces, brackets)
   const rClean = r.replace(/[^a-z0-9]/g, '');
   const pClean = p.replace(/[^a-z0-9]/g, '');
@@ -49,17 +82,15 @@ export const isMatchingLeaveType = (reqType?: string, policyType?: string): bool
   // Keyword token mapping
   const categories = [
     { key: 'sick', tokens: ['sick', 'sl', 'medical'] },
-    { key: 'earned', tokens: ['earned', 'el', 'annual', 'privilege', 'pl'] },
+    { key: 'earned', tokens: ['earned', 'el', 'annual', 'privilege', 'pl', 'paid leave', 'paid'] },
     { key: 'casual', tokens: ['casual', 'cl'] },
     { key: 'maternity', tokens: ['maternity'] },
     { key: 'paternity', tokens: ['paternity'] },
-    { key: 'wfh', tokens: ['work from home', 'wfh'] },
-    { key: 'unpaid', tokens: ['unpaid', 'lwp', 'loss of pay', 'lop'] }
   ];
 
   for (const cat of categories) {
-    const rHas = cat.tokens.some(t => r.includes(t));
-    const pHas = cat.tokens.some(t => p.includes(t));
+    const rHas = cat.tokens.some(t => r === t || r.includes(t));
+    const pHas = cat.tokens.some(t => p === t || p.includes(t));
     if (rHas && pHas) return true;
   }
 
@@ -157,21 +188,27 @@ export const getEmployeeLeaveTypeBalances = (
   leaveRequests: LeaveRequest[] = [],
   employee?: Partial<Employee>
 ): EmployeeLeaveTypeBalance[] => {
-  const normId = (employeeId || employee?.employeeId || '').trim().toLowerCase();
+  const normEmpCode = (employee?.employeeId || employeeId || '').trim().toLowerCase();
+  const normEmpUuid = (employee?.id || '').trim().toLowerCase();
   const normName = (employeeName || (employee ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() : '')).trim().toLowerCase();
 
-  // 1. Filter approved and pending leaves for this specific employee
+  // 1. Filter approved and pending leaves for this specific employee (excluding WFH / Field Visit)
   const empLeaves = leaveRequests.filter(l => {
+    if (isWfhOrRemoteLeaveType(l.leaveType)) return false;
     const reqEmpId = (l.employeeId || '').trim().toLowerCase();
     const reqEmpName = (l.employeeName || '').trim().toLowerCase();
-    return (normId && reqEmpId === normId) || (normName && reqEmpName === normName);
+    return (
+      (normEmpCode && reqEmpId === normEmpCode) ||
+      (normEmpUuid && reqEmpId === normEmpUuid) ||
+      (normName && reqEmpName === normName)
+    );
   });
 
   const approvedLeaves = empLeaves.filter(l => l.status === 'Approved');
   const pendingLeaves = empLeaves.filter(l => l.status === 'Pending');
 
   const balanceMap = new Map<string, EmployeeLeaveTypeBalance>();
-  
+
   // 2. Filter active master policies that strictly match this employee's scope
   const activeMasterPolicies = (masterLeavePolicies || []).filter(p => {
     if (p.status !== 'Active') return false;
@@ -185,38 +222,20 @@ export const getEmployeeLeaveTypeBalances = (
 
       (p.leaveTypes || []).forEach(t => {
         const key = t.name.toLowerCase().trim();
-        // If already added, avoid duplicate display
         if (balanceMap.has(key)) return;
 
-        const usedDays = approvedLeaves
-          .filter(l => isMatchingLeaveType(l.leaveType, t.name))
-          .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
-
-        const pendingDays = pendingLeaves
-          .filter(l => isMatchingLeaveType(l.leaveType, t.name))
-          .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
-
         const baseQuota = Number(t.quotaPerYear) || (t.isPaid ? 7 : 0);
-
-        // Carry Forward Calculation
         const allowCarryForward = Boolean(p.allowCarryForward);
         const maxCarryForwardDays = allowCarryForward ? (Number(p.maxCarryForwardDays) || 5) : 0;
-        // In an active period, carry forward adds eligible rollover days (capped at maxCarryForwardDays)
         const carriedForwardDays = allowCarryForward ? Math.min(maxCarryForwardDays, 5) : 0;
         const annualQuota = baseQuota + carriedForwardDays;
 
-        const remainingDays = t.isPaid ? Math.max(0, annualQuota - usedDays) : 999;
-
-        // Leave Encashment Calculation
         const allowEncashment = Boolean(p.allowEncashment);
         const maxEncashableDays = allowEncashment ? (Number(p.maxEncashableDays) || 10) : 0;
         const minBalanceForEncashment = allowEncashment ? (Number(p.minBalanceForEncashment) || 0) : 0;
-        const encashableDays = allowEncashment && t.isPaid
-          ? Math.max(0, Math.min(maxEncashableDays, remainingDays - minBalanceForEncashment))
-          : 0;
 
-        const code = t.name.includes('(') 
-          ? (t.name.split('(')[1]?.replace(')', '').trim() || 'LV') 
+        const code = t.name.includes('(')
+          ? (t.name.split('(')[1]?.replace(')', '').trim() || 'LV')
           : t.name.slice(0, 3).toUpperCase();
 
         balanceMap.set(key, {
@@ -231,14 +250,14 @@ export const getEmployeeLeaveTypeBalances = (
           maxCarryForwardDays,
           allowEncashment,
           maxEncashableDays,
-          encashableDays,
+          encashableDays: 0,
           minBalanceForEncashment,
-          usedDays,
-          pendingDays,
-          remainingDays,
+          usedDays: 0,
+          pendingDays: 0,
+          remainingDays: t.isPaid ? annualQuota : 999,
           policyName: p.policyName,
           policyTag,
-          applicableScope: p.applicableDepartments !== 'ALL' 
+          applicableScope: p.applicableDepartments !== 'ALL'
             ? `Dept: ${Array.isArray(p.applicableDepartments) ? p.applicableDepartments.join(', ') : p.applicableDepartments}`
             : (p.applicableGender && p.applicableGender !== 'ALL' ? `${p.applicableGender} Only` : 'All Staff')
         });
@@ -248,17 +267,7 @@ export const getEmployeeLeaveTypeBalances = (
     leavePolicies.filter(p => p.status === 'Active').forEach(p => {
       const key = p.name.toLowerCase().trim();
       if (!balanceMap.has(key)) {
-        const usedDays = approvedLeaves
-          .filter(l => isMatchingLeaveType(l.leaveType, p.name))
-          .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
-
-        const pendingDays = pendingLeaves
-          .filter(l => isMatchingLeaveType(l.leaveType, p.name))
-          .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
-
         const quota = Number(p.quotaDays) || 14;
-        const remainingDays = Math.max(0, quota - usedDays);
-
         balanceMap.set(key, {
           id: p.id,
           name: p.name,
@@ -273,9 +282,9 @@ export const getEmployeeLeaveTypeBalances = (
           maxEncashableDays: 0,
           encashableDays: 0,
           minBalanceForEncashment: 0,
-          usedDays,
-          pendingDays,
-          remainingDays,
+          usedDays: 0,
+          pendingDays: 0,
+          remainingDays: quota,
           policyName: p.name,
           policyTag: 'Confirmed'
         });
@@ -286,15 +295,11 @@ export const getEmployeeLeaveTypeBalances = (
   // Ensure default fallback categories if none configured
   if (balanceMap.size === 0) {
     const defaultTypes = [
-      { name: 'Casual Leave (CL)', quota: 7, isPaid: true },
+      { name: 'Earned Leave (EL)', quota: 7, isPaid: true },
       { name: 'Sick Leave (SL)', quota: 7, isPaid: true },
       { name: 'Unpaid Leave (LWP)', quota: 12, isPaid: false }
     ];
     defaultTypes.forEach((dt, idx) => {
-      const usedDays = approvedLeaves
-        .filter(l => isMatchingLeaveType(l.leaveType, dt.name))
-        .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
-      const remainingDays = dt.isPaid ? Math.max(0, dt.quota - usedDays) : 999;
       balanceMap.set(dt.name.toLowerCase(), {
         id: `def-${idx}`,
         name: dt.name,
@@ -309,9 +314,9 @@ export const getEmployeeLeaveTypeBalances = (
         maxEncashableDays: 0,
         encashableDays: 0,
         minBalanceForEncashment: 0,
-        usedDays,
+        usedDays: 0,
         pendingDays: 0,
-        remainingDays,
+        remainingDays: dt.isPaid ? dt.quota : 999,
         policyName: 'Default Policy',
         policyTag: 'Standard'
       });
@@ -321,13 +326,6 @@ export const getEmployeeLeaveTypeBalances = (
   // Ensure Unpaid Leave (LWP) is present
   const hasUnpaid = Array.from(balanceMap.values()).some(b => !b.isPaid);
   if (!hasUnpaid) {
-    const usedDays = approvedLeaves
-      .filter(l => {
-        const lt = (l.leaveType || '').toLowerCase();
-        return lt.includes('unpaid') || lt.includes('lwp') || lt.includes('loss of pay');
-      })
-      .reduce((sum, l) => sum + (Number(l.daysCount) || 1), 0);
-
     balanceMap.set('unpaid leave (lwp)', {
       id: 'default-lwp',
       name: 'Unpaid Leave (LWP)',
@@ -342,7 +340,7 @@ export const getEmployeeLeaveTypeBalances = (
       maxEncashableDays: 0,
       encashableDays: 0,
       minBalanceForEncashment: 0,
-      usedDays,
+      usedDays: 0,
       pendingDays: 0,
       remainingDays: 999,
       policyName: 'Unpaid Leave Policy',
@@ -350,11 +348,84 @@ export const getEmployeeLeaveTypeBalances = (
     });
   }
 
-  return Array.from(balanceMap.values());
+  const allBalances = Array.from(balanceMap.values());
+  const paidCategories = allBalances.filter(b => b.isPaid);
+  const unpaidCategory = allBalances.find(b => !b.isPaid)!;
+  const primaryPaidFallback =
+    paidCategories.find(b => !b.name.toLowerCase().includes('sick')) ||
+    paidCategories[0];
+
+  // 3. Allocate Approved Leaves (chronologically so quota consumption is accurate)
+  const sortedApproved = [...approvedLeaves].sort((a, b) =>
+    normalizeToYYYYMMDD(a.startDate).localeCompare(normalizeToYYYYMMDD(b.startDate))
+  );
+
+  sortedApproved.forEach(l => {
+    const totalDays = Math.max(0.5, Number(l.daysCount) || 1);
+    const isOverriddenUnpaid = l.hrOverride?.isOverridden && l.hrOverride?.adjustedPayType === 'UNPAID_LEAVE';
+
+    if (isExplicitUnpaidLeaveType(l.leaveType) || isOverriddenUnpaid) {
+      unpaidCategory.usedDays += totalDays;
+      return;
+    }
+
+    const matchedPaid =
+      paidCategories.find(b => isMatchingLeaveType(l.leaveType, b.name)) ||
+      primaryPaidFallback;
+
+    if (!matchedPaid) {
+      unpaidCategory.usedDays += totalDays;
+      return;
+    }
+
+    const explicitUnpaid = Math.max(0, Number(l.unpaidDaysCount) || 0);
+    const requestedPaid = l.paidDaysCount !== undefined
+      ? Math.max(0, Number(l.paidDaysCount))
+      : Math.max(0, totalDays - explicitUnpaid);
+
+    const availablePaidQuota = Math.max(0, matchedPaid.annualQuota - matchedPaid.usedDays);
+    const actualPaidDays = Math.min(requestedPaid, availablePaidQuota);
+    const overflowUnpaidDays = Math.max(0, totalDays - actualPaidDays);
+
+    matchedPaid.usedDays += actualPaidDays;
+    matchedPaid.remainingDays = Math.max(0, matchedPaid.annualQuota - matchedPaid.usedDays);
+
+    if (overflowUnpaidDays > 0) {
+      unpaidCategory.usedDays += overflowUnpaidDays;
+    }
+  });
+
+  // 4. Allocate Pending Leaves
+  pendingLeaves.forEach(l => {
+    const totalDays = Math.max(0.5, Number(l.daysCount) || 1);
+    if (isExplicitUnpaidLeaveType(l.leaveType)) {
+      unpaidCategory.pendingDays += totalDays;
+      return;
+    }
+    const matchedPaid =
+      paidCategories.find(b => isMatchingLeaveType(l.leaveType, b.name)) ||
+      primaryPaidFallback;
+    if (matchedPaid) {
+      matchedPaid.pendingDays += totalDays;
+    }
+  });
+
+  // 5. Finalize remainingDays and encashableDays
+  allBalances.forEach(b => {
+    if (b.isPaid) {
+      b.remainingDays = Math.max(0, b.annualQuota - b.usedDays);
+      b.encashableDays = b.allowEncashment
+        ? Math.max(0, Math.min(b.maxEncashableDays, b.remainingDays - b.minBalanceForEncashment))
+        : 0;
+    }
+  });
+
+  return allBalances;
 };
 
 /**
- * Calculates total combined leave summary (Annual Quota, Total Paid Remaining, Total Paid Taken)
+ * Calculates total combined leave summary (Annual Quota, Total Paid Remaining, Total Paid Taken,
+ * and Loss of Pay including Approved Unpaid Leaves, Rejected Leave Absences, and Uninformed Absences)
  */
 export const getEmployeeTotalLeaveSummary = (
   employeeId?: string,
@@ -362,7 +433,9 @@ export const getEmployeeTotalLeaveSummary = (
   masterLeavePolicies: MasterLeavePolicy[] = [],
   leavePolicies: any[] = [],
   leaveRequests: LeaveRequest[] = [],
-  employee?: Partial<Employee>
+  employee?: Partial<Employee>,
+  attendanceRecords: AttendanceRecord[] = [],
+  holidayPolicies: HolidayItem[] = []
 ): EmployeeTotalLeaveSummary => {
   const balances = getEmployeeLeaveTypeBalances(employeeId, employeeName, masterLeavePolicies, leavePolicies, leaveRequests, employee);
   const paidBalances = balances.filter(b => b.isPaid);
@@ -373,7 +446,142 @@ export const getEmployeeTotalLeaveSummary = (
   const totalPaidRemaining = Math.max(0, totalAnnualQuota - totalPaidUsed);
 
   const unpaidBalances = balances.filter(b => !b.isPaid);
-  const totalUnpaidUsed = unpaidBalances.reduce((sum, b) => sum + b.usedDays, 0);
+  const approvedUnpaidDays = unpaidBalances.reduce((sum, b) => sum + b.usedDays, 0);
+
+  let rejectedLeaveAbsentDays = 0;
+  let uninformedAbsentDays = 0;
+
+  const normEmpCode = (employee?.employeeId || employeeId || '').trim().toLowerCase();
+  const normEmpUuid = (employee?.id || '').trim().toLowerCase();
+  const normName = (employeeName || (employee ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() : '')).trim().toLowerCase();
+
+  // Compute Rejected-Leave Absences & Uninformed Absences when attendance records are available
+  if (Array.isArray(attendanceRecords) && attendanceRecords.length > 0 && (normEmpCode || normEmpUuid || normName)) {
+    const todayStr = getTodayKolkata();
+    const currentYearMonth = todayStr.slice(0, 7); // YYYY-MM
+    const monthStart = `${currentYearMonth}-01`;
+
+    // Find earliest date in attendanceRecords so we never count dates before system tracking began
+    let earliestSystemDate = '2099-12-31';
+    for (const r of attendanceRecords) {
+      const d = normalizeToYYYYMMDD(r.date || r.shiftDate);
+      if (d && d < earliestSystemDate) earliestSystemDate = d;
+    }
+
+    const empJoinDate = normalizeToYYYYMMDD(employee?.joiningDate || (employee as any)?.dateOfJoining) || '1970-01-01';
+    const holidaySet = new Set(
+      (holidayPolicies || []).map(h => normalizeToYYYYMMDD(h.date)).filter(Boolean)
+    );
+
+    const empAllLeaves = leaveRequests.filter(l => {
+      const reqEmpId = (l.employeeId || '').trim().toLowerCase();
+      const reqEmpName = (l.employeeName || '').trim().toLowerCase();
+      return (
+        (normEmpCode && reqEmpId === normEmpCode) ||
+        (normEmpUuid && reqEmpId === normEmpUuid) ||
+        (normName && reqEmpName === normName)
+      );
+    });
+
+    const isEmployeePresentOnDate = (dateStr: string): boolean => {
+      const rec = attendanceRecords.find(a => {
+        const aEmp = (a.employeeId || '').trim().toLowerCase();
+        const aName = (a.employeeName || '').trim().toLowerCase();
+        const aDate = normalizeToYYYYMMDD(a.date || a.shiftDate);
+        const empMatch =
+          (normEmpCode && aEmp === normEmpCode) ||
+          (normEmpUuid && aEmp === normEmpUuid) ||
+          (normName && aName === normName);
+        return empMatch && aDate === dateStr;
+      });
+      if (!rec) return false;
+      const st = (rec.status || '').toLowerCase();
+      if (st === 'absent') return false;
+      return Boolean(
+        st === 'present' ||
+        st === 'late' ||
+        st === 'half day' ||
+        st.includes('wfh') ||
+        st.includes('home') ||
+        st.includes('wfo') ||
+        st.includes('office') ||
+        st.includes('field') ||
+        st.includes('visit') ||
+        st.includes('duty') ||
+        (rec.checkIn && rec.checkIn !== '--:--' && rec.checkIn !== '-')
+      );
+    };
+
+    const hasApprovedLeaveOnDate = (dateStr: string): boolean => {
+      return empAllLeaves.some(l => {
+        if (l.status !== 'Approved') return false;
+        const s = normalizeToYYYYMMDD(l.startDate);
+        const e = normalizeToYYYYMMDD(l.endDate) || s;
+        return Boolean(s && dateStr >= s && dateStr <= e);
+      });
+    };
+
+    const hasRejectedLeaveOnDate = (dateStr: string): boolean => {
+      return empAllLeaves.some(l => {
+        if (l.status !== 'Rejected') return false;
+        const s = normalizeToYYYYMMDD(l.startDate);
+        const e = normalizeToYYYYMMDD(l.endDate) || s;
+        return Boolean(s && dateStr >= s && dateStr <= e);
+      });
+    };
+
+    // Collect all past candidate dates to inspect:
+    // 1. All past dates in the current month (from monthStart up to yesterday)
+    // 2. Any past dates covered by a Rejected leave request for this employee
+    const candidateDates = new Set<string>();
+    const [y, m] = currentYearMonth.split('-').map(Number);
+    const todayDay = parseInt(todayStr.slice(8, 10), 10);
+    for (let day = 1; day < todayDay; day++) {
+      const dStr = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (dStr >= earliestSystemDate && dStr >= empJoinDate && dStr >= monthStart) {
+        candidateDates.add(dStr);
+      }
+    }
+
+    empAllLeaves.filter(l => l.status === 'Rejected').forEach(l => {
+      const s = normalizeToYYYYMMDD(l.startDate);
+      const e = normalizeToYYYYMMDD(l.endDate) || s;
+      if (!s) return;
+      const cur = new Date(s + 'T12:00:00');
+      const endObj = new Date(e + 'T12:00:00');
+      let safety = 0;
+      while (cur <= endObj && safety < 60) {
+        const dStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+        if (dStr < todayStr && dStr >= earliestSystemDate && dStr >= empJoinDate) {
+          candidateDates.add(dStr);
+        }
+        cur.setDate(cur.getDate() + 1);
+        safety++;
+      }
+    });
+
+    candidateDates.forEach(dStr => {
+      const dObj = new Date(dStr + 'T12:00:00');
+      if (dObj.getDay() === 0) return; // Sunday Weekly Off
+      if (holidaySet.has(dStr)) return; // Official Public Holiday
+      if (isEmployeePresentOnDate(dStr)) return; // Punched in / Present
+      if (hasApprovedLeaveOnDate(dStr)) return; // Covered by Approved Leave or WFH
+
+      if (hasRejectedLeaveOnDate(dStr)) {
+        rejectedLeaveAbsentDays += 1;
+      } else {
+        uninformedAbsentDays += 1;
+      }
+    });
+  }
+
+  const totalUnpaidUsed = approvedUnpaidDays + rejectedLeaveAbsentDays + uninformedAbsentDays;
+
+  // Also reflect totalUnpaidUsed on the Unpaid Leave balance item so callers inspecting balances see it
+  const unpaidBalItem = balances.find(b => !b.isPaid);
+  if (unpaidBalItem) {
+    unpaidBalItem.usedDays = totalUnpaidUsed;
+  }
 
   return {
     totalAnnualQuota,
@@ -381,6 +589,9 @@ export const getEmployeeTotalLeaveSummary = (
     totalPaidPending,
     totalPaidRemaining,
     totalUnpaidUsed,
+    approvedUnpaidDays,
+    rejectedLeaveAbsentDays,
+    uninformedAbsentDays,
     balances
   };
 };

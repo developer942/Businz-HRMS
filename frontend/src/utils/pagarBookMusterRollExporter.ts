@@ -152,12 +152,27 @@ export function downloadPagarBookMusterRollExcel(
     let totalOTMinutes = 0;
     let totalFineMinutes = 0;
 
+    const empCode = (emp.employeeId || '').toLowerCase().trim();
+    const empUid = (emp.id || '').toLowerCase().trim();
+
     dates.forEach(dStr => {
       const dObj = new Date(dStr);
       const isSunday = dObj.getDay() === 0;
 
-      const rec = attendanceRecords.find(r => r.employeeId === emp.employeeId && r.date === dStr);
-      const leave = leaveRequests.find(l => l.employeeId === emp.employeeId && l.status === 'Approved' && l.startDate <= dStr && l.endDate >= dStr);
+      const rec = attendanceRecords.find(r => {
+        const rEmp = (r.employeeId || '').toLowerCase().trim();
+        const rDate = (r.date || '').slice(0, 10);
+        return (rEmp === empCode || (empUid && rEmp === empUid)) && rDate === dStr;
+      });
+      const leave = leaveRequests.find(l => {
+        if (l.status !== 'Approved') return false;
+        const lEmp = (l.employeeId || '').toLowerCase().trim();
+        const matchEmp = (empCode && lEmp === empCode) || (empUid && lEmp === empUid);
+        if (!matchEmp) return false;
+        const s = (l.startDate || '').slice(0, 10);
+        const e = (l.endDate || s).slice(0, 10);
+        return s <= dStr && e >= dStr;
+      });
 
       let state = '-';
       let inTime = '-';
@@ -167,24 +182,45 @@ export function downloadPagarBookMusterRollExcel(
       let fineStr = '-';
 
       if (leave) {
-        const isWfh = leave.leaveType.toLowerCase().includes('work from home') || leave.leaveType.toLowerCase() === 'wfh';
+        const lType = (leave.leaveType || '').toLowerCase();
+        const isWfh = lType.includes('work from home') || lType.includes('wfh') || lType.includes('wfo') || lType.includes('office');
+        const isFv = lType.includes('field') || lType.includes('visit') || lType.includes('duty');
         if (isWfh) {
-          state = '1P';
-          inTime = '09:00';
-          outTime = '18:00';
+          state = 'WFH';
+          inTime = rec?.checkIn ? (rec.checkIn.includes(' ') ? rec.checkIn.split(' ')[0] : rec.checkIn) : '09:00';
+          outTime = rec?.checkOut ? (rec.checkOut.includes(' ') ? rec.checkOut.split(' ')[0] : rec.checkOut) : '18:00';
+          whStr = '08:30';
+          totalPresent++;
+        } else if (isFv) {
+          state = 'FV';
+          inTime = rec?.checkIn ? (rec.checkIn.includes(' ') ? rec.checkIn.split(' ')[0] : rec.checkIn) : '09:30';
+          outTime = rec?.checkOut ? (rec.checkOut.includes(' ') ? rec.checkOut.split(' ')[0] : rec.checkOut) : '18:00';
           whStr = '08:30';
           totalPresent++;
         } else {
-          state = 'L-CL';
-          if (leave.leaveType.toLowerCase().includes('sick')) state = 'L-SL';
-          else if (leave.leaveType.toLowerCase().includes('earned') || leave.leaveType.toLowerCase().includes('privilege')) state = 'L-EL';
-          totalPaidLeaves++;
+          const isUnpaid = lType.includes('unpaid') || lType.includes('lwp') || lType.includes('loss of pay') || (leave.paidDaysCount !== undefined && leave.paidDaysCount <= 0 && (leave.unpaidDaysCount || 0) > 0);
+          if (isUnpaid) {
+            state = 'UL';
+            totalAbsent++;
+          } else {
+            state = 'PL';
+            if (lType.includes('sick')) state = 'PL-SL';
+            else if (lType.includes('earned') || lType.includes('privilege') || lType.includes('paid')) state = 'PL-EL';
+            totalPaidLeaves++;
+          }
         }
       } else if (isSunday) {
         state = 'WO';
         totalPaidLeaves++;
       } else if (rec) {
-        if (rec.status === 'Present' || rec.status === 'Work From Home') {
+        const stLower = (rec.status || '').toLowerCase();
+        if (stLower.includes('wfh') || stLower.includes('home') || stLower.includes('wfo') || stLower.includes('office')) {
+          state = 'WFH';
+          totalPresent++;
+        } else if (stLower.includes('field') || stLower.includes('visit') || stLower.includes('duty')) {
+          state = 'FV';
+          totalPresent++;
+        } else if (rec.status === 'Present') {
           state = '1P';
           totalPresent++;
         } else if (rec.status === 'Late') {
@@ -200,7 +236,7 @@ export function downloadPagarBookMusterRollExcel(
           state = 'A';
           totalAbsent++;
         } else if (rec.status === 'On Leave') {
-          state = 'L-CL';
+          state = 'PL';
           totalPaidLeaves++;
         } else {
           state = '-';
@@ -226,12 +262,8 @@ export function downloadPagarBookMusterRollExcel(
           }
         }
       } else {
-        state = '1P';
-        totalPresent++;
-        inTime = '09:45';
-        outTime = '19:00';
-        whStr = '09:15';
-        totalWHMinutes += 555;
+        state = 'A';
+        totalAbsent++;
       }
 
       stateList.push(state);
