@@ -345,6 +345,13 @@ export function evaluateShiftAttendance(params: {
   const todayStr = formatDateISO(now);
   const employee = params.employee;
   const empId = employee?.employeeId || employee?.id || 'EMP-001';
+  const candidateEmpIds = new Set(
+    [empId, employee?.employeeId, employee?.id]
+      .filter(Boolean)
+      .map(id => String(id).trim().toLowerCase())
+  );
+  const matchesTargetEmployee = (recordEmpId?: string | null) =>
+    Boolean(recordEmpId && candidateEmpIds.has(String(recordEmpId).trim().toLowerCase()));
 
   const assignedShift = resolveEmployeeAssignedShift(employee, params.shifts);
   const effectiveGraceMins = Math.max(0, Number(params.gracePeriodMinutes ?? assignedShift.gracePeriodMins ?? 40));
@@ -359,7 +366,7 @@ export function evaluateShiftAttendance(params: {
   // An active attendance can strictly belong ONLY to today or yesterday's night shift!
   // Any unclosed check-ins from past dates must NEVER hijack today's check-in.
   const activeAttendance = params.attendanceRecords.find(a => {
-    if (a.employeeId !== empId) return false;
+    if (!matchesTargetEmployee(a.employeeId)) return false;
     const hasCheckIn = Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--');
     const hasNoCheckOut = !a.checkOut || a.checkOut.trim() === '' || a.checkOut === '--:--';
     if (!hasCheckIn || !hasNoCheckOut) return false;
@@ -453,7 +460,7 @@ export function evaluateShiftAttendance(params: {
   const yesterdayTiming = calculateShiftDateTimes(yesterdayStr, assignedShift, effectiveGraceMins);
   if (yesterdayTiming.isNightShift && now.getTime() <= yesterdayTiming.endDateTime.getTime()) {
     const yesterdayCompleted = params.attendanceRecords.find(a => {
-      if (a.employeeId !== empId) return false;
+      if (!matchesTargetEmployee(a.employeeId)) return false;
       const recShiftDate = normalizeToYYYYMMDD(a.shiftDate) || normalizeToYYYYMMDD(a.date);
       return recShiftDate === yesterdayStr && Boolean(a.checkOut && a.checkOut.trim() !== '' && a.checkOut !== '--:--');
     }) || null;
@@ -499,7 +506,7 @@ export function evaluateShiftAttendance(params: {
 
   // 2. Check if today's shift has already been COMPLETED (checkOut is present)
   const todayCompleted = params.attendanceRecords.find(a => {
-    if (a.employeeId !== empId) return false;
+    if (!matchesTargetEmployee(a.employeeId)) return false;
     const recShiftDate = normalizeToYYYYMMDD(a.shiftDate) || normalizeToYYYYMMDD(a.date);
     return recShiftDate === todayStr && Boolean(a.checkOut && a.checkOut.trim() !== '' && a.checkOut !== '--:--');
   }) || null;

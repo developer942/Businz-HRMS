@@ -1396,6 +1396,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [workflowFormat, setWorkflowFormat] = useState<ApprovalWorkflowFormat>('HR_ONLY');
   const isCloudInitialized = useRef(false);
   const isSyncingFromCloud = useRef(false);
+  const pendingCloudSyncRef = useRef(false);
+  const recentServerPunchesRef = useRef<Map<string, { record: AttendanceRecord; committedAt: number }>>(new Map());
   const lastLocalLeavePolicyUpdate = useRef(0);
 
   const [geofenceConfig, setGeofenceConfig] = useState<GeofenceConfig>(INITIAL_GEOFENCE_CONFIG);
@@ -1897,7 +1899,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     try {
-      localStorage.setItem('vrm_hrms_attendance_records_persistent', JSON.stringify(attendanceRecords));
+      const compactRecords = attendanceRecords.map(r => ({
+        ...r,
+        checkInPhoto: r.checkInPhoto?.startsWith('data:') ? undefined : r.checkInPhoto,
+        checkOutPhoto: r.checkOutPhoto?.startsWith('data:') ? undefined : r.checkOutPhoto,
+      }));
+      localStorage.setItem('vrm_hrms_attendance_records_persistent', JSON.stringify(compactRecords));
     } catch {}
   }, [attendanceRecords]);
 
@@ -2260,7 +2267,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const getEmployeeShiftAttendanceState = (empId?: string): ShiftWindowEvaluation => {
     const targetEmpId = empId || currentUser.employeeId || currentUser.id || 'EMP-001';
-    const emp = employees.find(e => e.id === targetEmpId || e.employeeId === targetEmpId) || ({
+    const targetLower = String(targetEmpId).trim().toLowerCase();
+    const emp = employees.find(e =>
+      String(e.id || '').trim().toLowerCase() === targetLower ||
+      String(e.employeeId || '').trim().toLowerCase() === targetLower ||
+      (!empId && currentUser.email && String(e.email || '').trim().toLowerCase() === String(currentUser.email).trim().toLowerCase())
+    ) || ({
       id: targetEmpId,
       employeeId: targetEmpId,
       firstName: currentUser.name?.split(' ')[0] || 'Employee',
@@ -2272,10 +2284,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (emp.attendanceMethod === 'Flexible' || (emp as any).attendance_method === 'Flexible') {
       const todayStr = getTrustedNow().toISOString().split('T')[0];
-      const todayPunch = attendanceRecords.find(
-        a => (a.employeeId === emp.employeeId || a.employeeId === emp.id) && 
-             (a.date === todayStr || a.shiftDate === todayStr)
-      );
+      const empCodeLower = String(emp.employeeId || '').trim().toLowerCase();
+      const empUuidLower = String(emp.id || '').trim().toLowerCase();
+      const todayPunch = attendanceRecords.find(a => {
+        const aEmpLower = String(a.employeeId || '').trim().toLowerCase();
+        const matchesEmp = aEmpLower === empCodeLower || aEmpLower === empUuidLower || aEmpLower === targetLower;
+        const recDate = normalizeToYYYYMMDD(a.date) || a.date;
+        const recShiftDate = normalizeToYYYYMMDD(a.shiftDate) || a.shiftDate;
+        return matchesEmp && (recDate === todayStr || recShiftDate === todayStr);
+      });
       const isCheckedIn = Boolean(todayPunch && todayPunch.checkIn && !todayPunch.checkOut);
       const isCheckedOut = Boolean(todayPunch && todayPunch.checkOut);
 
@@ -7596,14 +7613,34 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Reflect an already-committed server punch in local UI state without writing it again.
   const applyServerAttendanceRecord = (record: AttendanceRecord) => {
+    const normDate = normalizeToYYYYMMDD(record.shiftDate || record.date) || record.shiftDate || record.date;
+    const empLower = String(record.employeeId || '').trim().toLowerCase();
+    const compositeKey = `${empLower}_${normDate}`;
+    const committedEntry = { record: { ...record, date: normalizeToYYYYMMDD(record.date) || record.date, shiftDate: normDate }, committedAt: Date.now() };
+    if (record.id) {
+      recentServerPunchesRef.current.set(record.id, committedEntry);
+    }
+    if (empLower && normDate) {
+      recentServerPunchesRef.current.set(compositeKey, committedEntry);
+    }
+
     setAttendanceRecords(prev => {
-      const index = prev.findIndex(item =>
-        item.id === record.id ||
-        (item.employeeId === record.employeeId && (item.shiftDate || item.date) === (record.shiftDate || record.date))
-      );
-      if (index < 0) return [record, ...prev];
+      const index = prev.findIndex(item => {
+        if (record.id && item.id === record.id) return true;
+        const itemEmp = String(item.employeeId || '').trim().toLowerCase();
+        const itemDate = normalizeToYYYYMMDD(item.shiftDate || item.date) || item.shiftDate || item.date;
+        return Boolean(empLower && itemEmp === empLower && itemDate === normDate);
+      });
+      if (index < 0) return [committedEntry.record, ...prev];
       const next = [...prev];
-      next[index] = { ...next[index], ...record };
+      next[index] = {
+        ...next[index],
+        ...committedEntry.record,
+        checkIn: committedEntry.record.checkIn || next[index].checkIn,
+        checkOut: committedEntry.record.checkOut || next[index].checkOut,
+        checkInPhoto: committedEntry.record.checkInPhoto || next[index].checkInPhoto,
+        checkOutPhoto: committedEntry.record.checkOutPhoto || next[index].checkOutPhoto,
+      };
       return next;
     });
   };
@@ -11337,7 +11374,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Connects and synchronizes all HRM modules across all devices and browsers
   // ============================================================================
   const syncAllModulesFromDatabase = async (isInitial = false) => {
-    if (isSyncingFromCloud.current) return;
+    if (isSyncingFromCloud.current) {
+      pendingCloudSyncRef.current = true;
+      return;
+    }
     try {
       isSyncingFromCloud.current = true;
 
@@ -11597,11 +11637,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // Synchronize Attendance (DB table primary, settings fallback) — respecting Approved WFH requests
       if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
-        setAttendanceRecords(rawAttendance.map((a: any) => {
+        const mappedAttendance: AttendanceRecord[] = rawAttendance.map((a: any) => {
           const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
           const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
           const empCode = a.employee?.employee_id || emp?.employeeId || a.employee_id;
           const recDate = normalizeToYYYYMMDD(a.date) || a.date;
+          const recShiftDate = normalizeToYYYYMMDD(a.shift_date || recDate) || recDate;
 
           const approvedWfh = hydratedLeaves.find(l => {
             if (l.status !== 'Approved') return false;
@@ -11620,7 +11661,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             department: emp?.department || 'General',
             date: recDate,
             shiftId: a.shift_id,
-            shiftDate: a.shift_date || recDate,
+            shiftDate: recShiftDate,
             checkIn: dbTimestampToLocalHHMM(a.check_in),
             checkOut: dbTimestampToLocalHHMM(a.check_out),
             workingHours: a.working_hours ?? 0,
@@ -11634,9 +11675,84 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             checkInPhoto: a.check_in_photo || undefined,
             checkOutPhoto: a.check_out_photo || undefined,
           };
-        }));
+        });
+
+        setAttendanceRecords(prev => {
+          const prevById = new Map<string, AttendanceRecord>();
+          const prevByKey = new Map<string, AttendanceRecord>();
+          prev.forEach(p => {
+            if (p.id) prevById.set(p.id, p);
+            const k = `${String(p.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(p.shiftDate || p.date) || p.shiftDate || p.date}`;
+            if (k) prevByKey.set(k, p);
+          });
+
+          const nowMs = Date.now();
+          const RECENT_TTL_MS = 10 * 60 * 1000;
+          const seenRecentKeys = new Set<string>();
+
+          const merged = mappedAttendance.map(rec => {
+            const empLower = String(rec.employeeId || '').trim().toLowerCase();
+            const dKey = normalizeToYYYYMMDD(rec.shiftDate || rec.date) || rec.shiftDate || rec.date;
+            const compKey = `${empLower}_${dKey}`;
+            const prevRec = (rec.id && prevById.get(rec.id)) || prevByKey.get(compKey);
+            const recentEntry = (rec.id && recentServerPunchesRef.current.get(rec.id)) || recentServerPunchesRef.current.get(compKey);
+            const isRecentValid = Boolean(recentEntry && (nowMs - recentEntry.committedAt) < RECENT_TTL_MS);
+            if (isRecentValid) {
+              if (rec.id) seenRecentKeys.add(rec.id);
+              seenRecentKeys.add(compKey);
+            }
+            const recentRec = isRecentValid ? recentEntry!.record : undefined;
+
+            return {
+              ...rec,
+              checkIn: rec.checkIn || recentRec?.checkIn || null,
+              checkOut: rec.checkOut || recentRec?.checkOut || null,
+              checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
+              checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
+              workingHours: rec.workingHours || recentRec?.workingHours || 0,
+            };
+          });
+
+          // Also prepend any recently committed punches that were not yet present in the in-flight DB snapshot
+          const extraRecent: AttendanceRecord[] = [];
+          const addedIds = new Set(merged.map(m => m.id));
+          const addedCompKeys = new Set(
+            merged.map(m => `${String(m.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(m.shiftDate || m.date) || m.shiftDate || m.date}`)
+          );
+          recentServerPunchesRef.current.forEach((entry, key) => {
+            if ((nowMs - entry.committedAt) >= RECENT_TTL_MS) {
+              recentServerPunchesRef.current.delete(key);
+              return;
+            }
+            const r = entry.record;
+            const compKey = `${String(r.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(r.shiftDate || r.date) || r.shiftDate || r.date}`;
+            if ((r.id && addedIds.has(r.id)) || addedCompKeys.has(compKey) || seenRecentKeys.has(compKey)) {
+              return;
+            }
+            if (r.id) addedIds.add(r.id);
+            addedCompKeys.add(compKey);
+            extraRecent.push(r);
+          });
+
+          return extraRecent.length > 0 ? [...extraRecent, ...merged] : merged;
+        });
       } else {
-        setAttendanceRecords([]);
+        setAttendanceRecords(prev => {
+          const nowMs = Date.now();
+          const RECENT_TTL_MS = 10 * 60 * 1000;
+          const preserved: AttendanceRecord[] = [];
+          const seen = new Set<string>();
+          recentServerPunchesRef.current.forEach(entry => {
+            if ((nowMs - entry.committedAt) < RECENT_TTL_MS) {
+              const k = entry.record.id || `${entry.record.employeeId}_${entry.record.shiftDate || entry.record.date}`;
+              if (!seen.has(k)) {
+                seen.add(k);
+                preserved.push(entry.record);
+              }
+            }
+          });
+          return preserved.length > 0 ? preserved : (prev.length > 0 ? prev : []);
+        });
       }
 
       // Synchronize Assets (DB table primary, settings fallback)
@@ -12274,7 +12390,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (err) {
       console.warn('[HRMSContext] syncAllModulesFromDatabase notice:', err);
     } finally {
-      setTimeout(() => { isSyncingFromCloud.current = false; isCloudInitialized.current = true; }, 150);
+      setTimeout(() => {
+        isSyncingFromCloud.current = false;
+        isCloudInitialized.current = true;
+        if (pendingCloudSyncRef.current) {
+          pendingCloudSyncRef.current = false;
+          void syncAllModulesFromDatabase(false);
+        }
+      }, 150);
       isCloudInitialized.current = true;
     }
   };

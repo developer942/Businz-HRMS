@@ -46,6 +46,7 @@ import {
   fetchCanonicalGeofenceSettings,
   reportClientGpsDiagnostic
 } from '../../services/attendanceApi';
+import { supabaseDirect } from '../../services/supabaseDirectService';
 
 const getLocalDateString = (d = new Date()) => {
   const year = d.getFullYear();
@@ -199,7 +200,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     return () => clearInterval(timer);
   }, []);
 
-  const selectedEmp = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
+  const selectedEmp = employees.find(e =>
+    String(e.employeeId || '').trim().toLowerCase() === String(selectedEmpId || '').trim().toLowerCase() ||
+    String(e.id || '').trim().toLowerCase() === String(selectedEmpId || '').trim().toLowerCase()
+  );
+
+  // Local immediate committed record for today so UI buttons (Punch In / Punch Out) never lag or flicker during cloud sync
+  const [committedTodayRecord, setCommittedTodayRecord] = useState<any | null>(null);
 
   // Lightweight ticker for shift window & 1-hour delay evaluation (15s interval to avoid UI lag)
   const [ticker, setTicker] = useState<number>(0);
@@ -214,17 +221,59 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   }, [selectedEmpId, ticker, attendanceRecords, getEmployeeShiftAttendanceState]);
 
   const todayAttendance = useMemo(() => {
-    const matches = attendanceRecords.filter(
-      a => (a.employeeId === selectedEmpId || a.employeeId === selectedEmp?.employeeId || a.employeeId === selectedEmp?.id) && 
-           (normalizeToYYYYMMDD(a.shiftDate) === todayStr || normalizeToYYYYMMDD(a.date) === todayStr)
+    const candidateIds = new Set(
+      [
+        selectedEmpId,
+        selectedEmp?.employeeId,
+        selectedEmp?.id,
+        currentUser.employeeId,
+        currentUser.id,
+      ]
+        .filter(Boolean)
+        .map(v => String(v).trim().toLowerCase())
     );
-    if (matches.length <= 1) return matches[0];
-    return (
-      matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
-      matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
-      matches[0]
-    );
-  }, [attendanceRecords, selectedEmpId, selectedEmp, todayStr]);
+    const matches = attendanceRecords.filter(a => {
+      const aEmp = String(a.employeeId || '').trim().toLowerCase();
+      const matchesEmp = Boolean(aEmp && candidateIds.has(aEmp));
+      const matchesDate = normalizeToYYYYMMDD(a.shiftDate) === todayStr || normalizeToYYYYMMDD(a.date) === todayStr;
+      return matchesEmp && matchesDate;
+    });
+
+    const fromRecords = matches.length <= 1
+      ? matches[0]
+      : (
+          matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
+          matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
+          matches[0]
+        );
+
+    const isCommittedForToday =
+      committedTodayRecord &&
+      (normalizeToYYYYMMDD(committedTodayRecord.shiftDate) === todayStr || normalizeToYYYYMMDD(committedTodayRecord.date) === todayStr) &&
+      candidateIds.has(String(committedTodayRecord.employeeId || '').trim().toLowerCase());
+
+    if (!fromRecords) {
+      return isCommittedForToday ? committedTodayRecord : undefined;
+    }
+    if (!isCommittedForToday) {
+      return fromRecords;
+    }
+    const isManualOverride = (fromRecords.method as string) === 'Manual Override' || fromRecords.method === 'Manual Punch' || Boolean(fromRecords.reason);
+    if (isManualOverride) {
+      return fromRecords;
+    }
+    return {
+      ...fromRecords,
+      checkIn: (fromRecords.checkIn && fromRecords.checkIn !== '--:--' && fromRecords.checkIn.trim() !== '')
+        ? fromRecords.checkIn
+        : committedTodayRecord.checkIn,
+      checkOut: (fromRecords.checkOut && fromRecords.checkOut !== '--:--' && fromRecords.checkOut.trim() !== '')
+        ? fromRecords.checkOut
+        : committedTodayRecord.checkOut,
+      checkInPhoto: fromRecords.checkInPhoto || committedTodayRecord.checkInPhoto,
+      checkOutPhoto: fromRecords.checkOutPhoto || committedTodayRecord.checkOutPhoto,
+    };
+  }, [attendanceRecords, selectedEmpId, selectedEmp, currentUser.employeeId, currentUser.id, todayStr, committedTodayRecord]);
 
   const isCheckedIn = Boolean(todayAttendance?.checkIn && todayAttendance.checkIn.trim() !== '' && todayAttendance.checkIn !== '--:--');
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
@@ -344,12 +393,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
 
-  // Sync selected employee whenever logged-in user changes
+  // Sync selected employee whenever logged-in user or employee directory changes
   useEffect(() => {
-    if (currentUser.employeeId) {
-      setSelectedEmpId(currentUser.employeeId);
+    const matchedEmp = employees.find(e =>
+      (currentUser.employeeId && (e.employeeId?.toLowerCase() === currentUser.employeeId.toLowerCase() || e.id?.toLowerCase() === currentUser.employeeId.toLowerCase())) ||
+      (currentUser.id && (e.id?.toLowerCase() === currentUser.id.toLowerCase() || e.employeeId?.toLowerCase() === currentUser.id.toLowerCase())) ||
+      (currentUser.email && e.email?.toLowerCase() === currentUser.email.toLowerCase())
+    );
+    const resolvedId = matchedEmp?.employeeId || currentUser.employeeId || currentUser.id;
+    if (resolvedId && resolvedId !== selectedEmpId) {
+      setSelectedEmpId(resolvedId);
     }
-  }, [currentUser]);
+  }, [currentUser, employees]);
 
   // GPS Location Mode: 'real' (Live Browser GPS), 'inside' (Demo Inside 35m), 'outside' (Demo Outside 650m)
   const [locationMode, setLocationMode] = useState<'real' | 'inside' | 'outside'>('real');
@@ -1455,22 +1510,22 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       setFullScreenError(null);
 
       // Apply authoritative PostgreSQL record immediately upon server confirmation
-      applyServerAttendanceRecord({
+      const committedRecord = {
         id: serverRecord.id,
-        employeeId: serverRecord.employeeId,
+        employeeId: serverRecord.employeeId || selectedEmpId,
         employeeName: empName,
         department: emp?.department || 'General',
         designation: emp?.designation,
-        date: serverRecord.date,
-        shiftDate: serverRecord.shiftDate || serverRecord.date,
+        date: serverRecord.date || todayStr,
+        shiftDate: serverRecord.shiftDate || serverRecord.date || todayStr,
         checkIn: resolvedCheckIn,
         checkOut: resolvedCheckOut,
-        checkInPhoto: serverRecord.checkInPhoto,
-        checkOutPhoto: serverRecord.checkOutPhoto,
+        checkInPhoto: serverRecord.checkInPhoto || (type === 'Check-In' ? capturedPhotoUrl : todayAttendance?.checkInPhoto),
+        checkOutPhoto: serverRecord.checkOutPhoto || (type === 'Check-Out' ? capturedPhotoUrl : todayAttendance?.checkOutPhoto),
         workingHours: serverRecord.workingHours,
         status: (serverRecord.status || 'Present') as any,
         lateStatus: (serverRecord.lateStatus || 'On Time') as any,
-        method: 'Face Recognition',
+        method: 'Face Recognition' as const,
         faceVerified: true,
         location: {
           lat: serverRecord.locationLat ?? gpsInfo.latitude,
@@ -1478,7 +1533,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           address: serverRecord.locationAddress || gpsInfo.address,
           inGeofence: serverRecord.inGeofence ?? true,
         },
-      });
+      };
+      setCommittedTodayRecord(committedRecord);
+      applyServerAttendanceRecord(committedRecord);
       // Synchronize full cloud state asynchronously in background without blocking UI confirmation
       void syncAllWithCloud().catch(() => {});
 
@@ -1487,6 +1544,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         const nowEpoch = String(Number.isFinite(authoritativeEpoch) ? authoritativeEpoch : Date.now());
         try {
           localStorage.setItem(`vrm_punch_in_epoch_${selectedEmpId}_${todayStr}`, nowEpoch);
+          if (serverRecord.employeeId) {
+            localStorage.setItem(`vrm_punch_in_epoch_${serverRecord.employeeId}_${todayStr}`, nowEpoch);
+          }
           if (currentUser.employeeId) {
             localStorage.setItem(`vrm_punch_in_epoch_${currentUser.employeeId}_${todayStr}`, nowEpoch);
           }
@@ -2004,10 +2064,38 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     });
   }, [attendanceRecords, faceLogs, todayStr, employees]);
 
+  const [monthPhotosMap, setMonthPhotosMap] = useState<Record<string, { checkInPhoto?: string; checkOutPhoto?: string }>>({});
+
+  useEffect(() => {
+    if (mode !== 'log' || !selectedMonth) return;
+    let cancelled = false;
+    supabaseDirect.getAttendancePhotosByMonth(selectedMonth).then(rows => {
+      if (cancelled || !Array.isArray(rows)) return;
+      const nextMap: Record<string, { checkInPhoto?: string; checkOutPhoto?: string }> = {};
+      rows.forEach(r => {
+        if (r?.id && (r.check_in_photo || r.check_out_photo)) {
+          nextMap[r.id] = {
+            checkInPhoto: r.check_in_photo || undefined,
+            checkOutPhoto: r.check_out_photo || undefined,
+          };
+        }
+      });
+      setMonthPhotosMap(prev => ({ ...prev, ...nextMap }));
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, selectedMonth, attendanceRecords.length]);
+
   // Photo resolution helper for attendance records and face logs
   const getRecordPhoto = (record: any, type: 'Check-In' | 'Check-Out'): string | null => {
-    if (type === 'Check-In' && record.checkInPhoto) return record.checkInPhoto;
-    if (type === 'Check-Out' && record.checkOutPhoto) return record.checkOutPhoto;
+    const cachedPhoto = record?.id ? monthPhotosMap[record.id] : undefined;
+    if (type === 'Check-In' && (record.checkInPhoto || cachedPhoto?.checkInPhoto)) {
+      return record.checkInPhoto || cachedPhoto?.checkInPhoto || null;
+    }
+    if (type === 'Check-Out' && (record.checkOutPhoto || cachedPhoto?.checkOutPhoto)) {
+      return record.checkOutPhoto || cachedPhoto?.checkOutPhoto || null;
+    }
 
     const recDate = normalizeToYYYYMMDD(record.date || record.shiftDate);
     const empId = String(record.employeeId || '').toLowerCase();

@@ -1188,9 +1188,15 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   async getAttendanceRecords(): Promise<any[]> {
     try {
-      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=*,employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
+      const cols = 'id,employee_id,date,shift_id,shift_date,check_in,check_out,working_hours,status,late_status,method,in_geofence,face_verified,location_lat,location_lng,location_address,notes,created_at,updated_at';
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols},employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
         headers: getHeaders(),
       });
+      if (!res.ok) {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols}&order=date.desc`, {
+          headers: getHeaders(),
+        });
+      }
       if (!res.ok) {
         res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=*&order=date.desc`, {
           headers: getHeaders(),
@@ -1200,6 +1206,26 @@ export const supabaseDirect = {
       return await res.json();
     } catch (err) {
       console.warn('[DatabaseRest] getAttendanceRecords error:', err);
+      return [];
+    }
+  },
+
+  async getAttendancePhotosByMonth(monthPrefix: string): Promise<Array<{ id: string; check_in_photo?: string | null; check_out_photo?: string | null }>> {
+    try {
+      const [yStr, mStr] = String(monthPrefix || '').split('-');
+      const y = Number(yStr) || new Date().getFullYear();
+      const m = Number(mStr) || (new Date().getMonth() + 1);
+      const lastDay = new Date(y, m, 0).getDate();
+      const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+      const endDate = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const res = await fetch(
+        `${DATABASE_REST_URL}/rest/v1/attendance_records?select=id,check_in_photo,check_out_photo&date=gte.${startDate}&date=lte.${endDate}`,
+        { headers: getHeaders() }
+      );
+      if (!res.ok) return [];
+      const rows = await res.json();
+      return Array.isArray(rows) ? rows : [];
+    } catch {
       return [];
     }
   },
