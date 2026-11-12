@@ -263,15 +263,64 @@ export const authService = {
     const token = this.getToken();
     if (!token) throw new Error('No active session');
 
-    const response = await safeFetch(`${getApiBase()}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const getFallbackSessionUser = (): AuthUser | null => {
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+          const payload = JSON.parse(payloadJson);
+          if (payload?.exp && payload.exp * 1000 < Date.now()) {
+            return null;
+          }
+          if (typeof window !== 'undefined') {
+            const cachedRaw = window.localStorage?.getItem('vrm_hrms_current_user');
+            if (cachedRaw) {
+              const cached = JSON.parse(cachedRaw);
+              if (cached?.email) return cached as AuthUser;
+            }
+          }
+          if (payload?.email) {
+            return {
+              id: payload.id || payload.employeeId || 'USR-001',
+              email: payload.email,
+              name: payload.name || 'Employee',
+              role: payload.role || 'Employee',
+              employeeId: payload.employeeId,
+              department: payload.department,
+              designation: payload.designation,
+              company_id: payload.company_id,
+              mustChangePassword: payload.mustChangePassword,
+            };
+          }
+        }
+      } catch {}
+      return null;
+    };
+
+    let response: Response;
+    try {
+      response = await safeFetch(`${getApiBase()}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (networkErr) {
+      const fallbackUser = getFallbackSessionUser();
+      if (fallbackUser) return fallbackUser;
+      throw networkErr;
+    }
+
     if (!response.ok) {
-      this.clearSession();
-      throw new Error(await readError(response, 'Your session has expired. Please sign in again.'));
+      if (response.status === 401 || response.status === 403) {
+        this.clearSession();
+        throw new Error(await readError(response, 'Your session has expired. Please sign in again.'));
+      }
+      const fallbackUser = getFallbackSessionUser();
+      if (fallbackUser) return fallbackUser;
+      throw new Error(await readError(response, 'Unable to verify session at this moment.'));
     }
     const body = (await response.json()) as ApiResponse<AuthUser>;
     if (!body.data?.email) {
+      const fallbackUser = getFallbackSessionUser();
+      if (fallbackUser) return fallbackUser;
       this.clearSession();
       throw new Error('Authentication response was incomplete.');
     }

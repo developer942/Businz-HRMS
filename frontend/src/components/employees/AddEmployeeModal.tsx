@@ -1446,6 +1446,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       mustChangePassword: true,
       accountStatus: 'ACTIVE',
       password: targetPassword,
+      portalPassword: targetPassword,
       firstName: formData.firstName.trim() || 'New',
       lastName: formData.lastName.trim(),
       email: primaryEmail,
@@ -1615,6 +1616,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       email: primaryEmail,
       personalEmail: targetEmail,
       password: targetPassword,
+      portalPassword: targetPassword,
       phone: newEmp.phone || formData.phone || (formData as any).mobile || null,
       mobile: newEmp.phone || formData.phone || (formData as any).mobile || null,
       department: newEmp.department,
@@ -1682,6 +1684,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       gps_allowed: formData.gpsAllowed ?? true,
       profile_data: {
         ...newEmp,
+        portalPassword: targetPassword,
         currentAddress: newEmp.currentAddress,
         permanentAddress: newEmp.permanentAddress,
         emergencyContact: newEmp.emergencyContact,

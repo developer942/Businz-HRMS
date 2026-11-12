@@ -168,12 +168,18 @@ export class AuthRepository {
         const rawDbPass = String(data.password || '');
         const alreadyHashed = isBcryptPasswordHash(rawDbPass);
         const passwordHash = alreadyHashed ? rawDbPass : (rawDbPass ? await bcrypt.hash(rawDbPass, BCRYPT_ROUNDS) : '');
+        const portalPass = typeof profileData?.portalPassword === 'string'
+          && profileData.portalPassword.trim()
+          && !isBcryptPasswordHash(profileData.portalPassword.trim())
+          ? profileData.portalPassword.trim()
+          : undefined;
 
         const userAccount: UserAccount = {
           id: data.auth_id || data.id,
           email: data.email,
           passwordHash,
           plainPassword: alreadyHashed ? undefined : (rawDbPass || undefined),
+          additionalPlainPasswords: portalPass ? [portalPass] : undefined,
           name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Staff',
           role: userRole,
           employeeId: data.employee_id,
@@ -343,6 +349,7 @@ export class AuthRepository {
           if (user.employeeId) {
             profiles[user.employeeId] = {
               ...scrubProfilePasswordFields(profiles[user.employeeId]),
+              portalPassword: newPassword,
               mustChangePassword: false,
               updatedAt: new Date().toISOString()
             };
@@ -350,6 +357,7 @@ export class AuthRepository {
           if (user.id && user.id !== user.employeeId) {
             profiles[user.id] = {
               ...scrubProfilePasswordFields(profiles[user.id]),
+              portalPassword: newPassword,
               mustChangePassword: false,
               updatedAt: new Date().toISOString()
             };
@@ -433,6 +441,7 @@ export class AuthRepository {
           if (user.employeeId) {
             profiles[user.employeeId] = {
               ...scrubProfilePasswordFields(profiles[user.employeeId]),
+              portalPassword: newTempPassword,
               mustChangePassword: true,
               credentialEmailStatus: emailResult.status,
               credentialEmailSentAt: emailResult.sentAt,
@@ -442,6 +451,7 @@ export class AuthRepository {
           if (user.id && user.id !== user.employeeId) {
             profiles[user.id] = {
               ...scrubProfilePasswordFields(profiles[user.id]),
+              portalPassword: newTempPassword,
               mustChangePassword: true,
               credentialEmailStatus: emailResult.status,
               credentialEmailSentAt: emailResult.sentAt,
@@ -511,6 +521,7 @@ export class AuthRepository {
           if (user.employeeId) {
             profiles[user.employeeId] = {
               ...scrubProfilePasswordFields(profiles[user.employeeId]),
+              portalPassword: plainPasswordForPortal,
               mustChangePassword: false,
               updatedAt: new Date().toISOString()
             };
@@ -518,6 +529,7 @@ export class AuthRepository {
           if (user.id && user.id !== user.employeeId) {
             profiles[user.id] = {
               ...scrubProfilePasswordFields(profiles[user.id]),
+              portalPassword: plainPasswordForPortal,
               mustChangePassword: false,
               updatedAt: new Date().toISOString()
             };
@@ -634,11 +646,20 @@ export class AuthRepository {
 
     if (!user.isSystemAccount) {
       if (user.plainPassword && user.passwordHash && isBcryptPasswordHash(user.passwordHash)) {
+        const plainToPreserve = user.plainPassword;
         user.plainPassword = undefined;
         await query(
-          `UPDATE employees SET password = $1, last_login_at = $2, updated_at = NOW()
+          `UPDATE employees
+           SET password = $1,
+               last_login_at = $2,
+               profile_data = CASE
+                 WHEN COALESCE(profile_data->>'portalPassword', '') = '' OR COALESCE(profile_data->>'portalPassword', '') LIKE '$2%'
+                 THEN jsonb_set(COALESCE(profile_data, '{}'::jsonb), '{portalPassword}', to_jsonb($4::text))
+                 ELSE profile_data
+               END,
+               updated_at = NOW()
            WHERE LOWER(employee_id) = LOWER($3)`,
-          [user.passwordHash, timestamp, user.employeeId]
+          [user.passwordHash, timestamp, user.employeeId, plainToPreserve]
         );
       } else {
         await query(
@@ -666,16 +687,16 @@ export class AuthRepository {
       credentialEmailSentAt: user.credentialEmailSentAt,
       lastLoginAt: user.lastLoginAt,
     };
-    return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '7d' });
+    return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '30d' });
   }
 
   async verifyPassword(password: string, hash?: string, plain?: string, additionalPlainPasswords: string[] = []): Promise<boolean> {
     if (!password) return false;
     if (hash && hash.startsWith('$2')) {
       try {
-        return await bcrypt.compare(password, hash);
+        if (await bcrypt.compare(password, hash)) return true;
       } catch {
-        return false;
+        // Fall through to plain / additionalPlainPasswords check
       }
     }
     if (plain && password === plain) return true;

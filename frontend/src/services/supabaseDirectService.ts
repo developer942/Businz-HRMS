@@ -242,18 +242,31 @@ export const supabaseDirect = {
         'profile_data'
       ]);
 
+      const isUuid = (val: any) =>
+        typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+      const resolvedManagerUuid = isUuid(emp.reporting_manager_id)
+        ? emp.reporting_manager_id!.trim()
+        : (await resolveEmployeeUuid(emp.reporting_manager_id || undefined)) || null;
+
+      let normalizedPhone: string | null = null;
+      if (emp.phone) {
+        let digits = String(emp.phone).replace(/\D/g, '');
+        if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+        if (/^[6-9]\d{9}$/.test(digits)) normalizedPhone = digits;
+      }
+
       const payload: Record<string, any> = {
         employee_id: emp.employee_id,
         first_name: emp.first_name,
         last_name: emp.last_name || '',
         email: (emp.email || '').toLowerCase().trim(),
         password: emp.password || 'Password@123',
-        department_id: departmentId || emp.department_id || null,
+        department_id: departmentId || (isUuid(emp.department_id) ? emp.department_id : null),
         designation: emp.designation || 'Staff',
-        reporting_manager_id: emp.reporting_manager_id || null,
+        reporting_manager_id: resolvedManagerUuid,
         reporting_manager_name: emp.reporting_manager_name || null,
         basic_salary: Number(emp.basic_salary) || 15000,
-        phone: emp.phone || null,
+        phone: normalizedPhone,
         status: emp.status || 'Active',
         role_id: emp.role_id || (emp.designation === 'CEO' || (emp.designation && emp.designation.toLowerCase().includes('ceo'))
           ? '42a8b0c3-22e5-40a0-bf78-2dd14475c6d6'
@@ -265,7 +278,15 @@ export const supabaseDirect = {
 
       for (const [key, val] of Object.entries(emp)) {
         if (allowedDbColumns.has(key) && val !== undefined) {
-          payload[key] = val;
+          if (key === 'reporting_manager_id') {
+            payload[key] = resolvedManagerUuid;
+          } else if (key === 'department_id') {
+            payload[key] = departmentId || (isUuid(val) ? val : null);
+          } else if (key === 'phone') {
+            payload[key] = normalizedPhone;
+          } else {
+            payload[key] = val;
+          }
         }
       }
 

@@ -1,3 +1,4 @@
+import bcrypt from 'bcrypt';
 import { PoolClient } from 'pg';
 import { withTransaction } from '../config/database.js';
 import { computeFullPayroll } from './calculationEngine.js';
@@ -209,6 +210,7 @@ const FIELD_ALIAS_GROUPS: Record<string, string[]> = {
   experienceDetails: ['experienceDetails', 'professionalDetails', 'experienceProfile', 'experienceType', 'totalExperience', 'previousCompany', 'previousDesignation', 'previousDepartment', 'employmentStartDate', 'startDate', 'employmentEndDate', 'endDate', 'lastDrawnSalary', 'previousCompanyLocation', 'companyLocation'],
   documents: ['documents'],
   systemAccess: ['systemAccess'],
+  portalPassword: ['portalPassword'],
 };
 
 const canonicalFieldName = (key: string): string => {
@@ -295,6 +297,7 @@ const buildCanonicalSnapshot = (emp: Record<string, any>, profile: Record<string
     },
     professionalDetails: p.professionalDetails ?? {},
     systemAccess: p.systemAccess ?? {},
+    portalPassword: p.portalPassword ?? (!String(emp.password || '').startsWith('$2') ? (emp.password ?? '') : ''),
   };
 };
 
@@ -936,6 +939,31 @@ export class EmployeeProfileSyncService {
         delete profileData.plainPassword;
         delete profileData.mustChangePassword;
 
+        const rawExplicitPortalPassword =
+          typeof rawInput.portalPassword === 'string' &&
+          rawInput.portalPassword.trim().length >= 6 &&
+          !rawInput.portalPassword.trim().startsWith('$2')
+            ? rawInput.portalPassword.trim()
+            : undefined;
+        const existingPortalPassword =
+          typeof oldProfile.portalPassword === 'string' &&
+          oldProfile.portalPassword.trim().length > 0 &&
+          !oldProfile.portalPassword.trim().startsWith('$2')
+            ? oldProfile.portalPassword.trim()
+            : (typeof oldEmployee.password === 'string' &&
+               oldEmployee.password.trim().length > 0 &&
+               !oldEmployee.password.trim().startsWith('$2')
+                 ? oldEmployee.password.trim()
+                 : undefined);
+
+        if (rawExplicitPortalPassword) {
+          profileData.portalPassword = rawExplicitPortalPassword;
+        } else if (existingPortalPassword) {
+          profileData.portalPassword = existingPortalPassword;
+        } else {
+          delete profileData.portalPassword;
+        }
+
         // 4. Resolve individual SQL columns, preserving existing values when omitted (Phase 3)
         const firstNameVal = input.firstName !== undefined ? String(input.firstName).trim() : oldEmployee.first_name;
         const lastNameVal = input.lastName !== undefined ? String(input.lastName).trim() : oldEmployee.last_name;
@@ -1129,6 +1157,15 @@ export class EmployeeProfileSyncService {
         }
 
         const updatedEmployee = updatedResult.rows[0];
+        if (rawExplicitPortalPassword && rawExplicitPortalPassword !== existingPortalPassword) {
+          const hashedPortalPassword = await bcrypt.hash(rawExplicitPortalPassword, 12);
+          await client.query(
+            `UPDATE public.employees SET password = $1, must_change_password = FALSE, updated_at = NOW() WHERE id = $2`,
+            [hashedPortalPassword, oldEmployee.id]
+          );
+          updatedEmployee.password = hashedPortalPassword;
+          updatedEmployee.must_change_password = false;
+        }
         const changedFields = recordedChangedFields.length > 0
           ? recordedChangedFields
           : Object.keys(input).filter(key => key !== 'password' && key !== 'mustChangePassword');
@@ -1405,7 +1442,8 @@ export class EmployeeProfileSyncService {
               plainPassword: undefined,
               passwordHash: undefined,
               password_hash: undefined,
-              mustChangePassword: existingExt.mustChangePassword,
+              portalPassword: profileData.portalPassword || existingExt.portalPassword || undefined,
+              mustChangePassword: rawExplicitPortalPassword ? false : existingExt.mustChangePassword,
               updatedAt: new Date().toISOString(),
             };
             if (empCode) profilesMap[empCode] = syncedExt;

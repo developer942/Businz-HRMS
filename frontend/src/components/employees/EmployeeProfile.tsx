@@ -1245,6 +1245,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     };
 
     const baseForm = baselineFormRef.current || getInitialFormData(currentEmp);
+    const newPassword = ((formData as any).portalPassword || formData.password || '').trim();
+    const basePassword = ((baseForm as any).portalPassword || baseForm.password || '').trim();
+    const isPasswordExplicitlyChanged = Boolean(newPassword && newPassword !== basePassword && !newPassword.startsWith('$2'));
+    if (isPasswordExplicitlyChanged) {
+      (updatedData as any).portalPassword = newPassword;
+    }
+
     const changedFields: string[] = [];
     const markIfChanged = (canonical: string, curVal: unknown, baseVal: unknown) => {
       const a = typeof curVal === 'object' ? JSON.stringify(curVal ?? '') : String(curVal ?? '').trim();
@@ -1253,6 +1260,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         changedFields.push(canonical);
       }
     };
+    if (isPasswordExplicitlyChanged) {
+      changedFields.push('portalPassword');
+    }
     markIfChanged('firstName', cleanFname, (baseForm.firstName || '').trim());
     markIfChanged('lastName', cleanLname, (baseForm.lastName || '').trim());
     markIfChanged('phone', updatedData.phone, baseForm.phone);
@@ -1377,31 +1387,22 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         return;
       }
 
-      const newPassword = ((formData as any).portalPassword || formData.password || '').trim();
-      const prevPassword = ((currentEmp as any).portalPassword || (currentEmp as any).profile_data?.portalPassword || currentEmp.password || '').trim();
-      if (newPassword && newPassword !== prevPassword && !newPassword.startsWith('$2')) {
-        try {
-          await supabaseDirect.updateEmployee(currentEmp.id || currentEmp.employeeId, {
-            password: newPassword,
-            profile_data: {
-              ...(currentEmp.profile_data || {}),
-              portalPassword: newPassword,
-            }
-          });
-        } catch (e) {
-          console.warn('[EmployeeProfile] Direct password update warning:', e);
-        }
-      }
+      const resolvedPortalPassword = isPasswordExplicitlyChanged
+        ? newPassword
+        : (((res as any)?.data?.portalPassword && !String((res as any).data.portalPassword).startsWith('$2'))
+            ? String((res as any).data.portalPassword)
+            : ((currentEmp as any).portalPassword || (currentEmp as any).profile_data?.portalPassword || newPassword));
 
       const savedEmployee = {
         ...(currentEmp || {}),
         ...updatedData,
         ...((res as any)?.data ? (res as any).data : {}),
-        portalPassword: newPassword || (currentEmp as any).portalPassword || (currentEmp as any).profile_data?.portalPassword,
+        portalPassword: resolvedPortalPassword,
         profile_data: {
           ...(currentEmp.profile_data || {}),
           ...((updatedData as any).profile_data || {}),
-          ...(newPassword ? { portalPassword: newPassword } : {})
+          ...(((res as any)?.data?.profile_data) || {}),
+          ...(resolvedPortalPassword ? { portalPassword: resolvedPortalPassword } : {})
         },
         dob: updatedData.dob || currentEmp.dob,
         gender: updatedData.gender || currentEmp.gender,

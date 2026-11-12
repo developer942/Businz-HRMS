@@ -366,9 +366,19 @@ export const uanNumberSchema = z.preprocess(
 // 2. STRUCTURED SUB-OBJECT SCHEMAS (Address, Education, Experience, Banking)
 // ============================================================================
 
+const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (val) => {
+      if (val === null || val === undefined) return undefined;
+      if (typeof val === 'string' && val.trim() === '') return undefined;
+      return val;
+    },
+    schema.optional()
+  );
+
 export const currentAddressSchema = z.object({
   line1: addressLine1Schema,
-  line2: addressLine2Schema.optional(),
+  line2: emptyToUndefined(addressLine2Schema),
   city: citySchema,
   state: stateSchema,
   country: countrySchema,
@@ -376,27 +386,27 @@ export const currentAddressSchema = z.object({
 });
 
 export const educationalDetailsSchema = z.object({
-  highestQualification: highestQualificationSchema,
-  degreeName: degreeNameSchema,
-  specialization: specializationSchema,
-  university: universitySchema,
-  yearOfPassing: yearOfPassingSchema,
-  gradePercentage: gradePercentageSchema,
-  certificateUrl: z.string().optional(),
+  highestQualification: emptyToUndefined(highestQualificationSchema),
+  degreeName: emptyToUndefined(degreeNameSchema),
+  specialization: emptyToUndefined(specializationSchema),
+  university: emptyToUndefined(universitySchema),
+  yearOfPassing: emptyToUndefined(yearOfPassingSchema),
+  gradePercentage: emptyToUndefined(gradePercentageSchema),
+  certificateUrl: z.string().optional().nullable(),
 });
 
 export const baseExperienceDetailsSchema = z.object({
-  experienceType: experienceProfileSchema,
-  totalExperience: totalExperienceSchema.optional(),
-  previousCompany: z.string().optional(),
-  previousDesignation: z.string().optional(),
-  previousDepartment: z.string().optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  lastDrawnSalary: lastDrawnSalarySchema.optional(),
-  companyLocation: companyLocationSchema.optional(),
-  experienceCertificateUrl: z.string().optional(),
-  relievingLetterUrl: z.string().optional(),
+  experienceType: emptyToUndefined(experienceProfileSchema),
+  totalExperience: emptyToUndefined(totalExperienceSchema),
+  previousCompany: z.string().optional().nullable(),
+  previousDesignation: z.string().optional().nullable(),
+  previousDepartment: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
+  lastDrawnSalary: emptyToUndefined(lastDrawnSalarySchema),
+  companyLocation: emptyToUndefined(companyLocationSchema),
+  experienceCertificateUrl: z.string().optional().nullable(),
+  relievingLetterUrl: z.string().optional().nullable(),
 });
 
 export const experienceDetailsSchema = baseExperienceDetailsSchema.superRefine((data, ctx) => {
@@ -696,58 +706,59 @@ export const createEmployeeSchema = z.object({
   }).passthrough().optional(),
 
   // Flat field validations (when supplied at top level)
-  addressLine1: addressLine1Schema.optional(),
-  line1: addressLine1Schema.optional(),
-  currentLine1: addressLine1Schema.optional(),
-  addressLine2: addressLine2Schema.optional(),
-  line2: addressLine2Schema.optional(),
-  currentLine2: addressLine2Schema.optional(),
-  city: citySchema.optional(),
-  currentCity: citySchema.optional(),
-  state: stateSchema.optional(),
-  currentState: stateSchema.optional(),
-  country: countrySchema.optional(),
-  currentCountry: countrySchema.optional(),
-  pincode: pincodeSchema.optional(),
-  currentPincode: pincodeSchema.optional(),
+  addressLine1: emptyToUndefined(addressLine1Schema),
+  line1: emptyToUndefined(addressLine1Schema),
+  currentLine1: emptyToUndefined(addressLine1Schema),
+  addressLine2: emptyToUndefined(addressLine2Schema),
+  line2: emptyToUndefined(addressLine2Schema),
+  currentLine2: emptyToUndefined(addressLine2Schema),
+  city: emptyToUndefined(citySchema),
+  currentCity: emptyToUndefined(citySchema),
+  state: emptyToUndefined(stateSchema),
+  currentState: emptyToUndefined(stateSchema),
+  country: emptyToUndefined(countrySchema),
+  currentCountry: emptyToUndefined(countrySchema),
+  pincode: emptyToUndefined(pincodeSchema),
+  currentPincode: emptyToUndefined(pincodeSchema),
 
-  highestQualification: highestQualificationSchema.optional(),
-  qualification: highestQualificationSchema.optional(),
-  degreeName: degreeNameSchema.optional(),
-  specialization: specializationSchema.optional(),
-  university: universitySchema.optional(),
-  yearOfPassing: yearOfPassingSchema.optional(),
-  gradePercentage: gradePercentageSchema.optional(),
+  highestQualification: emptyToUndefined(highestQualificationSchema),
+  qualification: emptyToUndefined(highestQualificationSchema),
+  degreeName: emptyToUndefined(degreeNameSchema),
+  specialization: emptyToUndefined(specializationSchema),
+  university: emptyToUndefined(universitySchema),
+  yearOfPassing: emptyToUndefined(yearOfPassingSchema),
+  gradePercentage: emptyToUndefined(gradePercentageSchema),
 
-  experienceProfile: experienceProfileSchema.optional(),
-  experienceType: experienceProfileSchema.optional(),
-  totalExperience: totalExperienceSchema.optional(),
-  previousCompany: previousCompanySchema.optional(),
-  previousCompanyName: previousCompanySchema.optional(),
-  previousDesignation: previousDesignationSchema.optional(),
-  previousDepartment: previousDepartmentSchema.optional(),
-  employmentStartDate: dateSchema.optional(),
-  startDate: dateSchema.optional(),
-  expStartDate: dateSchema.optional(),
-  employmentEndDate: dateSchema.optional(),
-  endDate: dateSchema.optional(),
-  expEndDate: dateSchema.optional(),
-  lastDrawnSalary: lastDrawnSalarySchema.optional(),
-  previousCompanyLocation: companyLocationSchema.optional(),
-  companyLocation: companyLocationSchema.optional(),
+  experienceProfile: emptyToUndefined(experienceProfileSchema),
+  experienceType: emptyToUndefined(experienceProfileSchema),
+  totalExperience: emptyToUndefined(totalExperienceSchema),
+  previousCompany: emptyToUndefined(previousCompanySchema),
+  previousCompanyName: emptyToUndefined(previousCompanySchema),
+  previousDesignation: emptyToUndefined(previousDesignationSchema),
+  previousDepartment: emptyToUndefined(previousDepartmentSchema),
+  employmentStartDate: emptyToUndefined(dateSchema),
+  startDate: emptyToUndefined(dateSchema),
+  expStartDate: emptyToUndefined(dateSchema),
+  employmentEndDate: emptyToUndefined(dateSchema),
+  endDate: emptyToUndefined(dateSchema),
+  expEndDate: emptyToUndefined(dateSchema),
+  lastDrawnSalary: emptyToUndefined(lastDrawnSalarySchema),
+  previousCompanyLocation: emptyToUndefined(companyLocationSchema),
+  companyLocation: emptyToUndefined(companyLocationSchema),
 
-  bankName: bankNameSchema.optional(),
-  accountNumber: accountNumberSchema.optional(),
-  ifscCode: ifscCodeSchema.optional(),
-  panNumber: panNumberSchema.optional(),
-  pan: panNumberSchema.optional(),
+  bankName: emptyToUndefined(bankNameSchema),
+  accountNumber: emptyToUndefined(accountNumberSchema),
+  ifscCode: emptyToUndefined(ifscCodeSchema),
+  panNumber: emptyToUndefined(panNumberSchema),
+  pan: emptyToUndefined(panNumberSchema),
   uanNumber: uanNumberSchema.optional(),
   uan: uanNumberSchema.optional(),
+  portalPassword: emptyToUndefined(z.string().min(6)),
 }).passthrough().superRefine((data, ctx) => {
   // Validate employment start and end dates if both provided at top-level
   const start = data.employmentStartDate || data.startDate || data.expStartDate;
   const end = data.employmentEndDate || data.endDate || data.expEndDate;
-  if (typeof start === 'string' && typeof end === 'string') {
+  if (typeof start === 'string' && typeof end === 'string' && start.trim() && end.trim()) {
     if (Date.parse(end) < Date.parse(start)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -763,16 +774,6 @@ export const createEmployeeSchema = z.object({
 // All fields optional, but if supplied (non-empty) MUST pass field-level validation strictly.
 // Empty strings ("") or null on optional sub-fields are treated as omitted/optional.
 // ============================================================================
-
-const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess(
-    (val) => {
-      if (val === null || val === undefined) return undefined;
-      if (typeof val === 'string' && val.trim() === '') return undefined;
-      return val;
-    },
-    schema.optional()
-  );
 
 export const updateCurrentAddressSchema = z.object({
   line1: emptyToUndefined(addressLine1Schema),
@@ -826,6 +827,7 @@ export const updateEmployeeSchema = z.object({
   grossSalary: emptyToUndefined(basicSalarySchema),
   employeeId: emptyToUndefined(employeeIdSchema),
   password: emptyToUndefined(z.string().min(6)),
+  portalPassword: emptyToUndefined(z.string().min(6)),
   phone: optionalPhoneSchema,
   mobile: optionalPhoneSchema,
   dob: z.string().optional(),

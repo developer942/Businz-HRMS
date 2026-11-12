@@ -1878,12 +1878,40 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (emp.attendanceMethod !== undefined) updates.attendance_method = emp.attendanceMethod;
     if (emp.gpsAllowed !== undefined) updates.gps_allowed = Boolean(emp.gpsAllowed);
     if (emp.password !== undefined) updates.password = emp.password;
-    if (emp.portalPassword !== undefined) {
-      updates.profile_data = {
-        ...((emp as any).profile_data || {}),
-        portalPassword: emp.portalPassword
-      };
+
+    const existingProfileData =
+      typeof (emp as any).profile_data === 'object' && (emp as any).profile_data !== null
+        ? { ...(emp as any).profile_data }
+        : {};
+    if (emp.department !== undefined) existingProfileData.department = emp.department;
+    if (emp.designation !== undefined) existingProfileData.designation = emp.designation;
+    if (emp.phone !== undefined) existingProfileData.phone = emp.phone;
+    if (emp.dob !== undefined) existingProfileData.dob = emp.dob;
+    if (emp.gender !== undefined) existingProfileData.gender = emp.gender;
+    if (emp.maritalStatus !== undefined) existingProfileData.maritalStatus = emp.maritalStatus;
+    if (emp.joiningDate !== undefined) existingProfileData.joiningDate = emp.joiningDate;
+    if (emp.employmentType !== undefined) existingProfileData.employmentType = emp.employmentType;
+    if (emp.workLocation !== undefined) existingProfileData.workLocation = emp.workLocation;
+    if (emp.reportingManagerId !== undefined) existingProfileData.reportingManagerId = emp.reportingManagerId;
+    if (emp.reportingManagerName !== undefined) existingProfileData.reportingManagerName = emp.reportingManagerName;
+    if (emp.currentAddress !== undefined) existingProfileData.currentAddress = emp.currentAddress;
+    if (emp.permanentAddress !== undefined) existingProfileData.permanentAddress = emp.permanentAddress;
+    if (emp.emergencyContact !== undefined) existingProfileData.emergencyContact = emp.emergencyContact;
+    if (emp.educationalDetails !== undefined) existingProfileData.educationalDetails = emp.educationalDetails;
+    if (emp.experienceDetails !== undefined) existingProfileData.experienceDetails = emp.experienceDetails;
+    if (emp.professionalDetails !== undefined) existingProfileData.professionalDetails = emp.professionalDetails;
+    if (emp.bankDetails !== undefined) existingProfileData.bankDetails = emp.bankDetails;
+    if (emp.salaryDetails !== undefined) existingProfileData.salaryDetails = emp.salaryDetails;
+    if (emp.allowances !== undefined) existingProfileData.allowances = emp.allowances;
+    if (emp.shiftDetails !== undefined) existingProfileData.shiftDetails = emp.shiftDetails;
+    if (emp.systemAccess !== undefined) existingProfileData.systemAccess = emp.systemAccess;
+    if (emp.portalPassword !== undefined && !String(emp.portalPassword).startsWith('$2')) {
+      existingProfileData.portalPassword = emp.portalPassword;
     }
+    if (Object.keys(existingProfileData).length > 0) {
+      updates.profile_data = existingProfileData;
+    }
+
     if (emp.mustChangePassword !== undefined) updates.must_change_password = emp.mustChangePassword;
     if (emp.accountStatus !== undefined) updates.account_status = emp.accountStatus;
     if (emp.avatar !== undefined) updates.avatar_url = emp.avatar || null;
@@ -6795,6 +6823,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     'gpsAllowed',
     'mustChangePassword',
     'accountStatus',
+    'portalPassword',
     'skills'
   ];
 
@@ -6843,6 +6872,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const cleanEmail = (empData.email || empData.personalEmail || '').trim().toLowerCase();
     const currentCompId = currentUser.company_id || currentUser.companyId || 'company-a';
+    const resolvedPortalPass =
+      empData.portalPassword ||
+      (empData.password && !empData.password.startsWith('$2') ? empData.password : undefined) ||
+      'Password@123';
     const newEmp: Employee = {
       ...empData,
       company_id: empData.company_id || empData.companyId || currentCompId,
@@ -6852,6 +6885,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: newId,
       employeeId: newId,
       authUserId: empData.authUserId || `usr-${Date.now()}`,
+      portalPassword: resolvedPortalPass,
       mustChangePassword: empData.mustChangePassword !== undefined ? empData.mustChangePassword : true,
       accountStatus: empData.accountStatus || 'ACTIVE',
       credentialEmailStatus: empData.credentialEmailStatus || 'SENT',
@@ -7103,7 +7137,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (e.email?.toLowerCase().trim() === clean || e.employeeId?.toLowerCase().trim() === clean || e.id?.toLowerCase().trim() === clean) {
         return {
           ...e,
-          password: undefined,
+          password: newPassword,
+          portalPassword: newPassword,
           mustChangePassword: false,
         };
       }
@@ -7113,14 +7148,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (matched) {
       const updatedEmp: Employee = {
         ...matched,
-        password: undefined,
+        password: newPassword,
+        portalPassword: newPassword,
         mustChangePassword: false,
       };
-      supabaseDirect.updateEmployee(matched.id || matched.employeeId, {
-        password: undefined,
-        must_change_password: false,
-      }).catch(err => console.warn('[HRMSContext] changeEmployeePassword db update notice:', err));
-
       persistEmployeeProfileExtension(updatedEmp).catch(err => console.warn('[HRMSContext] changeEmployeePassword extension notice:', err));
     }
 
@@ -7245,8 +7276,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         upcomingShiftEffectiveFrom: serverEmployee.upcomingShiftEffectiveFrom,
         shiftDetails: serverEmployee.shiftDetails,
         rowVersion: serverEmployee.rowVersion,
-        password: existingEmployee?.password ?? serverEmployee.password,
-        mustChangePassword: existingEmployee?.mustChangePassword ?? serverEmployee.mustChangePassword,
+        portalPassword: normalizedEmpData.portalPassword || serverEmployee.portalPassword || existingEmployee?.portalPassword || '',
+        password: normalizedEmpData.portalPassword || serverEmployee.portalPassword || existingEmployee?.portalPassword || existingEmployee?.password || serverEmployee.password,
+        mustChangePassword: normalizedEmpData.portalPassword ? false : (existingEmployee?.mustChangePassword ?? serverEmployee.mustChangePassword),
       };
       setEmployees(prev => prev.map(e => (
         e.id === mergedEmployee.id || e.employeeId === mergedEmployee.employeeId || e.id === id || e.employeeId === id
@@ -11573,12 +11605,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const isDbPasswordChanged = base.mustChangePassword === false;
           const resolvedMustChange = isDbPasswordChanged ? false : Boolean(extension.mustChangePassword ?? base.mustChangePassword);
 
-          let resolvedPassword = 'Password@123';
-          if (base.password && !base.password.startsWith('$2')) {
-            resolvedPassword = base.password;
-          } else if (extension.password && !extension.password.startsWith('$2')) {
-            resolvedPassword = extension.password;
-          } else if (base.password) {
+          const candidatePortalPass =
+            (rawProfileData.portalPassword && !String(rawProfileData.portalPassword).startsWith('$2') ? String(rawProfileData.portalPassword) : '') ||
+            (base.portalPassword && !String(base.portalPassword).startsWith('$2') ? String(base.portalPassword) : '') ||
+            ((extension as any).portalPassword && !String((extension as any).portalPassword).startsWith('$2') ? String((extension as any).portalPassword) : '') ||
+            (base.password && !String(base.password).startsWith('$2') ? String(base.password) : '') ||
+            (extension.password && !String(extension.password).startsWith('$2') ? String(extension.password) : '');
+
+          const resolvedPortalPassword = candidatePortalPass || 'Password@123';
+          let resolvedPassword = candidatePortalPass || 'Password@123';
+          if (!candidatePortalPass && base.password) {
             resolvedPassword = base.password;
           }
 
@@ -11591,6 +11627,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             status: resolvedStatus,
             department: (base.department && base.department !== 'General') ? base.department : (rawProfileData.department || extension.department || base.department || 'General'),
             mustChangePassword: resolvedMustChange,
+            portalPassword: resolvedPortalPassword,
             password: resolvedPassword
           };
         });
