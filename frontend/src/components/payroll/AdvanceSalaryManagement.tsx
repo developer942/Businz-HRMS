@@ -80,17 +80,25 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
-  // CEO / Managing Director is the sole approval authority
+  // CEO / Managing Director and HR approval authority per Advance Salary Policy
   const isCEOUser =
     currentUser.role === 'CEO' ||
     currentUser.role === 'Super Admin' ||
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
 
-  const isApprovalAuthority = isCEOUser;
+  const isHRUser =
+    currentUser.role === 'HR' ||
+    currentUser.role === 'HR Manager' ||
+    currentUser.role === 'Admin' ||
+    (currentUser.department && (currentUser.department.toLowerCase().includes('hr') || currentUser.department.toLowerCase().includes('human resource'))) ||
+    (currentUser.designation && currentUser.designation.toLowerCase().includes('hr'));
 
-  // Accounts staff have normal employee access here (viewing/applying for their own advances only)
-  const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isApprovalAuthority;
+  const approvalByPolicy = activeLoanPolicy?.approvalBy || 'HR_OR_CEO';
+  const isApprovalAuthority = approvalByPolicy === 'CEO' ? isCEOUser : (isCEOUser || isHRUser);
+
+  // Accounts staff and regular employees view/apply for their own advances
+  const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isCEOUser && !isHRUser;
   const isViewingAsEmployee = isEmployeeRole;
 
   const isHrEmployeeRecord = (employeeId?: string, employeeName?: string) => {
@@ -424,15 +432,23 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
   const openRequestModal = () => {
     const empId = targetEmployee?.employeeId || currentUser?.employeeId || 'EMP-001';
     const elig = calculateEmployeeLoanEligibility(empId);
-    const effectiveSalary = toNum(targetEmployee.basicSalary) || toNum(targetEmployee.monthlyCtc) || elig.monthlySalary || 0;
-    const maxAmt = effectiveSalary > 0 ? Math.min(elig.maxEligibleAmount, effectiveSalary) : elig.maxEligibleAmount;
+    const effectiveSalary =
+      elig.monthlySalary ||
+      toNum(targetEmployee.salaryDetails?.monthlyCtc) ||
+      toNum((targetEmployee as any).monthlyCtc) ||
+      toNum(targetEmployee.grossSalary) ||
+      (toNum(targetEmployee.basicSalary) > 0 ? Math.round(toNum(targetEmployee.basicSalary) / 0.4) : 0);
+    const maxAmt = elig.maxEligibleAmount > 0 ? elig.maxEligibleAmount : effectiveSalary;
     const requestDate = getFutureRequestDateString();
+    const policyRepayType = elig.policy?.repaymentType || 'MONTHLY_EMI';
+    const policyMinMonths = Math.max(1, toNum(elig.policy?.minRepaymentMonths) || 1);
+    const policyMaxMonths = Math.max(policyMinMonths, toNum(elig.policy?.maxRepaymentMonths) || 6);
+    const defaultMonths = policyRepayType === 'FULL' ? 1 : policyMaxMonths;
     const initialAmt = Math.min(10000, maxAmt);
     setRequestFormData({
       requestType: 'Advance Salary',
       requestedAmount: initialAmt,
-      // Advance Salary is recovered in full from the next month's salary (single installment)
-      installmentMonths: 1,
+      installmentMonths: defaultMonths,
       purpose: 'Emergency Medical & Personal Expense',
       reasonDetails: '',
       neededByDate: requestDate
@@ -452,10 +468,13 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
 
     const requestedAmount = toNum(requestFormData.requestedAmount);
     const isAdvanceSalary = requestFormData.requestType === 'Advance Salary';
-    const effectiveSalary = toNum(targetEmployee.basicSalary) || toNum(targetEmployee.monthlyCtc) || elig.monthlySalary || 0;
-    const maxAllowedLimit = isAdvanceSalary
-      ? (effectiveSalary > 0 ? Math.min(elig.maxEligibleAmount, effectiveSalary) : elig.maxEligibleAmount)
-      : elig.maxEligibleAmount;
+    const effectiveSalary =
+      elig.monthlySalary ||
+      toNum(targetEmployee.salaryDetails?.monthlyCtc) ||
+      toNum((targetEmployee as any).monthlyCtc) ||
+      toNum(targetEmployee.grossSalary) ||
+      (toNum(targetEmployee.basicSalary) > 0 ? Math.round(toNum(targetEmployee.basicSalary) / 0.4) : 0);
+    const maxAllowedLimit = elig.maxEligibleAmount > 0 ? elig.maxEligibleAmount : effectiveSalary;
 
     if (requestedAmount <= 0) {
       showFeedback('error', 'Please enter a valid requested amount greater than zero.');
@@ -463,30 +482,28 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     }
 
     if (requestedAmount > maxAllowedLimit) {
-      showFeedback('error', isAdvanceSalary
-        ? `Advance salary cannot exceed your monthly salary of ${formatCurrency(maxAllowedLimit)}.`
-        : `Requested amount exceeds maximum eligible limit of ${formatCurrency(maxAllowedLimit)}.`);
+      showFeedback('error', `Requested amount cannot exceed your maximum policy limit of ${formatCurrency(maxAllowedLimit)}.`);
       return;
     }
 
-    const minMonths = elig.policy?.minRepaymentMonths ?? 1;
-    const maxMonths = elig.policy?.maxRepaymentMonths ?? 12;
+    const policyRepayType = elig.policy?.repaymentType || 'MONTHLY_EMI';
+    const isFullOnly = policyRepayType === 'FULL' && isAdvanceSalary;
+    const minMonths = Math.max(1, toNum(elig.policy?.minRepaymentMonths) || 1);
+    const maxMonths = Math.max(minMonths, toNum(elig.policy?.maxRepaymentMonths) || 6);
 
-    // Advance Salary has no repayment period: it is fully deducted from next month's salary.
-    const effectiveMonths = isAdvanceSalary ? 1 : requestFormData.installmentMonths;
+    const effectiveMonths = isFullOnly ? 1 : toNum(requestFormData.installmentMonths);
 
-    if (
-      !isAdvanceSalary && (
-        !effectiveMonths ||
-        effectiveMonths < minMonths ||
-        effectiveMonths > maxMonths
-      )
-    ) {
-      showFeedback('error', `Repayment period must be between ${minMonths} and ${maxMonths} months.`);
+    if (!isFullOnly && (!effectiveMonths || effectiveMonths < minMonths || effectiveMonths > maxMonths)) {
+      showFeedback('error', `Repayment period must be between ${minMonths} and ${maxMonths} months per Advance Salary Policy.`);
       return;
     }
 
-    const minNeededByDate = getFutureRequestDateString();
+    const reasonReq = elig.policy?.reasonRequired ?? true;
+    if (reasonReq && !requestFormData.purpose.trim()) {
+      showFeedback('error', 'Please enter a valid Purpose / Reason as required by policy.');
+      return;
+    }
+
     if (isSubmittingLoan) return;
 
     const dateVal = validateRequestDate(requestFormData.neededByDate);
@@ -495,17 +512,21 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
       return;
     }
 
-    const dupCheck = checkDuplicateAdvanceRequest(loanRecords, targetEmployee.employeeId, requestFormData.neededByDate);
-    if (dupCheck.hasDuplicate) {
-      showFeedback('error', dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
-      return;
+    if (!elig.policy?.allowPreviousPending) {
+      const dupCheck = checkDuplicateAdvanceRequest(loanRecords, targetEmployee.employeeId, requestFormData.neededByDate);
+      if (dupCheck.hasDuplicate) {
+        showFeedback('error', dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+        return;
+      }
     }
 
     setIsSubmittingLoan(true);
     try {
       const now = new Date();
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      const startOffset = elig.policy?.deductionStart === 'CURRENT_MONTH' ? 0 : 1;
+      const startDate = new Date(now.getFullYear(), now.getMonth() + startOffset, 1);
+      const defaultDeductionMonth = startDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      const monthlyEMI = Math.round(requestedAmount / (effectiveMonths || 1));
 
       const res = submitLoanRequest({
         employeeId: targetEmployee.employeeId,
@@ -515,21 +536,21 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
         policyId: elig.policy.id,
         policyName: elig.policy.policyName,
         requestType: requestFormData.requestType,
-        basicSalary: toNum(targetEmployee.basicSalary),
+        basicSalary: effectiveSalary,
         eligibleLimitAmount: elig.maxEligibleAmount,
         requestedAmount,
         installmentMonths: effectiveMonths,
-        monthlyDeduction: isAdvanceSalary ? requestedAmount : Math.round(requestedAmount / (effectiveMonths || 1)),
+        monthlyDeduction: monthlyEMI,
         deductionStartMonth: defaultDeductionMonth,
-        purpose: requestFormData.purpose,
+        purpose: requestFormData.purpose.trim() || 'General Advance Salary Request',
         reasonDetails: requestFormData.reasonDetails,
         neededByDate: requestFormData.neededByDate
       });
 
       if (res.success) {
-        showFeedback('success', isAdvanceSalary
+        showFeedback('success', effectiveMonths === 1
           ? `Advance Salary request submitted (Ref: ${res.loanId}). ${formatCurrency(requestedAmount)} will be auto-deducted from your ${defaultDeductionMonth} salary.`
-          : `Employee Loan request submitted successfully (Ref: ${res.loanId})!`);
+          : `Advance Salary request submitted (Ref: ${res.loanId}) for ${effectiveMonths} months (${formatCurrency(monthlyEMI)}/mo starting ${defaultDeductionMonth}).`);
         setIsRequestModalOpen(false);
         if (onCloseQuickAdd) onCloseQuickAdd();
       } else {
@@ -540,22 +561,22 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
     }
   };
 
-  // Advance Salary = single full recovery from next month's salary
   const isAdvanceType = (t?: string) => t === 'Advance Salary' || t === 'Salary Advance';
 
   // Open Review Modal
   const openReviewModal = (record: LoanRecord) => {
     setReviewModalRecord(record);
     const amt = record.approvedAmount || record.requestedAmount;
-    const isAdvance = record.requestType === 'Advance Salary' || (record.requestType as string) === 'Salary Advance';
-    const months = isAdvance ? 1 : (record.approvedMonths || record.installmentMonths);
-    const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1);
-    const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    const isFullOnly = activeLoanPolicy?.repaymentType === 'FULL';
+    const months = isFullOnly ? 1 : Math.max(1, toNum(record.approvedMonths || record.installmentMonths) || 1);
+    const startOffset = activeLoanPolicy?.deductionStart === 'CURRENT_MONTH' ? 0 : 1;
+    const defaultStartDate = new Date(new Date().getFullYear(), new Date().getMonth() + startOffset, 1);
+    const defaultDeductionMonth = defaultStartDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
     setReviewFormData({
       action: 'Approve',
       approvedAmount: amt,
       approvedMonths: months,
-      monthlyDeduction: isAdvance ? amt : (record.monthlyDeduction || Math.round(amt / months)),
+      monthlyDeduction: months === 1 ? amt : (record.monthlyDeduction || Math.round(amt / months)),
       deductionStartMonth: record.deductionStartMonth || defaultDeductionMonth,
       internalHrNotes: record.internalHrNotes || '',
       employeeVisibleNotes: record.employeeVisibleNotes || '',
@@ -811,7 +832,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                   {formatCurrency(employeeEligibility.maxEligibleAmount)}
                 </div>
                 <div className="kpi-caption" style={{ fontSize: '0.68rem', color: '#0E7490', fontWeight: 600, marginTop: '2px' }}>
-                  Based on: {employeeEligibility.policy?.maxLoanLimitType === 'SALARY_MULTIPLIER' ? `${employeeEligibility.policy?.maxLoanLimitValue}× Monthly Salary` : 'Salary Formula'}
+                  Based on: {employeeEligibility.policy?.maxSalaryPercent ?? 100}% of Monthly Salary ({formatCurrency(employeeEligibility.monthlySalary)})
                 </div>
               </div>
             </div>
@@ -862,7 +883,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                   {formatCurrency(myTotalMonthlyEMI)}
                 </div>
                 <div className="kpi-caption" style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
-                  Next payroll deduction: 31st Oct 2026
+                  Deduction start: {employeeEligibility.policy?.deductionStart === 'CURRENT_MONTH' ? 'Current Month' : 'Next Month'} ({employeeEligibility.policy?.repaymentType === 'FULL' ? 'Full' : `Up to ${employeeEligibility.policy?.maxRepaymentMonths ?? 6} Mos EMI`})
                 </div>
               </div>
             </div>
@@ -1844,12 +1865,23 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
         const modalEmp = targetEmployee;
         const modalElig = calculateEmployeeLoanEligibility(modalEmp.employeeId);
         const isAdvanceRequest = requestFormData.requestType === 'Advance Salary';
-        const effectiveSalary = toNum(modalEmp.basicSalary) || toNum(modalEmp.monthlyCtc) || modalElig.monthlySalary || 0;
-        const advanceMaxEligible = isAdvanceRequest
-          ? (effectiveSalary > 0 ? Math.min(modalElig.maxEligibleAmount, effectiveSalary) : modalElig.maxEligibleAmount)
-          : modalElig.maxEligibleAmount;
-        const nextSalaryMonthLabel = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
+        const effectiveSalary =
+          modalElig.monthlySalary ||
+          toNum(modalEmp.salaryDetails?.monthlyCtc) ||
+          toNum((modalEmp as any).monthlyCtc) ||
+          toNum(modalEmp.grossSalary) ||
+          (toNum(modalEmp.basicSalary) > 0 ? Math.round(toNum(modalEmp.basicSalary) / 0.4) : 0);
+        const advanceMaxEligible = modalElig.maxEligibleAmount > 0 ? modalElig.maxEligibleAmount : effectiveSalary;
+        const policyRepayType = modalElig?.policy?.repaymentType || 'MONTHLY_EMI';
+        const isFullRecoveryOnly = policyRepayType === 'FULL' && isAdvanceRequest;
+        const minRepayMonths = Math.max(1, toNum(modalElig?.policy?.minRepaymentMonths) || 1);
+        const maxRepayMonths = Math.max(minRepayMonths, toNum(modalElig?.policy?.maxRepaymentMonths) || 6);
+        const startOffset = modalElig?.policy?.deductionStart === 'CURRENT_MONTH' ? 0 : 1;
+        const nextSalaryMonthLabel = new Date(new Date().getFullYear(), new Date().getMonth() + startOffset, 1)
           .toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        const activeMonths = isFullRecoveryOnly ? 1 : Math.max(1, toNum(requestFormData.installmentMonths) || 1);
+        const liveMonthlyEmi = Math.round(toNum(requestFormData.requestedAmount) / activeMonths);
+        const isReasonRequired = modalElig?.policy?.reasonRequired ?? true;
 
         return (
           <div className="modal-overlay" style={{ zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
@@ -1861,7 +1893,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                     {isAdvanceRequest ? 'Request Advance Salary' : 'Request Employee Loan'}
                   </h3>
                   <p style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', margin: '3px 0 0' }}>
-                    Calculated against your monthly salary: {formatCurrency(effectiveSalary)}
+                    Calculated against your monthly salary: {formatCurrency(effectiveSalary)} ({modalElig?.policy?.maxSalaryPercent ?? 100}% Policy Limit)
                   </p>
                 </div>
                 <button 
@@ -1913,18 +1945,12 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                         value={requestFormData.requestType}
                         onChange={e => {
                           const nextType = e.target.value as 'Advance Salary' | 'Employee Loan';
-                          const policyMin = modalElig?.policy?.minRepaymentMonths ?? 1;
-                          const policyMax = modalElig?.policy?.maxRepaymentMonths ?? 3;
-                          const nextMax = nextType === 'Advance Salary'
-                            ? (effectiveSalary > 0 ? Math.min(modalElig.maxEligibleAmount, effectiveSalary) : modalElig.maxEligibleAmount)
-                            : modalElig.maxEligibleAmount;
+                          const nextFullOnly = policyRepayType === 'FULL' && nextType === 'Advance Salary';
                           setRequestFormData(prev => ({
                             ...prev,
                             requestType: nextType,
-                            installmentMonths: nextType === 'Advance Salary'
-                              ? 1
-                              : Math.min(Math.max(3, policyMin), policyMax),
-                            requestedAmount: Math.min(prev.requestedAmount || 0, nextMax)
+                            installmentMonths: nextFullOnly ? 1 : Math.min(Math.max(prev.installmentMonths || maxRepayMonths, minRepayMonths), maxRepayMonths),
+                            requestedAmount: Math.min(prev.requestedAmount || 0, advanceMaxEligible)
                           }));
                         }}
                         style={{ height: '42px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.85rem' }}
@@ -1957,7 +1983,6 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                             return;
                           }
                           let numVal = Number(digitsOnly);
-                          // STRICT LIMIT: Cannot exceed maximum allowable limit or monthly salary
                           if (numVal > advanceMaxEligible) {
                             numVal = advanceMaxEligible;
                           }
@@ -1973,7 +1998,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
 
                   {/* Perfectly Balanced Row 2 */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-                    {isAdvanceRequest ? (
+                    {isFullRecoveryOnly ? (
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>
                           Recovery
@@ -1996,7 +2021,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                             Full deduction · {nextSalaryMonthLabel} salary
                           </span>
                           <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                            {formatCurrency(toNum(requestFormData.requestedAmount))} auto-deducted at next salary credit
+                            {formatCurrency(toNum(requestFormData.requestedAmount))} auto-deducted at {nextSalaryMonthLabel} payroll
                           </span>
                         </div>
                       </div>
@@ -2006,8 +2031,8 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                         <label htmlFor="repayment-period-months" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', margin: 0 }}>
                           Repayment Period (Months) <span style={{ color: '#EF4444' }}>*</span>
                         </label>
-                        <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                          Allowed: {modalElig?.policy?.minRepaymentMonths ?? 1}–{modalElig?.policy?.maxRepaymentMonths ?? 3} mos
+                        <span style={{ fontSize: '0.72rem', color: '#0E7490', fontWeight: 600 }}>
+                          Allowed: {minRepayMonths}–{maxRepayMonths} mos
                         </span>
                       </div>
                       <input 
@@ -2019,22 +2044,21 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                         className="form-control"
                         value={requestFormData.installmentMonths > 0 ? requestFormData.installmentMonths : ''}
                         onChange={e => {
-                          const minM = modalElig?.policy?.minRepaymentMonths ?? 1;
-                          const maxM = modalElig?.policy?.maxRepaymentMonths ?? 12;
-                          const months = normalizeRepaymentMonthsInput(e.target.value, maxM, minM);
+                          const months = normalizeRepaymentMonthsInput(e.target.value, maxRepayMonths, minRepayMonths);
                           setRequestFormData(prev => ({ ...prev, installmentMonths: months }));
                         }}
                         onBlur={() => {
-                          const minMonths = modalElig?.policy?.minRepaymentMonths ?? 1;
-                          const maxMonths = modalElig?.policy?.maxRepaymentMonths ?? 12;
                           const current = Number(requestFormData.installmentMonths);
-                          const months = (!current || isNaN(current) || current < minMonths)
-                            ? minMonths
-                            : Math.min(current, maxMonths);
+                          const months = (!current || isNaN(current) || current < minRepayMonths)
+                            ? minRepayMonths
+                            : Math.min(current, maxRepayMonths);
                           setRequestFormData(prev => ({ ...prev, installmentMonths: months }));
                         }}
                         style={{ height: '42px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.85rem' }}
                       />
+                      <span style={{ fontSize: '0.69rem', color: '#0E7490', fontWeight: 600, display: 'block', marginTop: '3px' }}>
+                        Monthly EMI: {formatCurrency(liveMonthlyEmi)}/mo × {activeMonths} {activeMonths === 1 ? 'month' : 'months'} · Starts {nextSalaryMonthLabel}
+                      </span>
                     </div>
                     )}
 
@@ -2074,11 +2098,11 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>
-                      Purpose / Reason <span style={{ color: '#EF4444' }}>*</span>
+                      Purpose / Reason {isReasonRequired && <span style={{ color: '#EF4444' }}>*</span>}
                     </label>
                     <input 
                       type="text"
-                      required
+                      required={isReasonRequired}
                       placeholder="e.g. Medical Emergency, Higher Education, Home Renovation"
                       className="form-control"
                       value={requestFormData.purpose}
@@ -2410,10 +2434,11 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                           value={reviewFormData.approvedAmount}
                           onChange={e => {
                             const amt = Number(e.target.value);
+                            const isFullOnly = activeLoanPolicy?.repaymentType === 'FULL';
                             setReviewFormData({
                               ...reviewFormData,
                               approvedAmount: amt,
-                              monthlyDeduction: isAdvanceType(reviewModalRecord.requestType)
+                              monthlyDeduction: isFullOnly
                                 ? amt
                                 : Math.round(amt / (reviewFormData.approvedMonths || 1))
                             });
@@ -2421,7 +2446,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                         />
                       </div>
 
-                      {isAdvanceType(reviewModalRecord.requestType) ? (
+                      {activeLoanPolicy?.repaymentType === 'FULL' ? (
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>
                             Recovery
@@ -2430,7 +2455,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                             type="text"
                             readOnly
                             className="form-control"
-                            value="Full deduction from next month salary"
+                            value="Full deduction (1 Month)"
                             style={{ backgroundColor: '#ECFEFF', color: '#0E7490', fontWeight: 700, borderColor: '#A5F3FC' }}
                           />
                         </div>
@@ -2442,15 +2467,15 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                         <input 
                           type="number"
                           min={1}
-                          max={36}
+                          max={activeLoanPolicy?.maxRepaymentMonths || 36}
                           className="form-control"
                           value={reviewFormData.approvedMonths}
                           onChange={e => {
-                            const m = Number(e.target.value);
+                            const m = Math.max(1, Number(e.target.value) || 1);
                             setReviewFormData({
                               ...reviewFormData,
                               approvedMonths: m,
-                              monthlyDeduction: Math.round(reviewFormData.approvedAmount / (m || 1))
+                              monthlyDeduction: Math.round(reviewFormData.approvedAmount / m)
                             });
                           }}
                         />
@@ -2459,13 +2484,13 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
 
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>
-                          {isAdvanceType(reviewModalRecord.requestType) ? 'Deduction Amount (₹)' : 'Monthly Deduction (₹)'}
+                          {activeLoanPolicy?.repaymentType === 'FULL' ? 'Deduction Amount (₹)' : 'Monthly Deduction (₹)'}
                         </label>
                         <input 
                           type="number"
                           className="form-control"
                           value={reviewFormData.monthlyDeduction}
-                          readOnly={isAdvanceType(reviewModalRecord.requestType)}
+                          readOnly={activeLoanPolicy?.repaymentType === 'FULL'}
                           onChange={e => setReviewFormData({ ...reviewFormData, monthlyDeduction: Number(e.target.value) })}
                         />
                       </div>

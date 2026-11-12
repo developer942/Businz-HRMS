@@ -139,6 +139,7 @@ export interface Employee {
   employeeCategoryId?: string;
   gradeId?: string | null;
   grossSalary?: number;
+  monthlyCtc?: number;
   isActive?: boolean;
   dateOfBirth?: string;   // 'YYYY-MM-DD' (alias of dob)
   dateOfJoining?: string; // 'YYYY-MM-DD' (alias of joiningDate)

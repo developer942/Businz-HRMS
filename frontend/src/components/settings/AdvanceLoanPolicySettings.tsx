@@ -226,11 +226,11 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
     const minimumEmploymentMonths = Number(formData.minimumEmploymentMonths);
     const maxLoanAmount = Number(formData.maxLoanAmount);
     const maxSalaryPercent = Number(formData.maxSalaryPercent);
-    const maxRepaymentMonths = Number(formData.maxRepaymentMonths);
+    const maxRepaymentMonths = formData.repaymentType === 'FULL' ? 1 : Number(formData.maxRepaymentMonths);
     if (
       !Number.isFinite(minimumEmploymentMonths) || minimumEmploymentMonths < 0 ||
-      !Number.isFinite(maxLoanAmount) || maxLoanAmount < 1000 ||
-      !Number.isFinite(maxSalaryPercent) || maxSalaryPercent < 5 || maxSalaryPercent > 100 ||
+      !Number.isFinite(maxLoanAmount) || maxLoanAmount < 500 ||
+      !Number.isFinite(maxSalaryPercent) || maxSalaryPercent < 5 || maxSalaryPercent > 500 ||
       !Number.isFinite(maxRepaymentMonths) || maxRepaymentMonths < 1
     ) return;
 
@@ -243,7 +243,7 @@ export const AdvanceLoanPolicySettings: React.FC = () => {
       // Keep legacy fields synchronized
       maxLoanLimitType: 'PERCENTAGE_SALARY' as LoanLimitType,
       maxLoanLimitValue: maxSalaryPercent,
-      maxActiveLoans: formData.allowPreviousPending ? 2 : 1,
+      maxActiveLoans: formData.allowPreviousPending ? 10 : 1,
       approvalWorkflow: formData.approvalBy === 'HR' ? 'HR_ONLY' : formData.approvalBy === 'CEO' ? 'CEO_ONLY' : formData.approvalBy === 'HR_THEN_CEO' ? 'HR_THEN_CEO' : 'HR_OR_CEO',
       deductionStartRule: formData.deductionStart === 'NEXT_MONTH' ? 'NEXT_PAYROLL_CYCLE' : 'SPECIFIED_MONTH'
     };

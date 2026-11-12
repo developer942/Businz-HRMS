@@ -1596,6 +1596,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
       return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
     })(),
+    monthlyCtc: (() => {
+      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+      return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+    })(),
     allowances: (() => {
       const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
       const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
@@ -4214,9 +4219,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch {}
   }, [employeeRewardRecords]);
 
-  const activeLoanPolicy = loanPolicies.find(p => p.status === 'Active') || loanPolicies[0];
+  const lastLoanPolicyMutationAtRef = React.useRef<number>(0);
+  const activeLoanPolicy = loanPolicies.find(p => p.status === 'Active');
 
   const createLoanPolicy = async (policyData: Omit<LoanPolicy, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>) => {
+    lastLoanPolicyMutationAtRef.current = Date.now();
     const now = new Date();
     const formatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const userLabel = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
@@ -4243,6 +4250,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateLoanPolicy = async (id: string, updates: Partial<LoanPolicy>) => {
+    lastLoanPolicyMutationAtRef.current = Date.now();
     const now = new Date();
     const formatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const userLabel = `${currentUser.name} (${currentUser.role === 'Super Admin' ? 'CEO' : currentUser.role})`;
@@ -4267,6 +4275,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const deleteLoanPolicy = async (id: string) => {
+    lastLoanPolicyMutationAtRef.current = Date.now();
     const targetPolicy = loanPolicies.find(p => p.id === id);
     const next = loanPolicies.filter(p => p.id !== id);
     setLoanPolicies(next);
@@ -4303,10 +4312,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const rawPolicy = (policyId ? loanPolicies.find(p => p.id === policyId) : activeLoanPolicy);
     
-    if (!rawPolicy) {
+    if (!rawPolicy || rawPolicy.status === 'Inactive') {
       return {
         isEligible: false,
-        ineligibleReason: 'No master advance or loan policies are currently configured.',
+        ineligibleReason: 'No active Advance Salary policy is currently configured in Settings.',
         employmentDurationMonths: 0,
         monthlySalary: 0,
         maxEligibleAmount: 0,
@@ -4316,17 +4325,26 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       };
     }
 
+    const allowPrevPending = Boolean(rawPolicy.allowPreviousPending ?? (toNum(rawPolicy.maxActiveLoans) > 1));
     const policy: LoanPolicy = {
       ...rawPolicy,
-      policyName: rawPolicy.policyName || (rawPolicy as any).name || 'Standard Advance Salary',
+      policyName: rawPolicy.policyName || (rawPolicy as any).name || 'Advance Salary',
       policyType: rawPolicy.policyType || 'Advance Salary',
-      minRepaymentMonths: rawPolicy.minRepaymentMonths ?? 1,
-      maxRepaymentMonths: rawPolicy.maxRepaymentMonths ?? 3,
-      minLoanAmount: rawPolicy.minLoanAmount ?? 1000,
-      maxLoanAmount: rawPolicy.maxLoanAmount ?? (rawPolicy as any).maxEligibleFixedAmount ?? 50000,
-      minimumEmploymentMonths: rawPolicy.minimumEmploymentMonths ?? (rawPolicy as any).minTenureMonthsRequired ?? 1,
-      maxActiveLoans: rawPolicy.maxActiveLoans ?? 1,
-      allowPreviousPending: rawPolicy.allowPreviousPending ?? false
+      applicableEmployees: rawPolicy.applicableEmployees || 'ALL',
+      minRepaymentMonths: Math.max(1, toNum(rawPolicy.minRepaymentMonths) || 1),
+      maxRepaymentMonths: Math.max(1, toNum(rawPolicy.maxRepaymentMonths) || 6),
+      minLoanAmount: toNum(rawPolicy.minLoanAmount) || 1000,
+      maxLoanAmount: toNum(rawPolicy.maxLoanAmount ?? (rawPolicy as any).maxEligibleFixedAmount) || 500000,
+      maxSalaryPercent: toNum(rawPolicy.maxSalaryPercent ?? (rawPolicy.maxLoanLimitType === 'PERCENTAGE_SALARY' ? rawPolicy.maxLoanLimitValue : 100)) || 100,
+      minimumEmploymentMonths: toNum(rawPolicy.minimumEmploymentMonths ?? (rawPolicy as any).minTenureMonthsRequired ?? 3),
+      allowPreviousPending: allowPrevPending,
+      maxActiveLoans: allowPrevPending ? Math.max(toNum(rawPolicy.maxActiveLoans) || 10, 10) : 1,
+      repaymentType: rawPolicy.repaymentType || 'MONTHLY_EMI',
+      deductionStart: rawPolicy.deductionStart || (rawPolicy.deductionStartRule === 'SPECIFIED_MONTH' ? 'CURRENT_MONTH' : 'NEXT_MONTH'),
+      requestLimit: rawPolicy.requestLimit || 'ONCE_A_MONTH',
+      approvalBy: rawPolicy.approvalBy || 'HR_OR_CEO',
+      reasonRequired: rawPolicy.reasonRequired ?? true,
+      status: rawPolicy.status || 'Active'
     };
 
     if (!emp) {
@@ -4342,17 +4360,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       };
     }
 
-    // 1. Calculate Employment Duration safely from Joining Date
+    // 1. Calculate Employment Duration safely from Joining Date (supports YYYY-MM-DD and DD/MM/YYYY)
     let tenureMonths = 24;
     try {
-      const rawJoin = emp.joiningDate || (emp as any).dateOfJoining;
-      if (rawJoin && !isNaN(new Date(rawJoin).getTime())) {
-        const joinDate = new Date(rawJoin);
-        const now = new Date();
-        const diffMonths = ((now.getFullYear() - joinDate.getFullYear()) * 12) + (now.getMonth() - joinDate.getMonth()) + ((now.getDate() - joinDate.getDate()) / 30);
-        tenureMonths = diffMonths > 0.5 ? Math.round(diffMonths * 10) / 10 : 12;
-      } else {
-        tenureMonths = 24;
+      const rawJoin = String(emp.joiningDate || (emp as any).dateOfJoining || '').trim();
+      if (rawJoin) {
+        let parsedJoin: Date | null = null;
+        const ddmmyyyy = rawJoin.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+        if (ddmmyyyy) {
+          parsedJoin = new Date(Number(ddmmyyyy[3]), Number(ddmmyyyy[2]) - 1, Number(ddmmyyyy[1]));
+        } else {
+          const d = new Date(rawJoin);
+          if (!isNaN(d.getTime())) parsedJoin = d;
+        }
+        if (parsedJoin && !isNaN(parsedJoin.getTime())) {
+          const now = new Date();
+          const diffMonths = ((now.getFullYear() - parsedJoin.getFullYear()) * 12) + (now.getMonth() - parsedJoin.getMonth()) + ((now.getDate() - parsedJoin.getDate()) / 30);
+          tenureMonths = Math.max(0, Math.round(diffMonths * 10) / 10);
+        }
       }
     } catch {
       tenureMonths = 24;
@@ -4362,23 +4387,37 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       tenureMonths = Math.max(tenureMonths, 24);
     }
 
-    // 2. Calculate Monthly Salary with safe fallback
-    const basic = toNum(emp.basicSalary) || toNum((emp as any).monthlyCtc) || 32000;
-    const allowances = toNum(emp.allowances?.hra) + toNum(emp.allowances?.transport) + toNum(emp.allowances?.medical) + toNum(emp.allowances?.special);
-    const monthlySalary = toNum((emp as any).monthlyCtc) || ((basic + allowances) > 0 ? (basic + allowances) : basic);
+    // 2. Calculate Total Monthly Salary (Monthly CTC) matching Employee Profile 06 Salary Structure
+    const explicitCtc =
+      toNum(emp.salaryDetails?.monthlyCtc) ||
+      toNum((emp as any).monthlyCtc) ||
+      toNum((emp as any).monthly_ctc) ||
+      toNum(emp.grossSalary) ||
+      toNum((emp as any).gross_salary);
+    const rawBasic =
+      toNum(emp.salaryDetails?.basicSalary) ||
+      toNum(emp.basicSalary) ||
+      toNum((emp as any).basic_salary);
+    const hra = toNum(emp.salaryDetails?.hra ?? emp.allowances?.hra ?? (emp as any).allowances_hra);
+    const da = toNum(emp.salaryDetails?.da ?? emp.allowances?.da);
+    const conveyance = toNum(emp.salaryDetails?.conveyance ?? emp.allowances?.conveyance ?? emp.allowances?.transport ?? (emp as any).allowances_transport);
+    const medical = toNum(emp.allowances?.medical ?? (emp as any).allowances_medical);
+    const special = toNum(emp.allowances?.special ?? (emp as any).allowances_special);
+    const componentsSum = rawBasic + hra + da + conveyance + medical + special;
+    const derivedCtcFromBasic = rawBasic > 0 ? Math.round(rawBasic / 0.4) : 0;
+    const monthlySalary = explicitCtc > 0
+      ? explicitCtc
+      : (derivedCtcFromBasic > 0 ? Math.max(componentsSum, derivedCtcFromBasic) : (componentsSum || 32000));
 
-    // 3. Calculate Maximum Eligible Amount based on Policy Limit Type
+    // 3. Calculate Maximum Eligible Amount based on Policy Maximum Salary % and Maximum Advance Amount
     let maxEligibleAmount = 0;
-    const isAdvancePolicy = policy.policyType === 'Advance Salary' || (policy as any).requestType === 'Advance Salary';
-    const salaryPct = policy.maxSalaryPercent ?? (policy.maxLoanLimitType === 'PERCENTAGE_SALARY' ? policy.maxLoanLimitValue : undefined);
-    if (salaryPct !== undefined && salaryPct > 0) {
+    const salaryPct = toNum(policy.maxSalaryPercent ?? (policy.maxLoanLimitType === 'PERCENTAGE_SALARY' ? policy.maxLoanLimitValue : 100));
+    if (salaryPct > 0) {
       maxEligibleAmount = Math.round(monthlySalary * (salaryPct / 100));
     } else if (policy.maxLoanLimitType === 'SALARY_MULTIPLIER') {
-      maxEligibleAmount = Math.round(monthlySalary * (policy.maxLoanLimitValue || 2));
-    } else if (policy.maxLoanLimitType === 'PERCENTAGE_SALARY') {
-      maxEligibleAmount = Math.round(monthlySalary * ((policy.maxLoanLimitValue || 100) / 100));
+      maxEligibleAmount = Math.round(monthlySalary * (policy.maxLoanLimitValue || 1));
     } else {
-      maxEligibleAmount = policy.maxLoanLimitValue || 50000;
+      maxEligibleAmount = monthlySalary;
     }
     if (policy.maxLoanAmount && policy.maxLoanAmount > 0) {
       maxEligibleAmount = Math.min(maxEligibleAmount, policy.maxLoanAmount);
@@ -4387,25 +4426,40 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       maxEligibleAmount = monthlySalary || 20000;
     }
 
-    // STRICT BUSINESS RULE: For Advance Salary, maximum eligible amount can NEVER exceed 100% of monthly salary
-    if (isAdvancePolicy) {
-      maxEligibleAmount = Math.min(maxEligibleAmount, monthlySalary);
-    }
-
-    // 4. Check Active Loans & Outstanding Balance
-    const activeLoans = loanRecords.filter(
-      r => r.employeeId === emp.employeeId && 
-      (r.status === 'Active' || r.status === 'Disbursed') && 
-      toNum(r.outstandingBalance) > 0
+    // 4. Check Active & Pending Loans & Outstanding Balance
+    const empAllLoans = loanRecords.filter(r => r.employeeId === emp.employeeId);
+    const activeLoans = empAllLoans.filter(
+      r => (r.status === 'Active' || r.status === 'Disbursed') && toNum(r.outstandingBalance) > 0
+    );
+    const pendingOrApprovedLoans = empAllLoans.filter(
+      r => r.status === 'Pending' || r.status === 'Under Review' || r.status === 'Approved'
     );
     const activeLoansCount = activeLoans.length;
     const currentOutstanding = activeLoans.reduce((sum, r) => sum + toNum(r.outstandingBalance), 0);
 
-    // 5. Dynamic Rules Validations
+    // 5. Dynamic Policy Rule Validations
+    // 5a. Applicable Employees check
+    if (Array.isArray(policy.applicableEmployees) && policy.applicableEmployees.length > 0) {
+      const isIncluded = policy.applicableEmployees.includes(emp.employeeId) || policy.applicableEmployees.includes(emp.id);
+      if (!isIncluded) {
+        return {
+          isEligible: false,
+          ineligibleReason: 'Your employee profile is not included in the applicable employees list for this Advance Salary policy.',
+          employmentDurationMonths: tenureMonths,
+          monthlySalary,
+          maxEligibleAmount,
+          activeLoansCount,
+          currentOutstanding,
+          policy
+        };
+      }
+    }
+
+    // 5b. Minimum Working Period check
     if (tenureMonths < policy.minimumEmploymentMonths) {
       return {
         isEligible: false,
-        ineligibleReason: `You are not eligible to apply for this loan yet. Minimum ${policy.minimumEmploymentMonths} months of completed employment is required. (Your completed tenure is ${tenureMonths} months)`,
+        ineligibleReason: `Minimum ${policy.minimumEmploymentMonths} months of completed employment is required by policy (your completed tenure is ${tenureMonths} months).`,
         employmentDurationMonths: tenureMonths,
         monthlySalary,
         maxEligibleAmount,
@@ -4415,13 +4469,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       };
     }
 
+    // 5c. Previous Advance Pending check
     const isPendingNotAllowed = policy.allowPreviousPending === false;
-    if ((isPendingNotAllowed && activeLoansCount > 0) || activeLoansCount >= policy.maxActiveLoans) {
+    if (isPendingNotAllowed && (activeLoansCount > 0 || pendingOrApprovedLoans.length > 0)) {
       return {
         isEligible: false,
-        ineligibleReason: isPendingNotAllowed && activeLoansCount > 0
-          ? `You have a previous advance pending repayment. The policy does not allow new requests while a previous advance is active.`
-          : `You already have an active loan (${activeLoansCount}/${policy.maxActiveLoans}). Please complete your current loan repayment before applying for a new loan.`,
+        ineligibleReason: 'You already have a previous advance pending or under active repayment. Policy "Previous Advance Pending: Not Allow" requires settling existing advances first.',
         employmentDurationMonths: tenureMonths,
         monthlySalary,
         maxEligibleAmount,
@@ -4429,6 +4482,48 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         currentOutstanding,
         policy
       };
+    }
+
+    // 5d. Request Limit frequency check
+    if (policy.requestLimit && policy.requestLimit !== 'NO_LIMIT') {
+      const now = new Date();
+      const nonRejected = empAllLoans.filter(r => r.status !== 'Rejected');
+      const windowMonths =
+        policy.requestLimit === 'ONCE_A_MONTH' ? 1 :
+        policy.requestLimit === 'ONCE_IN_3_MONTHS' ? 3 :
+        policy.requestLimit === 'ONCE_IN_6_MONTHS' ? 6 :
+        policy.requestLimit === 'ONCE_A_YEAR' ? 12 : 0;
+
+      if (windowMonths > 0 && nonRejected.length > 0) {
+        const recentConflict = nonRejected.find(r => {
+          if (!r.requestedDate) return false;
+          const reqDate = new Date(r.requestedDate);
+          if (isNaN(reqDate.getTime())) return false;
+          if (windowMonths === 1) {
+            return reqDate.getFullYear() === now.getFullYear() && reqDate.getMonth() === now.getMonth();
+          }
+          const monthsDiff = ((now.getFullYear() - reqDate.getFullYear()) * 12) + (now.getMonth() - reqDate.getMonth());
+          return monthsDiff < windowMonths;
+        });
+
+        // Only block if Previous Advance Pending is Not Allow, or if they already requested within the frequency window
+        if (recentConflict && !policy.allowPreviousPending) {
+          const limitLabel =
+            policy.requestLimit === 'ONCE_A_MONTH' ? 'Once in a Month' :
+            policy.requestLimit === 'ONCE_IN_3_MONTHS' ? 'Once in 3 Months' :
+            policy.requestLimit === 'ONCE_IN_6_MONTHS' ? 'Once in 6 Months' : 'Once a Year';
+          return {
+            isEligible: false,
+            ineligibleReason: `Advance Salary policy restricts requests to "${limitLabel}". You already have a request (${recentConflict.id}) submitted on ${recentConflict.requestedDate}.`,
+            employmentDurationMonths: tenureMonths,
+            monthlySalary,
+            maxEligibleAmount,
+            activeLoansCount,
+            currentOutstanding,
+            policy
+          };
+        }
+      }
     }
 
     return {
@@ -4448,18 +4543,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: eligibility.ineligibleReason || 'Not eligible to submit loan request.' };
     }
 
-    const isAdvance = requestData.requestType === 'Advance Salary' || (requestData.requestType as string) === 'Salary Advance';
-    const effectiveSalary = eligibility.monthlySalary || 0;
-    const effectiveLimit = isAdvance 
-      ? (effectiveSalary > 0 ? Math.min(eligibility.maxEligibleAmount, effectiveSalary) : eligibility.maxEligibleAmount)
-      : eligibility.maxEligibleAmount;
+    const effectiveLimit = eligibility.maxEligibleAmount;
 
     if (requestData.requestedAmount > effectiveLimit) {
       return { 
         success: false, 
-        message: isAdvance 
-          ? `Advance salary cannot exceed your monthly salary of ${formatCurrency(effectiveLimit)}.`
-          : `Requested amount exceeds your maximum eligible loan limit of ${formatCurrency(effectiveLimit)}.` 
+        message: `Requested amount cannot exceed your policy eligible limit of ${formatCurrency(effectiveLimit)}.` 
       };
     }
 
@@ -4468,32 +4557,40 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!dateVal.valid) {
         return { success: false, message: dateVal.error || PAST_DATE_ERROR_MESSAGE };
       }
-      const dupCheck = checkDuplicateAdvanceRequest(loanRecords, requestData.employeeId, requestData.neededByDate);
-      if (dupCheck.hasDuplicate) {
-        return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
+      if (!eligibility.policy?.allowPreviousPending) {
+        const dupCheck = checkDuplicateAdvanceRequest(loanRecords, requestData.employeeId, requestData.neededByDate);
+        if (dupCheck.hasDuplicate) {
+          return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
+        }
       }
     }
 
     const now = new Date();
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    const policy = eligibility.policy;
+    const isCurrentMonthStart = policy?.deductionStart === 'CURRENT_MONTH';
+    const startOffset = isCurrentMonthStart ? 0 : 1;
+    const firstDeductionDate = new Date(now.getFullYear(), now.getMonth() + startOffset, 1);
+    const defaultDeductionMonth = firstDeductionDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
     const deductionStartMonth = requestData.deductionStartMonth || defaultDeductionMonth;
 
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const timestamp = `${dateStr} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const loanId = `ADV-${now.getFullYear()}-${String(loanRecords.length + 1).padStart(3, '0')}`;
-    const months = isAdvance ? 1 : (requestData.installmentMonths || 3);
-    const monthlyEMI = isAdvance ? requestData.requestedAmount : Math.round(requestData.requestedAmount / months);
+    const isFullOnly = policy?.repaymentType === 'FULL';
+    const maxPolicyMonths = Math.max(1, toNum(policy?.maxRepaymentMonths) || 6);
+    const months = isFullOnly ? 1 : Math.min(Math.max(1, toNum(requestData.installmentMonths) || 1), maxPolicyMonths);
+    const monthlyEMI = Math.round(requestData.requestedAmount / months);
 
     const schedule: LoanRepaymentInstallment[] = Array.from({ length: months }).map((_, idx) => {
-      const d = new Date(now.getFullYear(), now.getMonth() + 1 + idx, 1);
+      const d = new Date(now.getFullYear(), now.getMonth() + startOffset + idx, 1);
       const periodMonth = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      const scheduledAmount = idx === months - 1 ? requestData.requestedAmount - (monthlyEMI * (months - 1)) : monthlyEMI;
       return {
         installmentNumber: idx + 1,
         periodMonth,
-        scheduledAmount: idx === months - 1 ? requestData.requestedAmount - (monthlyEMI * (months - 1)) : monthlyEMI,
+        scheduledAmount,
         actualDeducted: 0,
-        remainingBalance: requestData.requestedAmount - (monthlyEMI * (idx + 1)),
+        remainingBalance: Math.max(0, requestData.requestedAmount - (monthlyEMI * (idx + 1))),
         status: 'Pending'
       };
     });
@@ -4503,6 +4600,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: loanId,
       requestedDate: dateStr,
       status: 'Pending',
+      installmentMonths: months,
       monthlyDeduction: monthlyEMI,
       deductionStartMonth,
       outstandingBalance: requestData.requestedAmount,
@@ -4515,7 +4613,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           performedBy: `${requestData.employeeName} (${requestData.employeeId})`,
           performedByRole: currentUser.role,
           timestamp,
-          notes: `Requested ${formatCurrency(requestData.requestedAmount)} for ${months} months. Reason: ${requestData.purpose}`
+          notes: `Requested ${formatCurrency(requestData.requestedAmount)} for ${months} ${months === 1 ? 'month' : 'months'} (EMI: ${formatCurrency(monthlyEMI)}/mo). Reason: ${requestData.purpose}`
         }
       ]
     };
@@ -4527,7 +4625,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
     addNotification({
       title: 'New Advance / Loan Request',
-      message: `${requestData.employeeName} submitted a request for ${formatCurrency(requestData.requestedAmount)}.`,
+      message: `${requestData.employeeName} submitted a request for ${formatCurrency(requestData.requestedAmount)} (${months} ${months === 1 ? 'month' : 'months'}).`,
       priority: 'Important',
       category: 'Payroll'
     });
@@ -4545,7 +4643,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     employeeVisibleNotes?: string;
     rejectionReason?: string;
   }) => {
-    // Financial approval is strictly reserved for the CEO / Super Admin
     const isCEOApprover = 
       currentUser.role === 'CEO' || 
       currentUser.role === 'Super Admin' ||
@@ -4554,10 +4651,25 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       (currentUser as any).designation?.toLowerCase().includes('managing director') ||
       currentUser.employeeId === 'EMP-000';
 
-    if (!isCEOApprover) {
+    const isHRApprover =
+      currentUser.role === 'HR' ||
+      currentUser.role === 'HR Manager' ||
+      currentUser.role === 'Admin' ||
+      (currentUser.department && (currentUser.department.toLowerCase().includes('hr') || currentUser.department.toLowerCase().includes('human resource'))) ||
+      (currentUser.designation && currentUser.designation.toLowerCase().includes('hr'));
+
+    const approvalRule = activeLoanPolicy?.approvalBy || 'HR_OR_CEO';
+    const canApprove =
+      approvalRule === 'CEO'
+        ? isCEOApprover
+        : (isCEOApprover || isHRApprover);
+
+    if (!canApprove) {
       addNotification({
-        title: 'CEO Approval Required',
-        message: 'Advance salary and loan requests can be approved or rejected strictly by the CEO only.',
+        title: 'Approval Permission Required',
+        message: approvalRule === 'CEO'
+          ? 'Advance salary requests can be approved or rejected strictly by the CEO only per active policy.'
+          : 'Advance salary requests can be approved or rejected only by authorized HR or CEO.',
         priority: 'Important',
         category: 'Payroll'
       });
@@ -4566,7 +4678,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const now = new Date();
     const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const approverName = `${currentUser.name} (CEO)`;
+    const approverRoleLabel = isCEOApprover ? 'CEO' : 'HR';
+    const approverName = `${currentUser.name} (${approverRoleLabel})`;
 
     setLoanRecords(prev => {
       const updated = prev.map(rec => {
@@ -4574,18 +4687,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (options.action === 'Approve') {
         const approvedAmt = options.approvedAmount ?? rec.requestedAmount;
-        const isAdvanceSalary = rec.requestType === 'Advance Salary' || rec.requestType === 'Salary Advance';
-        // Advance Salary: no repayment period — full amount recovered from next month's salary
-        const approvedM = isAdvanceSalary ? 1 : (options.approvedMonths ?? rec.installmentMonths);
-        const emi = isAdvanceSalary ? approvedAmt : (options.monthlyDeduction ?? Math.round(approvedAmt / approvedM));
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-        const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        const isFullOnly = activeLoanPolicy?.repaymentType === 'FULL';
+        const approvedM = isFullOnly ? 1 : Math.max(1, toNum(options.approvedMonths ?? rec.installmentMonths) || 1);
+        const emi = approvedM === 1 ? approvedAmt : (toNum(options.monthlyDeduction) || Math.round(approvedAmt / approvedM));
+        const startOffset = activeLoanPolicy?.deductionStart === 'CURRENT_MONTH' ? 0 : 1;
+        const defaultStartDate = new Date(now.getFullYear(), now.getMonth() + startOffset, 1);
+        const defaultDeductionMonth = defaultStartDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
         const startMonth = options.deductionStartMonth || rec.deductionStartMonth || defaultDeductionMonth;
 
+        const parsedStart = new Date(`1 ${startMonth}`);
+        const baseStartDate = !isNaN(parsedStart.getTime()) ? parsedStart : defaultStartDate;
+
         const schedule: LoanRepaymentInstallment[] = Array.from({ length: approvedM }).map((_, idx) => {
+          const d = new Date(baseStartDate.getFullYear(), baseStartDate.getMonth() + idx, 1);
+          const periodMonth = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
           return {
             installmentNumber: idx + 1,
-            periodMonth: `${startMonth} +${idx}`,
+            periodMonth,
             scheduledAmount: idx === approvedM - 1 ? approvedAmt - (emi * (approvedM - 1)) : emi,
             actualDeducted: 0,
             remainingBalance: Math.max(0, approvedAmt - (emi * (idx + 1))),
@@ -4602,9 +4720,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           outstandingBalance: approvedAmt,
           deductionStartMonth: startMonth,
           internalHrNotes: options.internalHrNotes || rec.internalHrNotes,
-          employeeVisibleNotes: options.employeeVisibleNotes || (isAdvanceSalary
+          employeeVisibleNotes: options.employeeVisibleNotes || (approvedM === 1
             ? `Approved for ${formatCurrency(approvedAmt)}. Full amount will be deducted from your ${startMonth} salary.`
-            : `Approved for ${formatCurrency(approvedAmt)} across ${approvedM} months.`),
+            : `Approved for ${formatCurrency(approvedAmt)} across ${approvedM} months (${formatCurrency(emi)}/mo starting ${startMonth}).`),
           repaymentSchedule: schedule,
           ceoApproval: {
             approvedBy: approverName,
@@ -4617,20 +4735,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             {
               id: `LOG-${Date.now()}`,
               loanId: rec.id,
-              action: 'Request Approved by CEO',
+              action: `Request Approved by ${approverRoleLabel}`,
               performedBy: approverName,
-              performedByRole: 'CEO',
+              performedByRole: currentUser.role,
               timestamp,
               previousValue: `Status: ${rec.status}, Requested: ${formatCurrency(rec.requestedAmount)}`,
-              newValue: `Status: Approved, Sanctioned: ${formatCurrency(approvedAmt)} @ ${formatCurrency(emi)}/mo. Pending Accounts payment distribution.`
+              newValue: `Status: Approved, Sanctioned: ${formatCurrency(approvedAmt)} @ ${formatCurrency(emi)}/mo for ${approvedM} mos. Pending Accounts payment distribution.`
             }
           ]
         };
 
         // Notify Accounts to distribute payment
         addNotification({
-          title: 'CEO Approved Advance Salary',
-          message: `CEO approved advance salary request for ${rec.employeeName} (${formatCurrency(approvedAmt)}). Ready for payment distribution.`,
+          title: `${approverRoleLabel} Approved Advance Salary`,
+          message: `${approverRoleLabel} approved advance salary request for ${rec.employeeName} (${formatCurrency(approvedAmt)}). Ready for payment distribution.`,
           priority: 'Important',
           category: 'Payroll',
           targetRoles: ['ACCOUNTS', 'Finance Manager']
@@ -4639,7 +4757,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Notify Employee
         addNotification({
           title: 'Advance Salary Approved',
-          message: `Your advance salary request for ${formatCurrency(approvedAmt)} has been approved by the CEO and queued for payment distribution.`,
+          message: `Your advance salary request for ${formatCurrency(approvedAmt)} has been approved by ${approverRoleLabel} and queued for payment distribution.`,
           priority: 'Normal',
           category: 'Payroll',
           targetEmployeeIds: [rec.employeeId]
@@ -12199,23 +12317,36 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         // Loan Policies
-        if (Array.isArray(settings.loan_policies_data)) {
-          const normalizedPolicies = settings.loan_policies_data
-            .filter((p: any) => !DEPRECATED_DEFAULT_LOAN_POLICY_NAMES.has(String(p.policyName || p.name || '').trim().toLowerCase()))
-            .map((p: any) => ({
-              ...p,
-              policyName: p.policyName || p.name || 'Advance Salary Policy',
-              minRepaymentMonths: p.minRepaymentMonths ?? 1,
-              maxRepaymentMonths: p.maxRepaymentMonths ?? 3,
-              minLoanAmount: p.minLoanAmount ?? 1000,
-              maxLoanAmount: p.maxLoanAmount ?? p.maxEligibleFixedAmount ?? 50000,
-              minimumEmploymentMonths: p.minimumEmploymentMonths ?? p.minTenureMonthsRequired ?? 1,
-              maxActiveLoans: p.maxActiveLoans ?? 1,
-              status: p.status || (p.active ? 'Active' : 'Active')
-            }));
-          setLoanPolicies(normalizedPolicies);
-        } else {
-          setLoanPolicies([]);
+        if (Date.now() - lastLoanPolicyMutationAtRef.current >= 12000) {
+          if (Array.isArray(settings.loan_policies_data)) {
+            const normalizedPolicies = settings.loan_policies_data
+              .filter((p: any) => !DEPRECATED_DEFAULT_LOAN_POLICY_NAMES.has(String(p.policyName || p.name || '').trim().toLowerCase()) || p.updatedBy)
+              .map((p: any) => {
+                const allowPending = Boolean(p.allowPreviousPending ?? (toNum(p.maxActiveLoans) > 1));
+                return {
+                  ...p,
+                  policyName: p.policyName || p.name || 'Advance Salary Policy',
+                  applicableEmployees: p.applicableEmployees || 'ALL',
+                  minRepaymentMonths: Math.max(1, toNum(p.minRepaymentMonths) || 1),
+                  maxRepaymentMonths: Math.max(1, toNum(p.maxRepaymentMonths) || 6),
+                  minLoanAmount: toNum(p.minLoanAmount) || 1000,
+                  maxLoanAmount: toNum(p.maxLoanAmount ?? p.maxEligibleFixedAmount) || 500000,
+                  maxSalaryPercent: toNum(p.maxSalaryPercent ?? (p.maxLoanLimitType === 'PERCENTAGE_SALARY' ? p.maxLoanLimitValue : 100)) || 100,
+                  minimumEmploymentMonths: toNum(p.minimumEmploymentMonths ?? p.minTenureMonthsRequired ?? 3),
+                  allowPreviousPending: allowPending,
+                  maxActiveLoans: allowPending ? Math.max(toNum(p.maxActiveLoans) || 10, 10) : 1,
+                  repaymentType: p.repaymentType || 'MONTHLY_EMI',
+                  deductionStart: p.deductionStart || (p.deductionStartRule === 'SPECIFIED_MONTH' ? 'CURRENT_MONTH' : 'NEXT_MONTH'),
+                  requestLimit: p.requestLimit || 'ONCE_A_MONTH',
+                  approvalBy: p.approvalBy || 'HR_OR_CEO',
+                  reasonRequired: p.reasonRequired ?? true,
+                  status: p.status || (p.active === false ? 'Inactive' : 'Active')
+                };
+              });
+            setLoanPolicies(normalizedPolicies);
+          } else {
+            setLoanPolicies([]);
+          }
         }
 
         // Loan Records: strictly filter to only active employees
