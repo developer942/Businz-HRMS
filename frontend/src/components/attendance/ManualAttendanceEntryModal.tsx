@@ -9,8 +9,6 @@ import {
   Info,
   Timer,
   Building2,
-  ChevronLeft,
-  ChevronRight,
   Search,
   Check,
   ChevronDown
@@ -213,7 +211,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   
   const [breakDuration, setBreakDuration] = useState<number | string>(45);
   const [otHours, setOtHours] = useState<number>(0);
-  const [reason, setReason] = useState<string>('Missed punch-out: Employee forgot before leaving');
   
   const [error, setError] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
@@ -269,26 +266,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
-
-  const currentEmpIndex = useMemo(() => {
-    return employees.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
-  }, [employees, selectedEmpId]);
-
-  const handlePrevEmployee = () => {
-    if (employees.length === 0) return;
-    const list = searchQuery.trim() && filteredEmployees.length > 0 ? filteredEmployees : employees;
-    const idx = list.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
-    const prevIndex = idx > 0 ? idx - 1 : list.length - 1;
-    setSelectedEmpId(list[prevIndex].id);
-  };
-
-  const handleNextEmployee = () => {
-    if (employees.length === 0) return;
-    const list = searchQuery.trim() && filteredEmployees.length > 0 ? filteredEmployees : employees;
-    const idx = list.findIndex(e => e.id === selectedEmpId || e.employeeId === selectedEmpId);
-    const nextIndex = idx < list.length - 1 ? idx + 1 : 0;
-    setSelectedEmpId(list[nextIndex].id);
-  };
 
   // Sync selectedEmpId when defaultEmployeeId changes or on open
   useEffect(() => {
@@ -462,14 +439,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     breakDurationMinutes: Number(breakDuration) || 0
   });
 
-  const QUICK_REASONS = [
-    'Missed punch-out: Employee forgot before leaving premises',
-    'Missed punch-in: Biometric terminal offline / network glitch',
-    'On-site emergency plant inspection & fieldwork',
-    'Off-site client deployment authorized by Management',
-    'Card reader unreadable / scanner fail regularization'
-  ];
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -495,11 +464,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       }
     }
 
-    if (!reason.trim()) {
-      setError('Administrative authorization reason is mandatory.');
-      return;
-    }
-
     const finalCheckIn = isMissedCheckIn ? null : normalizeTimeString(checkInTime);
     const finalCheckOut = isMissedCheckOut ? null : normalizeTimeString(checkOutTime);
 
@@ -521,7 +485,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       workingHours: calculatedHours,
       halfDayType: status === 'Half Day' ? halfDayType : undefined,
       otHours: otHours > 0 ? otHours : undefined,
-      reason,
+      reason: existingRecord?.reason || 'Manual Attendance Entry',
       addedBy
     });
 
@@ -682,49 +646,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                 >
                   Select Employee <span style={{ color: '#EF4444' }}>*</span>
                 </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748B' }}>
-                    Employee {currentEmpIndex >= 0 ? currentEmpIndex + 1 : 1} of {employees.length}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handlePrevEmployee}
-                    title="Previous Employee"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '26px',
-                      height: '26px',
-                      borderRadius: '6px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleNextEmployee}
-                    title="Next Employee"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '26px',
-                      height: '26px',
-                      borderRadius: '6px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
               </div>
               {/* Custom Searchable Employee Combobox */}
               <div ref={employeeDropdownRef} style={{ position: 'relative' }}>
@@ -1785,63 +1706,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               </div>
               );
             })()}
-
-            {/* Reason / Administrative Justification */}
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  color: '#1E293B',
-                  marginBottom: '6px'
-                }}
-              >
-                Reason / Executive Authorization <span style={{ color: '#EF4444' }}>*</span>
-              </label>
-
-              {/* Quick Reason Chips */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-                {QUICK_REASONS.map(q => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => setReason(q)}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      backgroundColor: reason === q ? '#E0F2FE' : '#F1F5F9',
-                      color: reason === q ? '#0369A1' : '#475569',
-                      border: '1px solid transparent',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {q.split(':')[0]}
-                  </button>
-                ))}
-              </div>
-
-              <textarea
-                rows={2}
-                value={reason}
-                onChange={e => setReason(e.target.value)}
-                onKeyDown={preventSpaceEnterPropagation}
-                placeholder="Provide detailed justification for manual entry or punch regularization..."
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: '10px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '0.84rem',
-                  color: '#1E293B',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }}
-                required
-              />
-            </div>
           </div>
 
           {/* Modal Footer */}
