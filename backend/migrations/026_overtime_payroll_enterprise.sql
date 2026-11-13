@@ -73,45 +73,59 @@ CREATE TABLE IF NOT EXISTS public.employee_department_history (
 
 CREATE INDEX IF NOT EXISTS idx_emp_dept_history_emp ON public.employee_department_history(employee_id, effective_from);
 
--- 4. Enhance overtime_records Table for Enterprise Workflow, Deduplication & Locking
-ALTER TABLE public.overtime_records
-    ADD COLUMN IF NOT EXISTS wage_base TEXT DEFAULT 'FIXED_HOURLY',
-    ADD COLUMN IF NOT EXISTS divisor_used NUMERIC(5, 2) DEFAULT 26.00,
-    ADD COLUMN IF NOT EXISTS calendar_days_in_month INT DEFAULT 30,
-    ADD COLUMN IF NOT EXISTS standard_shift_hours NUMERIC(5, 2) DEFAULT 9.00,
-    ADD COLUMN IF NOT EXISTS multiplier_value NUMERIC(5, 2) DEFAULT 1.00,
-    ADD COLUMN IF NOT EXISTS eligibility_source TEXT DEFAULT 'DEPARTMENT_POLICY',
-    ADD COLUMN IF NOT EXISTS attendance_record_id TEXT,
-    ADD COLUMN IF NOT EXISTS payroll_record_id UUID REFERENCES public.payroll_records(id) ON DELETE SET NULL,
-    ADD COLUMN IF NOT EXISTS payroll_month TEXT,
-    ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS is_backdated_arrear BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS arrear_source_month TEXT;
+-- 4. Enhance overtime_records Table (only if it exists in this deployment)
+DO $$
+BEGIN
+  IF to_regclass('public.overtime_records') IS NOT NULL THEN
+    ALTER TABLE public.overtime_records
+      ADD COLUMN IF NOT EXISTS wage_base TEXT DEFAULT 'FIXED_HOURLY',
+      ADD COLUMN IF NOT EXISTS divisor_used NUMERIC(5, 2) DEFAULT 26.00,
+      ADD COLUMN IF NOT EXISTS calendar_days_in_month INT DEFAULT 30,
+      ADD COLUMN IF NOT EXISTS standard_shift_hours NUMERIC(5, 2) DEFAULT 9.00,
+      ADD COLUMN IF NOT EXISTS multiplier_value NUMERIC(5, 2) DEFAULT 1.00,
+      ADD COLUMN IF NOT EXISTS eligibility_source TEXT DEFAULT 'DEPARTMENT_POLICY',
+      ADD COLUMN IF NOT EXISTS attendance_record_id TEXT,
+      ADD COLUMN IF NOT EXISTS payroll_record_id TEXT,
+      ADD COLUMN IF NOT EXISTS payroll_month TEXT,
+      ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS is_backdated_arrear BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS arrear_source_month TEXT;
+  ELSE
+    RAISE NOTICE 'overtime_records not present - overtime stored in company settings; skipping';
+  END IF;
+END $$;
 
--- Prevent duplicate overtime payments for the same employee and attendance date
-CREATE UNIQUE INDEX IF NOT EXISTS uq_overtime_employee_date
-    ON public.overtime_records(employee_id, date)
-    WHERE status IN ('PENDING', 'APPROVED', 'PAID');
+-- 5. Enhance payroll_settings Table (only if it exists in this deployment)
+DO $$
+BEGIN
+  IF to_regclass('public.payroll_settings') IS NOT NULL THEN
+    ALTER TABLE public.payroll_settings
+      ADD COLUMN IF NOT EXISTS salary_divisor_mode TEXT NOT NULL DEFAULT 'FIXED_DAYS',
+      ADD COLUMN IF NOT EXISTS ot_wage_base TEXT NOT NULL DEFAULT 'FIXED_HOURLY',
+      ADD COLUMN IF NOT EXISTS ot_multiplier TEXT NOT NULL DEFAULT 'Fixed Amount Per Hour',
+      ADD COLUMN IF NOT EXISTS standard_shift_hours NUMERIC(5, 2) NOT NULL DEFAULT 9.00,
+      ADD COLUMN IF NOT EXISTS payslip_overtime_visibility JSONB NOT NULL DEFAULT '{"showOtHoursOnPayslip": true, "showOtAmountOnPayslip": true, "showOtCalculationDetailsOnPayslip": false}'::jsonb;
+  ELSE
+    RAISE NOTICE 'payroll_settings not present - payroll settings stored in company settings; skipping';
+  END IF;
+END $$;
 
--- 5. Enhance payroll_settings Table with Divisor Mode & Payslip Overtime Visibility
-ALTER TABLE public.payroll_settings
-    ADD COLUMN IF NOT EXISTS salary_divisor_mode TEXT NOT NULL DEFAULT 'FIXED_DAYS',
-    ADD COLUMN IF NOT EXISTS ot_wage_base TEXT NOT NULL DEFAULT 'FIXED_HOURLY',
-    ADD COLUMN IF NOT EXISTS ot_multiplier TEXT NOT NULL DEFAULT 'Fixed Amount Per Hour',
-    ADD COLUMN IF NOT EXISTS standard_shift_hours NUMERIC(5, 2) NOT NULL DEFAULT 9.00,
-    ADD COLUMN IF NOT EXISTS payslip_overtime_visibility JSONB NOT NULL DEFAULT '{"showOtHoursOnPayslip": true, "showOtAmountOnPayslip": true, "showOtCalculationDetailsOnPayslip": false}'::jsonb;
-
--- 6. Enhance payroll_records Table with Overtime Rate, Calendar Days, Divisor & Locking
-ALTER TABLE public.payroll_records
-    ADD COLUMN IF NOT EXISTS overtime_hours NUMERIC(6, 2) NOT NULL DEFAULT 0.00,
-    ADD COLUMN IF NOT EXISTS overtime_rate NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
-    ADD COLUMN IF NOT EXISTS calendar_days_in_month INT NOT NULL DEFAULT 30,
-    ADD COLUMN IF NOT EXISTS salary_divisor_used NUMERIC(5, 2) NOT NULL DEFAULT 26.00,
-    ADD COLUMN IF NOT EXISTS salary_divisor_mode TEXT NOT NULL DEFAULT 'FIXED_DAYS',
-    ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS locked_by TEXT;
+-- 6. Enhance payroll_records Table (only if it exists in this deployment)
+DO $$
+BEGIN
+  IF to_regclass('public.payroll_records') IS NOT NULL THEN
+    ALTER TABLE public.payroll_records
+      ADD COLUMN IF NOT EXISTS overtime_hours NUMERIC(6, 2) NOT NULL DEFAULT 0.00,
+      ADD COLUMN IF NOT EXISTS overtime_rate NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+      ADD COLUMN IF NOT EXISTS calendar_days_in_month INT NOT NULL DEFAULT 30,
+      ADD COLUMN IF NOT EXISTS salary_divisor_used NUMERIC(5, 2) NOT NULL DEFAULT 26.00,
+      ADD COLUMN IF NOT EXISTS salary_divisor_mode TEXT NOT NULL DEFAULT 'FIXED_DAYS',
+      ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS locked_by TEXT;
+  END IF;
+END $$;
 
 COMMIT;
 
