@@ -1947,7 +1947,6 @@ export const AttendanceManagementModule: React.FC = () => {
       <ManualAttendanceEntryModal
         isOpen={isManualAttendanceModalOpen}
         onClose={() => setIsManualAttendanceModalOpen(false)}
-        defaultEmployeeId={selectedStaffFilter !== 'ALL' ? selectedStaffFilter : undefined}
       />
 
     </div>

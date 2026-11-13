@@ -196,7 +196,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       const match = employees.find(e => e.id === defaultEmployeeId || e.employeeId === defaultEmployeeId);
       if (match) return match.id;
     }
-    return employees[0]?.id || '';
+    return '';
   });
   const [date, setDate] = useState<string>(
     defaultDate || new Date().toISOString().split('T')[0]
@@ -246,13 +246,19 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     }
   }, [isDropdownOpen]);
 
-  // Reset dropdown and search query when modal is closed
+  // Reset dropdown, search query, and selection when modal opens or closes
   useEffect(() => {
     if (!isOpen) {
       setIsDropdownOpen(false);
       setSearchQuery('');
+      setSelectedEmpId('');
+    } else if (defaultEmployeeId) {
+      const found = employees.find(e => e.id === defaultEmployeeId || e.employeeId === defaultEmployeeId);
+      setSelectedEmpId(found ? found.id : '');
+    } else {
+      setSelectedEmpId('');
     }
-  }, [isOpen]);
+  }, [isOpen, defaultEmployeeId]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -266,14 +272,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
-
-  // Sync selectedEmpId when defaultEmployeeId changes or on open
-  useEffect(() => {
-    if (isOpen && defaultEmployeeId) {
-      const found = employees.find(e => e.id === defaultEmployeeId || e.employeeId === defaultEmployeeId);
-      if (found) setSelectedEmpId(found.id);
-    }
-  }, [isOpen, defaultEmployeeId, employees]);
 
   // Look up selected employee details
   const selectedEmployee = useMemo(() => {
@@ -650,12 +648,9 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               {/* Custom Searchable Employee Combobox */}
               <div ref={employeeDropdownRef} style={{ position: 'relative' }}>
                 <div
-                  onClick={() => setIsDropdownOpen(prev => !prev)}
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      setIsDropdownOpen(true);
+                  onClick={() => {
+                    if (!selectedEmployee) {
+                      searchInputRef.current?.focus();
                     }
                   }}
                   style={{
@@ -665,7 +660,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                     borderRadius: '10px',
                     border: isDropdownOpen ? '2px solid #0E7490' : '1px solid #CBD5E1',
                     backgroundColor: '#FFFFFF',
-                    cursor: 'pointer',
+                    cursor: selectedEmployee ? 'default' : 'text',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
@@ -676,10 +671,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                   role="combobox"
                   aria-expanded={isDropdownOpen}
                   aria-haspopup="listbox"
-                  title="Click to search or select employee"
+                  title="Search or select employee"
                 >
                   {selectedEmployee ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', flex: 1 }}>
                       <div
                         style={{
                           width: '26px',
@@ -722,16 +717,93 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       </div>
                     </div>
                   ) : (
-                    <span style={{ fontSize: '0.86rem', color: '#94A3B8' }}>Select an employee...</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                      <Search size={15} color="#0E7490" style={{ flexShrink: 0, opacity: 0.8 }} />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSearchQuery(val);
+                          setIsDropdownOpen(val.trim().length > 0);
+                        }}
+                        onKeyDown={(e) => {
+                          preventSpaceEnterPropagation(e);
+                          if (e.key === 'Escape') {
+                            setIsDropdownOpen(false);
+                          } else if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (searchQuery.trim() && filteredEmployees.length > 0) {
+                              setSelectedEmpId(filteredEmployees[0].id);
+                              setIsDropdownOpen(false);
+                              setSearchQuery('');
+                            }
+                          }
+                        }}
+                        placeholder="Search employee name or ID (e.g. Arun, VRM-013)..."
+                        style={{
+                          width: '100%',
+                          border: 'none',
+                          background: 'transparent',
+                          outline: 'none',
+                          fontSize: '0.86rem',
+                          fontWeight: 500,
+                          color: '#0F172A'
+                        }}
+                      />
+                    </div>
                   )}
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748B', flexShrink: 0, marginLeft: '8px' }}>
-                    <Search size={14} style={{ opacity: 0.6 }} />
-                    <ChevronDown size={16} style={{ transform: isDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                    {(selectedEmployee || searchQuery) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedEmpId('');
+                          setSearchQuery('');
+                          setIsDropdownOpen(false);
+                          setTimeout(() => searchInputRef.current?.focus(), 30);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: '2px',
+                          cursor: 'pointer',
+                          color: '#94A3B8',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                        title="Clear employee selection"
+                      >
+                        <X size={15} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsDropdownOpen(prev => !prev);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: '2px',
+                        cursor: 'pointer',
+                        color: '#64748B',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                      title="Toggle employee list"
+                    >
+                      <ChevronDown size={16} style={{ transform: isDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                    </button>
                   </div>
                 </div>
 
-                {/* Dropdown Menu */}
+                {/* Dropdown Menu — only shown after user types in search bar or explicitly clicks arrow */}
                 {isDropdownOpen && (
                   <div
                     style={{
@@ -747,67 +819,50 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       overflow: 'hidden'
                     }}
                   >
-                    {/* Search Input inside Dropdown */}
-                    <div
-                      style={{
-                        padding: '10px 12px',
-                        borderBottom: '1px solid #E2E8F0',
-                        backgroundColor: '#F8FAFC',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      <Search size={16} color="#0E7490" style={{ flexShrink: 0 }} />
-                      <input
-                        ref={searchInputRef}
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                          preventSpaceEnterPropagation(e);
-                          if (e.key === 'Escape') {
-                            setIsDropdownOpen(false);
-                          } else if (e.key === 'Enter') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (filteredEmployees.length > 0) {
-                              setSelectedEmpId(filteredEmployees[0].id);
-                              setIsDropdownOpen(false);
-                              setSearchQuery('');
-                            }
-                          }
-                        }}
-                        placeholder="Search employee name or ID (e.g. Arun, VRM-013)..."
+                    {selectedEmployee && (
+                      <div
                         style={{
-                          width: '100%',
-                          border: 'none',
-                          background: 'transparent',
-                          outline: 'none',
-                          fontSize: '0.84rem',
-                          fontWeight: 500,
-                          color: '#0F172A'
+                          padding: '10px 12px',
+                          borderBottom: '1px solid #E2E8F0',
+                          backgroundColor: '#F8FAFC',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
                         }}
-                      />
-                      {searchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setSearchQuery('')}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: '2px',
-                            cursor: 'pointer',
-                            color: '#94A3B8',
-                            display: 'flex',
-                            alignItems: 'center'
+                      >
+                        <Search size={16} color="#0E7490" style={{ flexShrink: 0 }} />
+                        <input
+                          ref={searchInputRef}
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            preventSpaceEnterPropagation(e);
+                            if (e.key === 'Escape') {
+                              setIsDropdownOpen(false);
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (filteredEmployees.length > 0) {
+                                setSelectedEmpId(filteredEmployees[0].id);
+                                setIsDropdownOpen(false);
+                                setSearchQuery('');
+                              }
+                            }
                           }}
-                          title="Clear search"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
+                          placeholder="Search employee name or ID (e.g. Arun, VRM-013)..."
+                          style={{
+                            width: '100%',
+                            border: 'none',
+                            background: 'transparent',
+                            outline: 'none',
+                            fontSize: '0.84rem',
+                            fontWeight: 500,
+                            color: '#0F172A'
+                          }}
+                        />
+                      </div>
+                    )}
 
                     {/* Results Count Header */}
                     <div
