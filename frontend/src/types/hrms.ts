@@ -252,6 +252,15 @@ export interface Employee {
     permissions?: string[];
     sendInvite?: boolean;
   };
+  departmentHistory?: {
+    department?: string;
+    departmentId?: string;
+    departmentName?: string;
+    effectiveFrom: string;
+    effectiveTo?: string;
+    changedBy?: string;
+  }[];
+  statutoryOtEntitled?: boolean;
 }
 
 export type AttendanceShiftState = 
@@ -289,9 +298,12 @@ export interface AttendanceRecord {
   
   // Extended Attendance Correction & OT Fields
   otHours?: number;
+  overtimeHours?: number;
+  workHours?: number;
   calculatedOtHours?: number;
   approvedOtHours?: number;
   otStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Paid';
+  otApprovalStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Paid';
   otReason?: string;
   halfDayType?: 'First Half' | 'Second Half';
   absentReason?: 'Unauthorized Absence' | 'No Show' | 'Attendance Not Recorded' | 'Other';
@@ -528,6 +540,13 @@ export interface PayrollRecord {
   lopDays?: number;
   overtimeHours?: number;
   overtimeAmount?: number;
+  overtimeRate?: number;
+  calendarDaysInMonth?: number;
+  salaryDivisorUsed?: number;
+  salaryDivisorMode?: 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | string;
+  isLocked?: boolean;
+  lockedAt?: string;
+  lockedBy?: string;
   grossSalary?: number;
   totalDeductions?: number;
   earningsBreakdown?: PayrollComponentLineItem[];

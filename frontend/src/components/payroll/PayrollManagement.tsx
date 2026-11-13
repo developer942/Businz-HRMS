@@ -22,8 +22,16 @@ import {
   buildCompanyDocumentProfile,
   mapPayrollLines
 } from '../documents/CompanyDocumentParts';
-import { resolveEmployeeWithPf, isComponentEligible } from '../../services/policyEngine';
+import {
+  resolveEmployeeWithPf,
+  isComponentEligible,
+  getCalendarDaysInMonth,
+  resolvePayrollSalaryDivisor,
+  formatPayslipOvertimeForViewer,
+  resolveMonthNumber
+} from '../../services/policyEngine';
 import { EmployeeSalaryEligibilityContext } from '../../types/settings';
+import { Clock } from 'lucide-react';
 
 export const PayrollManagement: React.FC = () => {
   const { 
@@ -43,7 +51,9 @@ export const PayrollManagement: React.FC = () => {
     payrollSettingsConfig,
     companyInfo,
     companyBranches,
-    departments
+    departments,
+    overtimeRequests,
+    overtimePolicy
   } = useHRMS();
 
   const [selectedPayslip, setSelectedPayslip] = useState<PayrollRecord | null>(null);
@@ -83,14 +93,14 @@ export const PayrollManagement: React.FC = () => {
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
 
-  const isEmployeeRole = (currentUser.role === 'Employee' || isAccountsUser) && !isCEOUser;
+  const isEmployeeRole = currentUser.role === 'Employee' && !isAccountsUser && !isCEOUser && !isApprovalAuthority;
   const isPrivilegedViewer = isApprovalAuthority && !isAccountsUser;
   const canProcessPayroll = isApprovalAuthority && !isAccountsUser;
 
-  // Full payroll register: Restricted strictly to CEO/Super Admin. Accounts employees see only their own payslip.
-  const canViewAllPayroll = isCEOUser;
-  // Marking full payroll paid is restricted to CEO
-  const canMarkPaid = isCEOUser;
+  // Full payroll register: Visible to CEO/Super Admin, Accounts team, and HR/Approval Authority
+  const canViewAllPayroll = isCEOUser || isAccountsUser || isApprovalAuthority;
+  // Marking full payroll paid is restricted to CEO or Accounts
+  const canMarkPaid = isCEOUser || isAccountsUser;
 
   const myEmployeeId = (currentUser.employeeId || '').trim().toLowerCase();
   const currentMonthInfo = useMemo(() => getMonthInfo(), []);
@@ -127,6 +137,80 @@ export const PayrollManagement: React.FC = () => {
 
   const activeMonthName = activeBatch.month;
   const activeYear = activeBatch.year;
+
+  const batchCalendarDays = useMemo(
+    () => getCalendarDaysInMonth(activeMonthName, activeYear),
+    [activeMonthName, activeYear]
+  );
+
+  const batchSalaryDivisor = useMemo(
+    () =>
+      resolvePayrollSalaryDivisor({
+        month: activeMonthName,
+        year: activeYear,
+        divisorMode: payrollSettingsConfig?.salaryDivisorMode || overtimePolicy?.divisorMode || 'FIXED_DAYS',
+        fixedDivisorDays: payrollSettingsConfig?.standardWorkingDaysPerMonth || overtimePolicy?.customDivisorDays || 26
+      }),
+    [activeMonthName, activeYear, payrollSettingsConfig, overtimePolicy]
+  );
+
+  const getEmployeeApprovedOt = (p: PayrollRecord) => {
+    const recHours = toNum(p.overtimeHours || 0);
+    const recAmount = toNum(p.overtimeAmount || 0);
+    const recRate = toNum(p.overtimeRate || 0);
+    if (recHours > 0 || recAmount > 0) {
+      return {
+        hours: recHours,
+        amount: recAmount,
+        rate: recRate || (recHours > 0 ? Math.round((recAmount / recHours) * 100) / 100 : 0)
+      };
+    }
+
+    const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
+    const targetMonthNum = resolveMonthNumber(p.month || activeMonthName);
+    const targetYear = Number(p.year || activeYear);
+    const monthPrefix = `${targetYear}-${String(targetMonthNum).padStart(2, '0')}`;
+    const targetPayrollMonthLabel = `${p.month || activeMonthName} ${targetYear}`.toLowerCase();
+
+    const seenDates = new Set<string>();
+    let totalHours = 0;
+    let totalAmount = 0;
+    let lastRate = 0;
+
+    (overtimeRequests || []).forEach(ot => {
+      if (ot.status !== 'Approved' && ot.status !== 'Paid') return;
+      const matchesEmp =
+        ot.employeeId === p.employeeId ||
+        (emp && (ot.employeeId === emp.id || ot.employeeId === emp.employeeId));
+      if (!matchesEmp) return;
+
+      const isCurrentMonthDate = (ot.date || '').startsWith(monthPrefix);
+      const isTargetedArrear =
+        Boolean(ot.isBackdatedArrear) &&
+        (ot.payrollMonth || '').trim().toLowerCase() === targetPayrollMonthLabel;
+      if (!isCurrentMonthDate && !isTargetedArrear) return;
+
+      const dedupKey = `${p.employeeId}__${ot.date}`;
+      if (seenDates.has(dedupKey)) return;
+      seenDates.add(dedupKey);
+
+      const hrs = toNum(ot.approvedHours || ot.requestedHours || 0);
+      const amt = toNum(ot.calculatedAmount || 0);
+      totalHours += hrs;
+      totalAmount += amt;
+      if (toNum(ot.appliedRatePerHour) > 0) {
+        lastRate = toNum(ot.appliedRatePerHour);
+      }
+    });
+
+    totalHours = Math.round(totalHours * 100) / 100;
+    totalAmount = Math.round(totalAmount);
+    return {
+      hours: totalHours,
+      amount: totalAmount,
+      rate: lastRate || (totalHours > 0 ? Math.round((totalAmount / totalHours) * 100) / 100 : 0)
+    };
+  };
 
   const visibleRecords = useMemo(() => {
     // 1. Role-based visibility
@@ -199,6 +283,18 @@ export const PayrollManagement: React.FC = () => {
     visibleRecords.map(record => record.employeeId || record.id).filter(Boolean)
   ).size;
   const processedCount = visibleRecords.filter(p => p.status === 'Processed' || p.status === 'Paid').length;
+  const totalBatchOtStats = useMemo(() => {
+    return visibleRecords.reduce(
+      (acc, rec) => {
+        const ot = getEmployeeApprovedOt(rec);
+        acc.hours = Math.round((acc.hours + ot.hours) * 100) / 100;
+        acc.amount += ot.amount;
+        if (ot.hours > 0 || ot.amount > 0) acc.employeesCount += 1;
+        return acc;
+      },
+      { hours: 0, amount: 0, employeesCount: 0 }
+    );
+  }, [visibleRecords, overtimeRequests]);
 
   const handleTogglePayslip = (id: string) => {
     setSelectedPayslipIds(prev => 
@@ -429,6 +525,31 @@ export const PayrollManagement: React.FC = () => {
       if (toNum(p.rewardEarnings) > 0) earnings.push({ label: 'Rewards / Incentives', amount: toNum(p.rewardEarnings) });
     }
 
+    // Apply Payslip Overtime Visibility Settings without altering actual gross/net earnings or statutory disclosures
+    const ot = getEmployeeApprovedOt(p);
+    const otVisibility = payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility;
+    if (ot.amount > 0) {
+      const otView = formatPayslipOvertimeForViewer({
+        overtimeHours: ot.hours,
+        overtimeAmount: ot.amount,
+        overtimeRate: ot.rate,
+        divisorUsed: p.salaryDivisorUsed || batchSalaryDivisor.divisorDays,
+        shiftHours: 9,
+        visibility: otVisibility
+      });
+      const otIdx = earnings.findIndex(e => /overtime|\bot\b/i.test(e.label));
+      const formattedOtLine: AmountLine = {
+        label: otView.showAmount ? otView.label : 'Variable / Extra Duty Allowance',
+        amount: ot.amount,
+        description: otView.description
+      };
+      if (otIdx >= 0) {
+        earnings[otIdx] = formattedOtLine;
+      } else {
+        earnings.push(formattedOtLine);
+      }
+    }
+
     // 2. Fallback deductions if deductions array was empty
     if (deductions.length === 0) {
       if (toNum(p.epfDeduction) > 0) deductions.push({ label: 'EPF Employee Contribution', amount: toNum(p.epfDeduction), description: 'As per Payroll Settings PF formula' });
@@ -509,6 +630,8 @@ export const PayrollManagement: React.FC = () => {
       { key: 'employeeName', label: 'Employee Name' },
       { key: 'department', label: 'Department' },
       ...dynamicColumns.map(d => ({ key: d.key, label: d.label })),
+      { key: 'overtimeHours', label: 'Approved OT Hours' },
+      { key: 'overtimeAmount', label: 'Approved OT Amount' },
       { key: 'advanceDeduction', label: 'Advance / Loan EMI' },
       { key: 'epfDeduction', label: 'EPF (12%)' },
       { key: 'esiDeduction', label: 'ESIC (0.75%)' },
@@ -520,10 +643,13 @@ export const PayrollManagement: React.FC = () => {
 
     const data = visibleRecords.map(p => {
       const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
+      const ot = getEmployeeApprovedOt(p);
       const rowData: Record<string, any> = {
         employeeId: p.employeeId,
         employeeName: p.employeeName,
         department: resolveDepartmentName(p.department, emp),
+        overtimeHours: ot.hours,
+        overtimeAmount: ot.amount,
         advanceDeduction: toNum(p.advanceDeduction || 0),
         epfDeduction: toNum(p.epfDeduction || 0),
         esiDeduction: toNum(p.esiDeduction || 0),
@@ -649,6 +775,19 @@ export const PayrollManagement: React.FC = () => {
             <div className="kpi-value">{processedCount}</div>
           </div>
         </div>
+
+        <div className="kpi-card">
+          <div className="kpi-card-header">
+            <span>{canViewAllPayroll ? 'Approved Overtime (Batch)' : 'My Approved Overtime'}</span>
+            <div className="kpi-icon-wrapper amber"><Clock size={20} /></div>
+          </div>
+          <div className="kpi-card-body">
+            <div className="kpi-value">{formatCurrency(totalBatchOtStats.amount)}</div>
+            <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px', fontWeight: 600 }}>
+              {totalBatchOtStats.hours} hrs ({totalBatchOtStats.employeesCount} eligible)
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Payroll Records Table */}
@@ -660,6 +799,17 @@ export const PayrollManagement: React.FC = () => {
                 {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
               </h3>
             </div>
+            <span style={{
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              color: '#0E7490',
+              backgroundColor: '#ECFEFF',
+              border: '1px solid #A5F3FC',
+              padding: '4px 10px',
+              borderRadius: '999px'
+            }}>
+              Calendar Month: {batchCalendarDays} Days • Salary Divisor: {batchSalaryDivisor.divisorDays} Days ({batchSalaryDivisor.modeUsed})
+            </span>
             {canViewAllPayroll && availableBatches.length > 1 && (
               <select
                 value={selectedBatch}
@@ -725,7 +875,7 @@ export const PayrollManagement: React.FC = () => {
                     <th>Allowances</th>
                   </>
                 )}
-                <th>Others (Advance / Loan)</th>
+                <th>Approved Overtime</th>
                 <th>Statutory & Tax</th>
                 <th>Working Days</th>
                 <th>Net Salary</th>
@@ -748,8 +898,8 @@ export const PayrollManagement: React.FC = () => {
                   const isSelected = selectedPayslipIds.includes(p.id);
                   const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
                   const basic = toNum(p.basicSalary);
-                  const advance = toNum(p.advanceDeduction || 0);
                   const statutoryTax = toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0);
+                  const ot = getEmployeeApprovedOt(p);
 
                   return (
                     <tr 
@@ -805,38 +955,16 @@ export const PayrollManagement: React.FC = () => {
                       </>
                     )}
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ 
-                          color: advance > 0 ? 'var(--accent-rose)' : '#94A3B8', 
-                          fontWeight: advance > 0 ? 700 : 400 
-                        }}>
-                          {advance > 0 ? `-${formatCurrency(advance)}` : '₹0.00'}
-                        </span>
-                        {canProcessPayroll && (
-                          <button
-                            type="button"
-                            title="Edit Advance / Loan Recovery installment"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openAdvanceModal(p);
-                            }}
-                            style={{
-                              background: '#F1F5F9',
-                              border: '1px solid #CBD5E1',
-                              borderRadius: '4px',
-                              padding: '2px 5px',
-                              fontSize: '0.7rem',
-                              cursor: 'pointer',
-                              color: '#0E7490',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '2px'
-                            }}
-                          >
-                            <Edit3 size={11} /> Edit
-                          </button>
-                        )}
-                      </div>
+                      {ot.hours > 0 || ot.amount > 0 ? (
+                        <div>
+                          <strong style={{ color: '#0E7490' }}>+{formatCurrency(ot.amount)}</strong>
+                          <div style={{ fontSize: '0.72rem', color: '#0369A1', fontWeight: 600 }}>
+                            {ot.hours} hrs{ot.rate > 0 ? ` @ ₹${ot.rate}/hr` : ''}
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#94A3B8', fontSize: '0.82rem' }}>₹0.00 (0 hrs)</span>
+                      )}
                     </td>
                     <td style={{ color: 'var(--accent-rose)' }}>
                       -{formatCurrency(statutoryTax)}
@@ -941,10 +1069,21 @@ export const PayrollManagement: React.FC = () => {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: '#F8FAFC', padding: '10px 12px', borderRadius: '10px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', background: '#F8FAFC', padding: '10px 12px', borderRadius: '10px' }}>
                     <div>
                       <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' }}>Basic Salary</div>
                       <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1E293B' }}>{formatCurrency(basic)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' }}>Approved OT</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0E7490' }}>
+                        {(() => {
+                          const mobOt = getEmployeeApprovedOt(p);
+                          return mobOt.hours > 0 || mobOt.amount > 0
+                            ? `+${formatCurrency(mobOt.amount)} (${mobOt.hours}h)`
+                            : '₹0.00';
+                        })()}
+                      </div>
                     </div>
                     <div>
                       <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' }}>Deductions</div>
@@ -1150,6 +1289,9 @@ export const PayrollManagement: React.FC = () => {
                     const computedCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc || emp?.grossSalary) ||
                       (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 0) ||
                       (paidDays > 0 && toNum(selectedPayslip.workingDays) > 0 ? Math.round((toNum(rows.grossEarnings) / paidDays) * toNum(selectedPayslip.workingDays)) : 0);
+                    const payslipOt = getEmployeeApprovedOt(selectedPayslip);
+                    const otVis = payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility;
+                    const showOtHours = (otVis?.showOtHoursOnPayslip ?? true) && payslipOt.hours > 0;
 
                     return (
                       <EmployeeDetailsGrid
@@ -1165,6 +1307,7 @@ export const PayrollManagement: React.FC = () => {
                           { label: 'UAN', value: emp?.salaryDetails?.uanNumber },
                           { label: 'Working Days', value: selectedPayslip.workingDays },
                           { label: 'Paid Days', value: paidDays },
+                          ...(showOtHours ? [{ label: 'Approved OT Hours', value: `${payslipOt.hours} hrs` }] : []),
                           { label: 'Payroll Month', value: monthLabel },
                           { label: 'Payment Status', value: selectedPayslip.status }
                         ]}
@@ -1177,7 +1320,7 @@ export const PayrollManagement: React.FC = () => {
                     deductions={rows.deductions}
                     grossEarnings={rows.grossEarnings}
                     totalDeductions={rows.totalDeductions}
-                    showDescription={false}
+                    showDescription={Boolean((payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility)?.showOtCalculationDetailsOnPayslip)}
                   />
 
                   <NetPaySection netPay={rows.netPay} />

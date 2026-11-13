@@ -6,11 +6,294 @@ import {
   SalaryStructureInput,
   CalculationBreakdownItem,
   EmployeeSalaryEligibilityContext,
+  OtWageBaseMode,
+  OtSalaryDivisorMode,
+  OtCalculationMultiplier,
+  PayslipOvertimeVisibilityConfig,
 } from '../types/payroll.js';
 import { isComponentEligible } from './componentEligibilityEngine.js';
 
 // Configure Decimal precision for financial calculations
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
+
+const DEFAULT_OT_ELIGIBLE_DEPARTMENTS = new Set([
+  'floor',
+  'dispatch loading',
+]);
+
+export function isDefaultOtEligibleDepartment(departmentName?: string): boolean {
+  if (!departmentName) return false;
+  return DEFAULT_OT_ELIGIBLE_DEPARTMENTS.has(departmentName.trim().toLowerCase());
+}
+
+/**
+ * Automatically determines whether the selected payroll month contains 28, 29, 30 or 31 days.
+ */
+export function getCalendarDaysInMonth(month: number, year: number): number {
+  const m = Math.max(1, Math.min(12, Math.floor(Number(month) || 1)));
+  const y = Number(year) || new Date().getFullYear();
+  return new Date(y, m, 0).getDate();
+}
+
+export function countWeeklyOffDaysInMonth(month: number, year: number, weeklyOffDayIndex = 0): number {
+  const calendarDays = getCalendarDaysInMonth(month, year);
+  let count = 0;
+  for (let d = 1; d <= calendarDays; d++) {
+    const dayOfWeek = new Date(year, month - 1, d).getDay();
+    if (dayOfWeek === weeklyOffDayIndex) count++;
+  }
+  return count;
+}
+
+/**
+ * Resolves the configured salary divisor for a payroll month without assuming every company uses calendar days.
+ */
+export function resolvePayrollSalaryDivisor(params: {
+  month: number;
+  year: number;
+  divisorMode?: OtSalaryDivisorMode;
+  fixedDivisorDays?: number;
+  weeklyOffDayIndex?: number;
+  holidayCount?: number;
+}): { calendarDays: number; divisorDays: number; modeUsed: string } {
+  const calendarDays = getCalendarDaysInMonth(params.month, params.year);
+  const mode = params.divisorMode || 'FIXED_DAYS';
+
+  if (mode === 'CALENDAR_DAYS') {
+    return { calendarDays, divisorDays: calendarDays, modeUsed: 'CALENDAR_DAYS' };
+  }
+  if (mode === 'FIXED_30') {
+    return { calendarDays, divisorDays: 30, modeUsed: 'FIXED_30' };
+  }
+  if (mode === 'FIXED_26') {
+    return { calendarDays, divisorDays: 26, modeUsed: 'FIXED_26' };
+  }
+  if (mode === 'WORKING_DAYS' || mode === 'ACTUAL_WORKING_DAYS') {
+    const weeklyOffs = countWeeklyOffDaysInMonth(params.month, params.year, params.weeklyOffDayIndex ?? 0);
+    const holidays = Math.max(0, Number(params.holidayCount) || 0);
+    const workingDays = Math.max(1, calendarDays - weeklyOffs - holidays);
+    return { calendarDays, divisorDays: workingDays, modeUsed: 'WORKING_DAYS' };
+  }
+  const fixed = Number(params.fixedDivisorDays);
+  const divisorDays = fixed > 0 ? fixed : 26;
+  return { calendarDays, divisorDays, modeUsed: mode === 'CUSTOM' ? 'CUSTOM' : 'FIXED_DAYS' };
+}
+
+export function parseOtMultiplierValue(multiplier?: OtCalculationMultiplier | number): number {
+  if (typeof multiplier === 'number' && multiplier > 0) return multiplier;
+  if (multiplier === '2x Salary') return 2;
+  if (multiplier === '1.5x Salary') return 1.5;
+  return 1;
+}
+
+export function calculateEnterpriseOvertimeRateAndAmount(params: {
+  approvedHours: number;
+  wageBaseMode?: OtWageBaseMode;
+  basicSalary?: number;
+  grossSalary?: number;
+  monthlyCtc?: number;
+  fixedHourlyRate?: number;
+  divisorDays: number;
+  dailyPaidHours: number;
+  multiplier?: OtCalculationMultiplier | number;
+}): {
+  hourlyRate: number;
+  multiplierValue: number;
+  calculatedAmount: number;
+  wageBaseUsed: OtWageBaseMode;
+  baseSalaryAmount: number;
+  divisorUsed: number;
+  dailyPaidHoursUsed: number;
+} {
+  const hours = new Decimal(Math.max(0, Number(params.approvedHours) || 0));
+  const divisor = new Decimal(Math.max(1, Number(params.divisorDays) || 26));
+  const shiftHours = new Decimal(Math.max(1, Number(params.dailyPaidHours) || 9));
+  const wageBase: OtWageBaseMode = params.wageBaseMode || 'FIXED_HOURLY';
+  const multVal = new Decimal(parseOtMultiplierValue(params.multiplier));
+
+  if (wageBase === 'FIXED_HOURLY' || params.multiplier === 'Fixed Amount Per Hour') {
+    const fixedRate = new Decimal(Math.max(0, Number(params.fixedHourlyRate) || 100));
+    const effectiveMult =
+      params.multiplier && params.multiplier !== 'Fixed Amount Per Hour' ? multVal : new Decimal(1);
+    const hourlyRate = fixedRate.times(effectiveMult).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const calculatedAmount = hours.times(hourlyRate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+    return {
+      hourlyRate: hourlyRate.toNumber(),
+      multiplierValue: effectiveMult.toNumber(),
+      calculatedAmount: calculatedAmount.toNumber(),
+      wageBaseUsed: 'FIXED_HOURLY',
+      baseSalaryAmount: fixedRate.toNumber(),
+      divisorUsed: divisor.toNumber(),
+      dailyPaidHoursUsed: shiftHours.toNumber(),
+    };
+  }
+
+  let baseSalary = new Decimal(0);
+  if (wageBase === 'BASIC') {
+    baseSalary = new Decimal(Number(params.basicSalary) || 0);
+  } else if (wageBase === 'GROSS') {
+    baseSalary = new Decimal(Number(params.grossSalary) || Number(params.monthlyCtc) || 0);
+  } else {
+    baseSalary = new Decimal(Number(params.monthlyCtc) || Number(params.grossSalary) || 0);
+  }
+
+  if (baseSalary.lessThanOrEqualTo(0) && Number(params.fixedHourlyRate) > 0) {
+    const fallbackRate = new Decimal(Number(params.fixedHourlyRate)).times(multVal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    return {
+      hourlyRate: fallbackRate.toNumber(),
+      multiplierValue: multVal.toNumber(),
+      calculatedAmount: hours.times(fallbackRate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber(),
+      wageBaseUsed: wageBase,
+      baseSalaryAmount: 0,
+      divisorUsed: divisor.toNumber(),
+      dailyPaidHoursUsed: shiftHours.toNumber(),
+    };
+  }
+
+  const baseHourly = baseSalary.dividedBy(divisor.times(shiftHours));
+  const effectiveHourlyRate = baseHourly.times(multVal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const calculatedAmount = hours.times(effectiveHourlyRate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+
+  return {
+    hourlyRate: effectiveHourlyRate.toNumber(),
+    multiplierValue: multVal.toNumber(),
+    calculatedAmount: calculatedAmount.toNumber(),
+    wageBaseUsed: wageBase,
+    baseSalaryAmount: baseSalary.toNumber(),
+    divisorUsed: divisor.toNumber(),
+    dailyPaidHoursUsed: shiftHours.toNumber(),
+  };
+}
+
+export function resolveEmployeeOtEligibility(params: {
+  departmentName: string;
+  dateStr?: string;
+  departmentOtAllowed?: boolean;
+  departmentEffectiveFrom?: string;
+  departmentEffectiveTo?: string;
+  employeeExceptionRule?: 'Follow Department' | 'Allow OT' | 'Block OT';
+  statutoryEntitlement?: boolean;
+  employeePolicyEffectiveFrom?: string;
+  employeePolicyEffectiveTo?: string;
+}): {
+  eligible: boolean;
+  source: 'DEPARTMENT_POLICY' | 'EMPLOYEE_EXCEPTION' | 'STATUTORY_ENTITLEMENT' | 'RESTRICTED';
+  reason: string;
+} {
+  const dateStr = (params.dateStr || '').slice(0, 10);
+  const isDateInRange = (from?: string, to?: string) => {
+    if (!dateStr) return true;
+    if (from && dateStr < from.slice(0, 10)) return false;
+    if (to && dateStr > to.slice(0, 10)) return false;
+    return true;
+  };
+
+  if (isDateInRange(params.employeePolicyEffectiveFrom, params.employeePolicyEffectiveTo)) {
+    if (params.employeeExceptionRule === 'Block OT') {
+      return {
+        eligible: false,
+        source: 'RESTRICTED',
+        reason: 'Blocked by employee-specific overtime policy exception',
+      };
+    }
+    if (params.statutoryEntitlement) {
+      return {
+        eligible: true,
+        source: 'STATUTORY_ENTITLEMENT',
+        reason: 'Eligible via statutory overtime entitlement',
+      };
+    }
+    if (params.employeeExceptionRule === 'Allow OT') {
+      return {
+        eligible: true,
+        source: 'EMPLOYEE_EXCEPTION',
+        reason: 'Eligible via employee-specific overtime policy exception',
+      };
+    }
+  }
+
+  const deptAllowed =
+    params.departmentOtAllowed !== undefined
+      ? params.departmentOtAllowed && isDateInRange(params.departmentEffectiveFrom, params.departmentEffectiveTo)
+      : isDefaultOtEligibleDepartment(params.departmentName);
+
+  if (deptAllowed) {
+    return {
+      eligible: true,
+      source: 'DEPARTMENT_POLICY',
+      reason: `Eligible under ${params.departmentName} department overtime policy`,
+    };
+  }
+
+  return {
+    eligible: false,
+    source: 'RESTRICTED',
+    reason: `Department "${params.departmentName}" is restricted from automatic overtime approval`,
+  };
+}
+
+export function formatPayslipOvertimeForViewer(params: {
+  overtimeHours: number;
+  overtimeAmount: number;
+  overtimeRate: number;
+  divisorUsed?: number;
+  shiftHours?: number;
+  multiplierLabel?: string;
+  visibility?: PayslipOvertimeVisibilityConfig;
+}): {
+  visible: boolean;
+  showHours: boolean;
+  showAmount: boolean;
+  showCalculationDetails: boolean;
+  label: string;
+  amount: number;
+  description?: string;
+} {
+  const vis = params.visibility || {
+    showOtHoursOnPayslip: true,
+    showOtAmountOnPayslip: true,
+    showOtCalculationDetailsOnPayslip: false,
+  };
+  const hrs = Number(params.overtimeHours) || 0;
+  const amt = Number(params.overtimeAmount) || 0;
+  const rate = Number(params.overtimeRate) || 0;
+
+  if (amt <= 0 && hrs <= 0) {
+    return {
+      visible: false,
+      showHours: vis.showOtHoursOnPayslip,
+      showAmount: vis.showOtAmountOnPayslip,
+      showCalculationDetails: vis.showOtCalculationDetailsOnPayslip,
+      label: 'Overtime Earnings',
+      amount: 0,
+    };
+  }
+
+  const label =
+    vis.showOtHoursOnPayslip && hrs > 0
+      ? `Overtime Earnings (${hrs} hrs)`
+      : 'Overtime Earnings';
+
+  let description: string | undefined;
+  if (vis.showOtCalculationDetailsOnPayslip) {
+    const parts: string[] = [];
+    if (hrs > 0 && rate > 0) parts.push(`${hrs} hrs × ₹${rate}/hr`);
+    if (params.divisorUsed) parts.push(`Divisor: ${params.divisorUsed}d`);
+    if (params.shiftHours) parts.push(`Shift: ${params.shiftHours}h`);
+    if (params.multiplierLabel) parts.push(params.multiplierLabel);
+    description = parts.join(' | ') || 'Approved Overtime';
+  }
+
+  return {
+    visible: vis.showOtAmountOnPayslip || vis.showOtHoursOnPayslip,
+    showHours: vis.showOtHoursOnPayslip,
+    showAmount: vis.showOtAmountOnPayslip,
+    showCalculationDetails: vis.showOtCalculationDetailsOnPayslip,
+    label,
+    amount: amt,
+    description,
+  };
+}
 
 export class PayrollConfigurationError extends Error {
   public code: string;
@@ -145,7 +428,8 @@ export const calculateESIC = (
   esicEnabled: boolean,
   esicRate: number | null | undefined,
   threshold: number | null | undefined,
-  wageComponents?: Record<string, boolean>
+  wageComponents?: Record<string, boolean>,
+  isContributionPeriodContinuation?: boolean
 ): { esicBase: Decimal; esicRateApplied: Decimal; esicAmount: Decimal } => {
   if (!esicEnabled) {
     return {
@@ -157,8 +441,8 @@ export const calculateESIC = (
 
   const wageCeiling = new Decimal(threshold ?? 21000);
 
-  // If gross salary exceeds statutory ceiling, employee is exempt/ineligible
-  if (grossSalary.greaterThan(wageCeiling)) {
+  // If gross salary exceeds statutory ceiling and employee is NOT in an active 6-month contribution continuation period, exempt
+  if (grossSalary.greaterThan(wageCeiling) && !isContributionPeriodContinuation) {
     return {
       esicBase: new Decimal(0),
       esicRateApplied: new Decimal(0),
@@ -245,16 +529,39 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   const hra = new Decimal(structure.hra);
   const fixedGross = new Decimal(structure.fixedGross);
 
-  // 2. Additional Earnings
+  // Resolve Calendar Days (28/29/30/31) and Configured Salary Divisor
+  const resolvedDivisor = resolvePayrollSalaryDivisor({
+    month: input.payrollMonth,
+    year: input.payrollYear,
+    divisorMode: input.salaryDivisorMode || 'FIXED_DAYS',
+    fixedDivisorDays: input.customSalaryDivisor || input.attendance.workingDays || input.settings.standardWorkingDays || 26,
+  });
+
+  // 2. Additional Earnings & Enterprise Overtime Calculation
   const attBonus = new Decimal(input.earnings?.attendanceBonus ?? 0);
 
   const otHours = new Decimal(input.earnings?.overtimeHours ?? 0);
-  const otRate = new Decimal(input.earnings?.overtimeRate ?? 0);
-  
-  // Overtime amount = hours * rate, or directly provided pre-approved amount
+  let otRate = new Decimal(input.earnings?.overtimeRate ?? 0);
   let otAmount = new Decimal(input.earnings?.overtimeAmount ?? 0);
-  if (otAmount.isZero() && otHours.greaterThan(0) && otRate.greaterThan(0)) {
-    otAmount = otHours.times(otRate).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+  if (otAmount.isZero() && otHours.greaterThan(0)) {
+    if (input.earnings?.overtimeWageBase || input.earnings?.overtimeMultiplier) {
+      const enterpriseOt = calculateEnterpriseOvertimeRateAndAmount({
+        approvedHours: otHours.toNumber(),
+        wageBaseMode: input.earnings?.overtimeWageBase || (otRate.greaterThan(0) ? 'FIXED_HOURLY' : 'GROSS'),
+        basicSalary: basic.toNumber(),
+        grossSalary: fixedGross.toNumber(),
+        monthlyCtc: input.monthlySalary,
+        fixedHourlyRate: otRate.toNumber() || 100,
+        divisorDays: resolvedDivisor.divisorDays,
+        dailyPaidHours: input.earnings?.standardShiftHours || 9,
+        multiplier: input.earnings?.overtimeMultiplier || '1x Salary',
+      });
+      otRate = new Decimal(enterpriseOt.hourlyRate);
+      otAmount = new Decimal(enterpriseOt.calculatedAmount);
+    } else if (otRate.greaterThan(0)) {
+      otAmount = otHours.times(otRate).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    }
   }
 
   const bonus = new Decimal(input.earnings?.bonus ?? 0);
@@ -358,7 +665,8 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     esicEnabled,
     input.settings.esicRate,
     input.settings.esicSalaryThreshold,
-    input.settings.esicWageComponents
+    input.settings.esicWageComponents,
+    input.employeeContext?.isContributionPeriodContinuation
   );
 
   // 5. Professional Tax (PT)
@@ -367,8 +675,10 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     ptAmount = new Decimal(input.settings.professionalTaxAmount ?? 200).toDecimalPlaces(2);
   }
 
-  // 6. LOP / Attendance Deductions
-  const workingDays = input.attendance.workingDays || input.settings.standardWorkingDays || 26;
+  // 6. LOP / Attendance Deductions (using configured salary divisor when specified)
+  const workingDays = input.salaryDivisorMode
+    ? resolvedDivisor.divisorDays
+    : (input.attendance.workingDays || input.settings.standardWorkingDays || 26);
   const lopDays = input.attendance.lopDays || (input.attendance.unpaidLeaveDays + input.attendance.absentDays) || 0;
 
   const lopResult = calculateLOP(new Decimal(input.monthlySalary), workingDays, lopDays);
@@ -539,6 +849,9 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     professionalTax: ptAmount.toNumber(),
 
     workingDays,
+    calendarDaysInMonth: resolvedDivisor.calendarDays,
+    salaryDivisorUsed: resolvedDivisor.divisorDays,
+    salaryDivisorMode: resolvedDivisor.modeUsed,
     presentDays: input.attendance.presentDays,
     lopDays,
     dailySalary: lopResult.dailySalary.toNumber(),

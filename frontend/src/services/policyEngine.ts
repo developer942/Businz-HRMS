@@ -13,6 +13,13 @@ import {
   Shift
 } from '../types/hrms';
 import { SalaryComponentConfig, EmployeeSalaryEligibilityContext } from '../types/settings';
+import {
+  OvertimeRequest,
+  DepartmentOtPolicy,
+  EmployeeOtPolicy,
+  OvertimePolicy,
+  PayslipOvertimeVisibilityConfig
+} from '../types/attendanceEnterprise';
 import { 
   isComponentEligible, 
   filterEligibleComponents, 
@@ -21,14 +28,36 @@ import {
   getEligibilityBadgeLabel
 } from './componentEligibilityEngine';
 import { toNum, formatCurrency } from '../utils/numbers';
-import { parseTimeToMinutes } from './attendanceCalculationEngine';
+import {
+  parseTimeToMinutes,
+  resolveMonthNumber,
+  getCalendarDaysInMonth,
+  countWeeklyOffDaysInMonth,
+  resolvePayrollSalaryDivisor,
+  isDefaultOtEligibleDepartment,
+  resolveEmployeeDepartmentForDate,
+  isPolicyEffectiveOnDate,
+  resolveEmployeeOtEligibility,
+  calculateEnterpriseOvertimeRateAndAmount,
+  identifyEligibleOvertimeFromAttendance
+} from './attendanceCalculationEngine';
 
 export {
   isComponentEligible,
   filterEligibleComponents,
   isEsicStatutoryEligible,
   validateComponentEligibility,
-  getEligibilityBadgeLabel
+  getEligibilityBadgeLabel,
+  resolveMonthNumber,
+  getCalendarDaysInMonth,
+  countWeeklyOffDaysInMonth,
+  resolvePayrollSalaryDivisor,
+  isDefaultOtEligibleDepartment,
+  resolveEmployeeDepartmentForDate,
+  isPolicyEffectiveOnDate,
+  resolveEmployeeOtEligibility,
+  calculateEnterpriseOvertimeRateAndAmount,
+  identifyEligibleOvertimeFromAttendance
 };
 export type { EmployeeSalaryEligibilityContext };
 
@@ -921,10 +950,12 @@ export const calculateConfiguredDeductionLines = (
       let amount = calculateConfiguredComponentAmount(component, context);
       let description = getComponentCalculationDescription(component);
 
+      const isCoveredUnderEsic =
+        gross <= esicLimit || options.employeeContext?.isContributionPeriodContinuation === true;
       if ((statutoryKind === 'PF' || statutoryKind === 'ESIC') && !withPf) {
         amount = 0;
         description = 'Exempt Scheme';
-      } else if (statutoryKind === 'ESIC' && component.calculationMethod !== 'FORMULA' && esicLimit > 0 && gross > esicLimit) {
+      } else if (statutoryKind === 'ESIC' && component.calculationMethod !== 'FORMULA' && esicLimit > 0 && !isCoveredUnderEsic) {
         amount = 0;
         description = `Exempt: Gross ${formatCurrency(gross)} exceeds ${formatCurrency(esicLimit)}`;
       }
@@ -1257,6 +1288,33 @@ export const evaluateEmployeeRewards = (
 // ========================================================
 // 6. CENTRAL CALCULATION ENGINE
 // ========================================================
+export interface PayrollOvertimeOptions {
+  overtimeRequests?: OvertimeRequest[];
+  departmentOtPolicies?: DepartmentOtPolicy[];
+  employeeOtPolicies?: EmployeeOtPolicy[];
+  overtimePolicy?: OvertimePolicy;
+  directOvertimeHours?: number;
+  directOvertimeRate?: number;
+  directOvertimeAmount?: number;
+  includePaidRequests?: boolean;
+}
+
+export interface PayrollOvertimeBreakdown {
+  approvedOtHours: number;
+  overtimeAmount: number;
+  hourlyRate: number;
+  multiplierApplied: number;
+  wageBaseMode: string;
+  wageBaseAmount: number;
+  divisorUsed: number;
+  dailyPaidHours: number;
+  calendarDaysInMonth: number;
+  formulaDescription: string;
+  matchedRequestIds: string[];
+  isEligible: boolean;
+  eligibilitySource: string;
+}
+
 export interface FullPayrollCalculationResult {
   employeeId: string;
   employeeName: string;
@@ -1273,6 +1331,12 @@ export interface FullPayrollCalculationResult {
   bonus: number;
   attendanceBonus?: number;
   rewardEarnings: number;
+  overtimeHours: number;
+  overtimeAmount: number;
+  overtimeRate: number;
+  calendarDaysInMonth: number;
+  salaryDivisorUsed: number;
+  salaryDivisorMode: string;
   grossSalary: number;
 
   // Deductions
@@ -1301,9 +1365,30 @@ export interface FullPayrollCalculationResult {
   leaveDetails: LeaveDeductionResult;
   statutoryDetails: StatutoryDeductionsResult;
   rewardDetails: RewardEarningsResult;
+  overtimeDetails: PayrollOvertimeBreakdown;
   earningsBreakdown: { name: string; category: 'EARNING'; amount: number; description?: string }[];
   deductionsBreakdown: { name: string; category: 'DEDUCTION'; amount: number; description?: string }[];
 }
+
+const isDateMatchingPayrollPeriod = (
+  dateStr: string | undefined,
+  targetMonthNum: number,
+  targetYearNum: number
+): boolean => {
+  if (!dateStr) return false;
+  const clean = String(dateStr).trim();
+  // YYYY-MM-DD
+  const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    return Number(isoMatch[1]) === targetYearNum && Number(isoMatch[2]) === targetMonthNum;
+  }
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dmyMatch) {
+    return Number(dmyMatch[3]) === targetYearNum && Number(dmyMatch[2]) === targetMonthNum;
+  }
+  return false;
+};
 
 export const calculateEmployeePayroll = (
   employee: Employee,
@@ -1316,7 +1401,8 @@ export const calculateEmployeePayroll = (
   payrollConfig: PayrollSettingsConfig | undefined,
   month: string = 'August',
   year: number = 2026,
-  allShifts: Shift[] = []
+  allShifts: Shift[] = [],
+  overtimeOptions?: PayrollOvertimeOptions
 ): FullPayrollCalculationResult => {
   const configuredComponents = payrollConfig?.components || [];
   const rawEarnings = configuredComponents.filter(c => c.active && c.type === 'EARNING');
@@ -1409,7 +1495,17 @@ export const calculateEmployeePayroll = (
   const conveyance = dynamicConveyance;
   const hra = dynamicHra;
   const allowances = calculatedAllowances;
-  const standardDays = payrollConfig?.standardWorkingDaysPerMonth || 26;
+
+  // Resolve dynamic calendar days (28/29/30/31) and configured payroll salary divisor
+  const divisorInfo = resolvePayrollSalaryDivisor({
+    month,
+    year,
+    payrollConfig,
+    overtimePolicy: overtimeOptions?.overtimePolicy,
+  });
+  const standardDays = divisorInfo.divisor > 0 ? divisorInfo.divisor : (payrollConfig?.standardWorkingDaysPerMonth || 26);
+  const calendarDaysInMonth = divisorInfo.calendarDaysInMonth;
+  const salaryDivisorMode = divisorInfo.modeUsed;
 
   const dailySalary = standardDays > 0 ? basic / standardDays : basic / 26;
 
@@ -1476,9 +1572,202 @@ export const calculateEmployeePayroll = (
       earningsBreakdown.push({ name: item.title, category: 'EARNING', amount: toNum(item.amount), description: 'Reward configured for payroll' });
     }
   });
-  const grossSalary = payableBasic + payableAllowances + attendanceBonus + bonus + rewardDetails.totalRewardEarnings;
+
+  // 5. Enterprise Overtime Calculation & Aggregation (Attendance → Identify → Dept Policy → Approval → Payroll)
+  const targetMonthNum = resolveMonthNumber(month);
+  const periodRefDate = `${year}-${String(targetMonthNum).padStart(2, '0')}-15`;
+  const baseEligibility = resolveEmployeeOtEligibility(
+    employee,
+    overtimeOptions?.departmentOtPolicies,
+    overtimeOptions?.employeeOtPolicies,
+    overtimeOptions?.overtimePolicy,
+    periodRefDate
+  );
+
+  let approvedOtHours = 0;
+  let overtimeAmount = 0;
+  const matchedRequestIds: string[] = [];
+  const seenOtDates = new Set<string>();
+
+  if (overtimeOptions?.directOvertimeHours !== undefined && overtimeOptions.directOvertimeHours > 0) {
+    approvedOtHours = toNum(overtimeOptions.directOvertimeHours);
+    if (overtimeOptions.directOvertimeAmount !== undefined && overtimeOptions.directOvertimeAmount >= 0) {
+      overtimeAmount = Math.round(toNum(overtimeOptions.directOvertimeAmount));
+    } else {
+      const directCalc = calculateEnterpriseOvertimeRateAndAmount({
+        employee,
+        approvedOtHours,
+        month,
+        year,
+        payrollConfig,
+        overtimePolicy: overtimeOptions.overtimePolicy,
+        departmentOtPolicies: overtimeOptions.departmentOtPolicies,
+        employeeOtPolicies: overtimeOptions.employeeOtPolicies,
+        fixedHourlyRate: overtimeOptions.directOvertimeRate,
+        dateStr: periodRefDate,
+      });
+      overtimeAmount = directCalc.overtimeAmount;
+    }
+  } else {
+    const empOtRequests = (overtimeOptions?.overtimeRequests || []).filter(req => {
+      if (req.employeeId !== employee.employeeId && req.employeeId !== employee.id) return false;
+      const isStatusApproved =
+        req.status === 'Approved' || (overtimeOptions?.includePaidRequests && req.status === 'Paid');
+      if (!isStatusApproved) return false;
+
+      if (!overtimeOptions?.includePaidRequests && (req.status === 'Paid' || req.payrollStatus === 'Paid' || req.payrollStatus === 'Included')) {
+        return false;
+      }
+
+      // Backdated arrear targeting this payroll month/year
+      if (req.isBackdatedArrear && req.targetPayrollMonth && req.targetPayrollYear) {
+        return (
+          resolveMonthNumber(req.targetPayrollMonth) === targetMonthNum &&
+          Number(req.targetPayrollYear) === Number(year)
+        );
+      }
+
+      return isDateMatchingPayrollPeriod(req.date, targetMonthNum, Number(year));
+    });
+
+    empOtRequests.forEach(req => {
+      const dateKey = `${employee.employeeId}::${String(req.date).trim()}`;
+      if (seenOtDates.has(dateKey)) return; // Prevent duplicate overtime payment for same date
+
+      const dateEligibility = resolveEmployeeOtEligibility(
+        employee,
+        overtimeOptions?.departmentOtPolicies,
+        overtimeOptions?.employeeOtPolicies,
+        overtimeOptions?.overtimePolicy,
+        req.date
+      );
+      // Respect Block OT even on requests unless statutory entitlement applies
+      if (!dateEligibility.allowed && dateEligibility.eligibilitySource === 'Blocked') {
+        return;
+      }
+
+      const hrs = toNum(req.approvedOtHours > 0 ? req.approvedOtHours : req.otHours);
+      if (hrs <= 0) return;
+
+      seenOtDates.add(dateKey);
+      matchedRequestIds.push(req.id);
+      approvedOtHours += hrs;
+
+      const itemCalc = calculateEnterpriseOvertimeRateAndAmount({
+        employee,
+        approvedOtHours: hrs,
+        month,
+        year,
+        payrollConfig,
+        overtimePolicy: overtimeOptions?.overtimePolicy,
+        departmentOtPolicies: overtimeOptions?.departmentOtPolicies,
+        employeeOtPolicies: overtimeOptions?.employeeOtPolicies,
+        rateType: req.rateType,
+        fixedHourlyRate: req.hourlyRate > 0 ? req.hourlyRate : undefined,
+        dateStr: req.date,
+      });
+
+      // If policy uses salary-based wageBase (BASIC/GROSS/CTC), use calculated amount; otherwise use itemCalc or explicit otAmount
+      const effectiveAmount =
+        itemCalc.wageBaseMode !== 'FIXED_HOURLY'
+          ? itemCalc.overtimeAmount
+          : (toNum(req.otAmount) > 0 ? Math.round(toNum(req.otAmount)) : itemCalc.overtimeAmount);
+      overtimeAmount += effectiveAmount;
+    });
+
+    // Also include approved overtime directly from attendance records for this month if not already in overtimeRequests
+    empAtt.forEach(att => {
+      if (!isDateMatchingPayrollPeriod(att.date, targetMonthNum, Number(year))) return;
+      const dateKey = `${employee.employeeId}::${String(att.date).trim()}`;
+      if (seenOtDates.has(dateKey)) return;
+
+      const hrs = toNum(att.overtimeHours);
+      if (hrs <= 0 || att.otApprovalStatus !== 'Approved') return;
+
+      const dateEligibility = resolveEmployeeOtEligibility(
+        employee,
+        overtimeOptions?.departmentOtPolicies,
+        overtimeOptions?.employeeOtPolicies,
+        overtimeOptions?.overtimePolicy,
+        att.date
+      );
+      if (!dateEligibility.allowed) return;
+
+      seenOtDates.add(dateKey);
+      approvedOtHours += hrs;
+      const attCalc = calculateEnterpriseOvertimeRateAndAmount({
+        employee,
+        approvedOtHours: hrs,
+        month,
+        year,
+        payrollConfig,
+        overtimePolicy: overtimeOptions?.overtimePolicy,
+        departmentOtPolicies: overtimeOptions?.departmentOtPolicies,
+        employeeOtPolicies: overtimeOptions?.employeeOtPolicies,
+        dateStr: att.date,
+      });
+      overtimeAmount += attCalc.overtimeAmount;
+    });
+  }
+
+  approvedOtHours = Math.round(approvedOtHours * 100) / 100;
+  overtimeAmount = Math.round(overtimeAmount);
+
+  const summaryOtCalc = calculateEnterpriseOvertimeRateAndAmount({
+    employee,
+    approvedOtHours,
+    month,
+    year,
+    payrollConfig,
+    overtimePolicy: overtimeOptions?.overtimePolicy,
+    departmentOtPolicies: overtimeOptions?.departmentOtPolicies,
+    employeeOtPolicies: overtimeOptions?.employeeOtPolicies,
+    fixedHourlyRate: overtimeOptions?.directOvertimeRate,
+    dateStr: periodRefDate,
+  });
+  const overtimeRate =
+    approvedOtHours > 0
+      ? Math.round((overtimeAmount / approvedOtHours) * 100) / 100
+      : summaryOtCalc.hourlyRate;
+
+  if (overtimeAmount > 0) {
+    earningsBreakdown.push({
+      name: `Overtime Pay (${approvedOtHours} hrs)`,
+      category: 'EARNING',
+      amount: overtimeAmount,
+      description: summaryOtCalc.formulaDescription,
+    });
+  }
+
+  const overtimeDetails: PayrollOvertimeBreakdown = {
+    approvedOtHours,
+    overtimeAmount,
+    hourlyRate: overtimeRate,
+    multiplierApplied: summaryOtCalc.multiplierApplied,
+    wageBaseMode: summaryOtCalc.wageBaseMode,
+    wageBaseAmount: summaryOtCalc.wageBaseAmount,
+    divisorUsed: summaryOtCalc.divisorUsed,
+    dailyPaidHours: summaryOtCalc.dailyPaidHours,
+    calendarDaysInMonth: summaryOtCalc.calendarDaysInMonth,
+    formulaDescription: summaryOtCalc.formulaDescription,
+    matchedRequestIds,
+    isEligible: baseEligibility.allowed,
+    eligibilitySource: baseEligibility.eligibilitySource,
+  };
+
+  const grossSalaryBeforeOt = payableBasic + payableAllowances + attendanceBonus + bonus + rewardDetails.totalRewardEarnings;
+  const grossSalary = grossSalaryBeforeOt + overtimeAmount;
 
   const withPf = resolveEmployeeWithPf(employee);
+  const esicSalaryLimit = payrollConfig?.esicPolicy?.grossSalaryLimit || 21000;
+  // Under ESIC Act, if employee's regular monthly gross (excluding overtime) is within the ceiling,
+  // ESIC coverage continues and overtime wages are included in the ESIC contribution base.
+  const esicEmployeeContext: EmployeeSalaryEligibilityContext = {
+    ...employeeEligibilityContext,
+    grossSalary,
+    isContributionPeriodContinuation:
+      employeeEligibilityContext.isContributionPeriodContinuation ?? (grossSalaryBeforeOt > 0 && grossSalaryBeforeOt <= esicSalaryLimit),
+  };
 
   const payableComponentContext: Record<string, number> = {};
   configuredEarnings.forEach(comp => {
@@ -1498,28 +1787,58 @@ export const calculateEmployeePayroll = (
     gross: grossSalary,
     ctc: totalCtc,
     attendanceBonus,
+    overtime: overtimeAmount,
     customContext: payableComponentContext
   });
   const configuredDeductionLines = calculateConfiguredDeductionLines(configuredDeductions, deductionContext, {
     withPf,
-    esicSalaryLimit: payrollConfig?.esicPolicy?.grossSalaryLimit || 21000,
-    employeeContext: employeeEligibilityContext
+    esicSalaryLimit,
+    employeeContext: esicEmployeeContext
   });
-  const epfDeduction = configuredDeductionLines.find(d => d.statutoryKind === 'PF')?.amount || 0;
-  const esiDeduction = configuredDeductionLines.find(d => d.statutoryKind === 'ESIC')?.amount || 0;
-  const professionalTax = configuredDeductionLines.find(d => d.statutoryKind === 'PT')?.amount || 0;
-  const configuredDeductionTotal = configuredDeductionLines.reduce((sum, d) => sum + d.amount, 0);
+
+  // Fallback to policy-level statutory evaluation when no explicit deduction components are configured
+  const hasConfiguredStatutory = configuredDeductionLines.some(d => d.statutoryKind !== null);
+  const fallbackStatutory = !hasConfiguredStatutory
+    ? evaluateStatutoryContributions(
+        payableBasic,
+        grossSalary,
+        payrollConfig,
+        withPf,
+        payableDa,
+        payableConveyance,
+        payableHra,
+        attendanceBonus,
+        overtimeAmount,
+        payableComponentContext
+      )
+    : null;
+
+  const epfDeduction = hasConfiguredStatutory
+    ? (configuredDeductionLines.find(d => d.statutoryKind === 'PF')?.amount || 0)
+    : (fallbackStatutory?.epfDeduction || 0);
+  const esiDeduction = hasConfiguredStatutory
+    ? (configuredDeductionLines.find(d => d.statutoryKind === 'ESIC')?.amount || 0)
+    : (fallbackStatutory?.esiDeduction || 0);
+  const professionalTax = hasConfiguredStatutory
+    ? (configuredDeductionLines.find(d => d.statutoryKind === 'PT')?.amount || 0)
+    : (fallbackStatutory?.professionalTax || 0);
+  const configuredDeductionTotal = hasConfiguredStatutory
+    ? configuredDeductionLines.reduce((sum, d) => sum + d.amount, 0)
+    : (fallbackStatutory?.totalStatutory || 0);
+
   const statutoryDetails: StatutoryDeductionsResult = {
     epfDeduction,
     esiDeduction,
     professionalTax,
     totalStatutory: epfDeduction + esiDeduction + professionalTax,
-    epfRule: configuredDeductionLines.find(d => d.statutoryKind === 'PF')?.description || '',
-    esiRule: configuredDeductionLines.find(d => d.statutoryKind === 'ESIC')?.description || '',
-    pfActive: configuredDeductionLines.some(d => d.statutoryKind === 'PF'),
-    esicActive: configuredDeductionLines.some(d => d.statutoryKind === 'ESIC'),
-    ptActive: configuredDeductionLines.some(d => d.statutoryKind === 'PT'),
-    isEsicExempt: configuredDeductionLines.some(d => d.statutoryKind === 'ESIC' && d.amount === 0)
+    epfRule: configuredDeductionLines.find(d => d.statutoryKind === 'PF')?.description || fallbackStatutory?.epfRule || '',
+    esiRule: configuredDeductionLines.find(d => d.statutoryKind === 'ESIC')?.description || fallbackStatutory?.esiRule || '',
+    pfActive: configuredDeductionLines.some(d => d.statutoryKind === 'PF') || Boolean(fallbackStatutory?.pfActive),
+    esicActive: configuredDeductionLines.some(d => d.statutoryKind === 'ESIC') || Boolean(fallbackStatutory?.esicActive),
+    ptActive: configuredDeductionLines.some(d => d.statutoryKind === 'PT') || Boolean(fallbackStatutory?.ptActive),
+    isEsicExempt: hasConfiguredStatutory
+      ? configuredDeductionLines.some(d => d.statutoryKind === 'ESIC' && d.amount === 0)
+      : Boolean(fallbackStatutory?.isEsicExempt)
   };
 
   // 6. Advance Salary / Loan EMI deduction ("Others" deduction)
@@ -1584,6 +1903,31 @@ export const calculateEmployeePayroll = (
       amount: line.amount,
       description: line.description
     }));
+  if (!hasConfiguredStatutory && fallbackStatutory) {
+    if (fallbackStatutory.epfDeduction > 0) {
+      deductionsBreakdown.push({
+        name: 'Provident Fund (EPF)',
+        category: 'DEDUCTION',
+        amount: fallbackStatutory.epfDeduction,
+        description: fallbackStatutory.epfRule,
+      });
+    }
+    if (fallbackStatutory.esiDeduction > 0) {
+      deductionsBreakdown.push({
+        name: 'ESI Contribution',
+        category: 'DEDUCTION',
+        amount: fallbackStatutory.esiDeduction,
+        description: fallbackStatutory.esiRule,
+      });
+    }
+    if (fallbackStatutory.professionalTax > 0) {
+      deductionsBreakdown.push({
+        name: 'Professional Tax (PT)',
+        category: 'DEDUCTION',
+        amount: fallbackStatutory.professionalTax,
+      });
+    }
+  }
   if (lateDetails.deductionAmount > 0) {
     deductionsBreakdown.push({ name: 'Late Attendance Deduction', category: 'DEDUCTION', amount: lateDetails.deductionAmount, description: lateDetails.ruleApplied });
   }
@@ -1615,6 +1959,12 @@ export const calculateEmployeePayroll = (
     bonus,
     attendanceBonus,
     rewardEarnings: rewardDetails.totalRewardEarnings,
+    overtimeHours: approvedOtHours,
+    overtimeAmount,
+    overtimeRate,
+    calendarDaysInMonth,
+    salaryDivisorUsed: standardDays,
+    salaryDivisorMode,
     grossSalary,
 
     epfDeduction,
@@ -1640,8 +1990,139 @@ export const calculateEmployeePayroll = (
     leaveDetails,
     statutoryDetails,
     rewardDetails,
+    overtimeDetails,
     earningsBreakdown,
     deductionsBreakdown
+  };
+};
+
+// ========================================================
+// 6B. PAYSLIP OVERTIME VISIBILITY FORMATTER
+// ========================================================
+export interface PayslipOvertimeDisplayResult {
+  visibleAsSeparateLine: boolean;
+  visible: boolean;
+  showHours: boolean;
+  showAmount: boolean;
+  showCalculationDetails: boolean;
+  label: string;
+  amount: number;
+  hoursText?: string;
+  calculationDetailsText?: string;
+  description?: string;
+  foldedIntoAllowances: boolean;
+}
+
+/**
+ * Formats overtime display on payslips according to HR/CEO visibility settings
+ * WITHOUT altering actual gross earnings, net salary, or statutory disclosures.
+ */
+export const formatPayslipOvertimeForViewer = (
+  hoursOrParams:
+    | number
+    | {
+        overtimeHours: number;
+        overtimeAmount: number;
+        overtimeRate?: number;
+        divisorUsed?: number;
+        shiftHours?: number;
+        dailyPaidHours?: number;
+        multiplierLabel?: string;
+        multiplierApplied?: number;
+        wageBaseMode?: string;
+        visibility?: PayslipOvertimeVisibilityConfig;
+      },
+  overtimeAmountArg?: number,
+  overtimeRateArg?: number,
+  visibilityConfigArg?: PayslipOvertimeVisibilityConfig,
+  extraDetailsArg?: {
+    divisorUsed?: number;
+    dailyPaidHours?: number;
+    shiftHours?: number;
+    multiplierApplied?: number;
+    multiplierLabel?: string;
+    wageBaseMode?: string;
+  }
+): PayslipOvertimeDisplayResult => {
+  const isObj = typeof hoursOrParams === 'object' && hoursOrParams !== null;
+  const overtimeHours = isObj ? hoursOrParams.overtimeHours : hoursOrParams;
+  const overtimeAmount = isObj ? hoursOrParams.overtimeAmount : (overtimeAmountArg ?? 0);
+  const overtimeRate = isObj ? hoursOrParams.overtimeRate : overtimeRateArg;
+  const visibilityConfig = isObj ? hoursOrParams.visibility : visibilityConfigArg;
+  const extraDetails = isObj
+    ? {
+        divisorUsed: hoursOrParams.divisorUsed,
+        dailyPaidHours: hoursOrParams.dailyPaidHours ?? hoursOrParams.shiftHours,
+        multiplierApplied: hoursOrParams.multiplierApplied,
+        wageBaseMode: hoursOrParams.wageBaseMode,
+      }
+    : extraDetailsArg;
+  const hrs = toNum(overtimeHours);
+  const amt = toNum(overtimeAmount);
+  if (amt <= 0 && hrs <= 0) {
+    return {
+      visibleAsSeparateLine: false,
+      visible: false,
+      showHours: visibilityConfig?.showOtHoursOnPayslip !== false,
+      showAmount: visibilityConfig?.showOtAmountOnPayslip !== false,
+      showCalculationDetails: Boolean(visibilityConfig?.showOtCalculationDetailsOnPayslip),
+      label: 'Overtime Earnings',
+      amount: 0,
+      foldedIntoAllowances: false,
+    };
+  }
+
+  const showHours = visibilityConfig?.showOtHoursOnPayslip !== false;
+  const showAmount = visibilityConfig?.showOtAmountOnPayslip !== false;
+  const showDetails = Boolean(visibilityConfig?.showOtCalculationDetailsOnPayslip);
+
+  const effectiveRate = toNum(overtimeRate) > 0
+    ? toNum(overtimeRate)
+    : (hrs > 0 ? Math.round((amt / hrs) * 100) / 100 : 0);
+
+  const hoursText = showHours && hrs > 0 ? `${hrs} hrs` : undefined;
+  const calculationDetailsText = showDetails && hrs > 0
+    ? [
+        `${hrs} hrs × ₹${effectiveRate}/hr`,
+        extraDetails?.divisorUsed ? `Divisor: ${extraDetails.divisorUsed}d` : '',
+        extraDetails?.dailyPaidHours ? `Shift: ${extraDetails.dailyPaidHours}h` : '',
+        extraDetails?.multiplierApplied && extraDetails.multiplierApplied !== 1 ? `${extraDetails.multiplierApplied}x` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : undefined;
+
+  if (!showAmount) {
+    // Do NOT alter actual gross/net earnings; fold the amount into allowances display line
+    return {
+      visibleAsSeparateLine: false,
+      visible: showHours,
+      showHours,
+      showAmount: false,
+      showCalculationDetails: showDetails,
+      label: 'Variable Shift / Production Allowance',
+      amount: amt,
+      hoursText,
+      calculationDetailsText,
+      description: calculationDetailsText,
+      foldedIntoAllowances: true,
+    };
+  }
+
+  const label = hoursText ? `Overtime Earnings (${hoursText})` : 'Overtime Earnings';
+
+  return {
+    visibleAsSeparateLine: true,
+    visible: true,
+    showHours,
+    showAmount: true,
+    showCalculationDetails: showDetails,
+    label,
+    amount: amt,
+    hoursText,
+    calculationDetailsText,
+    description: calculationDetailsText,
+    foldedIntoAllowances: false,
   };
 };
 

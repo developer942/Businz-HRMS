@@ -344,15 +344,23 @@ export interface IncrementPolicyConfig {
   slabs: IncrementSlab[];
 }
 
+export type PayrollSalaryDivisorMode = 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS';
+
 export interface PayrollSettingsConfig {
   components: SalaryComponentConfig[];
   pfPolicy: PFPolicyConfig;
   esicPolicy: ESICPolicyConfig;
   incrementPolicy?: IncrementPolicyConfig;
-  standardWorkingDaysPerMonth: number; // e.g. 26 or 22
+  standardWorkingDaysPerMonth: number; // e.g. 26 or 30
+  salaryDivisorMode?: PayrollSalaryDivisorMode; // 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS'
   payrollCycleDay: number; // e.g. 1st of each month
   enableProfessionalTax: boolean;
   standardPtAmount: number; // e.g. 200
+  payslipOvertimeVisibility?: {
+    showOtHoursOnPayslip: boolean;
+    showOtAmountOnPayslip: boolean;
+    showOtCalculationDetailsOnPayslip: boolean;
+  };
   updatedAt: string;
   updatedBy: string;
 }

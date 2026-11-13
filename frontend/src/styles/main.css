@@ -263,7 +263,7 @@ textarea {
 }
 
 .form-control:focus,
-input:not([type="checkbox"]):not([type="radio"]):focus,
+input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input):not(.crm-contacts-search-input):not(.crm-templates-search-input):focus,
 select:focus,
 textarea:focus {
   border-color: #0E7490 !important;

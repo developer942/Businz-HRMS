@@ -204,10 +204,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   const [status, setStatus] = useState<AttendanceRecord['status']>('Present');
   const [halfDayType, setHalfDayType] = useState<'First Half' | 'Second Half'>('First Half');
   
-  const [checkInTime, setCheckInTime] = useState<string>('09:00 AM');
-  const [checkOutTime, setCheckOutTime] = useState<string>('06:00 PM');
-  const [isMissedCheckIn, setIsMissedCheckIn] = useState<boolean>(false);
-  const [isMissedCheckOut, setIsMissedCheckOut] = useState<boolean>(false);
+  const [checkInTime, setCheckInTime] = useState<string>('');
+  const [checkOutTime, setCheckOutTime] = useState<string>('');
+  const [isMissedCheckIn, setIsMissedCheckIn] = useState<boolean>(true);
+  const [isMissedCheckOut, setIsMissedCheckOut] = useState<boolean>(true);
   
   const [breakDuration, setBreakDuration] = useState<number | string>(45);
   const [otHours, setOtHours] = useState<number>(0);
@@ -414,16 +414,17 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
         setBreakDuration(45);
       }
     } else {
-      // Default to employee's shift start and end times if available
-      setCheckInTime(shiftStartTimeStr || '09:00 AM');
-      setCheckOutTime(shiftEndTimeStr || '06:00 PM');
-      setIsMissedCheckIn(false);
-      setIsMissedCheckOut(false);
+      // Employee has no recorded attendance for this date (Absent):
+      // Keep Missed In & Missed Out checked and do not pre-fill shift times
+      setCheckInTime('');
+      setCheckOutTime('');
+      setIsMissedCheckIn(true);
+      setIsMissedCheckOut(true);
       setOtHours(0);
       setBreakDuration(45);
       setStatus('Present');
     }
-  }, [isOpen, existingRecord, date, selectedEmpId, shiftStartTimeStr, shiftEndTimeStr]);
+  }, [isOpen, existingRecord, date, selectedEmpId]);
 
   if (!isOpen) return null;
 
@@ -649,9 +650,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               <div ref={employeeDropdownRef} style={{ position: 'relative' }}>
                 <div
                   onClick={() => {
-                    if (!selectedEmployee) {
-                      searchInputRef.current?.focus();
+                    if (selectedEmployee && !isDropdownOpen) {
+                      setIsDropdownOpen(true);
                     }
+                    setTimeout(() => searchInputRef.current?.focus(), 20);
                   }}
                   style={{
                     width: '100%',
@@ -660,7 +662,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                     borderRadius: '10px',
                     border: isDropdownOpen ? '2px solid #0E7490' : '1px solid #CBD5E1',
                     backgroundColor: '#FFFFFF',
-                    cursor: selectedEmployee ? 'default' : 'text',
+                    cursor: selectedEmployee && !isDropdownOpen ? 'pointer' : 'text',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
@@ -673,7 +675,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                   aria-haspopup="listbox"
                   title="Search or select employee"
                 >
-                  {selectedEmployee ? (
+                  {selectedEmployee && !isDropdownOpen ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', flex: 1 }}>
                       <div
                         style={{
@@ -722,7 +724,13 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       <input
                         ref={searchInputRef}
                         type="text"
+                        className="header-search-input"
                         value={searchQuery}
+                        onFocus={() => {
+                          if (searchQuery.trim().length > 0) {
+                            setIsDropdownOpen(true);
+                          }
+                        }}
                         onChange={(e) => {
                           const val = e.target.value;
                           setSearchQuery(val);
@@ -748,6 +756,8 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           border: 'none',
                           background: 'transparent',
                           outline: 'none',
+                          boxShadow: 'none',
+                          padding: 0,
                           fontSize: '0.86rem',
                           fontWeight: 500,
                           color: '#0F172A'
@@ -819,51 +829,6 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                       overflow: 'hidden'
                     }}
                   >
-                    {selectedEmployee && (
-                      <div
-                        style={{
-                          padding: '10px 12px',
-                          borderBottom: '1px solid #E2E8F0',
-                          backgroundColor: '#F8FAFC',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px'
-                        }}
-                      >
-                        <Search size={16} color="#0E7490" style={{ flexShrink: 0 }} />
-                        <input
-                          ref={searchInputRef}
-                          type="text"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          onKeyDown={(e) => {
-                            preventSpaceEnterPropagation(e);
-                            if (e.key === 'Escape') {
-                              setIsDropdownOpen(false);
-                            } else if (e.key === 'Enter') {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (filteredEmployees.length > 0) {
-                                setSelectedEmpId(filteredEmployees[0].id);
-                                setIsDropdownOpen(false);
-                                setSearchQuery('');
-                              }
-                            }
-                          }}
-                          placeholder="Search employee name or ID (e.g. Arun, VRM-013)..."
-                          style={{
-                            width: '100%',
-                            border: 'none',
-                            background: 'transparent',
-                            outline: 'none',
-                            fontSize: '0.84rem',
-                            fontWeight: 500,
-                            color: '#0F172A'
-                          }}
-                        />
-                      </div>
-                    )}
-
                     {/* Results Count Header */}
                     <div
                       style={{
@@ -1185,7 +1150,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                               }
                             }
                           }}
-                          placeholder="09:00 AM"
+                          placeholder={shiftStartTimeStr || '09:00 AM'}
                           style={{
                             width: '100%',
                             height: '40px',
@@ -1200,33 +1165,39 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                             boxSizing: 'border-box'
                           }}
                         />
-                        {!isMissedCheckIn && (
-                          <button
-                            type="button"
-                            aria-label="Open Check-In time picker"
-                            onClick={() => setActiveTimePicker(prev => (prev === 'checkIn' ? null : 'checkIn'))}
-                            title="Pick check-in time"
-                            style={{
-                              position: 'absolute',
-                              right: '6px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '6px',
-                              border: 'none',
-                              background: activeTimePicker === 'checkIn' ? '#ECFEFF' : 'transparent',
-                              color: activeTimePicker === 'checkIn' ? '#0E7490' : '#64748B',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              padding: 0
-                            }}
-                          >
-                            <Clock size={16} />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          aria-label="Open Check-In time picker"
+                          onClick={() => {
+                            if (isMissedCheckIn) {
+                              setIsMissedCheckIn(false);
+                              if (!checkInTime) setCheckInTime(shiftStartTimeStr || '09:00 AM');
+                              setActiveTimePicker('checkIn');
+                            } else {
+                              setActiveTimePicker(prev => (prev === 'checkIn' ? null : 'checkIn'));
+                            }
+                          }}
+                          title="Pick check-in time"
+                          style={{
+                            position: 'absolute',
+                            right: '6px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: activeTimePicker === 'checkIn' ? '#ECFEFF' : 'transparent',
+                            color: activeTimePicker === 'checkIn' ? '#0E7490' : '#64748B',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            padding: 0
+                          }}
+                        >
+                          <Clock size={16} />
+                        </button>
                         {/* Synchronized native time input for accessibility / test automation */}
                         {!isMissedCheckIn && (
                           <input
@@ -1475,7 +1446,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                               }
                             }
                           }}
-                          placeholder="06:00 PM"
+                          placeholder={shiftEndTimeStr || '06:00 PM'}
                           style={{
                             width: '100%',
                             height: '40px',
@@ -1490,33 +1461,39 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                             boxSizing: 'border-box'
                           }}
                         />
-                        {!isMissedCheckOut && (
-                          <button
-                            type="button"
-                            aria-label="Open Check-Out time picker"
-                            onClick={() => setActiveTimePicker(prev => (prev === 'checkOut' ? null : 'checkOut'))}
-                            title="Pick check-out time"
-                            style={{
-                              position: 'absolute',
-                              right: '6px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '6px',
-                              border: 'none',
-                              background: activeTimePicker === 'checkOut' ? '#ECFEFF' : 'transparent',
-                              color: activeTimePicker === 'checkOut' ? '#0E7490' : '#64748B',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              padding: 0
-                            }}
-                          >
-                            <Clock size={16} />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          aria-label="Open Check-Out time picker"
+                          onClick={() => {
+                            if (isMissedCheckOut) {
+                              setIsMissedCheckOut(false);
+                              if (!checkOutTime) setCheckOutTime(shiftEndTimeStr || '06:00 PM');
+                              setActiveTimePicker('checkOut');
+                            } else {
+                              setActiveTimePicker(prev => (prev === 'checkOut' ? null : 'checkOut'));
+                            }
+                          }}
+                          title="Pick check-out time"
+                          style={{
+                            position: 'absolute',
+                            right: '6px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: activeTimePicker === 'checkOut' ? '#ECFEFF' : 'transparent',
+                            color: activeTimePicker === 'checkOut' ? '#0E7490' : '#64748B',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            padding: 0
+                          }}
+                        >
+                          <Clock size={16} />
+                        </button>
                         {/* Synchronized native time input for accessibility / test automation */}
                         {!isMissedCheckOut && (
                           <input

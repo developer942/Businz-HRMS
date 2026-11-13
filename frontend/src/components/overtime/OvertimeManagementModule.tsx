@@ -46,13 +46,14 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
     approveOtRequest,
     rejectOtRequest,
     deleteOtRequest,
+    identifyAttendanceOvertime,
     addNotification
   } = useHRMS();
 
   // Role detection
   const isEmployee = currentUser.role === 'Employee';
   const isCeo = currentUser.role === 'CEO';
-  const isHrAdmin = currentUser.role === 'HR Admin' || currentUser.role === 'HR Manager' || currentUser.role === 'Super Admin';
+  const isHrAdmin = currentUser.role === 'HR' || currentUser.role === 'HR Admin' || currentUser.role === 'HR Manager' || currentUser.role === 'Super Admin';
   const isDepartmentManager = currentUser.role === 'Department Manager' || currentUser.role === 'Department Head';
   const canApprove = isCeo || isHrAdmin || isDepartmentManager || currentUser.role === 'Management' || currentUser.role === 'ERP Administrator';
 
@@ -138,20 +139,21 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
       }
 
       // Status Tab
+      const statusStr = String(req.status || '');
       if (statusTab === 'Pending') {
-        return req.status === 'Pending Approval';
+        return statusStr === 'Pending' || statusStr === 'Pending Approval';
       }
       if (statusTab === 'Approved') {
-        return req.status === 'Approved';
+        return statusStr === 'Approved' || statusStr === 'Paid';
       }
       if (statusTab === 'Partially Approved') {
-        return req.status === 'Partially Approved';
+        return statusStr === 'Partially Approved';
       }
       if (statusTab === 'Rejected') {
-        return req.status === 'Rejected';
+        return statusStr === 'Rejected';
       }
       if (statusTab === 'Manual OT') {
-        return req.source === 'Manual OT';
+        return (req.source as string) === 'Manual OT' || req.source === 'Manual Request';
       }
 
       return true;
@@ -160,15 +162,15 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
 
   // Metrics calculation
   const totalCount = roleFilteredList.length;
-  const pendingCount = roleFilteredList.filter(r => r.status === 'Pending Approval').length;
-  const approvedCount = roleFilteredList.filter(r => r.status === 'Approved' || r.status === 'Partially Approved').length;
+  const pendingCount = roleFilteredList.filter(r => (r.status as string) === 'Pending' || (r.status as string) === 'Pending Approval').length;
+  const approvedCount = roleFilteredList.filter(r => r.status === 'Approved' || (r.status as string) === 'Partially Approved' || r.status === 'Paid').length;
   const rejectedCount = roleFilteredList.filter(r => r.status === 'Rejected').length;
-  const manualCount = roleFilteredList.filter(r => r.source === 'Manual OT').length;
+  const manualCount = roleFilteredList.filter(r => (r.source as string) === 'Manual OT' || r.source === 'Manual Request').length;
 
   const totalApprovedHours = useMemo(() => {
     return Math.round(
       roleFilteredList
-        .filter(r => r.status === 'Approved' || r.status === 'Partially Approved')
+        .filter(r => r.status === 'Approved' || (r.status as string) === 'Partially Approved' || r.status === 'Paid')
         .reduce((sum, r) => sum + (r.approvedOtHours || 0), 0) * 10
     ) / 10;
   }, [roleFilteredList]);
@@ -176,8 +178,8 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
   const totalEstimatedPayout = useMemo(() => {
     return Math.round(
       roleFilteredList
-        .filter(r => r.status === 'Approved' || r.status === 'Partially Approved')
-        .reduce((sum, r) => sum + (r.calculatedAmount || (r.approvedOtHours * (r.hourlyRate || 100))), 0)
+        .filter(r => r.status === 'Approved' || (r.status as string) === 'Partially Approved' || r.status === 'Paid')
+        .reduce((sum, r) => sum + ((r as any).calculatedAmount || r.otAmount || (r.approvedOtHours * (r.hourlyRate || 100))), 0)
     );
   }, [roleFilteredList]);
 
@@ -205,9 +207,9 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
   // Open Review Modal
   const handleOpenReview = (req: OvertimeRequest) => {
     setReviewingRequest(req);
-    setApprovedHours(req.requestedOtHours);
-    setSelectedMultiplier(req.multiplier || '1.5x Salary');
-    setReviewRemarks(req.approvedOtHours ? req.reviewRemarks || '' : '');
+    setApprovedHours((req as any).requestedOtHours ?? req.otHours ?? 0);
+    setSelectedMultiplier(((req as any).multiplier || req.rateType || '1.5x Salary') as OvertimeMultiplierType);
+    setReviewRemarks(req.approvedOtHours ? (req as any).reviewRemarks || req.remarks || '' : '');
     setReviewError('');
   };
 
@@ -219,9 +221,10 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
       return;
     }
 
+    const reqHrs = (reviewingRequest as any).requestedOtHours ?? reviewingRequest.otHours ?? approvedHours;
     const reviewerTag = `${currentUser.name} (${currentUser.role})`;
-    const defaultRemark = approvedHours < reviewingRequest.requestedOtHours
-      ? `Approved ${approvedHours}h of ${reviewingRequest.requestedOtHours}h requested (${selectedMultiplier})`
+    const defaultRemark = approvedHours < reqHrs
+      ? `Approved ${approvedHours}h of ${reqHrs}h requested (${selectedMultiplier})`
       : `Approved ${approvedHours}h (${selectedMultiplier})`;
 
     approveOtRequest(
@@ -260,8 +263,8 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
     const reviewerTag = `${currentUser.name} (${currentUser.role})`;
     selectedRowIds.forEach(id => {
       const target = overtimeRequests.find(r => r.id === id);
-      if (target && target.status === 'Pending Approval') {
-        approveOtRequest(id, target.requestedOtHours, reviewerTag, `Bulk approved by ${reviewerTag}`, target.multiplier);
+      if (target && ((target.status as string) === 'Pending' || (target.status as string) === 'Pending Approval') && !target.isLocked) {
+        approveOtRequest(id, (target as any).requestedOtHours ?? target.otHours ?? 0, reviewerTag, `Bulk approved by ${reviewerTag}`, (target as any).multiplier || target.rateType);
       }
     });
     setSelectedRowIds([]);
@@ -364,7 +367,8 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
 
   // Render Status Badge matching exact system tokens
   const renderStatusBadge = (status: OvertimeRequest['status']) => {
-    switch (status) {
+    switch (status as string) {
+      case 'Pending':
       case 'Pending Approval':
         return (
           <span style={{
@@ -401,6 +405,25 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
           }}>
             <Check size={12} strokeWidth={2.5} />
             Approved
+          </span>
+        );
+      case 'Paid':
+        return (
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 10px',
+            borderRadius: '9999px',
+            fontSize: '0.74rem',
+            fontWeight: 700,
+            background: '#ECFDF5',
+            color: '#047857',
+            border: '1px solid #6EE7B7',
+            whiteSpace: 'nowrap'
+          }}>
+            <ShieldCheck size={12} strokeWidth={2.5} />
+            Paid &amp; Locked
           </span>
         );
       case 'Partially Approved':
@@ -476,12 +499,37 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
           <p className="welcome-banner-subtitle">
             {isEmployee
               ? 'Request overtime hours, track live supervisor approvals, and calculate extra pay.'
-              : 'Review, adjust hours, select rate multipliers, and approve employee overtime with multi-tier HR & CEO sign-off.'}
+              : 'Workflow: Attendance → Identify Eligible Hours → Department Policy (FLOOR / Dispatch Loading / Exceptions) → Approval → Payroll.'}
           </p>
         </div>
 
         {/* Action buttons matching Dashboard button hierarchy */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {canApprove && !isEmployee && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => identifyAttendanceOvertime()}
+              title="Scan attendance records and identify eligible overtime hours by department policy"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: '10px',
+                height: '38px',
+                padding: '0 14px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                color: '#0E7490',
+                backgroundColor: '#ECFEFF',
+                border: '1px solid #A5F3FC'
+              }}
+            >
+              <Timer size={16} color="#0E7490" />
+              <span>Identify Eligible OT from Attendance</span>
+            </button>
+          )}
+
           <ExportDropdown
             onExportExcel={handleExportExcel}
             onExportPDF={handleExportPdf}
@@ -796,7 +844,11 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
               ) : (
                 paginatedList.map(item => {
                   const isSelected = selectedRowIds.includes(item.id);
-                  const isPending = item.status === 'Pending Approval';
+                  const isPending = (item.status as string) === 'Pending' || (item.status as string) === 'Pending Approval';
+                  const isLockedOrPaid = Boolean(item.isLocked || item.status === 'Paid' || item.payrollStatus === 'Paid');
+                  const reqHrs = (item as any).requestedOtHours ?? item.otHours ?? 0;
+                  const payoutAmt = Number((item as any).calculatedAmount ?? item.otAmount ?? (item.approvedOtHours * (item.hourlyRate || 100))) || 0;
+                  const multLabel = (item as any).multiplier || item.rateType || '1x Salary';
                   const initials = item.employeeName
                     .split(' ')
                     .map(n => n[0])
@@ -815,8 +867,9 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                           <input
                             type="checkbox"
                             checked={isSelected}
+                            disabled={isLockedOrPaid}
                             onChange={() => handleSelectRow(item.id)}
-                            style={{ accentColor: '#0E7490', cursor: 'pointer' }}
+                            style={{ accentColor: '#0E7490', cursor: isLockedOrPaid ? 'not-allowed' : 'pointer' }}
                           />
                         </td>
                       )}
@@ -846,6 +899,20 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                             <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>
                               {item.employeeId} • {item.department}
                             </div>
+                            {item.eligibilitySource && (
+                              <span style={{
+                                display: 'inline-block',
+                                marginTop: '2px',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                fontSize: '0.67rem',
+                                fontWeight: 700,
+                                backgroundColor: '#ECFEFF',
+                                color: '#0E7490'
+                              }}>
+                                {item.eligibilitySource}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -857,36 +924,41 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                           <span>{formatDateDDMMYYYY(item.date)}</span>
                         </div>
                         <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px', whiteSpace: 'nowrap' }}>
-                          Out: {item.actualCheckOut || '08:00 PM'} (Shift end {item.shiftEnd || '06:00 PM'})
+                          Out: {item.actualCheckOut || '08:00 PM'} (Shift end {(item as any).shiftEnd || item.shiftEndTime || '06:00 PM'})
                         </div>
+                        {item.isBackdatedArrear && (
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#B45309', backgroundColor: '#FEF3C7', padding: '1px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '2px' }}>
+                            Backdated Arrear ({item.targetPayrollMonth} {item.targetPayrollYear})
+                          </span>
+                        )}
                       </td>
 
                       {/* Hours Column */}
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                           <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0F172A' }}>
-                            {item.status === 'Approved' || item.status === 'Partially Approved'
+                            {item.status === 'Approved' || (item.status as string) === 'Partially Approved' || item.status === 'Paid'
                               ? `${item.approvedOtHours} hrs`
-                              : `${item.requestedOtHours} hrs`}
+                              : `${reqHrs} hrs`}
                           </span>
-                          {item.status === 'Partially Approved' && (
+                          {(item.status as string) === 'Partially Approved' && (
                             <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>
-                              (Req: {item.requestedOtHours}h)
+                              (Req: {reqHrs}h)
                             </span>
                           )}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px' }}>
-                          {item.source === 'Manual OT' ? 'Manual Addition' : 'Self-Requested'}
+                          {(item.source as string) === 'Manual OT' ? 'Manual Addition' : (item.source || 'Self-Requested')}
                         </div>
                       </td>
 
                       {/* Multiplier & Payout */}
                       <td>
                         <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.88rem', whiteSpace: 'nowrap' }}>
-                          ₹{(item.calculatedAmount || (item.approvedOtHours * (item.hourlyRate || 100))).toFixed(2)}
+                          ₹{payoutAmt.toFixed(2)}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px', whiteSpace: 'nowrap' }}>
-                          {item.multiplier || '1x Salary'} • {formatCurrency(item.hourlyRate || 100)}/hr
+                          {multLabel} • {formatCurrency(item.hourlyRate || 100)}/hr
                         </div>
                       </td>
 
@@ -895,9 +967,9 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                         <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {item.reason}
                         </div>
-                        {item.workDescription && (
+                        {(item as any).workDescription && (
                           <div style={{ fontSize: '0.74rem', color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
-                            {item.workDescription}
+                            {(item as any).workDescription}
                           </div>
                         )}
                       </td>
@@ -914,9 +986,9 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                             <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap' }}>
                               {item.reviewedBy}
                             </div>
-                            {item.reviewRemarks && (
+                            {((item as any).reviewRemarks || item.remarks) && (
                               <div style={{ fontSize: '0.72rem', color: '#64748B', fontStyle: 'italic', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>
-                                "{item.reviewRemarks}"
+                                "{(item as any).reviewRemarks || item.remarks}"
                               </div>
                             )}
                           </div>
@@ -952,7 +1024,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                           </button>
 
                           {/* Approval Actions for HR / CEO / Managers */}
-                          {canApprove && isPending && (
+                          {canApprove && isPending && !isLockedOrPaid && (
                             <>
                               <button
                                 type="button"
@@ -1002,7 +1074,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                           )}
 
                           {/* Employee Cancel option if pending */}
-                          {isEmployee && isPending && (
+                          {isEmployee && isPending && !isLockedOrPaid && (
                             <button
                               type="button"
                               onClick={() => {

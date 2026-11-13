@@ -192,7 +192,13 @@ import {
   calculateOtSalaryAmount,
   calculateAttendanceSalaryImpact,
   aggregateMonthlyAttendanceSummary,
-  parseTimeToMinutes
+  parseTimeToMinutes,
+  isDefaultOtEligibleDepartment,
+  calculateEnterpriseOvertimeRateAndAmount,
+  identifyEligibleOvertimeFromAttendance,
+  resolveMonthNumber,
+  getCalendarDaysInMonth,
+  resolvePayrollSalaryDivisor
 } from '../services/attendanceCalculationEngine';
 import {
   evaluateShiftAttendance,
@@ -869,6 +875,7 @@ interface HRMSContextType {
   editAndApproveOtRequest: (id: string, approvedHours: number, reviewedBy: string, remarks?: string, multiplier?: OvertimeRequest['multiplier']) => void;
   deleteOtRequest: (id: string) => void;
   addManualOtEntry: (entry: { employeeId: string; date: string; hours: number; hourlyRate: number; multiplier: OvertimeRequest['multiplier']; reason: string; addedBy: string }) => { success: boolean; message: string };
+  identifyAttendanceOvertime: () => { addedCount: number; restrictedCount: number; message: string };
 
   departmentOtPolicies: DepartmentOtPolicy[];
   updateDepartmentOtPolicy: (id: string, policy: Partial<DepartmentOtPolicy>) => void;
@@ -2961,17 +2968,36 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const isDateInLockedPayrollMonth = (empId: string, dateStr: string): boolean => {
+    if (!dateStr) return false;
+    const clean = String(dateStr).split('T')[0];
+    const parts = clean.split('-');
+    if (parts.length < 2) return false;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    return payrollRecords.some(
+      p =>
+        (p.employeeId === empId || !empId) &&
+        resolveMonthNumber(p.month) === m &&
+        Number(p.year) === y &&
+        (p.status === 'Paid' || p.isLocked === true)
+    );
+  };
+
   const submitOtRequest = (req: Omit<OvertimeRequest, 'id' | 'status' | 'approvedOtHours' | 'submittedAt'>): { success: boolean; message: string } => {
     if (!req.reason || !req.reason.trim()) {
       return { success: false, message: 'Reason is required for overtime request.' };
     }
 
-    // Security check: Verify employee OT eligibility
+    const empObj = employees.find(e => e.employeeId === req.employeeId || e.id === req.employeeId);
+
+    // Security check: Verify employee OT eligibility (Department Policy / Individual Exception / Statutory Entitlement)
     const otElig = resolveEmployeeOtEligibility(
-      req.employeeId,
-      req.department,
+      empObj || { id: req.employeeId, employeeId: req.employeeId, department: req.department },
       departmentOtPolicies,
-      employeeOtPolicies
+      employeeOtPolicies,
+      overtimePolicy,
+      req.date
     );
 
     if (!otElig.isEligible) {
@@ -2986,19 +3012,56 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE };
     }
 
+    const requestedHrs = toNum((req as any).requestedOtHours ?? req.otHours);
+    const isLockedMonth = isDateInLockedPayrollMonth(req.employeeId, req.date);
+    const currentMonthInfo = getMonthInfo();
+    const calc = empObj
+      ? calculateEnterpriseOvertimeRateAndAmount({
+          employee: empObj,
+          approvedOtHours: requestedHrs,
+          month: Number(String(req.date).split('-')[1]) || currentMonthInfo.monthIndex + 1,
+          year: Number(String(req.date).split('-')[0]) || currentMonthInfo.year,
+          payrollConfig: payrollSettingsConfig,
+          overtimePolicy,
+          departmentOtPolicies,
+          employeeOtPolicies,
+          rateType: req.rateType || (req as any).multiplier,
+          fixedHourlyRate: req.hourlyRate > 0 ? req.hourlyRate : undefined,
+          dateStr: req.date,
+        })
+      : null;
+
     const newReq: OvertimeRequest = {
       ...req,
       id: `OTR-${Date.now().toString().slice(-4)}`,
+      otHours: requestedHrs,
       approvedOtHours: 0,
-      status: 'Pending Approval',
-      source: 'Employee Request',
-      submittedAt: formatDateTimeDDMMYYYY(new Date())
+      hourlyRate: calc?.hourlyRate || req.hourlyRate || otElig.otHourlyRate || 100,
+      otAmount: calc?.overtimeAmount || req.otAmount || 0,
+      rateType: req.rateType || (req as any).multiplier || '1x Salary',
+      status: 'Pending',
+      source: req.source || 'Manual Request',
+      submittedAt: formatDateTimeDDMMYYYY(new Date()),
+      eligibilitySource: otElig.eligibilitySource,
+      wageBaseUsed: calc?.wageBaseMode,
+      divisorUsed: calc?.divisorUsed,
+      dailyPaidHoursUsed: calc?.dailyPaidHours,
+      calendarDaysInMonth: calc?.calendarDaysInMonth,
+      payrollStatus: 'Pending',
+      isBackdatedArrear: isLockedMonth,
+      targetPayrollMonth: isLockedMonth ? currentMonthInfo.monthLong : undefined,
+      targetPayrollYear: isLockedMonth ? currentMonthInfo.year : undefined,
+      ...( {
+        requestedOtHours: requestedHrs,
+        multiplier: req.rateType || (req as any).multiplier || '1x Salary',
+        calculatedAmount: calc?.overtimeAmount || req.otAmount || 0,
+      } as any )
     };
     setOvertimeRequests(prev => [newReq, ...prev]);
 
     pushSharedNotification({
       title: 'New Overtime Request',
-      message: `${req.employeeName} (${req.employeeId}) submitted an OT request for ${req.requestedOtHours} hrs on ${formatDateDDMMYYYY(req.date)}.`,
+      message: `${req.employeeName} (${req.employeeId}) submitted an OT request for ${requestedHrs} hrs on ${formatDateDDMMYYYY(req.date)}.`,
       priority: 'Important',
       category: 'Attendance',
       link: 'attendance',
@@ -3007,7 +3070,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Overtime Request Submitted',
-      message: `Your OT request for ${req.requestedOtHours} hrs on ${formatDateDDMMYYYY(req.date)} has been submitted and is pending HR / CEO review.`,
+      message: `Your OT request for ${requestedHrs} hrs on ${formatDateDDMMYYYY(req.date)} has been submitted and is pending HR / CEO review.`,
       priority: 'Normal',
       category: 'Attendance',
       link: 'attendance'
@@ -3024,6 +3087,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   ) => {
     const target = overtimeRequests.find(r => r.id === id);
     if (!target) return;
+    if (target.isLocked || target.status === 'Paid' || target.payrollStatus === 'Paid') {
+      addNotification({
+        title: 'Modification Blocked (Payroll Locked)',
+        message: 'This overtime record has already been paid or locked in payroll and cannot be modified.',
+        priority: 'Urgent',
+        category: 'Payroll'
+      });
+      return;
+    }
     if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
       addNotification({
         title: 'CEO Approval Required',
@@ -3033,22 +3105,91 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       return;
     }
-    const nowStr = formatDateTimeDDMMYYYY(new Date());
 
-    const activeMultiplier = multiplier || target.multiplier || '1x Salary';
-    const factor = activeMultiplier === '2x Salary' ? 2 : activeMultiplier === '1.5x Salary' ? 1.5 : 1;
-    const rate = target.hourlyRate > 0 ? target.hourlyRate : 100;
-    const newCalculatedAmount = Math.round(approvedHours * rate * factor * 100) / 100;
+    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    const otElig = resolveEmployeeOtEligibility(
+      targetEmpObj || { id: target.employeeId, employeeId: target.employeeId, department: target.department },
+      departmentOtPolicies,
+      employeeOtPolicies,
+      overtimePolicy,
+      target.date
+    );
+    if (!otElig.allowed) {
+      addNotification({
+        title: 'Overtime Restricted by Department Policy',
+        message: `${target.employeeName} (${otElig.resolvedDepartment || target.department}) is not eligible for automatic OT approval: ${otElig.reason}`,
+        priority: 'Important',
+        category: 'Attendance'
+      });
+      return;
+    }
+
+    const nowStr = formatDateTimeDDMMYYYY(new Date());
+    const activeMultiplier = (multiplier || target.rateType || (target as any).multiplier || '1x Salary') as OvertimeRequest['rateType'];
+    const currentMonthInfo = getMonthInfo();
+    const dateMonthNum = Number(String(target.date).split('-')[1]) || (currentMonthInfo.monthIndex + 1);
+    const dateYearNum = Number(String(target.date).split('-')[0]) || currentMonthInfo.year;
+    const isLockedMonth = isDateInLockedPayrollMonth(target.employeeId, target.date);
+
+    let rate = target.hourlyRate > 0 ? target.hourlyRate : (otElig.otHourlyRate || 100);
+    let newCalculatedAmount = 0;
+    let calcMeta: ReturnType<typeof calculateEnterpriseOvertimeRateAndAmount> | null = null;
+
+    if (targetEmpObj) {
+      calcMeta = calculateEnterpriseOvertimeRateAndAmount({
+        employee: targetEmpObj,
+        approvedOtHours: approvedHours,
+        month: dateMonthNum,
+        year: dateYearNum,
+        payrollConfig: payrollSettingsConfig,
+        overtimePolicy,
+        departmentOtPolicies,
+        employeeOtPolicies,
+        rateType: activeMultiplier,
+        fixedHourlyRate: target.hourlyRate > 0 ? target.hourlyRate : undefined,
+        dateStr: target.date,
+      });
+      rate = calcMeta.hourlyRate;
+      newCalculatedAmount = calcMeta.overtimeAmount;
+    } else {
+      const factor = activeMultiplier === '2x Salary' ? 2 : activeMultiplier === '1.5x Salary' ? 1.5 : 1;
+      newCalculatedAmount = Math.round(approvedHours * rate * factor);
+    }
+
+    const prevApprovedHours = (target.status === 'Approved' || (target.status as string) === 'Partially Approved')
+      ? toNum(target.approvedOtHours)
+      : 0;
+    const prevApprovedAmount = (target.status === 'Approved' || (target.status as string) === 'Partially Approved')
+      ? toNum(target.otAmount || (target as any).calculatedAmount)
+      : 0;
+    const hoursDelta = approvedHours - prevApprovedHours;
+    const amountDelta = newCalculatedAmount - prevApprovedAmount;
 
     setOvertimeRequests(prev => prev.map(r => r.id === id ? {
       ...r,
+      otHours: toNum(r.otHours || (r as any).requestedOtHours || approvedHours),
       approvedOtHours: approvedHours,
-      multiplier: activeMultiplier,
-      calculatedAmount: newCalculatedAmount,
-      status: approvedHours < r.requestedOtHours ? 'Partially Approved' : 'Approved',
+      rateType: activeMultiplier,
+      hourlyRate: rate,
+      otAmount: newCalculatedAmount,
+      status: 'Approved',
       reviewedBy,
       reviewedAt: nowStr,
-      reviewRemarks: remarks || (approvedHours < r.requestedOtHours ? `Approved ${approvedHours}h of ${r.requestedOtHours}h requested` : 'Approved')
+      remarks: remarks || r.remarks,
+      eligibilitySource: otElig.eligibilitySource,
+      wageBaseUsed: calcMeta?.wageBaseMode || r.wageBaseUsed,
+      divisorUsed: calcMeta?.divisorUsed || r.divisorUsed,
+      dailyPaidHoursUsed: calcMeta?.dailyPaidHours || r.dailyPaidHoursUsed,
+      calendarDaysInMonth: calcMeta?.calendarDaysInMonth || r.calendarDaysInMonth,
+      payrollStatus: r.payrollStatus === 'Paid' ? 'Paid' : 'Pending',
+      isBackdatedArrear: isLockedMonth || r.isBackdatedArrear,
+      targetPayrollMonth: isLockedMonth ? currentMonthInfo.monthLong : r.targetPayrollMonth,
+      targetPayrollYear: isLockedMonth ? currentMonthInfo.year : r.targetPayrollYear,
+      ...( {
+        multiplier: activeMultiplier,
+        calculatedAmount: newCalculatedAmount,
+        reviewRemarks: remarks || 'Approved'
+      } as any )
     } : r));
 
     // Update AttendanceRecord
@@ -3056,21 +3197,37 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (a.employeeId === target.employeeId && a.date === target.date) {
         return {
           ...a,
+          overtimeHours: approvedHours,
+          otApprovalStatus: 'Approved',
+          otApprovedBy: reviewedBy,
           otHours: approvedHours,
           approvedOtHours: approvedHours,
           otStatus: 'Approved'
-        };
+        } as any;
       }
       return a;
     }));
 
-    // Update Payroll
+    // Update Open Payroll Record (do NOT mutate locked/paid records; backdated items flow as arrears)
     setPayrollRecords(prev => prev.map(p => {
-      if (p.employeeId === target.employeeId) {
-        return {
-          ...p,
-          overtimeHours: (p.overtimeHours || 0) + approvedHours
-        };
+      if (p.employeeId === target.employeeId && !p.isLocked && p.status !== 'Paid') {
+        const targetMonthMatch = isLockedMonth
+          ? (p.month === currentMonthInfo.monthLong && Number(p.year) === currentMonthInfo.year)
+          : (resolveMonthNumber(p.month) === dateMonthNum && Number(p.year) === dateYearNum);
+        if (targetMonthMatch) {
+          const nextOtHours = Math.max(0, Math.round(((p.overtimeHours || 0) + hoursDelta) * 100) / 100);
+          const nextOtAmount = Math.max(0, Math.round((p.overtimeAmount || 0) + amountDelta));
+          const nextGross = Math.max(0, toNum(p.grossSalary) + amountDelta);
+          const nextNet = Math.max(0, nextGross - toNum(p.totalDeductions));
+          return {
+            ...p,
+            overtimeHours: nextOtHours,
+            overtimeAmount: nextOtAmount,
+            overtimeRate: rate,
+            grossSalary: nextGross,
+            netSalary: nextNet,
+          };
+        }
       }
       return p;
     }));
@@ -3085,18 +3242,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       employeeId: target.employeeId,
       employeeName: target.employeeName,
       date: target.date,
-      fieldChanged: 'Overtime Approved',
-      oldValue: `Requested: ${target.requestedOtHours} hrs (${target.multiplier})`,
+      fieldChanged: isLockedMonth ? 'Overtime Approved (Backdated Arrear)' : 'Overtime Approved',
+      oldValue: `Requested: ${(target as any).requestedOtHours ?? target.otHours} hrs`,
       newValue: `Approved: ${approvedHours} hrs (${activeMultiplier}, ${formatCurrency(newCalculatedAmount)})`,
       reason: remarks || 'HR/CEO Overtime Approval',
       changedBy: reviewedBy,
       timestamp: `${dateStr} ${timeStr}`
     }, ...prev]);
 
-    const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
     pushSharedNotification({
-      title: approvedHours < target.requestedOtHours ? 'Overtime Partially Approved' : 'Overtime Approved',
-      message: `Your OT request for ${formatDateDDMMYYYY(target.date)} was approved for ${approvedHours} hrs by ${reviewedBy}.${remarks ? ` Remarks: ${remarks}` : ''}`,
+      title: 'Overtime Approved',
+      message: `Your OT request for ${formatDateDDMMYYYY(target.date)} was approved for ${approvedHours} hrs (${formatCurrency(newCalculatedAmount)}) by ${reviewedBy}.${remarks ? ` Remarks: ${remarks}` : ''}`,
       priority: 'Normal',
       category: 'Attendance',
       link: 'attendance',
@@ -3105,7 +3261,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'OT Request Approved',
-      message: `Approved ${approvedHours} hrs OT for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} by ${reviewedBy}.`,
+      message: `Approved ${approvedHours} hrs OT (${formatCurrency(newCalculatedAmount)}) for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)}.`,
       priority: 'Normal',
       category: 'Attendance',
       link: 'attendance'
@@ -3115,6 +3271,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const rejectOtRequest = (id: string, reviewedBy: string, remarks?: string) => {
     const target = overtimeRequests.find(r => r.id === id);
     if (!target) return;
+    if (target.isLocked || target.status === 'Paid' || target.payrollStatus === 'Paid') {
+      addNotification({
+        title: 'Modification Blocked (Payroll Locked)',
+        message: 'This overtime record has already been paid or locked in payroll and cannot be rejected.',
+        priority: 'Urgent',
+        category: 'Payroll'
+      });
+      return;
+    }
     if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
       addNotification({
         title: 'CEO Approval Required',
@@ -3130,17 +3295,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...r,
       status: 'Rejected',
       approvedOtHours: 0,
+      otAmount: 0,
       reviewedBy,
       reviewedAt: nowStr,
-      reviewRemarks: remarks || 'Rejected by HR/CEO'
+      remarks: remarks || 'Rejected by HR/CEO',
+      ...( { reviewRemarks: remarks || 'Rejected by HR/CEO', calculatedAmount: 0 } as any )
     } : r));
 
     setAttendanceRecords(prev => prev.map(a => {
       if (a.employeeId === target.employeeId && a.date === target.date) {
         return {
           ...a,
+          otApprovalStatus: 'Rejected',
           otStatus: 'Rejected'
-        };
+        } as any;
       }
       return a;
     }));
@@ -3176,6 +3344,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const deleteOtRequest = (id: string) => {
     const target = overtimeRequests.find(r => r.id === id);
+    if (target && (target.isLocked || target.status === 'Paid' || target.payrollStatus === 'Paid')) {
+      addNotification({
+        title: 'Cannot Delete Paid Overtime',
+        message: 'Overtime records that have already been paid or locked in payroll cannot be deleted.',
+        priority: 'Urgent',
+        category: 'Payroll'
+      });
+      return;
+    }
     setOvertimeRequests(prev => prev.filter(r => r.id !== id));
     addNotification({
       title: 'OT Request Cancelled',
@@ -3186,65 +3363,143 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addManualOtEntry = (entry: { employeeId: string; date: string; hours: number; hourlyRate: number; multiplier: OvertimeRequest['multiplier']; reason: string; addedBy: string }): { success: boolean; message: string } => {
+    const isAuthorized =
+      isSystemAdmin(currentUser) ||
+      currentUser?.role === 'CEO' ||
+      currentUser?.role === 'HR' ||
+      (currentUser?.role as string) === 'HR Admin';
+    if (!isAuthorized) {
+      return { success: false, message: 'Unauthorized: Only HR or CEO can record manual overtime entries.' };
+    }
+
     const emp = employees.find(e => e.id === entry.employeeId || e.employeeId === entry.employeeId);
     if (!emp) return { success: false, message: 'Employee not found.' };
+    const canonicalEmpId = emp.employeeId || emp.id;
+
+    const dupCheck = checkDuplicateOtRequest(overtimeRequests, canonicalEmpId, entry.date);
+    if (dupCheck.hasDuplicate) {
+      return { success: false, message: dupCheck.error || 'Duplicate overtime entry for this employee and date is not allowed.' };
+    }
+
+    const otElig = resolveEmployeeOtEligibility(
+      emp,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      overtimePolicy,
+      entry.date
+    );
+    if (!otElig.allowed) {
+      return {
+        success: false,
+        message: `Overtime Restricted: ${emp.firstName} ${emp.lastName} (${otElig.resolvedDepartment || emp.department}) is not eligible for overtime (${otElig.reason}). Configure an employee-specific exception or department eligibility first.`
+      };
+    }
 
     const fullName = `${emp.firstName} ${emp.lastName}`.trim();
-    const calculatedAmount = entry.multiplier === '1.5x Salary'
-      ? entry.hours * entry.hourlyRate * 1.5
-      : entry.multiplier === '2x Salary'
-      ? entry.hours * entry.hourlyRate * 2
-      : entry.hours * entry.hourlyRate;
+    const currentMonthInfo = getMonthInfo();
+    const dateMonthNum = Number(String(entry.date).split('-')[1]) || (currentMonthInfo.monthIndex + 1);
+    const dateYearNum = Number(String(entry.date).split('-')[0]) || currentMonthInfo.year;
+    const isLockedMonth = isDateInLockedPayrollMonth(canonicalEmpId, entry.date);
+
+    const calcMeta = calculateEnterpriseOvertimeRateAndAmount({
+      employee: emp,
+      approvedOtHours: entry.hours,
+      month: dateMonthNum,
+      year: dateYearNum,
+      payrollConfig: payrollSettingsConfig,
+      overtimePolicy,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      rateType: (entry.multiplier || '1x Salary') as OvertimeRequest['rateType'],
+      fixedHourlyRate: entry.hourlyRate > 0 ? entry.hourlyRate : undefined,
+      dateStr: entry.date,
+    });
+
+    const calculatedAmount = calcMeta.overtimeAmount;
+    const effectiveRate = calcMeta.hourlyRate;
 
     const newReq: OvertimeRequest = {
       id: `OTR-${Date.now().toString().slice(-4)}`,
-      employeeId: entry.employeeId,
+      employeeId: canonicalEmpId,
       employeeName: fullName,
-      department: emp.department,
+      department: otElig.resolvedDepartment || emp.department,
       date: entry.date,
-      shiftEnd: '06:00 PM',
+      shiftName: 'Standard Shift',
+      shiftEndTime: '06:00 PM',
       actualCheckOut: 'Manual Addition',
-      potentialOtHours: entry.hours,
-      requestedOtHours: entry.hours,
+      otHours: entry.hours,
       approvedOtHours: entry.hours,
+      rateType: (entry.multiplier || '1x Salary') as OvertimeRequest['rateType'],
+      hourlyRate: effectiveRate,
+      otAmount: calculatedAmount,
       reason: entry.reason,
-      workDescription: `Manual OT added by ${entry.addedBy}`,
-      status: 'Manually Added',
-      source: 'Manual OT',
-      multiplier: entry.multiplier,
-      hourlyRate: entry.hourlyRate,
-      calculatedAmount,
+      status: 'Approved',
+      source: 'Manual Request',
       submittedAt: formatDateTimeDDMMYYYY(new Date()),
       reviewedBy: entry.addedBy,
       reviewedAt: formatDateTimeDDMMYYYY(new Date()),
-      reviewRemarks: `Directly credited by ${entry.addedBy}`
+      remarks: `Directly credited by ${entry.addedBy}`,
+      eligibilitySource: otElig.eligibilitySource,
+      wageBaseUsed: calcMeta.wageBaseMode,
+      divisorUsed: calcMeta.divisorUsed,
+      dailyPaidHoursUsed: calcMeta.dailyPaidHours,
+      calendarDaysInMonth: calcMeta.calendarDaysInMonth,
+      payrollStatus: 'Pending',
+      isBackdatedArrear: isLockedMonth,
+      targetPayrollMonth: isLockedMonth ? currentMonthInfo.monthLong : undefined,
+      targetPayrollYear: isLockedMonth ? currentMonthInfo.year : undefined,
+      ...( {
+        shiftEnd: '06:00 PM',
+        potentialOtHours: entry.hours,
+        requestedOtHours: entry.hours,
+        workDescription: `Manual OT added by ${entry.addedBy}`,
+        multiplier: entry.multiplier || '1x Salary',
+        calculatedAmount,
+        reviewRemarks: `Directly credited by ${entry.addedBy}`
+      } as any )
     };
 
     setOvertimeRequests(prev => [newReq, ...prev]);
 
     // Sync to attendance
     setAttendanceRecords(prev => {
-      const idx = prev.findIndex(a => a.employeeId === entry.employeeId && a.date === entry.date);
+      const idx = prev.findIndex(a => a.employeeId === canonicalEmpId && a.date === entry.date);
       if (idx !== -1) {
         const copy = [...prev];
         copy[idx] = {
           ...copy[idx],
+          overtimeHours: entry.hours,
+          otApprovalStatus: 'Approved',
+          otApprovedBy: entry.addedBy,
           otHours: entry.hours,
           approvedOtHours: entry.hours,
           otStatus: 'Approved'
-        };
+        } as any;
         return copy;
       }
       return prev;
     });
 
-    // Update payroll
+    // Update open payroll record
     setPayrollRecords(prev => prev.map(p => {
-      if (p.employeeId === entry.employeeId) {
-        return {
-          ...p,
-          overtimeHours: (p.overtimeHours || 0) + entry.hours
-        };
+      if (p.employeeId === canonicalEmpId && !p.isLocked && p.status !== 'Paid') {
+        const targetMonthMatch = isLockedMonth
+          ? (p.month === currentMonthInfo.monthLong && Number(p.year) === currentMonthInfo.year)
+          : (resolveMonthNumber(p.month) === dateMonthNum && Number(p.year) === dateYearNum);
+        if (targetMonthMatch) {
+          const nextOtHours = Math.round(((p.overtimeHours || 0) + entry.hours) * 100) / 100;
+          const nextOtAmount = Math.round((p.overtimeAmount || 0) + calculatedAmount);
+          const nextGross = Math.round(toNum(p.grossSalary) + calculatedAmount);
+          const nextNet = Math.max(0, nextGross - toNum(p.totalDeductions));
+          return {
+            ...p,
+            overtimeHours: nextOtHours,
+            overtimeAmount: nextOtAmount,
+            overtimeRate: effectiveRate,
+            grossSalary: nextGross,
+            netSalary: nextNet,
+          };
+        }
       }
       return p;
     }));
@@ -3255,13 +3510,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     setAttendanceAuditLogs(prev => [{
       id: `AUD-${Date.now()}`,
-      attendanceId: `ATT-${entry.employeeId}-${entry.date}`,
-      employeeId: entry.employeeId,
+      attendanceId: `ATT-${canonicalEmpId}-${entry.date}`,
+      employeeId: canonicalEmpId,
       employeeName: fullName,
       date: entry.date,
-      fieldChanged: 'Manual Overtime Added',
+      fieldChanged: isLockedMonth ? 'Manual Overtime Added (Backdated Arrear)' : 'Manual Overtime Added',
       oldValue: '0 hrs',
-      newValue: `${entry.hours} hrs @ ${formatCurrency(entry.hourlyRate)}/hr (${entry.multiplier})`,
+      newValue: `${entry.hours} hrs @ ${formatCurrency(effectiveRate)}/hr (${entry.multiplier}) = ${formatCurrency(calculatedAmount)}`,
       reason: entry.reason,
       changedBy: entry.addedBy,
       timestamp: `${dateStr} ${timeStr}`
@@ -3269,12 +3524,68 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     addNotification({
       title: 'Manual Overtime Added',
-      message: `Credited ${entry.hours} hrs OT to ${fullName} on ${formatDateDDMMYYYY(entry.date)}.`,
+      message: `Credited ${entry.hours} hrs OT (${formatCurrency(calculatedAmount)}) to ${fullName} on ${formatDateDDMMYYYY(entry.date)}.`,
       priority: 'Normal',
       category: 'Attendance'
     });
 
     return { success: true, message: 'Overtime hours successfully added and synced with payroll.' };
+  };
+
+  const identifyAttendanceOvertime = (): { addedCount: number; restrictedCount: number; message: string } => {
+    const lockedMonthsMap = new Map<string, { month: string | number; year: number }>();
+    payrollRecords.forEach(p => {
+      if (p.status === 'Paid' || p.isLocked) {
+        const key = `${resolveMonthNumber(p.month)}-${p.year}`;
+        lockedMonthsMap.set(key, { month: p.month, year: Number(p.year) });
+      }
+    });
+
+    const currentMonthInfo = getMonthInfo();
+    const result = identifyEligibleOvertimeFromAttendance({
+      attendanceRecords,
+      employees,
+      shifts,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      overtimePolicy,
+      payrollConfig: payrollSettingsConfig,
+      existingOtRequests: overtimeRequests,
+      lockedPayrollMonths: Array.from(lockedMonthsMap.values()),
+      currentOpenPayrollMonth: { month: currentMonthInfo.monthLong, year: currentMonthInfo.year },
+    });
+
+    if (result.newRequests.length > 0) {
+      const enriched = result.newRequests.map(r => ({
+        ...r,
+        ...( {
+          shiftEnd: r.shiftEndTime,
+          potentialOtHours: r.otHours,
+          requestedOtHours: r.otHours,
+          workDescription: r.reason,
+          multiplier: r.rateType,
+          calculatedAmount: r.otAmount,
+        } as any )
+      }));
+      setOvertimeRequests(prev => [...enriched, ...prev]);
+    }
+
+    const msg = result.newRequests.length > 0
+      ? `Identified ${result.newRequests.length} eligible OT record(s) from attendance for approval (${result.restrictedItems.length} restricted by department policy).`
+      : `No new eligible overtime records found (${result.restrictedItems.length} restricted by department policy, ${result.skippedDuplicates} already queued).`;
+
+    addNotification({
+      title: 'Attendance Overtime Scan Complete',
+      message: msg,
+      priority: 'Normal',
+      category: 'Attendance'
+    });
+
+    return {
+      addedCount: result.newRequests.length,
+      restrictedCount: result.restrictedItems.length,
+      message: msg,
+    };
   };
 
   const addManualAttendanceRecord = (entry: {
@@ -3579,19 +3890,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const normalizeDepartmentOtPolicy = (policy: DepartmentOtPolicy): DepartmentOtPolicy => ({
     ...policy,
-    otAllowed: normalizeOtAllowedValue((policy as any).otAllowed, true)
+    otAllowed: normalizeOtAllowedValue((policy as any).otAllowed, isDefaultOtEligibleDepartment(policy.department))
   });
 
   const updateDepartmentOtPolicy = (idOrDeptName: string, policy: Partial<DepartmentOtPolicy>) => {
     setDepartmentOtPolicies(prev => {
+      const nextDepartment = (policy.department || idOrDeptName).trim();
+      const defaultAllowed = isDefaultOtEligibleDepartment(nextDepartment);
       const normalizedPolicy: Partial<DepartmentOtPolicy> = {
         ...policy,
         ...(Object.prototype.hasOwnProperty.call(policy, 'otAllowed')
-          ? { otAllowed: normalizeOtAllowedValue((policy as any).otAllowed, true) }
+          ? { otAllowed: normalizeOtAllowedValue((policy as any).otAllowed, defaultAllowed) }
           : {})
       };
       const normalizedKey = idOrDeptName.trim().toLowerCase();
-      const nextDepartment = (normalizedPolicy.department || idOrDeptName).trim();
       const normalizedDepartment = nextDepartment.toLowerCase();
       const stableId = idOrDeptName.startsWith('DOT-')
         ? idOrDeptName
@@ -3613,7 +3925,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const newPolicy: DepartmentOtPolicy = {
           id: stableId,
           department: nextDepartment,
-          otAllowed: normalizeOtAllowedValue((normalizedPolicy as any).otAllowed, true),
+          otAllowed: normalizeOtAllowedValue((normalizedPolicy as any).otAllowed, defaultAllowed),
           policyId: 'OTP-001',
           maxOtHoursDaily: normalizedPolicy.maxOtHoursDaily ?? 4.0,
           maxOtHoursMonthly: normalizedPolicy.maxOtHoursMonthly ?? 60,
@@ -3630,7 +3942,49 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateEmployeeOtPolicy = (id: string, policy: Partial<EmployeeOtPolicy>) => {
-    setEmployeeOtPolicies(prev => prev.map(p => p.id === id ? { ...p, ...policy } : p));
+    setEmployeeOtPolicies(prev => {
+      const cleanId = (id || policy.employeeId || '').trim();
+      const idx = prev.findIndex(p => p.id === cleanId || p.employeeId === cleanId || (policy.employeeId && p.employeeId === policy.employeeId));
+      let next: EmployeeOtPolicy[];
+      if (idx >= 0) {
+        next = prev.map((p, i) => i === idx ? { ...p, ...policy } : p);
+      } else {
+        const emp = employees.find(e => e.employeeId === cleanId || e.id === cleanId || e.employeeId === policy.employeeId);
+        const empId = policy.employeeId || emp?.employeeId || cleanId;
+        const exc = policy.individualOtException || policy.individualException || 'Default to Department';
+        const deptDefault = policy.departmentDefaultOt ?? isDefaultOtEligibleDepartment(policy.department || emp?.department);
+        const newEntry: EmployeeOtPolicy = {
+          id: cleanId.startsWith('EOP-') ? cleanId : `EOP-${empId}`,
+          employeeId: empId,
+          employeeName: policy.employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : empId),
+          department: policy.department || emp?.department || 'General',
+          otAllowed: policy.otAllowed ?? (exc === 'Allow OT' ? true : exc === 'Block OT' ? false : deptDefault),
+          maxOtDaily: policy.maxOtDaily ?? policy.customDailyMaxOt ?? 4,
+          maxOtMonthly: policy.maxOtMonthly ?? policy.customMonthlyMaxOt ?? 60,
+          approvalRequired: policy.approvalRequired ?? true,
+          individualException: exc,
+          departmentDefaultOt: deptDefault,
+          individualOtException: exc,
+          statutoryEntitlement: policy.statutoryEntitlement ?? false,
+          customDailyMaxOt: policy.customDailyMaxOt,
+          customMonthlyMaxOt: policy.customMonthlyMaxOt,
+          customHourlyRate: policy.customHourlyRate,
+          customWageBase: policy.customWageBase,
+          customMultiplier: policy.customMultiplier,
+          effectiveFrom: policy.effectiveFrom,
+          effectiveTo: policy.effectiveTo,
+          notes: policy.notes,
+        };
+        next = [...prev, newEntry];
+      }
+      supabaseDirect.saveCompanySetting('employee_ot_policies_data', next).catch(() => {});
+      return next;
+    });
+
+    if (policy.statutoryEntitlement !== undefined) {
+      const targetEmpId = policy.employeeId || id;
+      setEmployees(prev => prev.map(e => (e.employeeId === targetEmpId || e.id === targetEmpId) ? { ...e, statutoryOtEntitled: policy.statutoryEntitlement } : e));
+    }
   };
 
   const updateAttendanceGlobalSettings = (settings: Partial<AttendanceGlobalSettings>) => {
@@ -7200,6 +7554,36 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       (empData.employeeId && e.employeeId === empData.employeeId) ||
       (empData.id && e.id === empData.id)
     );
+    if (
+      existingEmployee &&
+      normalizedEmpData.department &&
+      existingEmployee.department &&
+      normalizedEmpData.department.trim().toLowerCase() !== existingEmployee.department.trim().toLowerCase()
+    ) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const prevHistory = Array.isArray(existingEmployee.departmentHistory)
+        ? [...existingEmployee.departmentHistory]
+        : [];
+      if (prevHistory.length === 0) {
+        prevHistory.push({
+          department: existingEmployee.department,
+          effectiveFrom: existingEmployee.joiningDate || '2020-01-01',
+          effectiveTo: todayStr,
+          changedBy: currentUser?.name || 'HR/CEO',
+        });
+      } else {
+        const lastIdx = prevHistory.length - 1;
+        if (!prevHistory[lastIdx].effectiveTo) {
+          prevHistory[lastIdx] = { ...prevHistory[lastIdx], effectiveTo: todayStr };
+        }
+      }
+      prevHistory.push({
+        department: normalizedEmpData.department.trim(),
+        effectiveFrom: todayStr,
+        changedBy: currentUser?.name || 'HR/CEO',
+      });
+      normalizedEmpData.departmentHistory = prevHistory;
+    }
     if (normalizedEmpData.email !== undefined) {
       normalizedEmpData.email = normalizedEmpData.email ? normalizedEmpData.email.trim().toLowerCase() : '';
     }
@@ -10153,6 +10537,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const employeeWithPf = resolveEmployeeWithPf(emp);
       const resolvedAttPolicy = resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
+      const existingPayrollRec = payrollRecords.find(
+        p => p.employeeId === emp.employeeId && p.month === batchMonthName && Number(p.year) === batchYear
+      );
+      if (existingPayrollRec && (existingPayrollRec.status === 'Paid' || existingPayrollRec.isLocked)) {
+        return existingPayrollRec;
+      }
+
       const calc = calculateEmployeePayroll(
         emp,
         attendanceRecords,
@@ -10164,7 +10555,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         payrollSettingsConfig,
         batchMonthName,
         batchYear,
-        shifts
+        shifts,
+        {
+          overtimeRequests,
+          departmentOtPolicies,
+          employeeOtPolicies,
+          overtimePolicy,
+        }
       );
 
       const resolvedEmpDept = resolveEmployeeDepartmentName(emp, departments);
@@ -10191,6 +10588,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           bonus: calc.bonus,
           attendanceBonus: calc.attendanceBonus || 0,
           rewardEarnings: calc.rewardEarnings,
+          overtimeHours: calc.overtimeHours,
+          overtimeAmount: calc.overtimeAmount,
+          overtimeRate: calc.overtimeRate,
+          calendarDaysInMonth: calc.calendarDaysInMonth,
+          salaryDivisorUsed: calc.salaryDivisorUsed,
+          salaryDivisorMode: calc.salaryDivisorMode,
           grossSalary: calc.grossSalary,
           taxDeduction: resolvedPfAmount + resolvedEsiAmount + resolvedProfessionalTax,
           leaveDeduction: calc.unpaidLeaveDeduction,
@@ -10199,8 +10602,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           epfDeduction: resolvedPfAmount,
           esiDeduction: resolvedEsiAmount,
           professionalTax: resolvedProfessionalTax,
-          workingDays: backendRec.workingDays || 26,
-          presentDays: backendRec.presentDays || 26,
+          workingDays: calc.workingDays || backendRec.workingDays || 26,
+          presentDays: calc.presentDays || backendRec.presentDays || 26,
           paidDays: calc.paidDays,
           paidLeaves: calc.paidLeaves,
           unpaidLeaves: backendRec.lopDays || 0,
@@ -10257,6 +10660,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         bonus: calc.bonus,
         attendanceBonus: calc.attendanceBonus || 0,
         rewardEarnings: calc.rewardEarnings,
+        overtimeHours: calc.overtimeHours,
+        overtimeAmount: calc.overtimeAmount,
+        overtimeRate: calc.overtimeRate,
+        calendarDaysInMonth: calc.calendarDaysInMonth,
+        salaryDivisorUsed: calc.salaryDivisorUsed,
+        salaryDivisorMode: calc.salaryDivisorMode,
         grossSalary: calc.grossSalary,
         taxDeduction: calc.statutoryDeductions,
         leaveDeduction: calc.unpaidLeaveDeduction,
@@ -10286,6 +10695,25 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Mark processed employee rewards
     setEmployeeRewardRecords(prev => prev.map(r => r.payrollStatus === 'Pending' && r.addToPayroll ? { ...r, payrollStatus: 'ProcessedInPayroll' } : r));
+
+    // Mark approved overtime requests included in this payroll batch
+    const batchIdForOt = `PAY-${batchYear}-${batchMonthPad}`;
+    setOvertimeRequests(prev => prev.map(req => {
+      if (req.status !== 'Approved') return req;
+      const reqMonth = Number(String(req.date).split('-')[1]);
+      const reqYear = Number(String(req.date).split('-')[0]);
+      const matchesMonth = req.isBackdatedArrear
+        ? (resolveMonthNumber(req.targetPayrollMonth) === batchMonthNum && Number(req.targetPayrollYear) === batchYear)
+        : (reqMonth === batchMonthNum && reqYear === batchYear);
+      if (matchesMonth && req.payrollStatus !== 'Paid') {
+        return {
+          ...req,
+          payrollBatchId: batchIdForOt,
+          payrollStatus: 'Included',
+        };
+      }
+      return req;
+    }));
 
     // Update active loans with payroll EMI deductions
     const batchPeriod = `${currentMonthInfo.monthShort} ${batchYear}`;
@@ -10394,14 +10822,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updatePayrollRecordAdvanceDeduction = (recordId: string, amount: number) => {
     setPayrollRecords(prev => prev.map(rec => {
       if (rec.id === recordId) {
+        if (rec.status === 'Paid' || rec.isLocked) return rec;
         const adv = Math.max(0, amount);
-        const gross = toNum(rec.basicSalary) + toNum(rec.allowances) + toNum(rec.bonus) + toNum(rec.rewardEarnings || 0);
+        const gross = toNum(rec.grossSalary) > 0
+          ? toNum(rec.grossSalary)
+          : toNum(rec.basicSalary) + toNum(rec.allowances) + toNum(rec.bonus) + toNum(rec.attendanceBonus || 0) + toNum(rec.rewardEarnings || 0) + toNum(rec.overtimeAmount || 0);
         const otherDeductions = toNum(rec.taxDeduction) + toNum(rec.leaveDeduction) + toNum(rec.lateAttendanceDeduction || 0);
         const totalDed = otherDeductions + adv;
         const net = Math.max(0, gross - totalDed);
         return {
           ...rec,
           advanceDeduction: adv,
+          totalDeductions: totalDed,
           netSalary: net
         };
       }
@@ -10412,7 +10844,43 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const markPayrollRecordsPaid = (recordIds: string[]) => {
     if (!recordIds.length) return;
     const idSet = new Set(recordIds);
-    setPayrollRecords(prev => prev.map(rec => idSet.has(rec.id) ? { ...rec, status: 'Paid' } : rec));
+    const nowIso = new Date().toISOString();
+    const paidKeys = new Set<string>();
+
+    setPayrollRecords(prev => prev.map(rec => {
+      if (idSet.has(rec.id)) {
+        paidKeys.add(`${rec.employeeId}::${resolveMonthNumber(rec.month)}::${rec.year}`);
+        return {
+          ...rec,
+          status: 'Paid',
+          isLocked: true,
+          lockedAt: nowIso,
+          lockedBy: currentUser?.name || 'Accounts/CEO',
+        };
+      }
+      return rec;
+    }));
+
+    // Lock & mark corresponding approved overtime records as Paid to prevent duplicate payment or modification
+    setOvertimeRequests(prev => prev.map(req => {
+      if (req.status !== 'Approved' && req.status !== 'Paid') return req;
+      const reqMonth = req.isBackdatedArrear && req.targetPayrollMonth
+        ? resolveMonthNumber(req.targetPayrollMonth)
+        : Number(String(req.date).split('-')[1]);
+      const reqYear = req.isBackdatedArrear && req.targetPayrollYear
+        ? Number(req.targetPayrollYear)
+        : Number(String(req.date).split('-')[0]);
+      const key = `${req.employeeId}::${reqMonth}::${reqYear}`;
+      if (paidKeys.has(key) || (req.payrollBatchId && idSet.has(`${req.payrollBatchId}-${req.employeeId}`))) {
+        return {
+          ...req,
+          status: 'Paid',
+          payrollStatus: 'Paid',
+          isLocked: true,
+        };
+      }
+      return req;
+    }));
   };
 
   const addDepartment = async (dept: Omit<DepartmentItem, 'id' | 'employeeCount'>): Promise<{ success: boolean; data?: DepartmentItem; message?: string }> => {
@@ -12696,6 +13164,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       editAndApproveOtRequest,
       deleteOtRequest,
       addManualOtEntry,
+      identifyAttendanceOvertime,
       addManualAttendanceRecord,
       departmentOtPolicies,
       updateDepartmentOtPolicy,

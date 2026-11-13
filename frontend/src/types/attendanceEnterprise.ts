@@ -47,6 +47,22 @@ export type OvertimeMultiplierType =
   | '1.5x Salary'
   | '2x Salary';
 
+export type OtWageBaseMode = 'FIXED_HOURLY' | 'BASIC' | 'GROSS' | 'CTC';
+
+export type OtSalaryDivisorMode =
+  | 'COMPANY_DIVISOR'
+  | 'CALENDAR_DAYS'
+  | 'FIXED_26'
+  | 'FIXED_30'
+  | 'WORKING_DAYS'
+  | 'CUSTOM_DAYS';
+
+export interface PayslipOvertimeVisibilityConfig {
+  showOtHoursOnPayslip: boolean;
+  showOtAmountOnPayslip: boolean;
+  showOtCalculationDetailsOnPayslip: boolean;
+}
+
 export interface OvertimeRequest {
   id: string;
   employeeId: string;
@@ -62,8 +78,8 @@ export interface OvertimeRequest {
   reason: string;
   workDescription?: string;
   attachmentUrl?: string;
-  status: 'Pending Approval' | 'Approved' | 'Partially Approved' | 'Rejected' | 'Manually Added';
-  source?: 'Employee Request' | 'Manual OT';
+  status: 'Pending Approval' | 'Pending' | 'Approved' | 'Partially Approved' | 'Rejected' | 'Manually Added' | 'Paid';
+  source?: 'Employee Request' | 'Manual OT' | 'Manual Request' | 'Attendance Auto-Identified';
   multiplier: OvertimeMultiplierType;
   hourlyRate: number;
   calculatedAmount: number;
@@ -71,6 +87,35 @@ export interface OvertimeRequest {
   reviewedBy?: string;
   reviewedAt?: string;
   reviewRemarks?: string;
+
+  // Backward-compatible & convenience aliases
+  otHours?: number;
+  otAmount?: number;
+  rateType?: OtRateType | OvertimeMultiplierType | string;
+  remarks?: string;
+  shiftEndTime?: string;
+  requestedHours?: number;
+  approvedHours?: number;
+  appliedMultiplier?: OvertimeMultiplierType | string;
+  appliedRatePerHour?: number;
+  scheduledEndTime?: string;
+  actualEndTime?: string;
+
+  // Enterprise Overtime Calculation, Eligibility & Payroll Lock Metadata
+  attendanceRecordId?: string;
+  wageBaseUsed?: OtWageBaseMode;
+  divisorUsed?: number;
+  dailyPaidHoursUsed?: number;
+  calendarDaysInMonth?: number;
+  eligibilitySource?: 'Department Policy' | 'Individual Exception' | 'Statutory Entitlement' | 'Manual Override' | 'DEPARTMENT_POLICY' | 'EMPLOYEE_EXCEPTION' | 'STATUTORY_ENTITLEMENT' | 'Default' | 'Blocked';
+  payrollBatchId?: string;
+  payrollStatus?: 'Unprocessed' | 'Processed' | 'Included' | 'Paid' | 'Locked';
+  isLocked?: boolean;
+  isBackdatedArrear?: boolean;
+  arrearSourceMonth?: string;
+  payrollMonth?: string;
+  targetPayrollMonth?: string;
+  targetPayrollYear?: number;
 }
 
 export interface ShiftModel {
@@ -113,6 +158,16 @@ export interface OvertimePolicy {
   regularMultiplier: number;        // e.g. 1.0
   weekendMultiplier: number;        // e.g. 1.5
   holidayMultiplier: number;        // e.g. 2.0
+  wageBase?: OtWageBaseMode;
+  divisorMode?: OtSalaryDivisorMode;
+  customDivisorDays?: number;
+  defaultDailyPaidHours?: number;
+  defaultMultiplier?: OvertimeMultiplierType;
+  rateType?: OtRateType | OvertimeMultiplierType | string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  version?: number;
+  payslipVisibility?: PayslipOvertimeVisibilityConfig;
 }
 
 export interface DepartmentOtPolicy {
@@ -127,9 +182,21 @@ export interface DepartmentOtPolicy {
   calculationMethod?: 'Actual Extra Hours' | 'Shift End Based' | 'Approved OT Only' | 'Manual OT Only';
   standardShiftHours?: number;        // e.g. 9 hrs
   otHourlyRate?: number;              // e.g. ₹100 / hr
+  wageBase?: OtWageBaseMode;          // 'FIXED_HOURLY' | 'BASIC' | 'GROSS' | 'CTC'
+  divisorMode?: OtSalaryDivisorMode;
+  customDivisorDays?: number;
+  defaultMultiplier?: OvertimeMultiplierType;
+  effectiveFrom?: string;             // Effective-dated policy support (YYYY-MM-DD)
+  effectiveTo?: string;
+  version?: number;
 }
 
-export type IndividualOtException = 'Follow Department Policy' | 'Allow OT' | 'Block OT';
+export type IndividualOtException =
+  | 'Follow Department Policy'
+  | 'Follow Department'
+  | 'Default to Department'
+  | 'Allow OT'
+  | 'Block OT';
 
 export interface EmployeeOtPolicy {
   id: string;
@@ -143,7 +210,18 @@ export interface EmployeeOtPolicy {
   policyId?: string;
   approvalRequired: boolean;
   individualException: IndividualOtException;
+  individualOtException?: IndividualOtException;
+  departmentDefaultOt?: boolean;
   allowIndividualException?: boolean; // Backward compatibility
+  statutoryEntitlement?: boolean;     // Statutory OT entitlement override
+  customHourlyRate?: number;
+  customDailyMaxOt?: number;
+  customMonthlyMaxOt?: number;
+  customWageBase?: OtWageBaseMode;
+  customMultiplier?: OvertimeMultiplierType;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  notes?: string;
 }
 
 export interface AttendancePolicyConfig {

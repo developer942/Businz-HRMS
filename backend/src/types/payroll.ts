@@ -145,11 +145,24 @@ export interface AttendanceInputData {
   overtimeHours: number;
 }
 
+export type OtWageBaseMode = 'FIXED_HOURLY' | 'BASIC' | 'GROSS' | 'CTC';
+export type OtSalaryDivisorMode = 'FIXED_26' | 'FIXED_30' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | 'CUSTOM' | 'FIXED_DAYS' | 'ACTUAL_WORKING_DAYS';
+export type OtCalculationMultiplier = '1x Salary' | '1.5x Salary' | '2x Salary' | 'Fixed Amount Per Hour';
+
+export interface PayslipOvertimeVisibilityConfig {
+  showOtHoursOnPayslip: boolean;
+  showOtAmountOnPayslip: boolean;
+  showOtCalculationDetailsOnPayslip: boolean;
+}
+
 export interface AdditionalEarningsInput {
   attendanceBonus?: number;
   overtimeHours?: number;
   overtimeRate?: number;
   overtimeAmount?: number;
+  overtimeWageBase?: OtWageBaseMode;
+  overtimeMultiplier?: OtCalculationMultiplier | number;
+  standardShiftHours?: number;
   bonus?: number;
   incentive?: number;
   commission?: number;
@@ -178,6 +191,9 @@ export interface PayrollCalculationInput {
   withPf?: boolean;
   configuredComponents?: SalaryComponentConfig[];
   employeeContext?: EmployeeSalaryEligibilityContext;
+  salaryDivisorMode?: OtSalaryDivisorMode;
+  customSalaryDivisor?: number;
+  payslipOvertimeVisibility?: PayslipOvertimeVisibilityConfig;
 }
 
 export interface CalculationBreakdownItem {
@@ -226,6 +242,9 @@ export interface FullPayrollCalculationResult {
 
   // Attendance & LOP
   workingDays: number;
+  calendarDaysInMonth?: number;
+  salaryDivisorUsed?: number;
+  salaryDivisorMode?: string;
   presentDays: number;
   lopDays: number;
   dailySalary: number;
