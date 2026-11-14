@@ -3729,10 +3729,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
     } else {
-      if (entry.status === 'Present') {
-        finalStatus = 'Present';
-        finalLateStatus = 'On Time';
+      // No check-in punch: a Present/Late entry with a missed check-in is NOT present.
+      // Both punches missed → Absent; only check-in missed (check-out exists) → Missing Punch (needs regularization).
+      if (entry.status === 'Present' || entry.status === 'Late') {
+        finalStatus = cleanCheckOut ? 'Missing Punch' : 'Absent';
+        computedHours = 0;
       }
+      finalLateStatus = 'N/A';
       finalLateMinutes = 0;
     }
 

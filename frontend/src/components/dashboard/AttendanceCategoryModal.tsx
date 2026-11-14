@@ -227,7 +227,7 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       } else {
         statusLabel = 'Absent';
         statusType = 'danger';
-        note = 'No check-in recorded';
+        note = att && !att.checkIn ? 'Check-in punch missed' : 'No check-in recorded';
       }
     }
 
@@ -247,12 +247,7 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
   const filteredByCategory = categoryItems.filter(item => {
     if (category === 'total') return true;
     if (category === 'present') {
-      return item.attendance && (
-        item.attendance.status === 'Present' || 
-        item.attendance.status === 'Work From Home' || 
-        item.attendance.status === 'Late' ||
-        !!item.attendance.checkIn
-      );
+      return item.attendance && (!!item.attendance.checkIn || item.attendance.status === 'Work From Home');
     }
     if (category === 'early') {
       return item.attendance && item.attendance.checkOut && (

@@ -173,7 +173,9 @@ export const buildAttendanceReport = (scope: AttendanceScope): AttendanceReportR
     if (isWeeklyOff(employee, schedules, date)) return { employee, attendance, classification: 'Week Off' as const, reason: 'Scheduled weekly off' };
     if (hasFieldWork(employee, assignments, date)) return { employee, attendance, classification: 'Field Work' as const, reason: 'Active field work assignment' };
     if (checkedIn && attendance?.status === 'Late') return { employee, attendance, classification: 'Late' as const, reason: 'Check-in recorded after shift grace period' };
-    if (checkedIn || attendance?.status === 'Present' || attendance?.status === 'Work From Home') return { employee, attendance, classification: 'Present' as const, reason: 'Attendance recorded' };
+    // Present requires an actual check-in punch (WFH is the only exception). A record marked
+    // "Present" with a missed check-in is NOT present — it becomes Absent once the grace deadline passes.
+    if (checkedIn || attendance?.status === 'Work From Home') return { employee, attendance, classification: 'Present' as const, reason: 'Attendance recorded' };
     if (!isDue(shift, date, now)) {
       const grace = Math.max(0, Number(shift?.gracePeriodMins) || 0);
       const reason = shift?.startTime
@@ -181,7 +183,7 @@ export const buildAttendanceReport = (scope: AttendanceScope): AttendanceReportR
         : 'Assigned shift has not started or reached grace deadline';
       return { employee, attendance, classification: 'Not Due' as const, reason };
     }
-    return { employee, attendance, classification: 'Absent' as const, reason: 'No check-in after assigned shift grace deadline' };
+    return { employee, attendance, classification: 'Absent' as const, reason: attendance && !checkedIn ? 'Check-in punch missed' : 'No check-in after assigned shift grace deadline' };
   });
 
   return {

@@ -550,14 +550,10 @@ export const Dashboard: React.FC = () => {
 
   const totalStaff = attendanceWorkforceEmployees.length;
 
+  // Present = actual check-in punch recorded (or Work From Home). A "Present" record with a missed check-in is not present.
   const presentEmployees = attendanceWorkforceEmployees.filter(emp => {
     const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
-    return att && (
-      att.status === 'Present' || 
-      att.status === 'Work From Home' || 
-      att.status === 'Late' ||
-      !!att.checkIn
-    );
+    return att && (!!att.checkIn || att.status === 'Work From Home');
   });
 
   const earlyEmployees = attendanceWorkforceEmployees.filter(emp => {
