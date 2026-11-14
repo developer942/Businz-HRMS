@@ -125,6 +125,46 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
   const [toDate, setToDate] = useState<string>(currentMonthInfo.today);
   const [selectedReportType, setSelectedReportType] = useState<ReportTypeKey>('muster');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [reportSortMode, setReportSortMode] = useState<'day_then_emp' | 'emp_then_day'>('day_then_emp');
+
+  const resolveEmployeeCode = (empIdOrCode?: string): string => {
+    if (!empIdOrCode) return '';
+    const clean = String(empIdOrCode).trim();
+    const matched = employees.find(
+      e => (e.employeeId || '').toLowerCase() === clean.toLowerCase() || (e.id || '').toLowerCase() === clean.toLowerCase()
+    );
+    return matched?.employeeId || clean;
+  };
+
+  const compareEmpCodes = (idA?: string, idB?: string): number => {
+    const codeA = resolveEmployeeCode(idA);
+    const codeB = resolveEmployeeCode(idB);
+    const numA = parseInt(codeA.replace(/\D+/g, ''), 10);
+    const numB = parseInt(codeB.replace(/\D+/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numA - numB;
+    }
+    return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+  };
+
+  const compareDateAndEmp = (
+    dateRawA?: string,
+    empIdA?: string,
+    dateRawB?: string,
+    empIdB?: string,
+    mode: 'day_then_emp' | 'emp_then_day' = reportSortMode
+  ): number => {
+    const dA = normalizeToYYYYMMDD(dateRawA || '') || '9999-12-31';
+    const dB = normalizeToYYYYMMDD(dateRawB || '') || '9999-12-31';
+    if (mode === 'emp_then_day') {
+      const empCmp = compareEmpCodes(empIdA, empIdB);
+      if (empCmp !== 0) return empCmp;
+      return dA.localeCompare(dB);
+    }
+    const dateCmp = dA.localeCompare(dB);
+    if (dateCmp !== 0) return dateCmp;
+    return compareEmpCodes(empIdA, empIdB);
+  };
 
   // Generate array of date strings between fromDate and toDate
   const dateRangeList = useMemo(() => {
@@ -239,7 +279,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       }
 
       return true;
-    });
+    }).sort((a, b) => compareEmpCodes(a.employeeId, b.employeeId));
   }, [employees, activeFilters, searchQuery, shifts]);
 
   // Attendance Records inside date range & matching employees
@@ -259,8 +299,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
       const rEmp = (r.employeeId || '').toLowerCase().trim();
       return validEmpCodes.has(rEmp) || validEmpUids.has(rEmp);
-    });
-  }, [attendanceRecords, fromDate, toDate, filteredEmployees]);
+    }).sort((a, b) =>
+      compareDateAndEmp(a.date || a.shiftDate, a.employeeId, b.date || b.shiftDate, b.employeeId, reportSortMode)
+    );
+  }, [attendanceRecords, fromDate, toDate, filteredEmployees, reportSortMode]);
 
   // Filtered Leave Requests based on Scope Filters, Search Query, and Date Range
   const filteredLeaveRequests = useMemo(() => {
@@ -340,8 +382,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       }
 
       return true;
-    });
-  }, [leaveRequests, activeFilters, searchQuery, fromDate, toDate, filteredEmployees]);
+    }).sort((a, b) =>
+      compareDateAndEmp(a.startDate, a.employeeId, b.startDate, b.employeeId, reportSortMode)
+    );
+  }, [leaveRequests, activeFilters, searchQuery, fromDate, toDate, filteredEmployees, reportSortMode]);
 
   // Format date display (e.g. 01/09/2026)
   const formatDateDisplay = (isoStr: string) => {
@@ -704,12 +748,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               name: `${emp.firstName} ${emp.lastName}`,
               dept: emp.department,
               date: formatDateDisplay(d),
+              _isoDate: d,
               phone: emp.phone || emp.email || 'N/A',
               status: 'Absent'
             });
           }
         });
       });
+      data.sort((a, b) => compareDateAndEmp(a._isoDate, a.empId, b._isoDate, b.empId, reportSortMode));
     } else if (selectedReportType === 'present') {
       columns = [
         { key: 'empId', label: 'Employee ID' },
@@ -973,7 +1019,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       });
     }
 
-    return { columns, data };
+    const numberedColumns = [{ key: 'sNo', label: 'S.No' }, ...columns];
+    const numberedData = data.map((row, idx) => ({
+      sNo: idx + 1,
+      ...row,
+      empId: resolveEmployeeCode(row.empId) || row.empId
+    }));
+
+    return { columns: numberedColumns, data: numberedData };
   };
 
   const handleExportCSV = () => {
@@ -1276,7 +1329,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         
         {/* Table Toolbar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
               {reportCards.find(c => c.key === selectedReportType)?.title}
             </h3>
@@ -1291,6 +1344,47 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             }}>
               {formatDateDisplay(fromDate)} to {formatDateDisplay(toDate)}
             </span>
+
+            {selectedReportType !== 'muster' && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', backgroundColor: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0', gap: '3px' }}>
+                <button
+                  type="button"
+                  onClick={() => setReportSortMode('day_then_emp')}
+                  style={{
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.73rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    backgroundColor: reportSortMode === 'day_then_emp' ? '#0E7490' : 'transparent',
+                    color: reportSortMode === 'day_then_emp' ? '#ffffff' : '#475569',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="Sort by Date (Day 1, 2, 3, 4...) then Employee Code (VRM-001, 002, 003...)"
+                >
+                  📅 Day-Wise (1→31) & Emp (1→9)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportSortMode('emp_then_day')}
+                  style={{
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.73rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    backgroundColor: reportSortMode === 'emp_then_day' ? '#0E7490' : 'transparent',
+                    color: reportSortMode === 'emp_then_day' ? '#ffffff' : '#475569',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="Sort by Employee Code (VRM-001, 002, 003...) then Date (Day 1, 2, 3, 4...)"
+                >
+                  👤 Employee-Wise (1→9) & Day (1→31)
+                </button>
+              </div>
+            )}
           </div>
 
           <div style={{ position: 'relative', minWidth: '260px' }}>
@@ -1343,6 +1437,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Department</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date of Absence</th>
@@ -1408,10 +1503,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     });
                   });
 
+                  absentRows.sort((a, b) =>
+                    compareDateAndEmp(a.date, a.emp.employeeId, b.date, b.emp.employeeId, reportSortMode)
+                  );
+
                   if (absentRows.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={5} style={{ padding: '36px', textAlign: 'center', color: '#16a34a', fontWeight: 700 }}>
+                        <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: '#16a34a', fontWeight: 700 }}>
                           ✅ No absentees logged for the selected working dates!
                         </td>
                       </tr>
@@ -1420,6 +1519,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
                   return absentRows.map((item, idx) => (
                     <tr key={`${item.emp.id}-${item.date}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                       <td style={{ padding: '10px 14px' }}>
                         <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.emp.firstName} {item.emp.lastName}</div>
                         <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{item.emp.employeeId}</div>
@@ -1444,6 +1544,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Check In</th>
@@ -1463,14 +1564,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   if (presentList.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>
+                        <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>
                           No present records found for this date range.
                         </td>
                       </tr>
                     );
                   }
 
-                  return presentList.map(r => {
+                  return presentList.map((r, idx) => {
                     const st = (r.status || '').toLowerCase();
                     const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
                     const hasApprovedWfh = filteredLeaveRequests.some(l => {
@@ -1486,9 +1587,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
                     return (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{r.employeeId} • {r.department}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
                         <td style={{ padding: '10px 14px', color: isField ? '#0E7490' : isWfo ? '#4338CA' : isLate ? '#D97706' : '#15803d', fontWeight: 700 }}>
@@ -1532,6 +1634,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Shift Time</th>
@@ -1544,14 +1647,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   return isLateArrivalRecord(r);
                 }).length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}>
+                    <td colSpan={6} style={{ padding: '30px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}>
                       No latecomers recorded in this timeframe!
                     </td>
                   </tr>
                 ) : (
                   filteredAttendance.filter(r => {
                     return isLateArrivalRecord(r);
-                  }).map(r => {
+                  }).map((r, idx) => {
                     const shift = getEmployeeShift(r.employeeId);
                     const inM = parseTimeToMinutes(r.checkIn);
                     const startM = parseTimeToMinutes(shift.startTime);
@@ -1560,9 +1663,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     const m = diff % 60;
                     return (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{r.employeeId} • {r.department}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>{shift.startTime}</td>
@@ -1583,6 +1687,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Shift Timing</th>
@@ -1601,14 +1706,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   if (earlyList.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#0891b2', fontWeight: 600 }}>
+                        <td colSpan={8} style={{ padding: '36px', textAlign: 'center', color: '#0891b2', fontWeight: 600 }}>
                           No early departures recorded for this date range!
                         </td>
                       </tr>
                     );
                   }
 
-                  return earlyList.map(r => {
+                  return earlyList.map((r, idx) => {
                     const shift = getEmployeeShift(r.employeeId);
                     const outM = parseTimeToMinutes(r.checkOut);
                     const endM = parseTimeToMinutes(shift.endTime);
@@ -1618,9 +1723,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     const dur = getRecordWorkingDuration(r);
                     return (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{r.employeeId} • {r.department}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>{shift.startTime} - {shift.endTime}</td>
@@ -1643,6 +1749,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Check In</th>
@@ -1683,59 +1790,68 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   if (attendanceRemoteList.length === 0 && remoteLeaveList.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: '#0e7490', fontWeight: 600 }}>
+                        <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#0e7490', fontWeight: 600 }}>
                           No Field Visit or WFH records logged for this date range.
                         </td>
                       </tr>
                     );
                   }
 
-                  const attendanceRows = attendanceRemoteList.map(r => {
-                    const st = (r.status || '').toLowerCase();
-                    const method = (r.method || '').toLowerCase();
-                    const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || method.includes('field');
-                    const isWfo = st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home');
-                    const dur = getRecordWorkingDuration(r);
+                  const combinedRemoteItems = [
+                    ...attendanceRemoteList.map(r => ({ kind: 'attendance' as const, r, sortDate: r.date || r.shiftDate, sortEmp: r.employeeId })),
+                    ...remoteLeaveList.map(l => ({ kind: 'leave' as const, l, sortDate: l.startDate, sortEmp: l.employeeId }))
+                  ].sort((a, b) => compareDateAndEmp(a.sortDate, a.sortEmp, b.sortDate, b.sortEmp, reportSortMode));
 
-                    return (
-                      <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '10px 14px' }}>
-                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{r.employeeId} • {r.department}</div>
-                        </td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
-                        <td style={{ padding: '10px 14px', color: isField ? '#0E7490' : isWfo ? '#4338CA' : '#6D28D9', fontWeight: 700 }}>
-                          {formatTimeDisplay(r.checkIn, '--:--')}
-                        </td>
-                        <td style={{ padding: '10px 14px', color: '#475569' }}>
-                          {r.checkOut && r.checkOut !== '--:--' && !r.checkOut.toLowerCase().includes('progress') ? formatTimeDisplay(r.checkOut, '--:--') : 'In Progress'}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontWeight: 700, color: dur.isPending ? '#0284c7' : '#0f172a' }}>
-                          {dur.isPending ? 'In Progress' : dur.text}
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          {isField ? (
-                            <span style={{ backgroundColor: '#CFFAFE', color: '#0E7490', border: '1px solid #67E8F9', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                              🚗 Field Visit
-                            </span>
-                          ) : (
-                            <span style={{ backgroundColor: '#E0E7FF', color: '#4338CA', border: '1px solid #A5B4FC', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                              🏠 Work From Home (WFH)
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  });
+                  return combinedRemoteItems.map((item, idx) => {
+                    if (item.kind === 'attendance') {
+                      const r = item.r;
+                      const st = (r.status || '').toLowerCase();
+                      const method = (r.method || '').toLowerCase();
+                      const isField = st.includes('field') || st.includes('visit') || st.includes('duty') || method.includes('field');
+                      const isWfo = st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home');
+                      const dur = getRecordWorkingDuration(r);
 
-                  const leaveRows = remoteLeaveList.map(l => {
+                      return (
+                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
+                            <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
+                          </td>
+                          <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
+                          <td style={{ padding: '10px 14px', color: isField ? '#0E7490' : isWfo ? '#4338CA' : '#6D28D9', fontWeight: 700 }}>
+                            {formatTimeDisplay(r.checkIn, '--:--')}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: '#475569' }}>
+                            {r.checkOut && r.checkOut !== '--:--' && !r.checkOut.toLowerCase().includes('progress') ? formatTimeDisplay(r.checkOut, '--:--') : 'In Progress'}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontWeight: 700, color: dur.isPending ? '#0284c7' : '#0f172a' }}>
+                            {dur.isPending ? 'In Progress' : dur.text}
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            {isField ? (
+                              <span style={{ backgroundColor: '#CFFAFE', color: '#0E7490', border: '1px solid #67E8F9', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
+                                🚗 Field Visit
+                              </span>
+                            ) : (
+                              <span style={{ backgroundColor: '#E0E7FF', color: '#4338CA', border: '1px solid #A5B4FC', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
+                                🏠 Work From Home (WFH)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    const l = item.l;
                     const isWfh = isWorkFromHomeRequest(l.leaveType);
                     const isWfo = (l.leaveType || '').toLowerCase().includes('office') || (l.leaveType || '').toLowerCase().includes('wfo');
                     return (
                       <tr key={`remote-leave-${l.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{l.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{l.employeeId} - {l.department}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(l.employeeId)} - {l.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>
                           {l.startDate === l.endDate ? formatDateDisplay(l.startDate) : `${formatDateDisplay(l.startDate)} - ${formatDateDisplay(l.endDate)}`}
@@ -1759,8 +1875,6 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                       </tr>
                     );
                   });
-
-                  return [...attendanceRows, ...leaveRows];
                 })()}
               </tbody>
             </table>
@@ -1771,6 +1885,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Session</th>
@@ -1781,16 +1896,17 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               <tbody>
                 {filteredAttendance.filter(r => r.status === 'Half Day').length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={6} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
                       No half-day records for this date range.
                     </td>
                   </tr>
                 ) : (
-                  filteredAttendance.filter(r => r.status === 'Half Day').map(r => (
+                  filteredAttendance.filter(r => r.status === 'Half Day').map((r, idx) => (
                     <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                       <td style={{ padding: '10px 14px' }}>
                         <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                        <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{r.employeeId} • {r.department}</div>
+                        <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                       </td>
                       <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
                       <td style={{ padding: '10px 14px', color: '#475569' }}>First Half (Morning)</td>
@@ -1812,6 +1928,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Standard Hours</th>
@@ -1829,19 +1946,21 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     const hours = dur.decimalHours > 0 ? dur.decimalHours : toNum(r.workingHours);
                     const otExplicit = (r as any).approvedOtHours || r.otHours || 0;
                     return otExplicit > 0 || hours > (shift.totalHours || 8) + 0.25;
-                  });
+                  }).sort((a, b) =>
+                    compareDateAndEmp(a.date || a.shiftDate, a.employeeId, b.date || b.shiftDate, b.employeeId, reportSortMode)
+                  );
 
                   if (otList.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontWeight: 600 }}>
+                        <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontWeight: 600 }}>
                           No overtime logged for this timeframe.
                         </td>
                       </tr>
                     );
                   }
 
-                  return otList.map(r => {
+                  return otList.map((r, idx) => {
                     const shift = getEmployeeShift(r.employeeId);
                     const dur = getRecordWorkingDuration(r);
                     const rawHours = dur.decimalHours > 0 ? dur.decimalHours : toNum(r.workingHours);
@@ -1852,9 +1971,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
                     return (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{r.employeeId} • {r.department}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>{(shift.totalHours || 8).toFixed(1)} hrs</td>
@@ -1878,6 +1998,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Leave Type</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>From Date</th>
@@ -1890,7 +2011,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               <tbody>
                 {actualLeaveRequests.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={8} style={{ padding: '36px', textAlign: 'center', color: '#94a3b8' }}>
                       {searchQuery.trim() ? (
                         <span>No leave requests match "<strong>{searchQuery}</strong>".</span>
                       ) : (
@@ -1899,7 +2020,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  actualLeaveRequests.map(l => {
+                  actualLeaveRequests.map((l, idx) => {
                     const days = l.daysCount || (() => {
                       if (l.startDate && l.endDate) {
                         const s = new Date(l.startDate).getTime();
@@ -1911,9 +2032,10 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
                     return (
                       <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{l.employeeName}</div>
-                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{l.employeeId} • {l.department}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(l.employeeId)} • {l.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>{l.leaveType}</td>
                         <td style={{ padding: '10px 14px', color: '#475569' }}>{formatDateDisplay(l.startDate)}</td>

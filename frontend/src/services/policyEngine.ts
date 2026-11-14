@@ -28,6 +28,7 @@ import {
   getEligibilityBadgeLabel
 } from './componentEligibilityEngine';
 import { toNum, formatCurrency } from '../utils/numbers';
+import { isOwnerOrCEO } from '../data/hrmsInitialData';
 import {
   parseTimeToMinutes,
   resolveMonthNumber,
@@ -39,7 +40,8 @@ import {
   isPolicyEffectiveOnDate,
   resolveEmployeeOtEligibility,
   calculateEnterpriseOvertimeRateAndAmount,
-  identifyEligibleOvertimeFromAttendance
+  identifyEligibleOvertimeFromAttendance,
+  buildEmployeeMonthlyAttendanceOtReport
 } from './attendanceCalculationEngine';
 
 export {
@@ -57,7 +59,8 @@ export {
   isPolicyEffectiveOnDate,
   resolveEmployeeOtEligibility,
   calculateEnterpriseOvertimeRateAndAmount,
-  identifyEligibleOvertimeFromAttendance
+  identifyEligibleOvertimeFromAttendance,
+  buildEmployeeMonthlyAttendanceOtReport
 };
 export type { EmployeeSalaryEligibilityContext };
 
@@ -67,6 +70,11 @@ export type { EmployeeSalaryEligibilityContext };
 export interface FormulaContext {
   BASIC?: number;
   HRA?: number;
+  DA?: number;
+  CONV?: number;
+  CONVEYANCE?: number;
+  OT?: number;
+  OVERTIME?: number;
   GROSS?: number;
   CTC?: number;
   DAILY_SALARY?: number;
@@ -78,8 +86,31 @@ export interface FormulaContext {
   INCENTIVE?: number;
   BONUS?: number;
   REWARD?: number;
+  ATTENDANCE_BONUS?: number;
   [key: string]: number | undefined;
 }
+
+export const STANDARD_FORMULA_VARIABLES = [
+  'BASIC',
+  'HRA',
+  'DA',
+  'CONV',
+  'CONVEYANCE',
+  'OT',
+  'OVERTIME',
+  'GROSS',
+  'CTC',
+  'DAILY_SALARY',
+  'WORKING_DAYS',
+  'PAID_DAYS',
+  'UNPAID_DAYS',
+  'LATE_COUNT',
+  'LEAVE_DAYS',
+  'INCENTIVE',
+  'BONUS',
+  'REWARD',
+  'ATTENDANCE_BONUS',
+] as const;
 
 /**
  * Safely evaluates arithmetic expressions containing numbers, parentheses, operators (+, -, *, /),
@@ -183,51 +214,173 @@ export const evaluateFormula = (formula: string, context: FormulaContext): numbe
   }
 };
 
+export interface FormulaValidationOptions {
+  allowedVariables?: string[];
+  currentComponentCode?: string;
+  allComponents?: Pick<SalaryComponentConfig, 'code' | 'formula' | 'calculationMethod'>[];
+  statutoryKind?: 'PF' | 'ESIC' | 'PT' | null;
+  previewContext?: FormulaContext;
+}
+
 /**
- * Validates a formula string and runs a sample calculation with test values.
+ * Validates a formula string for syntax, unknown variables, circular dependencies,
+ * statutory warnings, and runs a sample calculation with test/preview values.
  */
-export const validateFormula = (formula: string): { isValid: boolean; error?: string; sampleResult?: number } => {
+export const validateFormula = (
+  formula: string,
+  options?: FormulaValidationOptions
+): {
+  isValid: boolean;
+  error?: string;
+  warning?: string;
+  sampleResult?: number;
+  referencedVariables?: string[];
+} => {
   if (!formula || !formula.trim()) {
     return { isValid: false, error: 'Formula cannot be empty' };
   }
 
+  const trimmed = formula.trim();
+
   // Check for balanced parentheses
   let balance = 0;
-  for (const ch of formula) {
+  for (const ch of trimmed) {
     if (ch === '(') balance++;
     if (ch === ')') balance--;
     if (balance < 0) return { isValid: false, error: 'Unbalanced parentheses' };
   }
   if (balance !== 0) return { isValid: false, error: 'Unclosed parenthesis' };
 
-  // Check for forbidden characters
+  // Check for forbidden characters & code injection attempts
   const allowed = /^[A-Z0-9_.+\-*/() ]+$/i;
-  if (!allowed.test(formula)) {
+  if (!allowed.test(trimmed)) {
     return { isValid: false, error: 'Formula contains unsupported special characters' };
+  }
+
+  // Syntax checks: empty parentheses, consecutive binary operators, trailing or leading binary operators
+  const compact = trimmed.replace(/\s+/g, '');
+  if (/\(\)/.test(compact)) {
+    return { isValid: false, error: 'Formula contains empty parentheses ()' };
+  }
+  if (/^[*/]|[+\-*/]$/.test(compact)) {
+    return { isValid: false, error: 'Formula cannot start or end with an incomplete operator' };
+  }
+  if (/[+\-*/]{2,}/.test(compact) || /\([*/]/.test(compact) || /[+\-*/]\)/.test(compact)) {
+    return { isValid: false, error: 'Formula contains invalid consecutive operators' };
+  }
+
+  // Extract variable identifiers
+  const rawTokens = trimmed.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || [];
+  const referencedVariables = Array.from(new Set(rawTokens.map(t => t.toUpperCase())));
+
+  const allowedSet = new Set<string>(STANDARD_FORMULA_VARIABLES);
+  if (options?.allowedVariables) {
+    options.allowedVariables.forEach(v => {
+      if (v) allowedSet.add(v.trim().toUpperCase());
+    });
+  }
+  if (options?.allComponents) {
+    options.allComponents.forEach(c => {
+      if (c?.code) allowedSet.add(c.code.trim().toUpperCase());
+    });
+  }
+
+  const unknownVars = referencedVariables.filter(v => !allowedSet.has(v));
+  if (unknownVars.length > 0) {
+    return {
+      isValid: false,
+      error: `Unknown variable${unknownVars.length > 1 ? 's' : ''}: ${unknownVars.join(', ')}`,
+      referencedVariables,
+    };
+  }
+
+  // Circular dependency detection
+  const selfCode = options?.currentComponentCode?.trim().toUpperCase();
+  if (selfCode) {
+    if (referencedVariables.includes(selfCode)) {
+      return {
+        isValid: false,
+        error: `Circular dependency detected: ${selfCode} cannot reference itself`,
+        referencedVariables,
+      };
+    }
+
+    if (options?.allComponents && options.allComponents.length > 0) {
+      const compMap = new Map<string, string[]>();
+      options.allComponents.forEach(c => {
+        const code = (c.code || '').trim().toUpperCase();
+        if (!code) return;
+        const fStr = code === selfCode ? trimmed : (c.calculationMethod === 'FORMULA' ? (c.formula || '') : '');
+        const deps = (fStr.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || []).map(t => t.toUpperCase());
+        compMap.set(code, Array.from(new Set(deps)));
+      });
+      compMap.set(selfCode, referencedVariables);
+
+      const visited = new Set<string>();
+      const visiting = new Set<string>();
+      const findCycle = (node: string, path: string[]): string[] | null => {
+        if (visiting.has(node)) {
+          return [...path, node];
+        }
+        if (visited.has(node)) return null;
+        visiting.add(node);
+        const neighbors = compMap.get(node) || [];
+        for (const next of neighbors) {
+          if (compMap.has(next)) {
+            const cycle = findCycle(next, [...path, node]);
+            if (cycle) return cycle;
+          }
+        }
+        visiting.delete(node);
+        visited.add(node);
+        return null;
+      };
+
+      const cyclePath = findCycle(selfCode, []);
+      if (cyclePath) {
+        return {
+          isValid: false,
+          error: `Circular dependency detected: ${cyclePath.join(' → ')}`,
+          referencedVariables,
+        };
+      }
+    }
+  }
+
+  let warning: string | undefined;
+  if (options?.statutoryKind === 'PF' && (referencedVariables.includes('OT') || referencedVariables.includes('OVERTIME'))) {
+    warning = 'Statutory note: Ordinary overtime allowance (OT) is generally excluded from PF wages under the EPF framework.';
   }
 
   // Test evaluation context
   const testEvaluationContext: FormulaContext = {
-    BASIC: 30000,
-    HRA: 12000,
-    GROSS: 45000,
-    CTC: 50000,
-    DAILY_SALARY: 1153.85,
-    WORKING_DAYS: 26,
-    PAID_DAYS: 24,
-    UNPAID_DAYS: 2,
-    LATE_COUNT: 4,
-    LEAVE_DAYS: 2,
-    INCENTIVE: 2000,
-    BONUS: 3000,
-    REWARD: 5000
+    BASIC: 6000,
+    DA: 3000,
+    CONV: 750,
+    CONVEYANCE: 750,
+    HRA: 5250,
+    OT: 1111.11,
+    OVERTIME: 1111.11,
+    GROSS: 16111.11,
+    CTC: 15000,
+    DAILY_SALARY: 500,
+    WORKING_DAYS: 30,
+    PAID_DAYS: 30,
+    UNPAID_DAYS: 0,
+    LATE_COUNT: 0,
+    LEAVE_DAYS: 0,
+    INCENTIVE: 0,
+    BONUS: 0,
+    REWARD: 0,
+    ATTENDANCE_BONUS: 1000,
+    ...(options?.previewContext || {}),
   };
 
   try {
-    const res = evaluateFormula(formula, testEvaluationContext);
-    return { isValid: true, sampleResult: res };
+    const res = evaluateFormula(trimmed, testEvaluationContext);
+    return { isValid: true, warning, sampleResult: res, referencedVariables };
   } catch (err: any) {
-    return { isValid: false, error: err.message || 'Evaluation error' };
+    return { isValid: false, error: err.message || 'Evaluation error', referencedVariables };
   }
 };
 
@@ -774,6 +927,8 @@ export const evaluateLeaveDeductions = (
 export interface StatutoryDeductionsResult {
   epfDeduction: number;
   esiDeduction: number;
+  employerEpfContribution?: number;
+  employerEsiContribution?: number;
   professionalTax: number;
   totalStatutory: number;
   epfRule: string;
@@ -783,6 +938,9 @@ export interface StatutoryDeductionsResult {
   pfFormulaLabel?: string;
   esicFormulaLabel?: string;
   isEsicExempt?: boolean;
+  esicCovered?: boolean;
+  esicContributionBase?: number;
+  pfStatutoryWarning?: string;
   pfActive?: boolean;
   esicActive?: boolean;
   ptActive?: boolean;
@@ -838,6 +996,7 @@ export interface PayrollFormulaContextInput {
   ctc: number;
   attendanceBonus?: number;
   overtime?: number;
+  overtimeAmount?: number;
   customContext?: Record<string, number>;
 }
 
@@ -849,9 +1008,11 @@ export const buildPayrollFormulaContext = ({
   gross,
   ctc,
   attendanceBonus = 0,
-  overtime = 0,
+  overtime,
+  overtimeAmount,
   customContext = {}
 }: PayrollFormulaContextInput): FormulaContext => {
+  const otVal = toNum(overtime ?? overtimeAmount ?? 0);
   const context: FormulaContext = {
     BASIC: toNum(basic),
     DA: toNum(da),
@@ -861,7 +1022,8 @@ export const buildPayrollFormulaContext = ({
     GROSS: toNum(gross),
     CTC: toNum(ctc),
     ATTENDANCE_BONUS: toNum(attendanceBonus),
-    OVERTIME: toNum(overtime)
+    OT: otVal,
+    OVERTIME: otVal
   };
 
   Object.entries(customContext || {}).forEach(([key, value]) => {
@@ -882,6 +1044,9 @@ export const getComponentCalculationDescription = (
   if (component.calculationMethod === 'PERCENTAGE') {
     return `${component.defaultValue || 0}% of ${component.percentageBase || 'GROSS'}`;
   }
+  if (component.calculationMethod === 'ATTENDANCE_OT') {
+    return 'Attendance-Based Approved Overtime (OT)';
+  }
   if (component.calculationMethod === 'FORMULA') {
     return component.formula ? `Formula: ${component.formula}` : 'Formula not configured';
   }
@@ -894,18 +1059,22 @@ export const calculateConfiguredComponentAmount = (
 ): number => {
   if (!component.active) return 0;
 
+  if (component.calculationMethod === 'ATTENDANCE_OT') {
+    return Math.max(0, Math.round((toNum(context.OT ?? context.OVERTIME) + Number.EPSILON) * 100) / 100);
+  }
+
   if (component.calculationMethod === 'FIXED_AMOUNT') {
-    return Math.max(0, Math.round(toNum(component.defaultValue)));
+    return Math.max(0, Math.round(toNum(component.defaultValue) * 100) / 100);
   }
 
   if (component.calculationMethod === 'PERCENTAGE') {
     const baseKey = component.percentageBase || 'GROSS';
     const base = toNum(context[baseKey], baseKey === 'CTC' ? context.CTC : context.GROSS);
-    return Math.max(0, Math.round((base * toNum(component.defaultValue)) / 100));
+    return Math.max(0, Math.round(((base * toNum(component.defaultValue)) / 100 + Number.EPSILON) * 100) / 100);
   }
 
   if (component.calculationMethod === 'FORMULA' && component.formula) {
-    return Math.max(0, Math.round(evaluateFormula(component.formula, context)));
+    return Math.max(0, Math.round((evaluateFormula(component.formula, context) + Number.EPSILON) * 100) / 100);
   }
 
   return 0;
@@ -1039,6 +1208,7 @@ export const evaluateStatutoryContributions = (
       GROSS: grossSalary,
       CTC: grossSalary,
       ATTENDANCE_BONUS: attendanceBonus,
+      OT: overtime,
       OVERTIME: overtime,
       ...(customContext || {})
     };
@@ -1069,13 +1239,13 @@ export const evaluateStatutoryContributions = (
       epfRule = `Fixed Amount ${formatCurrency(epfDeduction)}`;
       pfFormulaLabel = `Fixed ${formatCurrency(epfDeduction)}`;
     } else {
-      // PERCENTAGE mode
+      // PERCENTAGE mode (Statutory PF base = Basic + DA + Conveyance; ordinary OT is excluded from PF base)
       if (calcBase === 'BASIC') {
         pfBaseAmount = basicSalary;
         pfBaseLabel = 'Basic';
       } else if (calcBase === 'GROSS') {
-        pfBaseAmount = grossSalary;
-        pfBaseLabel = 'Gross';
+        pfBaseAmount = Math.max(0, grossSalary - overtime);
+        pfBaseLabel = 'Gross (Excl. OT)';
       } else {
         pfBaseAmount = basicSalary + da + conveyance;
         pfBaseLabel = 'Basic + DA + Conv';
@@ -1086,10 +1256,17 @@ export const evaluateStatutoryContributions = (
     }
   }
 
-  // ESIC Calculation: Applicable only when gross is within statutory ceiling (₹21,000)
+  const employerPfRate = payrollConfig?.pfPolicy?.employerPercentage ?? 12;
+  const employerEpfContribution = pfActive ? Math.round(((pfBaseAmount * employerPfRate) / 100 + Number.EPSILON) * 100) / 100 : 0;
+
+  // ESIC Calculation:
+  // Eligibility under standard ceiling (₹21,000) excludes overtime remuneration;
+  // Once covered, overtime wages ARE included in the ESIC contribution wage base.
   const esicLimit = payrollConfig?.esicPolicy?.grossSalaryLimit || 21000;
+  const regularGrossExcludingOt = Math.max(0, grossSalary - overtime);
   const esicBase = basicSalary + da + conveyance + hra + attendanceBonus + overtime;
   let esiDeduction = 0;
+  let employerEsiContribution = 0;
   let esiRule = '';
   let esicFormulaLabel = '';
   let isEsicExempt = false;
@@ -1098,8 +1275,9 @@ export const evaluateStatutoryContributions = (
     esiDeduction = 0;
     esiRule = 'Inactive in Settings';
     esicFormulaLabel = 'Disabled';
-  } else if (grossSalary <= esicLimit || esicBase <= esicLimit) {
+  } else if (regularGrossExcludingOt <= esicLimit || grossSalary <= esicLimit || esicBase <= esicLimit) {
     const esicRate = payrollConfig?.esicPolicy?.percentage ?? 0.75;
+    const employerEsicRate = payrollConfig?.esicPolicy?.employerPercentage ?? 3.25;
     if (payrollConfig?.esicPolicy?.formula) {
       esiDeduction = Math.round(evaluateFormula(payrollConfig.esicPolicy.formula, {
         GROSS: grossSalary,
@@ -1107,6 +1285,10 @@ export const evaluateStatutoryContributions = (
         HRA: hra,
         DA: da,
         CONV: conveyance,
+        CONVEYANCE: conveyance,
+        OT: overtime,
+        OVERTIME: overtime,
+        ATTENDANCE_BONUS: attendanceBonus,
         ...(customContext || {})
       }));
       esiRule = `Formula: ${payrollConfig.esicPolicy.formula}`;
@@ -1116,16 +1298,19 @@ export const evaluateStatutoryContributions = (
       esiRule = `${esicRate}% of Gross ${formatCurrency(grossSalary)}`;
       esicFormulaLabel = `${esicRate}%`;
     }
+    employerEsiContribution = Math.round(((grossSalary * employerEsicRate) / 100 + Number.EPSILON) * 100) / 100;
   } else {
     isEsicExempt = true;
     esiDeduction = 0;
-    esiRule = `Gross ${formatCurrency(grossSalary)} exceeds wage ceiling ${formatCurrency(esicLimit)}`;
+    esiRule = `Regular Gross ${formatCurrency(regularGrossExcludingOt)} exceeds wage ceiling ${formatCurrency(esicLimit)}`;
     esicFormulaLabel = `Exempt (> ${formatCurrency(esicLimit)})`;
   }
 
   return {
     epfDeduction,
     esiDeduction,
+    employerEpfContribution,
+    employerEsiContribution,
     professionalTax,
     totalStatutory: epfDeduction + esiDeduction + professionalTax,
     epfRule,
@@ -1135,6 +1320,8 @@ export const evaluateStatutoryContributions = (
     pfFormulaLabel,
     esicFormulaLabel,
     isEsicExempt,
+    esicCovered: !isEsicExempt && esicActive,
+    esicContributionBase: !isEsicExempt && esicActive ? grossSalary : 0,
     pfActive,
     esicActive,
     ptActive
@@ -1334,6 +1521,7 @@ export interface FullPayrollCalculationResult {
   overtimeHours: number;
   overtimeAmount: number;
   overtimeRate: number;
+  otVariableAmount?: number;
   calendarDaysInMonth: number;
   salaryDivisorUsed: number;
   salaryDivisorMode: string;
@@ -1342,6 +1530,8 @@ export interface FullPayrollCalculationResult {
   // Deductions
   epfDeduction: number;
   esiDeduction: number;
+  employerPfContribution?: number;
+  employerEsiContribution?: number;
   professionalTax: number;
   statutoryDeductions: number;
   advanceDeduction: number;
@@ -1508,45 +1698,60 @@ export const calculateEmployeePayroll = (
   const salaryDivisorMode = divisorInfo.modeUsed;
 
   const dailySalary = standardDays > 0 ? basic / standardDays : basic / 26;
+  const isCeoEmployee = isOwnerOrCEO(employee);
 
-  // 1. Attendance & Present Days
-  const empAtt = attendanceRecords.filter(a => a.employeeId === employee.employeeId);
+  // 1. Attendance & Present Days (CEO is exempt from attendance tracking)
+  const empAtt = isCeoEmployee ? [] : attendanceRecords.filter(a => a.employeeId === employee.employeeId);
   const presentCount = empAtt.filter(
     a => a.status === 'Present' || a.status === 'Late' || a.status === 'Work From Home'
   ).length;
-  const presentDays = presentCount > 0 ? Math.min(standardDays, presentCount) : (employee.status === 'Active' ? standardDays : 0);
+  const presentDays = isCeoEmployee
+    ? standardDays
+    : (presentCount > 0 ? Math.min(standardDays, presentCount) : (employee.status === 'Active' ? standardDays : 0));
 
   // 2. Late Attendance Policy Evaluation (with multi-shift support)
   const lateDetails = evaluateAttendanceLateDeduction(
     employee,
-    attendanceRecords,
+    isCeoEmployee ? [] : attendanceRecords,
     attendancePolicy,
     dailySalary,
     basic,
     allShifts
   );
+  if (isCeoEmployee) {
+    lateDetails.deductionAmount = 0;
+  }
 
   // 3. Leave Policy Evaluation
   const leaveDetails = evaluateLeaveDeductions(
     employee,
-    leaveRequests,
+    isCeoEmployee ? [] : leaveRequests,
     leavePolicy,
     dailySalary,
     basic
   );
+  if (isCeoEmployee) {
+    leaveDetails.deductionAmount = 0;
+    leaveDetails.totalUnpaidDays = 0;
+    leaveDetails.excessUnpaidDays = 0;
+    leaveDetails.sandwichUnpaidDays = 0;
+    leaveDetails.sandwichDeduction = 0;
+  }
 
   // 4. Rewards Evaluation
   const rewardDetails = evaluateEmployeeRewards(employee.employeeId, rewardRecords);
 
-  const approvedPaidLeaveDays = leaveRequests
-    .filter(l => l.employeeId === employee.employeeId && l.status === 'Approved')
-    .filter(l => {
-      const leaveName = (l.leaveType || '').toLowerCase();
-      return !leaveName.includes('unpaid') && !leaveName.includes('lop') && !leaveName.includes('loss of pay');
-    })
-    .reduce((sum, l) => sum + toNum(l.daysCount), 0);
-  const paidDays = Math.min(standardDays, Math.max(0, presentDays + approvedPaidLeaveDays));
-  const salaryProrationFactor = standardDays > 0 ? paidDays / standardDays : 1;
+  const approvedPaidLeaveDays = isCeoEmployee
+    ? 0
+    : leaveRequests
+        .filter(l => l.employeeId === employee.employeeId && l.status === 'Approved')
+        .filter(l => {
+          const leaveName = (l.leaveType || '').toLowerCase();
+          return !leaveName.includes('unpaid') && !leaveName.includes('lop') && !leaveName.includes('loss of pay');
+        })
+        .reduce((sum, l) => sum + toNum(l.daysCount), 0);
+  const paidDays = isCeoEmployee ? standardDays : Math.min(standardDays, Math.max(0, presentDays + approvedPaidLeaveDays));
+  const salaryProrationFactor = isCeoEmployee ? 1 : (standardDays > 0 ? paidDays / standardDays : 1);
   const prorateSalary = (value: number) => Math.round(toNum(value) * salaryProrationFactor);
   const payableBasic = prorateSalary(basic);
   const payableDa = prorateSalary(da);
@@ -1559,8 +1764,8 @@ export const calculateEmployeePayroll = (
     item.description = [item.description, `Paid ${paidDays}/${standardDays} days`].filter(Boolean).join(' | ');
   });
 
-  // Attendance bonus: granted dynamically ONLY when employee achieves 100% attendance
-  const isFullAttendance = presentDays >= standardDays && standardDays > 0 && (leaveDetails.totalUnpaidDays || 0) === 0;
+  // Attendance bonus: granted dynamically ONLY when attendance-tracked employee achieves 100% attendance
+  const isFullAttendance = !isCeoEmployee && presentDays >= standardDays && standardDays > 0 && (leaveDetails.totalUnpaidDays || 0) === 0;
   const attendanceBonus = isFullAttendance ? 1000 : 0;
 
   const bonus = 0;
@@ -1589,7 +1794,7 @@ export const calculateEmployeePayroll = (
   const matchedRequestIds: string[] = [];
   const seenOtDates = new Set<string>();
 
-  if (overtimeOptions?.directOvertimeHours !== undefined && overtimeOptions.directOvertimeHours > 0) {
+  if (!isCeoEmployee && overtimeOptions?.directOvertimeHours !== undefined && overtimeOptions.directOvertimeHours > 0) {
     approvedOtHours = toNum(overtimeOptions.directOvertimeHours);
     if (overtimeOptions.directOvertimeAmount !== undefined && overtimeOptions.directOvertimeAmount >= 0) {
       overtimeAmount = Math.round(toNum(overtimeOptions.directOvertimeAmount));
@@ -1608,11 +1813,13 @@ export const calculateEmployeePayroll = (
       });
       overtimeAmount = directCalc.overtimeAmount;
     }
-  } else {
+  } else if (!isCeoEmployee) {
     const empOtRequests = (overtimeOptions?.overtimeRequests || []).filter(req => {
       if (req.employeeId !== employee.employeeId && req.employeeId !== employee.id) return false;
       const isStatusApproved =
-        req.status === 'Approved' || (overtimeOptions?.includePaidRequests && req.status === 'Paid');
+        req.status === 'Approved' ||
+        req.status === 'Partially Approved' ||
+        (overtimeOptions?.includePaidRequests && req.status === 'Paid');
       if (!isStatusApproved) return false;
 
       if (!overtimeOptions?.includePaidRequests && (req.status === 'Paid' || req.payrollStatus === 'Paid' || req.payrollStatus === 'Included')) {
@@ -1641,8 +1848,8 @@ export const calculateEmployeePayroll = (
         overtimeOptions?.overtimePolicy,
         req.date
       );
-      // Respect Block OT even on requests unless statutory entitlement applies
-      if (!dateEligibility.allowed && dateEligibility.eligibilitySource === 'Blocked') {
+      // Respect department/employee OT eligibility on requests
+      if (!dateEligibility.allowed) {
         return;
       }
 
@@ -1671,7 +1878,7 @@ export const calculateEmployeePayroll = (
       const effectiveAmount =
         itemCalc.wageBaseMode !== 'FIXED_HOURLY'
           ? itemCalc.overtimeAmount
-          : (toNum(req.otAmount) > 0 ? Math.round(toNum(req.otAmount)) : itemCalc.overtimeAmount);
+          : (toNum(req.otAmount) > 0 ? Math.round((toNum(req.otAmount) + Number.EPSILON) * 100) / 100 : itemCalc.overtimeAmount);
       overtimeAmount += effectiveAmount;
     });
 
@@ -1710,8 +1917,8 @@ export const calculateEmployeePayroll = (
     });
   }
 
-  approvedOtHours = Math.round(approvedOtHours * 100) / 100;
-  overtimeAmount = Math.round(overtimeAmount);
+  approvedOtHours = Math.round((approvedOtHours + Number.EPSILON) * 100) / 100;
+  overtimeAmount = Math.round((overtimeAmount + Number.EPSILON) * 100) / 100;
 
   const summaryOtCalc = calculateEnterpriseOvertimeRateAndAmount({
     employee,
@@ -1756,7 +1963,7 @@ export const calculateEmployeePayroll = (
   };
 
   const grossSalaryBeforeOt = payableBasic + payableAllowances + attendanceBonus + bonus + rewardDetails.totalRewardEarnings;
-  const grossSalary = grossSalaryBeforeOt + overtimeAmount;
+  const grossSalary = Math.round((grossSalaryBeforeOt + overtimeAmount + Number.EPSILON) * 100) / 100;
 
   const withPf = resolveEmployeeWithPf(employee);
   const esicSalaryLimit = payrollConfig?.esicPolicy?.grossSalaryLimit || 21000;
@@ -1829,6 +2036,8 @@ export const calculateEmployeePayroll = (
   const statutoryDetails: StatutoryDeductionsResult = {
     epfDeduction,
     esiDeduction,
+    employerEpfContribution: fallbackStatutory?.employerEpfContribution ?? Math.round((((payableBasic + payableDa + payableConveyance) * (payrollConfig?.pfPolicy?.employerPercentage ?? 12)) / 100 + Number.EPSILON) * 100) / 100,
+    employerEsiContribution: fallbackStatutory?.employerEsiContribution ?? (esiDeduction > 0 ? Math.round(((grossSalary * (payrollConfig?.esicPolicy?.employerPercentage ?? 3.25)) / 100 + Number.EPSILON) * 100) / 100 : 0),
     professionalTax,
     totalStatutory: epfDeduction + esiDeduction + professionalTax,
     epfRule: configuredDeductionLines.find(d => d.statutoryKind === 'PF')?.description || fallbackStatutory?.epfRule || '',
@@ -1893,8 +2102,8 @@ export const calculateEmployeePayroll = (
   const availableSalary = Math.max(0, grossSalary - preLoanDeductions);
   const advanceDeduction = Math.min(scheduledLoanDeduction, availableSalary);
 
-  const totalDeductions = preLoanDeductions + advanceDeduction;
-  const netSalary = Math.max(0, grossSalary - totalDeductions);
+  const totalDeductions = Math.round((preLoanDeductions + advanceDeduction + Number.EPSILON) * 100) / 100;
+  const netSalary = Math.max(0, Math.round((grossSalary - totalDeductions + Number.EPSILON) * 100) / 100);
   const deductionsBreakdown: { name: string; category: 'DEDUCTION'; amount: number; description?: string }[] = configuredDeductionLines
     .filter(line => line.amount > 0)
     .map(line => ({
@@ -1962,6 +2171,7 @@ export const calculateEmployeePayroll = (
     overtimeHours: approvedOtHours,
     overtimeAmount,
     overtimeRate,
+    otVariableAmount: overtimeAmount,
     calendarDaysInMonth,
     salaryDivisorUsed: standardDays,
     salaryDivisorMode,
@@ -1969,6 +2179,8 @@ export const calculateEmployeePayroll = (
 
     epfDeduction,
     esiDeduction,
+    employerPfContribution: statutoryDetails.employerEpfContribution,
+    employerEsiContribution: statutoryDetails.employerEsiContribution,
     professionalTax,
     statutoryDeductions: configuredDeductionTotal,
     advanceDeduction,

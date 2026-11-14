@@ -1,17 +1,20 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { 
   SalaryComponentConfig,
   ComponentEligibilityType,
   ComponentEligibilityBase,
   ComponentEligibilityOperator,
+  CalculationMethod,
 } from '../../types/settings';
 import { payrollApi } from '../../services/payrollApi';
 import { INITIAL_PAYROLL_CONFIG } from '../../data/settingsInitialData';
 import { formatCurrency } from '../../utils/numbers';
 import { 
   getEligibilityBadgeLabel, 
-  validateComponentEligibility 
+  validateComponentEligibility,
+  validateFormula,
+  evaluateFormula,
 } from '../../services/policyEngine';
 import { 
   CreditCard, 
@@ -53,11 +56,13 @@ export const PayrollSettings: React.FC = () => {
   const [empSearchQuery, setEmpSearchQuery] = useState('');
   const [compValidationError, setCompValidationError] = useState<string | null>(null);
 
+  const formulaInputRef = useRef<HTMLInputElement | null>(null);
+
   const [compForm, setCompForm] = useState<{
     name: string;
     code: string;
     type: 'EARNING' | 'DEDUCTION';
-    calculationMethod: 'FIXED_AMOUNT' | 'PERCENTAGE' | 'FORMULA';
+    calculationMethod: CalculationMethod;
     defaultValue: number;
     percentageBase: 'BASIC' | 'GROSS' | 'CTC';
     formula: string;
@@ -88,6 +93,78 @@ export const PayrollSettings: React.FC = () => {
     eligibilityLimitMax: 0,
     eligibleEmployeeIds: []
   });
+
+  // Available variables for the Custom Formula editor (Section 8)
+  const availableFormulaVariables = useMemo(() => {
+    const core = ['BASIC', 'HRA', 'DA', 'CONV', 'OT', 'GROSS', 'CTC'];
+    const customCodes = payrollSettingsConfig.components
+      .filter(c => c.active && c.code && !core.includes(c.code.toUpperCase()) && c.code.toUpperCase() !== compForm.code.toUpperCase())
+      .map(c => c.code.toUpperCase());
+    return Array.from(new Set([...core, ...customCodes]));
+  }, [payrollSettingsConfig.components, compForm.code]);
+
+  // Live formula validation & sample calculation preview (Section 8, 9, 10)
+  const formulaValidation = useMemo(() => {
+    if (compForm.calculationMethod !== 'FORMULA') {
+      return { isValid: true, referencedVariables: [] as string[] };
+    }
+    const upperCode = (compForm.code || '').toUpperCase().trim();
+    const statutoryKind = ['EPF', 'PF'].includes(upperCode)
+      ? 'PF'
+      : ['ESI', 'ESIC'].includes(upperCode)
+        ? 'ESIC'
+        : undefined;
+    return validateFormula(compForm.formula, {
+      currentComponentCode: upperCode,
+      allComponents: payrollSettingsConfig.components.map(c => ({
+        code: c.code,
+        calculationMethod: c.calculationMethod,
+        formula: c.formula,
+      })),
+      allowedVariables: availableFormulaVariables,
+      statutoryKind,
+    });
+  }, [compForm.calculationMethod, compForm.formula, compForm.code, payrollSettingsConfig.components, availableFormulaVariables]);
+
+  const liveFormulaPreviewAmount = useMemo(() => {
+    if (compForm.calculationMethod !== 'FORMULA' || !formulaValidation.isValid || !compForm.formula.trim()) {
+      return 0;
+    }
+    const sampleCtx: Record<string, number> = {
+      BASIC: 6000,
+      DA: 3000,
+      HRA: 5250,
+      CONV: 750,
+      CONVEYANCE: 750,
+      OT: 1111.11,
+      OVERTIME: 1111.11,
+      GROSS: 16111.11,
+      CTC: 15000,
+      ATTENDANCE_BONUS: 0,
+    };
+    return Math.round(evaluateFormula(compForm.formula, sampleCtx) * 100) / 100;
+  }, [compForm.calculationMethod, compForm.formula, formulaValidation.isValid]);
+
+  const insertVariableIntoFormula = (variableName: string) => {
+    const input = formulaInputRef.current;
+    const currentFormula = compForm.formula || '';
+    if (!input) {
+      setCompForm(prev => ({
+        ...prev,
+        formula: currentFormula ? `${currentFormula}+${variableName}` : variableName,
+      }));
+      return;
+    }
+    const start = input.selectionStart ?? currentFormula.length;
+    const end = input.selectionEnd ?? currentFormula.length;
+    const nextFormula = currentFormula.slice(0, start) + variableName + currentFormula.slice(end);
+    setCompForm(prev => ({ ...prev, formula: nextFormula }));
+    requestAnimationFrame(() => {
+      input.focus();
+      const nextCursorPos = start + variableName.length;
+      input.setSelectionRange(nextCursorPos, nextCursorPos);
+    });
+  };
 
   const filteredPickerEmployees = useMemo(() => {
     const q = empSearchQuery.trim().toLowerCase();
@@ -183,6 +260,13 @@ export const PayrollSettings: React.FC = () => {
       return;
     }
 
+    if (compForm.calculationMethod === 'FORMULA') {
+      if (!formulaValidation.isValid) {
+        setCompValidationError(formulaValidation.error || 'Please fix the mathematical formula before saving.');
+        return;
+      }
+    }
+
     const validation = validateComponentEligibility(compForm);
     if (!validation.isValid) {
       setCompValidationError(validation.error || 'Please correct component eligibility configuration.');
@@ -253,6 +337,9 @@ export const PayrollSettings: React.FC = () => {
     }
     if (comp.calculationMethod === 'PERCENTAGE') {
       return `${comp.defaultValue}% of ${comp.percentageBase || (comp.type === 'EARNING' ? 'CTC' : 'Gross')}`;
+    }
+    if (comp.calculationMethod === 'ATTENDANCE_OT') {
+      return 'Attendance-Based Overtime (OT)';
     }
     return `Formula: ${comp.formula || '-'}`;
   };
@@ -600,11 +687,12 @@ export const PayrollSettings: React.FC = () => {
                   <select
                     className="form-control"
                     value={compForm.calculationMethod}
-                    onChange={e => setCompForm({ ...compForm, calculationMethod: e.target.value as any })}
+                    onChange={e => setCompForm({ ...compForm, calculationMethod: e.target.value as CalculationMethod })}
                   >
                     <option value="FIXED_AMOUNT">Fixed Monthly Amount (₹)</option>
                     <option value="PERCENTAGE">Percentage (%)</option>
                     <option value="FORMULA">Custom Formula</option>
+                    <option value="ATTENDANCE_OT">Attendance-Based Overtime (OT)</option>
                   </select>
                 </div>
 
@@ -644,16 +732,99 @@ export const PayrollSettings: React.FC = () => {
                       onChange={e => handleDefaultValueChange(e.target.value)}
                     />
                   </div>
+                ) : compForm.calculationMethod === 'ATTENDANCE_OT' ? (
+                  <div
+                    style={{
+                      gridColumn: '1 / -1',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      backgroundColor: '#ECFEFF',
+                      border: '1px solid #A5F3FC',
+                      color: '#0E7490',
+                      fontSize: '0.8rem',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <strong>Attendance-Based Overtime (<code>OT</code>):</strong> Automatically resolves to the employee&apos;s
+                    Approved Payable Overtime Amount for the selected payroll month (
+                    <code>Hourly Rate × Approved OT Hours × Multiplier</code>). Defaults to <code>₹0</code> when the employee has no
+                    approved overtime.
+                  </div>
                 ) : (
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <label className="form-label">Mathematical Formula</label>
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                      <label className="form-label" style={{ margin: 0 }}>Mathematical Formula</label>
+                      <span style={{ fontSize: '0.73rem', color: '#64748B' }}>
+                        Click any variable below to insert at cursor position
+                      </span>
+                    </div>
+
+                    {/* Variable Selector Bar (Section 8) */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px 10px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                      {availableFormulaVariables.map(varCode => {
+                        const isOtVar = varCode === 'OT';
+                        return (
+                          <button
+                            key={varCode}
+                            type="button"
+                            onClick={() => insertVariableIntoFormula(varCode)}
+                            title={isOtVar ? 'Insert Global Approved Payable Overtime Amount (OT)' : `Insert ${varCode}`}
+                            style={{
+                              padding: '3px 9px',
+                              borderRadius: '6px',
+                              border: `1px solid ${isOtVar ? '#0E7490' : '#CBD5E1'}`,
+                              backgroundColor: isOtVar ? '#ECFEFF' : '#FFFFFF',
+                              color: isOtVar ? '#0E7490' : '#334155',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            +{varCode}{isOtVar ? ' (Overtime)' : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     <input
+                      ref={formulaInputRef}
                       type="text"
                       className="form-control"
-                      placeholder="e.g. BASIC * 12 / 100"
+                      placeholder="e.g. (BASIC+HRA+DA+CONV+OT)*0.75/100"
                       value={compForm.formula}
                       onChange={e => setCompForm({ ...compForm, formula: e.target.value })}
+                      style={{
+                        fontFamily: 'monospace',
+                        borderColor: !formulaValidation.isValid && compForm.formula.trim() ? '#EF4444' : undefined,
+                      }}
                     />
+
+                    {/* Live Formula Validation & Preview */}
+                    {!formulaValidation.isValid && compForm.formula.trim() && (
+                      <div style={{ fontSize: '0.76rem', color: '#DC2626', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <AlertCircle size={14} />
+                        <span>{formulaValidation.error}</span>
+                      </div>
+                    )}
+
+                    {formulaValidation.isValid && formulaValidation.warning && (
+                      <div style={{ fontSize: '0.76rem', color: '#B45309', backgroundColor: '#FFFBEB', border: '1px solid #FDE68A', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Info size={14} />
+                        <span>{formulaValidation.warning}</span>
+                      </div>
+                    )}
+
+                    {formulaValidation.isValid && compForm.formula.trim() && (
+                      <div style={{ fontSize: '0.76rem', color: '#0E7490', backgroundColor: '#ECFEFF', border: '1px solid #CFFAFE', padding: '6px 10px', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                        <span>
+                          <strong>Live Formula Preview</strong> (Sample: CTC ₹15,000, BASIC ₹6,000, HRA ₹5,250, DA ₹3,000, CONV ₹750, OT ₹1,111.11)
+                        </span>
+                        <strong style={{ fontSize: '0.82rem' }}>
+                          Result: ₹{liveFormulaPreviewAmount.toFixed(2)}
+                        </strong>
+                      </div>
+                    )}
                   </div>
                 )}
 

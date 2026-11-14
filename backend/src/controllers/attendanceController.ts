@@ -9,6 +9,7 @@ import {
   recordGpsDiagnostic,
   getRecentGpsDiagnostics,
 } from '../services/geofenceService.js';
+import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
 
 export const getAttendanceLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -106,6 +107,22 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
+    const isSelfPunch = !requestedEmpId || (user.employeeId && requestedEmpId.toLowerCase() === user.employeeId.toLowerCase());
+    if (
+      (isSelfPunch && isCeoOrOwnerEmployee(user as any)) ||
+      isCeoOrOwnerEmployee({ employeeId: targetEmpId })
+    ) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'CEO_ATTENDANCE_EXEMPT',
+          message: 'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.',
+          details: [],
+        },
+      });
+      return;
+    }
+
     // Server-side Geofence & GPS Accuracy Verification
     let isInsideGeofence = validated.inGeofence ?? true;
     const isGpsOrFacePunch =
@@ -126,6 +143,18 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       employeeRepository.getEmployeeById(targetEmpId),
       attendanceRepository.getTodayFieldDutyAssignment(targetEmpId),
     ]);
+
+    if (preloadedEmployee && isCeoOrOwnerEmployee(preloadedEmployee as any)) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'CEO_ATTENDANCE_EXEMPT',
+          message: 'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.',
+          details: [],
+        },
+      });
+      return;
+    }
 
     const isFlexibleWorker =
       (preloadedEmployee as any)?.attendance_method === 'Flexible' ||
@@ -374,6 +403,22 @@ export const verifyFace = async (req: Request, res: Response, next: NextFunction
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Employee identity could not be resolved from authenticated session.',
+          details: [],
+        },
+      });
+      return;
+    }
+
+    const isSelfVerify = !requestedEmpId || (user.employeeId && requestedEmpId.toLowerCase() === user.employeeId.toLowerCase());
+    if (
+      (isSelfVerify && isCeoOrOwnerEmployee(user as any)) ||
+      isCeoOrOwnerEmployee({ employeeId: targetEmpId })
+    ) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'CEO_ATTENDANCE_EXEMPT',
+          message: 'CEO is the company owner and is exempt from face attendance verification.',
           details: [],
         },
       });

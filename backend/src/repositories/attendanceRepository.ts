@@ -18,6 +18,7 @@ import {
   countEmployeeMonthlyLateOccurrences,
   evaluateCheckInPunctualityAndPenalty,
 } from '../services/latePolicyService.js';
+import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
 
 export class AttendancePunchError extends Error {
   statusCode: number;
@@ -331,8 +332,10 @@ export class AttendanceRepository {
   async getTodaySummary(dateStr?: string): Promise<AttendanceTodaySummary> {
     const timeZone = await this.getCompanyTimezone();
     const today = dateStr || toDateStr(toTimezoneWallClockDate(new Date(), timeZone));
-    const records = await this.getAll({ date: today });
-    const allEmps = await employeeRepository.getAllEmployees();
+    const rawRecords = await this.getAll({ date: today });
+    const records = rawRecords.filter((r) => !isCeoOrOwnerEmployee(r as any));
+    const allEmpsRaw = await employeeRepository.getAllEmployees();
+    const allEmps = allEmpsRaw.filter((e) => !isCeoOrOwnerEmployee(e as any));
     const totalEmployees = allEmps.length || 1;
 
     const presentCount = records.filter(
@@ -457,6 +460,13 @@ export class AttendanceRepository {
     now?: Date;
     bypassShiftWindow?: boolean;
   }): Promise<AttendanceLogRecord> {
+    if (isCeoOrOwnerEmployee({ employeeId: params.employeeId })) {
+      throw new AttendancePunchError(
+        'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.',
+        403,
+        'CEO_ATTENDANCE_EXEMPT'
+      );
+    }
     return this.recordPostgresPunch(params);
   }
 
@@ -515,6 +525,20 @@ export class AttendanceRepository {
           `Employee profile '${params.employeeId}' was not found in PostgreSQL.`,
           404,
           'EMPLOYEE_NOT_FOUND'
+        );
+      }
+
+      if (
+        isCeoOrOwnerEmployee({
+          employeeId: employee.employee_id,
+          designation: employee.designation,
+          department_name: employee.department_name,
+        })
+      ) {
+        throw new AttendancePunchError(
+          'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.',
+          403,
+          'CEO_ATTENDANCE_EXEMPT'
         );
       }
 
@@ -870,6 +894,18 @@ export class AttendanceRepository {
     message?: string;
   }> {
     const timestamp = new Date().toISOString();
+
+    if (isCeoOrOwnerEmployee({ employeeId }) || isCeoOrOwnerEmployee(options)) {
+      const msg = 'CEO is the company owner and is exempt from face attendance.';
+      return {
+        verified: false,
+        confidence: 0,
+        employeeId,
+        timestamp,
+        reason: msg,
+        message: msg,
+      };
+    }
 
     if (!facePhotoBase64 || typeof facePhotoBase64 !== 'string' || facePhotoBase64.trim().length < 50) {
       const msg = 'Valid live camera face capture is required.';

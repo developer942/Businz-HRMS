@@ -260,7 +260,7 @@ export interface MasterLeavePolicy {
 // 4. PAYROLL SETTINGS
 // ==========================================
 export type SalaryComponentType = 'EARNING' | 'DEDUCTION';
-export type CalculationMethod = 'FIXED_AMOUNT' | 'PERCENTAGE' | 'FORMULA';
+export type CalculationMethod = 'FIXED_AMOUNT' | 'PERCENTAGE' | 'FORMULA' | 'ATTENDANCE_OT';
 
 export type ComponentEligibilityType = 'ALL' | 'SALARY_CONDITION' | 'SELECTED_EMPLOYEES';
 export type ComponentEligibilityBase = 'CTC' | 'GROSS' | 'BASIC';
@@ -294,10 +294,14 @@ export interface SalaryComponentConfig {
 export interface EmployeeSalaryEligibilityContext {
   id?: string;
   employeeId?: string;
+  companyId?: string;
+  branchId?: string;
   monthlyCtc?: number;
   basicSalary?: number;
   grossSalary?: number;
+  regularGrossExcludingOt?: number;
   withPf?: boolean;
+  esicCovered?: boolean;
   joiningDate?: string;
   payrollMonth?: number;
   payrollYear?: number;
@@ -308,6 +312,7 @@ export interface PFPolicyConfig {
   active: boolean;
   calculationType: 'PERCENTAGE' | 'FIXED_AMOUNT' | 'FORMULA';
   percentage: number; // 12%
+  employerPercentage?: number; // 12%
   fixedAmount?: number;
   calculationBase: 'BASIC' | 'GROSS' | 'CUSTOM';
   formula: string; // 'BASIC * 12 / 100'
@@ -318,7 +323,10 @@ export interface PFPolicyConfig {
 export interface ESICPolicyConfig {
   active: boolean;
   percentage: number; // 0.75%
+  employerPercentage?: number; // 3.25%
   grossSalaryLimit: number; // 21000
+  excludeOtFromEligibilityCeiling?: boolean; // default true
+  includeOtInContributionBase?: boolean; // default true
   formula: string; // 'GROSS * 0.75 / 100'
   effectiveDate: string;
   version: number;
@@ -344,7 +352,7 @@ export interface IncrementPolicyConfig {
   slabs: IncrementSlab[];
 }
 
-export type PayrollSalaryDivisorMode = 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS';
+export type PayrollSalaryDivisorMode = 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | 'STATUTORY_DIVISOR';
 
 export interface PayrollSettingsConfig {
   components: SalaryComponentConfig[];
@@ -352,7 +360,7 @@ export interface PayrollSettingsConfig {
   esicPolicy: ESICPolicyConfig;
   incrementPolicy?: IncrementPolicyConfig;
   standardWorkingDaysPerMonth: number; // e.g. 26 or 30
-  salaryDivisorMode?: PayrollSalaryDivisorMode; // 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS'
+  salaryDivisorMode?: PayrollSalaryDivisorMode; // 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | 'STATUTORY_DIVISOR'
   payrollCycleDay: number; // e.g. 1st of each month
   enableProfessionalTax: boolean;
   standardPtAmount: number; // e.g. 200
@@ -360,6 +368,8 @@ export interface PayrollSettingsConfig {
     showOtHoursOnPayslip: boolean;
     showOtAmountOnPayslip: boolean;
     showOtCalculationDetailsOnPayslip: boolean;
+    showOtRateOnPayslip?: boolean;
+    showEmployerContributionOnPayslip?: boolean;
   };
   updatedAt: string;
   updatedBy: string;

@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   isDefaultOtEligibleDepartment,
+  isCeoOrOwnerEmployee,
   getCalendarDaysInMonth as getBackendCalendarDays,
   resolvePayrollSalaryDivisor as resolveBackendDivisor,
   calculateEnterpriseOvertimeRateAndAmount as calcBackendOt,
   resolveEmployeeOtEligibility as resolveBackendEligibility,
   formatPayslipOvertimeForViewer as formatBackendPayslipOt,
   computeFullPayroll,
+  evaluateFormula as evaluateBackendFormula,
+  validateFormula as validateBackendFormula,
 } from '../src/services/calculationEngine.js';
 import { PayrollSettingsModel } from '../src/types/payroll.js';
 import {
@@ -18,7 +21,12 @@ import {
   identifyEligibleOvertimeFromAttendance,
   calculateEmployeePayroll,
   formatPayslipOvertimeForViewer as formatFrontendPayslipOt,
+  evaluateFormula as evaluateFrontendFormula,
+  validateFormula as validateFrontendFormula,
+  buildPayrollFormulaContext,
+  buildEmployeeMonthlyAttendanceOtReport,
 } from '../../frontend/src/services/policyEngine';
+import { isOwnerOrCEO } from '../../frontend/src/data/hrmsInitialData';
 import { INITIAL_DEPARTMENT_OT_POLICIES } from '../../frontend/src/data/attendanceEnterpriseInitialData';
 import { Employee } from '../../frontend/src/types/hrms';
 import { OvertimeRequest, OvertimePolicy, EmployeeOtPolicy } from '../../frontend/src/types/attendanceEnterprise';
@@ -619,6 +627,695 @@ describe('BUSINZ HRMS Enterprise Overtime & Payroll Calculation Suite', () => {
       expect(hideHoursView.label).toBe('Overtime Earnings');
       expect(hideHoursView.amount).toBe(400);
       expect(hideHoursView.description).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 6. Section 5, 7, 8, 9, 10, 14 & 16 Comprehensive Verification Suite
+  // ---------------------------------------------------------------------------
+  describe('6. Complete Salary-Based OT, Global OT Variable, Formula Editor & Statutory PF/ESIC Suite', () => {
+    it('verifies exact Section 5 & 14 benchmark: ₹15,000 salary, Nov 30 days, 9 hrs/day, 10 OT hrs -> ₹555.56 (1x) & ₹1,111.11 (2x)', () => {
+      // 1x illustrative rate
+      const res1xBackend = calcBackendOt({
+        approvedHours: 10,
+        wageBaseMode: 'GROSS',
+        basicSalary: 6000,
+        grossSalary: 15000,
+        monthlyCtc: 15000,
+        fixedHourlyRate: 100,
+        divisorDays: 30,
+        dailyPaidHours: 9,
+        multiplier: '1x Salary',
+      });
+      expect(res1xBackend.calculatedAmount).toBe(555.56);
+
+      const res1xFrontend = calcFrontendOt({
+        approvedHours: 10,
+        wageBaseMode: 'GROSS',
+        basicSalary: 6000,
+        grossSalary: 15000,
+        monthlyCtc: 15000,
+        fixedHourlyRate: 100,
+        divisorDays: 30,
+        dailyPaidHours: 9,
+        multiplier: '1x Salary',
+      });
+      expect(res1xFrontend.calculatedAmount).toBe(555.56);
+
+      // 2x statutory rate
+      const res2xBackend = calcBackendOt({
+        approvedHours: 10,
+        wageBaseMode: 'GROSS',
+        basicSalary: 6000,
+        grossSalary: 15000,
+        monthlyCtc: 15000,
+        fixedHourlyRate: 100,
+        divisorDays: 30,
+        dailyPaidHours: 9,
+        multiplier: '2x Salary',
+      });
+      expect(res2xBackend.calculatedAmount).toBe(1111.11);
+
+      const res2xFrontend = calcFrontendOt({
+        approvedHours: 10,
+        wageBaseMode: 'GROSS',
+        basicSalary: 6000,
+        grossSalary: 15000,
+        monthlyCtc: 15000,
+        fixedHourlyRate: 100,
+        divisorDays: 30,
+        dailyPaidHours: 9,
+        multiplier: '2x Salary',
+      });
+      expect(res2xFrontend.calculatedAmount).toBe(1111.11);
+
+      // Full payroll run for November (30 calendar days) with 2x OT = ₹1,111.11 -> Gross = ₹16,111.11
+      const fullRun = computeFullPayroll({
+        employeeId: 'VRM-FLOOR-15K',
+        monthlySalary: 15000,
+        basicPercentage: 40,
+        daPercentage: 20,
+        conveyancePercentage: 5,
+        hraPercentage: 35,
+        payrollMonth: 11,
+        payrollYear: 2026,
+        salaryDivisorMode: 'CALENDAR_DAYS',
+        settings: baseSettings,
+        attendance: {
+          workingDays: 30,
+          presentDays: 30,
+          paidLeaveDays: 0,
+          unpaidLeaveDays: 0,
+          absentDays: 0,
+          halfDays: 0,
+          lopDays: 0,
+          overtimeHours: 10,
+        },
+        earnings: {
+          overtimeHours: 10,
+          overtimeWageBase: 'GROSS',
+          overtimeMultiplier: '2x Salary',
+          standardShiftHours: 9,
+        },
+      });
+
+      expect(fullRun.calendarDaysInMonth).toBe(30);
+      expect(fullRun.salaryDivisorUsed).toBe(30);
+      expect(fullRun.overtimeAmount).toBe(1111.11);
+      expect(fullRun.otVariableAmount).toBe(1111.11);
+      expect(fullRun.grossSalary).toBe(16111.11);
+      // PF Base excludes OT (Basic 6000 + DA 3000 + Conv 750 = 9750) -> 12% = 1170
+      expect(fullRun.pfBase).toBe(9750);
+      expect(fullRun.pfAmount).toBe(1170);
+      expect(fullRun.employerPfAmount).toBe(1170);
+      // ESIC Base includes OT (16111.11) -> Employee 0.75% = 120.83, Employer 3.25% = 523.61
+      expect(fullRun.esicBase).toBe(16111.11);
+      expect(fullRun.esicAmount).toBe(120.83);
+      expect(fullRun.employerEsicAmount).toBe(523.61);
+      // Net Salary = 16111.11 - (1170 + 120.83) = 14820.28 (Employer PF/ESIC NOT deducted from net salary!)
+      expect(fullRun.netSalary).toBe(14820.28);
+    });
+
+    it('resolves global OT variable in custom formulas ((BASIC+HRA+DA+CONV+OT)*0.75/100) and validates syntax, unknown vars & circular dependencies', () => {
+      const ctx = buildPayrollFormulaContext({
+        basic: 6000,
+        da: 3000,
+        conveyance: 750,
+        hra: 5250,
+        overtimeAmount: 1111.11,
+        gross: 16111.11,
+        ctc: 15000,
+      });
+      expect(ctx.OT).toBe(1111.11);
+
+      const formula = '(BASIC+HRA+DA+CONV+OT)*0.75/100';
+      const valFront = Math.round(evaluateFrontendFormula(formula, ctx) * 100) / 100;
+      const valBack = Math.round(evaluateBackendFormula(formula, ctx) * 100) / 100;
+      expect(valFront).toBe(120.83);
+      expect(valBack).toBe(120.83);
+
+      // When employee has no OT -> OT = 0
+      const zeroOtCtx = buildPayrollFormulaContext({
+        basic: 6000,
+        da: 3000,
+        conveyance: 750,
+        hra: 5250,
+        overtimeAmount: 0,
+        gross: 15000,
+        ctc: 15000,
+      });
+      expect(zeroOtCtx.OT).toBe(0);
+      expect(Math.round(evaluateFrontendFormula(formula, zeroOtCtx) * 100) / 100).toBe(112.5);
+
+      // Unknown variable detection
+      const unknownCheck = validateFrontendFormula('BASIC + UNKNOWN_VAR * 2');
+      expect(unknownCheck.isValid).toBe(false);
+      expect(unknownCheck.error).toContain('UNKNOWN_VAR');
+
+      // Syntax error detection
+      const syntaxCheck = validateBackendFormula('(BASIC + HRA * / 2');
+      expect(syntaxCheck.isValid).toBe(false);
+
+      // Circular dependency detection (direct and indirect)
+      const directCircle = validateFrontendFormula('COMP_A * 0.5', {
+        currentComponentCode: 'COMP_A',
+        allowedVariables: ['BASIC', 'COMP_A'],
+      });
+      expect(directCircle.isValid).toBe(false);
+      expect(directCircle.error).toContain('Circular dependency');
+
+      const indirectCircle = validateFrontendFormula('COMP_B + 100', {
+        currentComponentCode: 'COMP_A',
+        allowedVariables: ['BASIC', 'COMP_A', 'COMP_B'],
+        allComponents: [
+          { code: 'COMP_A', calculationMethod: 'FORMULA', formula: 'COMP_B + 100' },
+          { code: 'COMP_B', calculationMethod: 'FORMULA', formula: 'COMP_A * 2' },
+        ],
+      });
+      expect(indirectCircle.isValid).toBe(false);
+      expect(indirectCircle.error).toContain('Circular dependency');
+
+      // Statutory PF warning when OT is added to PF formula
+      const pfWarningCheck = validateFrontendFormula('(BASIC + DA + OT) * 12 / 100', {
+        statutoryKind: 'PF',
+      });
+      expect(pfWarningCheck.isValid).toBe(true);
+      expect(pfWarningCheck.warning).toContain('Ordinary overtime allowance');
+    });
+
+    it('separates ESIC regular-wage eligibility from ESIC contribution base (which includes OT)', () => {
+      // Employee regular gross is ₹20,500 (<= ₹21,000 ceiling) and earns ₹1,500 OT (total gross ₹22,000 > ₹21,000)
+      // With excludeOtFromEsicEligibility: true, employee remains eligible because regular wage ₹20,500 <= ₹21,000,
+      // and ESIC contribution is calculated on ₹22,000 (including OT)!
+      const coveredWithOt = computeFullPayroll({
+        employeeId: 'VRM-ESIC-OT',
+        monthlySalary: 20500,
+        basicPercentage: 40,
+        daPercentage: 20,
+        conveyancePercentage: 5,
+        hraPercentage: 35,
+        payrollMonth: 11,
+        payrollYear: 2026,
+        settings: baseSettings,
+        attendance: {
+          workingDays: 30,
+          presentDays: 30,
+          paidLeaveDays: 0,
+          unpaidLeaveDays: 0,
+          absentDays: 0,
+          halfDays: 0,
+          lopDays: 0,
+          overtimeHours: 10,
+        },
+        earnings: {
+          overtimeHours: 10,
+          overtimeRate: 150,
+          overtimeAmount: 1500,
+        },
+        employeeContext: {
+          excludeOtFromEsicEligibility: true,
+        },
+      });
+      expect(coveredWithOt.grossSalary).toBe(22000);
+      expect(coveredWithOt.esicCovered).toBe(true);
+      expect(coveredWithOt.esicBase).toBe(22000);
+      expect(coveredWithOt.esicAmount).toBe(165);
+      expect(coveredWithOt.employerEsicAmount).toBe(715);
+    });
+
+    it('handles overnight shift, unpaid break deduction, holiday/weekly-off OT, and multi-company policy isolation', () => {
+      const floorEmp: Employee = {
+        id: 'emp-floor-1',
+        employeeId: 'VRM-101',
+        name: 'Ramesh Floor',
+        department: 'FLOOR',
+        designation: 'Operator',
+        email: 'ramesh@businz.com',
+        phone: '9876543210',
+        joiningDate: '2025-01-01',
+        status: 'Active',
+        basicSalary: 6000,
+        grossSalary: 15000,
+        allowances: { da: 3000, conveyance: 750, hra: 5250 } as any,
+        deductions: 0,
+        salaryDetails: {
+          monthlyCtc: 15000,
+          basicSalary: 6000,
+          da: 3000,
+          conveyance: 750,
+          hra: 5250,
+          withPf: true,
+        } as any,
+      };
+      // Overnight shift: 22:00 to 09:00 next day = 11 hrs total - 60 mins unpaid break = 10 paid hours -> 1 hr OT over 9h shift
+      const overnightDetection = identifyEligibleOvertimeFromAttendance({
+        employee: floorEmp,
+        attendanceRecord: {
+          id: 'ATT-OVERNIGHT',
+          employeeId: 'VRM-101',
+          employeeName: 'Ramesh Floor',
+          department: 'FLOOR',
+          date: '2026-11-10',
+          checkIn: '10:00 PM',
+          checkOut: '09:00 AM',
+          breakDurationMinutes: 60,
+          status: 'Present',
+        } as any,
+        overtimePolicy: {
+          ...defaultOtPolicy,
+          wageBase: 'GROSS',
+          divisorMode: 'CALENDAR_DAYS',
+          defaultMultiplier: '2x Salary',
+        },
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [],
+        payrollMonth: 11,
+        payrollYear: 2026,
+      });
+      expect(overnightDetection.eligible).toBe(true);
+      expect(overnightDetection.workedHours).toBe(10);
+      expect(overnightDetection.overtimeHours).toBe(1);
+      expect(overnightDetection.overtimeAmount).toBe(111.11);
+
+      // Multi-company isolation: policy for COMPANY_B does not leak into COMPANY_A employee
+      const companyBIsolatedCheck = resolveFrontendEligibility({
+        employee: { ...floorEmp, department: 'Sales', companyId: 'COMPANY_A' } as any,
+        dateStr: '2026-11-10',
+        overtimePolicy: { ...defaultOtPolicy, companyId: 'COMPANY_A' },
+        departmentOtPolicies: [
+          ...INITIAL_DEPARTMENT_OT_POLICIES,
+          {
+            id: 'DOT-SALES-COMP-B',
+            department: 'Sales',
+            otAllowed: true,
+            companyId: 'COMPANY_B',
+            policyId: 'OTP-B',
+            maxOtHoursDaily: 4,
+            maxOtHoursMonthly: 60,
+            minOtDurationMinutes: 30,
+            approvalRequired: true,
+            calculationMethod: 'Shift End Based',
+            standardShiftHours: 9,
+            otHourlyRate: 200,
+          },
+        ],
+        employeeOtPolicies: [],
+        companyId: 'COMPANY_A',
+      });
+      expect(companyBIsolatedCheck.eligible).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 7. CEO Exclusion from Attendance & Overtime + Employee/HR Monthly Attendance Report
+  // ---------------------------------------------------------------------------
+  describe('7. CEO Exclusion & Monthly Attendance + Overtime Details Report', () => {
+    const ceoEmployee: Employee = {
+      id: 'VRM-001',
+      employeeId: 'VRM-001',
+      firstName: 'Mohamed',
+      lastName: 'Ahilesh',
+      name: 'Mohamed Ahilesh',
+      role: 'CEO',
+      department: 'CEO',
+      designation: 'CEO',
+      email: 'ceo@businz.com',
+      phone: '9876543210',
+      joiningDate: '2020-01-01',
+      status: 'Active',
+      basicSalary: 40000,
+      grossSalary: 100000,
+      allowances: { da: 20000, conveyance: 5000, hra: 35000 } as any,
+      deductions: 0,
+      salaryDetails: {
+        monthlyCtc: 100000,
+        basicSalary: 40000,
+        da: 20000,
+        conveyance: 5000,
+        hra: 35000,
+        withPf: false,
+      } as any,
+    };
+
+    const floorEmployee: Employee = {
+      id: 'emp-floor-201',
+      employeeId: 'VRM-036',
+      firstName: 'Purushothaman',
+      lastName: 'M',
+      name: 'Purushothaman M',
+      role: 'Employee',
+      department: 'FLOOR',
+      designation: 'Operator',
+      email: 'purushothaman@businz.com',
+      phone: '9876543211',
+      joiningDate: '2025-01-01',
+      status: 'Active',
+      basicSalary: 6000,
+      grossSalary: 15000,
+      allowances: { da: 3000, conveyance: 750, hra: 5250 } as any,
+      deductions: 0,
+      salaryDetails: {
+        monthlyCtc: 15000,
+        basicSalary: 6000,
+        da: 3000,
+        conveyance: 750,
+        hra: 5250,
+        withPf: true,
+      } as any,
+    };
+
+    const hrEmployee: Employee = {
+      id: 'emp-hr-202',
+      employeeId: 'VRM-010',
+      firstName: 'Kavitha',
+      lastName: 'HR',
+      name: 'Kavitha HR',
+      role: 'HR Manager',
+      department: 'HR',
+      designation: 'HR Manager',
+      email: 'hr@businz.com',
+      phone: '9876543212',
+      joiningDate: '2025-01-01',
+      status: 'Active',
+      basicSalary: 12000,
+      grossSalary: 30000,
+      allowances: { da: 6000, conveyance: 1500, hra: 10500 } as any,
+      deductions: 0,
+      salaryDetails: {
+        monthlyCtc: 30000,
+        basicSalary: 12000,
+        da: 6000,
+        conveyance: 1500,
+        hra: 10500,
+        withPf: true,
+      } as any,
+    };
+
+    it('excludes CEO from attendance tracking, OT eligibility, OT calculations, and attendance-based salary adjustments in both backend and frontend', () => {
+      expect(isCeoOrOwnerEmployee(ceoEmployee)).toBe(true);
+      expect(isOwnerOrCEO(ceoEmployee)).toBe(true);
+
+      // 1) Backend OT eligibility for CEO is always false / RESTRICTED even if statutoryEntitlement or Allow OT is passed
+      const backendCeoElig = resolveBackendEligibility({
+        employeeId: 'VRM-001',
+        role: 'CEO',
+        departmentName: 'FLOOR',
+        designation: 'CEO',
+        departmentOtAllowed: true,
+        employeeExceptionRule: 'Allow OT',
+        statutoryEntitlement: true,
+      });
+      expect(backendCeoElig.eligible).toBe(false);
+      expect(backendCeoElig.source).toBe('RESTRICTED');
+
+      // 2) Frontend OT eligibility for CEO is always false / Blocked
+      const frontendCeoElig = resolveFrontendEligibility({
+        employee: ceoEmployee,
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [
+          {
+            employeeId: 'VRM-001',
+            employeeName: 'Mohamed Ahilesh',
+            department: 'CEO',
+            departmentDefaultOt: true,
+            individualOtException: 'Allow OT',
+            statutoryEntitlement: true,
+          },
+        ],
+      });
+      expect(frontendCeoElig.isEligible).toBe(false);
+      expect(frontendCeoElig.allowed).toBe(false);
+      expect(frontendCeoElig.source).toBe('Blocked');
+
+      // 3) Backend computeFullPayroll forces 0 OT, 0 attendance bonus, and 0 LOP for CEO
+      const backendCeoPayroll = computeFullPayroll({
+        employeeId: 'VRM-001',
+        monthlySalary: 100000,
+        basicPercentage: 40,
+        daPercentage: 20,
+        conveyancePercentage: 5,
+        hraPercentage: 35,
+        payrollMonth: 11,
+        payrollYear: 2026,
+        settings: baseSettings,
+        attendance: {
+          workingDays: 30,
+          presentDays: 10,
+          paidLeaveDays: 0,
+          unpaidLeaveDays: 5,
+          absentDays: 15,
+          halfDays: 0,
+          lopDays: 20,
+          overtimeHours: 12,
+        },
+        earnings: {
+          attendanceBonus: 1000,
+          overtimeHours: 12,
+          overtimeRate: 500,
+          overtimeAmount: 6000,
+        },
+        employeeContext: {
+          employeeId: 'VRM-001',
+          role: 'CEO',
+          department: 'CEO',
+          designation: 'CEO',
+        },
+      });
+      expect(backendCeoPayroll.overtimeHours).toBe(0);
+      expect(backendCeoPayroll.overtimeAmount).toBe(0);
+      expect(backendCeoPayroll.otVariableAmount).toBe(0);
+      expect(backendCeoPayroll.attendanceBonus).toBe(0);
+      expect(backendCeoPayroll.lopDays).toBe(0);
+      expect(backendCeoPayroll.lopAmount).toBe(0);
+      expect(backendCeoPayroll.grossSalary).toBe(100000);
+
+      // 4) Frontend calculateEmployeePayroll forces 0 OT, 0 attendance bonus, and 0 attendance deductions for CEO
+      const frontendCeoPayroll = calculateEmployeePayroll(
+        ceoEmployee,
+        [
+          {
+            id: 'att-ceo-1',
+            employeeId: 'VRM-001',
+            employeeName: 'Mohamed Ahilesh',
+            department: 'CEO',
+            date: '2026-11-05',
+            checkIn: '09:00 AM',
+            checkOut: '09:00 PM',
+            workingHours: 12,
+            overtimeHours: 3,
+            otApprovalStatus: 'Approved',
+            status: 'Present',
+          } as any,
+        ],
+        [],
+        [],
+        [],
+        undefined,
+        undefined,
+        undefined,
+        'November',
+        2026,
+        [],
+        {
+          directOvertimeHours: 10,
+          directOvertimeAmount: 5000,
+          overtimePolicy: defaultOtPolicy,
+          departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        }
+      );
+      expect(frontendCeoPayroll.overtimeHours).toBe(0);
+      expect(frontendCeoPayroll.overtimeAmount).toBe(0);
+      expect(frontendCeoPayroll.attendanceBonus).toBe(0);
+      expect(frontendCeoPayroll.lateAttendanceDeduction).toBe(0);
+      expect(frontendCeoPayroll.unpaidLeaveDeduction).toBe(0);
+      expect(frontendCeoPayroll.grossSalary).toBe(100000);
+
+      // 5) Monthly Attendance Report excludes CEO completely
+      const ceoReport = buildEmployeeMonthlyAttendanceOtReport({
+        employee: ceoEmployee,
+        attendanceRecords: [
+          {
+            id: 'att-ceo-1',
+            employeeId: 'VRM-001',
+            employeeName: 'Mohamed Ahilesh',
+            department: 'CEO',
+            date: '2026-11-05',
+            checkIn: '09:00 AM',
+            checkOut: '09:00 PM',
+            workingHours: 12,
+            status: 'Present',
+          } as any,
+        ],
+        month: 11,
+        year: 2026,
+      });
+      expect(ceoReport.excluded).toBe(true);
+      expect(ceoReport.showOtFields).toBe(false);
+      expect(ceoReport.rows).toHaveLength(0);
+      expect(ceoReport.totalApprovedOtHours).toBe(0);
+      expect(ceoReport.totalApprovedOtAmount).toBe(0);
+    });
+
+    it('generates Monthly Attendance + Overtime Details for OT-eligible employees matching Payroll & Payslip OT amounts 100%, and normal attendance-only report for non-eligible employees', () => {
+      const salaryBasedOtPolicy: OvertimePolicy = {
+        ...defaultOtPolicy,
+        wageBase: 'GROSS',
+        divisorMode: 'CALENDAR_DAYS',
+        defaultDailyPaidHours: 9,
+        defaultMultiplier: '2x Salary',
+        regularMultiplier: 2.0,
+      };
+
+      const novAttendance = [
+        {
+          id: 'att-fl-1',
+          employeeId: 'VRM-036',
+          employeeName: 'Purushothaman M',
+          department: 'FLOOR',
+          date: '2026-11-02',
+          shiftName: '09:00 AM - 06:00 PM',
+          checkIn: '09:00 AM',
+          checkOut: '10:00 PM',
+          workingHours: 13,
+          status: 'Present' as const,
+        },
+        {
+          id: 'att-fl-2',
+          employeeId: 'VRM-036',
+          employeeName: 'Purushothaman M',
+          department: 'FLOOR',
+          date: '2026-11-03',
+          shiftName: '09:00 AM - 06:00 PM',
+          checkIn: '09:00 AM',
+          checkOut: '12:00 AM',
+          workingHours: 15,
+          status: 'Present' as const,
+        },
+        {
+          id: 'att-hr-1',
+          employeeId: 'VRM-010',
+          employeeName: 'Kavitha HR',
+          department: 'HR',
+          date: '2026-11-02',
+          shiftName: '09:00 AM - 06:00 PM',
+          checkIn: '09:00 AM',
+          checkOut: '07:00 PM',
+          workingHours: 10,
+          status: 'Present' as const,
+        },
+      ];
+
+      const novOtRequests: OvertimeRequest[] = [
+        {
+          id: 'ot-fl-1',
+          employeeId: 'VRM-036',
+          employeeName: 'Purushothaman M',
+          department: 'FLOOR',
+          date: '2026-11-02',
+          shiftName: '09:00 AM - 06:00 PM',
+          shiftEnd: '06:00 PM',
+          actualCheckOut: '10:00 PM',
+          potentialOtHours: 4,
+          requestedOtHours: 4,
+          approvedOtHours: 4,
+          multiplier: '2x Salary',
+          hourlyRate: 111.11,
+          calculatedAmount: 444.44,
+          submittedAt: '2026-11-02',
+          reason: 'Floor batch 1',
+          status: 'Approved',
+        },
+        {
+          id: 'ot-fl-2',
+          employeeId: 'VRM-036',
+          employeeName: 'Purushothaman M',
+          department: 'FLOOR',
+          date: '2026-11-03',
+          shiftName: '09:00 AM - 06:00 PM',
+          shiftEnd: '06:00 PM',
+          actualCheckOut: '12:00 AM',
+          potentialOtHours: 6,
+          requestedOtHours: 6,
+          approvedOtHours: 6,
+          multiplier: '2x Salary',
+          hourlyRate: 111.11,
+          calculatedAmount: 666.67,
+          submittedAt: '2026-11-03',
+          reason: 'Floor batch 2',
+          status: 'Approved',
+        },
+      ];
+
+      // A) OT-Eligible Employee (FLOOR): sees DATE | SHIFT TIME | SHIFT WORK HRS | OT HRS | OT AMOUNT
+      const floorReport = buildEmployeeMonthlyAttendanceOtReport({
+        employee: floorEmployee,
+        attendanceRecords: novAttendance as any,
+        overtimeRequests: novOtRequests,
+        overtimePolicy: salaryBasedOtPolicy,
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [],
+        month: 11,
+        year: 2026,
+      });
+
+      expect(floorReport.excluded).toBe(false);
+      expect(floorReport.showOtFields).toBe(true);
+      expect(floorReport.rows).toHaveLength(2);
+      expect(floorReport.rows[0].date).toBe('2026-11-02');
+      expect(floorReport.rows[0].shiftWorkHrs).toBe(13);
+      expect(floorReport.rows[0].otHrs).toBe(4);
+      expect(floorReport.rows[0].otAmount).toBe(444.44);
+      expect(floorReport.rows[1].date).toBe('2026-11-03');
+      expect(floorReport.rows[1].shiftWorkHrs).toBe(15);
+      expect(floorReport.rows[1].otHrs).toBe(6);
+      expect(floorReport.rows[1].otAmount).toBe(666.67);
+      expect(floorReport.totalApprovedOtHours).toBe(10);
+      expect(floorReport.totalApprovedOtAmount).toBe(1111.11);
+
+      // Verify Payroll and Payslip OT amounts match the Attendance Report 100%
+      const floorPayroll = calculateEmployeePayroll(
+        floorEmployee,
+        novAttendance as any,
+        [],
+        [],
+        [],
+        undefined,
+        undefined,
+        undefined,
+        'November',
+        2026,
+        [],
+        {
+          overtimeRequests: novOtRequests,
+          overtimePolicy: salaryBasedOtPolicy,
+          departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+          employeeOtPolicies: [],
+          salaryDivisorMode: 'CALENDAR_DAYS',
+        }
+      );
+      expect(floorPayroll.overtimeHours).toBe(floorReport.totalApprovedOtHours);
+      expect(floorPayroll.overtimeAmount).toBe(floorReport.totalApprovedOtAmount);
+
+      // B) Non-Eligible Employee (HR in restricted department without exception): sees normal attendance report without OT fields
+      const hrReport = buildEmployeeMonthlyAttendanceOtReport({
+        employee: hrEmployee,
+        attendanceRecords: novAttendance as any,
+        overtimeRequests: novOtRequests,
+        overtimePolicy: salaryBasedOtPolicy,
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [],
+        month: 11,
+        year: 2026,
+      });
+      expect(hrReport.excluded).toBe(false);
+      expect(hrReport.showOtFields).toBe(false);
+      expect(hrReport.rows).toHaveLength(1);
+      expect(hrReport.rows[0].date).toBe('2026-11-02');
+      expect(hrReport.rows[0].shiftWorkHrs).toBe(10);
+      expect(hrReport.rows[0].otHrs).toBe(0);
+      expect(hrReport.rows[0].otAmount).toBe(0);
+      expect(hrReport.totalApprovedOtHours).toBe(0);
+      expect(hrReport.totalApprovedOtAmount).toBe(0);
     });
   });
 });

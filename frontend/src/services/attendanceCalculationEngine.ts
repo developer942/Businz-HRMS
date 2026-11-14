@@ -2,6 +2,7 @@
 // Strictly computes worked hours, break deductions, potential/approved OT, late/early flags, salary impact & monthly summaries
 
 import { AttendanceRecord, Employee } from '../types/hrms';
+import { isOwnerOrCEO } from '../data/hrmsInitialData';
 import {
   ShiftModel,
   OvertimePolicy,
@@ -244,8 +245,13 @@ export function resolvePayrollSalaryDivisor(params: {
     );
   }
 
-  if (effectiveMode === 'FIXED_26') {
-    return buildResult(26, 'FIXED_DAYS', 'Fixed 26 Days');
+  if (effectiveMode === 'FIXED_26' || effectiveMode === 'STATUTORY_DIVISOR') {
+    const statDays = customDivisorDays && customDivisorDays > 0 ? customDivisorDays : 26;
+    return buildResult(
+      effectiveMode === 'STATUTORY_DIVISOR' ? statDays : 26,
+      'FIXED_DAYS',
+      effectiveMode === 'STATUTORY_DIVISOR' ? `Statutory Divisor (${statDays} days)` : 'Fixed 26 Days'
+    );
   }
 
   if (effectiveMode === 'FIXED_30') {
@@ -371,6 +377,9 @@ export function resolveEmployeeOtEligibility(
         attendanceDate?: string;
         departmentHistory?: { department?: string; departmentName?: string; effectiveFrom: string; effectiveTo?: string }[];
         statutoryEntitlement?: boolean;
+        overtimePolicy?: OvertimePolicy;
+        companyId?: string;
+        branchId?: string;
       }
 ): ResolvedOtEligibilityResult {
   let employeeId = '';
@@ -380,18 +389,27 @@ export function resolveEmployeeOtEligibility(
   let attendanceDate: string | undefined;
   let departmentHistory: { department?: string; departmentName?: string; effectiveFrom: string; effectiveTo?: string }[] | undefined;
   let statutoryEntitlement: boolean | undefined;
+  let resolvedOtPolicy: OvertimePolicy | undefined;
+  let companyId: string | undefined;
+  let branchId: string | undefined;
 
   if (typeof empOrIdOrParams === 'string') {
     employeeId = empOrIdOrParams;
     department = typeof departmentOrDeptPolicies === 'string' ? departmentOrDeptPolicies : 'General';
     deptPolicies = Array.isArray(deptPoliciesOrEmpPolicies) ? (deptPoliciesOrEmpPolicies as DepartmentOtPolicy[]) : [];
     empPolicies = Array.isArray(empPoliciesOrOtPolicy) ? (empPoliciesOrOtPolicy as EmployeeOtPolicy[]) : [];
+    if (empPoliciesOrOtPolicy && !Array.isArray(empPoliciesOrOtPolicy) && typeof empPoliciesOrOtPolicy === 'object') {
+      resolvedOtPolicy = empPoliciesOrOtPolicy as OvertimePolicy;
+    }
     if (typeof optionsOrDateStr === 'string') {
       attendanceDate = optionsOrDateStr;
     } else if (optionsOrDateStr) {
       attendanceDate = optionsOrDateStr.attendanceDate;
       departmentHistory = optionsOrDateStr.departmentHistory;
       statutoryEntitlement = optionsOrDateStr.statutoryEntitlement;
+      if (optionsOrDateStr.overtimePolicy) resolvedOtPolicy = optionsOrDateStr.overtimePolicy;
+      companyId = optionsOrDateStr.companyId;
+      branchId = optionsOrDateStr.branchId;
     }
   } else if (empOrIdOrParams && ('departmentOtPolicies' in empOrIdOrParams || 'dateStr' in empOrIdOrParams || 'employee' in empOrIdOrParams)) {
     const innerEmp = empOrIdOrParams.employee || empOrIdOrParams;
@@ -402,13 +420,21 @@ export function resolveEmployeeOtEligibility(
     attendanceDate = empOrIdOrParams.dateStr;
     departmentHistory = innerEmp.departmentHistory;
     statutoryEntitlement = innerEmp.statutoryOtEntitled;
+    resolvedOtPolicy = empOrIdOrParams.overtimePolicy;
+    companyId = (innerEmp as any).companyId || (empOrIdOrParams as any).companyId;
+    branchId = (innerEmp as any).branchId || (empOrIdOrParams as any).branchId;
   } else if (empOrIdOrParams) {
     employeeId = empOrIdOrParams.employeeId || empOrIdOrParams.id || '';
     department = empOrIdOrParams.department || 'General';
     departmentHistory = empOrIdOrParams.departmentHistory;
     statutoryEntitlement = empOrIdOrParams.statutoryOtEntitled;
+    companyId = (empOrIdOrParams as any).companyId;
+    branchId = (empOrIdOrParams as any).branchId;
     deptPolicies = Array.isArray(departmentOrDeptPolicies) ? departmentOrDeptPolicies : [];
     empPolicies = Array.isArray(deptPoliciesOrEmpPolicies) ? (deptPoliciesOrEmpPolicies as EmployeeOtPolicy[]) : [];
+    if (empPoliciesOrOtPolicy && !Array.isArray(empPoliciesOrOtPolicy) && typeof empPoliciesOrOtPolicy === 'object') {
+      resolvedOtPolicy = empPoliciesOrOtPolicy as OvertimePolicy;
+    }
     if (typeof optionsOrDateStr === 'string') {
       attendanceDate = optionsOrDateStr;
     } else if (typeof empPoliciesOrOtPolicy === 'string') {
@@ -417,6 +443,9 @@ export function resolveEmployeeOtEligibility(
       attendanceDate = optionsOrDateStr.attendanceDate;
       if (optionsOrDateStr.departmentHistory) departmentHistory = optionsOrDateStr.departmentHistory;
       if (optionsOrDateStr.statutoryEntitlement !== undefined) statutoryEntitlement = optionsOrDateStr.statutoryEntitlement;
+      if (optionsOrDateStr.overtimePolicy) resolvedOtPolicy = optionsOrDateStr.overtimePolicy;
+      if (optionsOrDateStr.companyId) companyId = optionsOrDateStr.companyId;
+      if (optionsOrDateStr.branchId) branchId = optionsOrDateStr.branchId;
     }
   }
 
@@ -426,8 +455,19 @@ export function resolveEmployeeOtEligibility(
     departmentHistory
   );
 
+  const matchesCompanyScope = (policyItem: { companyId?: string; branchId?: string }) => {
+    if (companyId && policyItem.companyId && policyItem.companyId.toLowerCase() !== companyId.toLowerCase()) {
+      return false;
+    }
+    if (branchId && policyItem.branchId && policyItem.branchId.toLowerCase() !== branchId.toLowerCase()) {
+      return false;
+    }
+    return true;
+  };
+
   const matchingEmpPolicies = (empPolicies || [])
     .filter(p => p.employeeId && p.employeeId.trim().toLowerCase() === employeeId.trim().toLowerCase())
+    .filter(matchesCompanyScope)
     .filter(p => isPolicyEffectiveOnDate(p, attendanceDate))
     .sort((a, b) => String(b.effectiveFrom || '').localeCompare(String(a.effectiveFrom || '')));
   const empPolicy = matchingEmpPolicies[0];
@@ -437,6 +477,7 @@ export function resolveEmployeeOtEligibility(
       const dName = p.department || (p as any).departmentName || '';
       return dName.trim().toLowerCase() === resolvedDepartment.trim().toLowerCase();
     })
+    .filter(matchesCompanyScope)
     .filter(p => isPolicyEffectiveOnDate(p, attendanceDate))
     .sort((a, b) => String(b.effectiveFrom || '').localeCompare(String(a.effectiveFrom || '')));
   const deptPolicy = matchingDeptPolicies[0];
@@ -451,12 +492,16 @@ export function resolveEmployeeOtEligibility(
     return fallback;
   };
 
-  const baseShiftHours = deptPolicy?.standardShiftHours || 9;
-  const baseHourlyRate = empPolicy?.customHourlyRate ?? deptPolicy?.otHourlyRate ?? 100;
-  const baseWageBase: OtWageBaseMode = empPolicy?.customWageBase || deptPolicy?.wageBase || 'FIXED_HOURLY';
-  const baseDivisorMode: OtSalaryDivisorMode = deptPolicy?.divisorMode || 'COMPANY_DIVISOR';
-  const baseMultiplier: OvertimeMultiplierType = empPolicy?.customMultiplier || deptPolicy?.defaultMultiplier || '1x Salary';
-  const baseMinMins = empPolicy?.minOtDurationMinutes ?? deptPolicy?.minOtDurationMinutes ?? 30;
+  const policyMultiplierFallback: OvertimeMultiplierType =
+    resolvedOtPolicy?.defaultMultiplier ||
+    (resolvedOtPolicy?.regularMultiplier === 2 ? '2x Salary' : resolvedOtPolicy?.regularMultiplier === 1.5 ? '1.5x Salary' : '1x Salary');
+
+  const baseShiftHours = deptPolicy?.standardShiftHours || resolvedOtPolicy?.defaultDailyPaidHours || 9;
+  const baseHourlyRate = empPolicy?.customHourlyRate ?? deptPolicy?.otHourlyRate ?? resolvedOtPolicy?.fixedRatePerHour ?? 100;
+  const baseWageBase: OtWageBaseMode = empPolicy?.customWageBase || deptPolicy?.wageBase || resolvedOtPolicy?.wageBase || 'FIXED_HOURLY';
+  const baseDivisorMode: OtSalaryDivisorMode = deptPolicy?.divisorMode || resolvedOtPolicy?.divisorMode || 'COMPANY_DIVISOR';
+  const baseMultiplier: OvertimeMultiplierType = empPolicy?.customMultiplier || deptPolicy?.defaultMultiplier || policyMultiplierFallback;
+  const baseMinMins = empPolicy?.minOtDurationMinutes ?? deptPolicy?.minOtDurationMinutes ?? resolvedOtPolicy?.minimumOtDurationMinutes ?? 30;
 
   const makeOut = (
     isElig: boolean,
@@ -484,6 +529,27 @@ export function resolveEmployeeOtEligibility(
   });
 
   const effectiveException = empPolicy?.individualException || empPolicy?.individualOtException;
+
+  const ceoCandidate =
+    typeof empOrIdOrParams === 'object' && empOrIdOrParams !== null
+      ? (empOrIdOrParams.employee || empOrIdOrParams)
+      : { employeeId, department: resolvedDepartment };
+
+  if (
+    isOwnerOrCEO({
+      ...(ceoCandidate as any),
+      employeeId: employeeId || (ceoCandidate as any)?.employeeId,
+      department: resolvedDepartment || (ceoCandidate as any)?.department,
+    })
+  ) {
+    return makeOut(
+      false,
+      'CEO / Company Owner is exempt from attendance tracking and overtime eligibility',
+      0,
+      0,
+      'Blocked'
+    );
+  }
 
   // 1. Check explicit Individual Block first
   if (empPolicy && effectiveException === 'Block OT') {
@@ -814,6 +880,8 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
   overtimePolicy?: OvertimePolicy | null;
   departmentOtPolicies?: DepartmentOtPolicy[];
   employeeOtPolicies?: EmployeeOtPolicy[];
+  statutoryMultiplier?: number;
+  statutoryMinimumMultiplier?: number;
 }): {
   wageBaseMode: OtWageBaseMode;
   wageBaseUsed: OtWageBaseMode;
@@ -867,10 +935,13 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
       ? params.dailyPaidHours
       : (elig?.standardShiftHours || params.overtimePolicy?.defaultDailyPaidHours || 9);
 
-  const safeOtHours = Math.max(
-    0,
-    Number(params.approvedOtHours ?? params.approvedHours ?? 0) || 0
-  );
+  const isCeoEmp = Boolean(emp && isOwnerOrCEO(emp as any));
+  const safeOtHours = isCeoEmp
+    ? 0
+    : Math.max(
+        0,
+        Number(params.approvedOtHours ?? params.approvedHours ?? 0) || 0
+      );
 
   const wageBaseMode: OtWageBaseMode =
     params.wageBaseMode ||
@@ -895,30 +966,36 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
     else multiplierFactor = 1.0;
   }
 
+  const statMin = Number(params.statutoryMultiplier ?? params.statutoryMinimumMultiplier ?? 0);
+  if (statMin > multiplierFactor) {
+    multiplierFactor = statMin;
+  }
+
   const empBasic = Number(params.basicSalary ?? emp?.salaryDetails?.basicSalary ?? emp?.basicSalary ?? 0);
   const empCtc = Number(params.monthlyCtc ?? emp?.salaryDetails?.monthlyCtc ?? emp?.monthlyCtc ?? emp?.grossSalary ?? (empBasic > 0 ? Math.round(empBasic / 0.4) : 0));
   const empGross = Number(params.grossSalary ?? emp?.grossSalary ?? empCtc);
   const fixedHourlyRate = Number(params.fixedHourlyRate ?? elig?.otHourlyRate ?? params.overtimePolicy?.fixedRatePerHour ?? 100);
 
   let wageBaseAmount = 0;
-  let baseHourlyRate = 0;
+  let rawBaseHourlyRate = 0;
 
   if (wageBaseMode === 'BASIC' && empBasic > 0) {
     wageBaseAmount = empBasic;
-    baseHourlyRate = Math.round(((empBasic / safeDivisor) / safeDailyHours) * 100) / 100;
+    rawBaseHourlyRate = (empBasic / safeDivisor) / safeDailyHours;
   } else if (wageBaseMode === 'GROSS' && empGross > 0) {
     wageBaseAmount = empGross;
-    baseHourlyRate = Math.round(((empGross / safeDivisor) / safeDailyHours) * 100) / 100;
+    rawBaseHourlyRate = (empGross / safeDivisor) / safeDailyHours;
   } else if (wageBaseMode === 'CTC' && empCtc > 0) {
     wageBaseAmount = empCtc;
-    baseHourlyRate = Math.round(((empCtc / safeDivisor) / safeDailyHours) * 100) / 100;
+    rawBaseHourlyRate = (empCtc / safeDivisor) / safeDailyHours;
   } else {
     wageBaseAmount = fixedHourlyRate > 0 ? fixedHourlyRate : 100;
-    baseHourlyRate = Math.round(wageBaseAmount * 100) / 100;
+    rawBaseHourlyRate = wageBaseAmount;
   }
 
-  const effectiveHourlyRate = Math.round(baseHourlyRate * multiplierFactor * 100) / 100;
-  const overtimeAmount = Math.round(safeOtHours * baseHourlyRate * multiplierFactor * 100) / 100;
+  const baseHourlyRate = Math.round((rawBaseHourlyRate + Number.EPSILON) * 100) / 100;
+  const effectiveHourlyRate = Math.round((rawBaseHourlyRate * multiplierFactor + Number.EPSILON) * 100) / 100;
+  const overtimeAmount = Math.round((rawBaseHourlyRate * safeOtHours * multiplierFactor + Number.EPSILON) * 100) / 100;
 
   const formulaDescription = wageBaseMode === 'FIXED_HOURLY'
     ? `${safeOtHours} hrs × ₹${baseHourlyRate}/hr × ${multiplierFactor}x = ₹${overtimeAmount}`
@@ -954,8 +1031,10 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
  * prevents duplicates and locked-payroll modifications, and returns eligible vs restricted items.
  */
 export function identifyEligibleOvertimeFromAttendance(params: {
-  attendanceRecords: AttendanceRecord[];
-  employees: Employee[];
+  attendanceRecords?: AttendanceRecord[];
+  attendanceRecord?: AttendanceRecord;
+  employees?: Employee[];
+  employee?: Employee;
   shifts?: any[];
   departmentOtPolicies: DepartmentOtPolicy[];
   employeeOtPolicies: EmployeeOtPolicy[];
@@ -968,6 +1047,8 @@ export function identifyEligibleOvertimeFromAttendance(params: {
   currentOpenPayrollYear?: number;
   month?: string | number;
   year?: number;
+  payrollMonth?: string | number;
+  payrollYear?: number;
 }): {
   eligibleNewRequests: OvertimeRequest[];
   newRequests: OvertimeRequest[];
@@ -983,10 +1064,14 @@ export function identifyEligibleOvertimeFromAttendance(params: {
   skippedRestricted: number;
   skippedDuplicates: number;
   skippedDuplicatesCount: number;
+  eligible?: boolean;
+  workedHours?: number;
+  overtimeHours?: number;
+  overtimeAmount?: number;
 } {
+  const attendanceRecords = params.attendanceRecords || (params.attendanceRecord ? [params.attendanceRecord] : []);
+  const employees = params.employees || (params.employee ? [params.employee] : []);
   const {
-    attendanceRecords = [],
-    employees = [],
     departmentOtPolicies = [],
     employeeOtPolicies = [],
     overtimePolicy,
@@ -1027,13 +1112,23 @@ export function identifyEligibleOvertimeFromAttendance(params: {
 
   for (const att of attendanceRecords) {
     if (!att || !att.date || !att.employeeId) continue;
-    if (att.status === 'Absent' || att.status === 'On Leave' || att.status === 'Holiday' || att.status === 'Week Off') {
+    if (att.status === 'Absent' || att.status === 'On Leave') {
       continue;
     }
 
     const emp = employees.find(
       e => e.employeeId?.toLowerCase() === att.employeeId.toLowerCase() || e.id?.toLowerCase() === att.employeeId.toLowerCase()
     );
+
+    if (
+      isOwnerOrCEO({
+        ...(emp as any),
+        employeeId: att.employeeId,
+        department: att.department || emp?.department,
+      })
+    ) {
+      continue;
+    }
 
     const elig = resolveEmployeeOtEligibility(
       att.employeeId,
@@ -1043,15 +1138,34 @@ export function identifyEligibleOvertimeFromAttendance(params: {
       {
         attendanceDate: att.date,
         departmentHistory: emp?.departmentHistory,
-        statutoryEntitlement: emp?.statutoryOtEntitled
+        statutoryEntitlement: emp?.statutoryOtEntitled,
+        overtimePolicy
       }
     );
 
     const shiftHours = elig.standardShiftHours || overtimePolicy?.defaultDailyPaidHours || 9;
-    const workedHours = Number(att.workingHours ?? att.workHours) || 0;
+    let workedHours = Number(att.workingHours ?? att.workHours) || 0;
+    if (workedHours <= 0 && att.checkIn && att.checkOut) {
+      const inMins = parseTimeToMinutes(att.checkIn);
+      const outMins = parseTimeToMinutes(att.checkOut);
+      if (inMins !== null && outMins !== null) {
+        const grossMins = (outMins >= inMins ? outMins : outMins + 24 * 60) - inMins;
+        const breakMins = Number((att as any).breakMinutes ?? (att as any).breakDurationMinutes ?? 60);
+        const applicableBreak = grossMins > (breakMins + 120) ? breakMins : 0;
+        workedHours = Math.round((Math.max(0, grossMins - applicableBreak) / 60) * 100) / 100;
+      }
+    }
+
+    const isHolidayOrWeekOff = att.status === 'Holiday' || att.status === 'Week Off' || Boolean((att as any).isHoliday) || Boolean((att as any).isWeeklyOff);
+    if (isHolidayOrWeekOff && workedHours <= 0 && !att.calculatedOtHours && !att.otHours) {
+      continue;
+    }
+
     const rawExtraHours = Math.max(
       0,
-      Math.round((workedHours - shiftHours) * 100) / 100,
+      isHolidayOrWeekOff
+        ? workedHours
+        : Math.round((workedHours - shiftHours) * 100) / 100,
       Number(att.calculatedOtHours) || 0,
       Number(att.otHours) || 0
     );
@@ -1157,13 +1271,33 @@ export function identifyEligibleOvertimeFromAttendance(params: {
     });
   }
 
+  const firstReq = eligibleNewRequests[0];
+  let firstWorkedHours = 0;
+  if (attendanceRecords[0]) {
+    const a0 = attendanceRecords[0];
+    firstWorkedHours = Number(a0.workingHours ?? a0.workHours) || 0;
+    if (firstWorkedHours <= 0 && a0.checkIn && a0.checkOut) {
+      const inM = parseTimeToMinutes(a0.checkIn);
+      const outM = parseTimeToMinutes(a0.checkOut);
+      if (inM !== null && outM !== null) {
+        const gM = (outM >= inM ? outM : outM + 24 * 60) - inM;
+        const bM = Number((a0 as any).breakMinutes ?? (a0 as any).breakDurationMinutes ?? 60);
+        firstWorkedHours = Math.round((Math.max(0, gM - (gM > bM + 120 ? bM : 0)) / 60) * 100) / 100;
+      }
+    }
+  }
+
   return {
     eligibleNewRequests,
     newRequests: eligibleNewRequests,
     restrictedItems,
     skippedRestricted: restrictedItems.length,
     skippedDuplicates: skippedDuplicatesCount,
-    skippedDuplicatesCount
+    skippedDuplicatesCount,
+    eligible: eligibleNewRequests.length > 0,
+    workedHours: firstWorkedHours,
+    overtimeHours: firstReq?.requestedOtHours ?? 0,
+    overtimeAmount: firstReq?.calculatedAmount ?? 0,
   };
 }
 
@@ -1186,6 +1320,28 @@ export function calculateAttendanceSalaryImpact(params: {
     otPolicy,
     dayType = 'Regular'
   } = params;
+
+  if (
+    isOwnerOrCEO({
+      ...(employee as any),
+      employeeId: employee?.employeeId || record?.employeeId,
+      department: employee?.department || record?.department,
+    })
+  ) {
+    return {
+      dailySalary: 0,
+      standardWorkingHours: shift.requiredWorkingHours || 9.0,
+      hourlyRate: 0,
+      regularWorkHours: 0,
+      otHours: 0,
+      otAmount: 0,
+      halfDayDeduction: 0,
+      lateDeduction: 0,
+      absentDeduction: 0,
+      earlyCheckoutDeduction: 0,
+      netAdjustment: 0,
+    };
+  }
 
   const basicSalary = employee?.basicSalary || 26000;
   const workingDaysPerMonth = 26;
@@ -1284,6 +1440,31 @@ export function aggregateMonthlyAttendanceSummary(
   otPolicy: OvertimePolicy,
   employee?: Employee
 ): MonthlyAttendanceSummary {
+  if (
+    isOwnerOrCEO({
+      ...(employee as any),
+      employeeId: employee?.employeeId || employeeId,
+    })
+  ) {
+    return {
+      totalWorkingDays: 0,
+      presentDays: 0,
+      absentDays: 0,
+      halfDays: 0,
+      leaveDays: 0,
+      weeklyOffDays: 0,
+      holidayDays: 0,
+      lateDays: 0,
+      earlyCheckoutDays: 0,
+      missingAttendanceDays: 0,
+      approvedOtHours: 0,
+      pendingOtHours: 0,
+      rejectedOtHours: 0,
+      totalOtAmount: 0,
+      totalDeductionAmount: 0,
+      netImpact: 0,
+    };
+  }
   const empRecords = records.filter(r => r.employeeId === employeeId);
 
   let presentDays = 0;
@@ -1341,14 +1522,23 @@ export function aggregateMonthlyAttendanceSummary(
     }
 
     if (rec.approvedOtHours && rec.approvedOtHours > 0) {
-      approvedOtHours += rec.approvedOtHours;
-      const { otAmount } = calculateOtSalaryAmount({
-        otHours: rec.approvedOtHours,
-        dailySalary,
-        standardWorkingHours: standardHours,
-        otPolicy
-      });
-      totalOtAmount += otAmount;
+      const dateElig = resolveEmployeeOtEligibility(
+        employee || { employeeId, department: rec.department },
+        [],
+        [],
+        otPolicy,
+        rec.date
+      );
+      if (dateElig.isEligible) {
+        approvedOtHours += rec.approvedOtHours;
+        const { otAmount } = calculateOtSalaryAmount({
+          otHours: rec.approvedOtHours,
+          dailySalary,
+          standardWorkingHours: standardHours,
+          otPolicy
+        });
+        totalOtAmount += otAmount;
+      }
     }
 
     if (rec.otStatus === 'Pending' && rec.calculatedOtHours) {
@@ -1390,5 +1580,273 @@ export function aggregateMonthlyAttendanceSummary(
     totalOtAmount: Math.round(totalOtAmount * 100) / 100,
     totalDeductionAmount: Math.round(totalDeductionAmount * 100) / 100,
     netImpact
+  };
+}
+
+export interface MonthlyAttendanceOtReportRow {
+  id: string;
+  date: string;
+  shiftTime: string;
+  punchTimeDisplay: string;
+  shiftWorkHrs: number;
+  status: string;
+  otHrs: number;
+  otAmount: number;
+  otStatus?: string;
+}
+
+export interface MonthlyAttendanceOtReportResult {
+  excluded: boolean;
+  showOtFields: boolean;
+  eligibilityReason: string;
+  eligibilitySource: string;
+  rows: MonthlyAttendanceOtReportRow[];
+  totalShiftWorkHours: number;
+  totalApprovedOtHours: number;
+  totalApprovedOtAmount: number;
+}
+
+/**
+ * Builds the Monthly Attendance + Overtime Details report for an employee or HR staff member.
+ * - Excludes CEO / Company Owner completely (`excluded: true`, `rows: []`, 0 OT).
+ * - For OT-eligible employees: calculates `otHrs` and `otAmount` per day and `totalApprovedOtHours` / `totalApprovedOtAmount`
+ *   using the exact same calculation engine as payroll and payslips.
+ * - For non-eligible employees: returns `showOtFields: false` and 0 OT so a normal attendance report is shown without OT payment fields.
+ */
+export function buildEmployeeMonthlyAttendanceOtReport(params: {
+  employee: any;
+  attendanceRecords: AttendanceRecord[];
+  overtimeRequests?: OvertimeRequest[];
+  overtimePolicy?: OvertimePolicy;
+  departmentOtPolicies?: DepartmentOtPolicy[];
+  employeeOtPolicies?: EmployeeOtPolicy[];
+  payrollConfig?: PayrollSettingsConfig;
+  shifts?: any[];
+  month: string | number;
+  year: number;
+}): MonthlyAttendanceOtReportResult {
+  const {
+    employee,
+    attendanceRecords = [],
+    overtimeRequests = [],
+    overtimePolicy,
+    departmentOtPolicies = [],
+    employeeOtPolicies = [],
+    payrollConfig,
+    shifts = [],
+    month,
+    year,
+  } = params;
+
+  if (!employee || isOwnerOrCEO(employee)) {
+    return {
+      excluded: true,
+      showOtFields: false,
+      eligibilityReason: 'CEO / Company Owner is exempt from attendance tracking and overtime eligibility',
+      eligibilitySource: 'Blocked',
+      rows: [],
+      totalShiftWorkHours: 0,
+      totalApprovedOtHours: 0,
+      totalApprovedOtAmount: 0,
+    };
+  }
+
+  const targetMonthNum = resolveMonthNumber(month, year);
+  const monthPrefix = `${year}-${String(targetMonthNum).padStart(2, '0')}`;
+  const refDate = `${monthPrefix}-15`;
+
+  const baseEligibility = resolveEmployeeOtEligibility(
+    employee,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    overtimePolicy,
+    refDate
+  );
+
+  const empIds = new Set(
+    [employee.employeeId, employee.id]
+      .filter(Boolean)
+      .map((v: any) => String(v).trim().toLowerCase())
+  );
+
+  const assignedShift =
+    (shifts || []).find((s: any) =>
+      s.assignments?.some((a: any) => empIds.has(String(a.employeeId || '').trim().toLowerCase()))
+    ) || (shifts || [])[0];
+
+  const defaultShiftTime = assignedShift
+    ? `${assignedShift.startTime || '09:00 AM'} - ${assignedShift.endTime || '06:00 PM'}`
+    : '09:00 AM - 06:00 PM';
+
+  // Deduplicate attendance records for this employee in the selected month
+  const byDate = new Map<string, AttendanceRecord>();
+  for (const rec of attendanceRecords) {
+    if (!rec) continue;
+    const recEmpId = String(rec.employeeId || '').trim().toLowerCase();
+    if (!recEmpId || !empIds.has(recEmpId)) continue;
+    const dateKey = String(rec.shiftDate || rec.date || '').slice(0, 10);
+    if (!dateKey || !dateKey.startsWith(monthPrefix)) continue;
+
+    const existing = byDate.get(dateKey);
+    if (!existing) {
+      byDate.set(dateKey, rec);
+    } else {
+      const isManual = (rec.method as string) === 'Manual Override' || rec.method === 'Manual Punch';
+      const existingManual = (existing.method as string) === 'Manual Override' || existing.method === 'Manual Punch';
+      if (isManual && !existingManual) {
+        byDate.set(dateKey, rec);
+      } else if (Boolean(rec.checkOut) && !existing.checkOut) {
+        byDate.set(dateKey, rec);
+      }
+    }
+  }
+
+  // Index approved overtime requests by date for this employee & month
+  const approvedOtReqByDate = new Map<string, OvertimeRequest>();
+  for (const req of overtimeRequests) {
+    if (!req) continue;
+    const reqEmpId = String(req.employeeId || '').trim().toLowerCase();
+    if (!reqEmpId || !empIds.has(reqEmpId)) continue;
+    const isApproved =
+      req.status === 'Approved' ||
+      req.status === 'Partially Approved' ||
+      req.status === 'Paid';
+    if (!isApproved) continue;
+
+    const dateKey = String(req.date || '').slice(0, 10);
+    if (!dateKey) continue;
+
+    const matchesPeriod =
+      (req.isBackdatedArrear &&
+        req.targetPayrollMonth &&
+        req.targetPayrollYear &&
+        resolveMonthNumber(req.targetPayrollMonth, Number(req.targetPayrollYear)) === targetMonthNum &&
+        Number(req.targetPayrollYear) === Number(year)) ||
+      dateKey.startsWith(monthPrefix);
+
+    if (!matchesPeriod) continue;
+    if (!approvedOtReqByDate.has(dateKey)) {
+      approvedOtReqByDate.set(dateKey, req);
+    }
+  }
+
+  // Ensure any date with an approved OT request is also represented in the date set
+  const allDates = new Set<string>([
+    ...byDate.keys(),
+    ...approvedOtReqByDate.keys(),
+  ]);
+
+  const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
+
+  let totalShiftWorkHours = 0;
+  let totalApprovedOtHours = 0;
+  let totalApprovedOtAmount = 0;
+  let anyDayOtEligible = baseEligibility.isEligible && overtimePolicy?.enabled !== false;
+
+  const rows: MonthlyAttendanceOtReportRow[] = sortedDates.map(dateKey => {
+    const rec = byDate.get(dateKey);
+    const otReq = approvedOtReqByDate.get(dateKey);
+
+    const dateEligibility = resolveEmployeeOtEligibility(
+      employee,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      overtimePolicy,
+      dateKey
+    );
+    const isDateEligible = dateEligibility.isEligible && overtimePolicy?.enabled !== false;
+    if (isDateEligible) {
+      anyDayOtEligible = true;
+    }
+
+    const workHrs = Math.round((Number(rec?.workingHours ?? (rec as any)?.workHours ?? 0) + Number.EPSILON) * 100) / 100;
+    totalShiftWorkHours += workHrs;
+
+    let otHrs = 0;
+    let otAmount = 0;
+    let otStatus = rec?.otStatus || rec?.otApprovalStatus || otReq?.status;
+
+    if (isDateEligible) {
+      if (otReq) {
+        otHrs = Number(
+          (otReq.approvedOtHours !== undefined && otReq.approvedOtHours > 0)
+            ? otReq.approvedOtHours
+            : ((otReq as any).otHours ?? otReq.requestedOtHours ?? 0)
+        ) || 0;
+        if (otHrs > 0) {
+          const itemCalc = calculateEnterpriseOvertimeRateAndAmount({
+            employee,
+            approvedOtHours: otHrs,
+            month,
+            year,
+            payrollConfig,
+            overtimePolicy,
+            departmentOtPolicies,
+            employeeOtPolicies,
+            rateType: (otReq as any).rateType || otReq.multiplier,
+            fixedHourlyRate: otReq.hourlyRate && otReq.hourlyRate > 0 ? otReq.hourlyRate : undefined,
+            dateStr: dateKey,
+          });
+          const rawReqAmt = Number((otReq as any).otAmount ?? otReq.calculatedAmount ?? 0);
+          otAmount =
+            itemCalc.wageBaseMode !== 'FIXED_HOURLY'
+              ? itemCalc.overtimeAmount
+              : (rawReqAmt > 0 ? Math.round((rawReqAmt + Number.EPSILON) * 100) / 100 : itemCalc.overtimeAmount);
+        }
+      } else if (rec) {
+        const recApprovedHrs =
+          rec.approvedOtHours !== undefined && rec.approvedOtHours > 0
+            ? Number(rec.approvedOtHours)
+            : (rec.otApprovalStatus === 'Approved' || rec.otStatus === 'Approved'
+                ? Number(rec.overtimeHours || rec.calculatedOtHours || 0)
+                : 0);
+        if (recApprovedHrs > 0) {
+          otHrs = recApprovedHrs;
+          const attCalc = calculateEnterpriseOvertimeRateAndAmount({
+            employee,
+            approvedOtHours: otHrs,
+            month,
+            year,
+            payrollConfig,
+            overtimePolicy,
+            departmentOtPolicies,
+            employeeOtPolicies,
+            dateStr: dateKey,
+          });
+          otAmount = attCalc.overtimeAmount;
+        }
+      }
+    }
+
+    otHrs = Math.round((otHrs + Number.EPSILON) * 100) / 100;
+    otAmount = Math.round((otAmount + Number.EPSILON) * 100) / 100;
+    totalApprovedOtHours += otHrs;
+    totalApprovedOtAmount += otAmount;
+
+    const checkInStr = rec?.checkIn && rec.checkIn !== '--:--' ? rec.checkIn : '--:--';
+    const checkOutStr = rec?.checkOut && rec.checkOut !== '--:--' ? rec.checkOut : '--:--';
+
+    return {
+      id: rec?.id || otReq?.id || `${employee.employeeId || 'EMP'}-${dateKey}`,
+      date: dateKey,
+      shiftTime: rec?.shiftName || defaultShiftTime,
+      punchTimeDisplay: `${checkInStr} - ${checkOutStr}`,
+      shiftWorkHrs: workHrs,
+      status: rec?.status || 'Present',
+      otHrs: anyDayOtEligible ? otHrs : 0,
+      otAmount: anyDayOtEligible ? otAmount : 0,
+      otStatus,
+    };
+  });
+
+  return {
+    excluded: false,
+    showOtFields: anyDayOtEligible,
+    eligibilityReason: baseEligibility.reason,
+    eligibilitySource: baseEligibility.source,
+    rows,
+    totalShiftWorkHours: Math.round((totalShiftWorkHours + Number.EPSILON) * 100) / 100,
+    totalApprovedOtHours: anyDayOtEligible ? Math.round((totalApprovedOtHours + Number.EPSILON) * 100) / 100 : 0,
+    totalApprovedOtAmount: anyDayOtEligible ? Math.round((totalApprovedOtAmount + Number.EPSILON) * 100) / 100 : 0,
   };
 }

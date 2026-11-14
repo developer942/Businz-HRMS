@@ -63,7 +63,7 @@ export interface PayrollSettingsModel {
 }
 
 export type SalaryComponentType = 'EARNING' | 'DEDUCTION';
-export type CalculationMethod = 'FIXED_AMOUNT' | 'PERCENTAGE' | 'FORMULA';
+export type CalculationMethod = 'FIXED_AMOUNT' | 'PERCENTAGE' | 'FORMULA' | 'ATTENDANCE_OT';
 export type ComponentEligibilityType = 'ALL' | 'SALARY_CONDITION' | 'SELECTED_EMPLOYEES';
 export type ComponentEligibilityBase = 'CTC' | 'GROSS' | 'BASIC';
 export type ComponentEligibilityOperator = '>' | '>=' | '<' | '<=' | '=' | 'BETWEEN';
@@ -96,10 +96,18 @@ export interface SalaryComponentConfig {
 export interface EmployeeSalaryEligibilityContext {
   id?: string;
   employeeId?: string;
+  role?: string;
+  department?: string;
+  designation?: string;
+  companyId?: string;
+  branchId?: string;
   monthlyCtc?: number;
   basicSalary?: number;
   grossSalary?: number;
+  regularGrossExcludingOt?: number;
   withPf?: boolean;
+  esicCovered?: boolean;
+  excludeOtFromEsicEligibility?: boolean;
   joiningDate?: string;
   payrollMonth?: number;
   payrollYear?: number;
@@ -146,13 +154,15 @@ export interface AttendanceInputData {
 }
 
 export type OtWageBaseMode = 'FIXED_HOURLY' | 'BASIC' | 'GROSS' | 'CTC';
-export type OtSalaryDivisorMode = 'FIXED_26' | 'FIXED_30' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | 'CUSTOM' | 'FIXED_DAYS' | 'ACTUAL_WORKING_DAYS';
+export type OtSalaryDivisorMode = 'FIXED_26' | 'FIXED_30' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | 'STATUTORY_DIVISOR' | 'CUSTOM' | 'FIXED_DAYS' | 'ACTUAL_WORKING_DAYS' | 'COMPANY_DIVISOR';
 export type OtCalculationMultiplier = '1x Salary' | '1.5x Salary' | '2x Salary' | 'Fixed Amount Per Hour';
 
 export interface PayslipOvertimeVisibilityConfig {
   showOtHoursOnPayslip: boolean;
   showOtAmountOnPayslip: boolean;
   showOtCalculationDetailsOnPayslip: boolean;
+  showOtRateOnPayslip?: boolean;
+  showEmployerContributionOnPayslip?: boolean;
 }
 
 export interface AdditionalEarningsInput {
@@ -229,14 +239,20 @@ export interface FullPayrollCalculationResult {
   otherEarnings: number;
   grossSalary: number; // Total Gross Earnings
 
-  // Statutory Deductions
+  // Statutory Deductions & Employer Contributions
   pfBase: number;
   pfRate: number;
   pfAmount: number;
+  employerPfRate?: number;
+  employerPfAmount?: number;
 
   esicBase: number;
   esicRate: number;
   esicAmount: number;
+  employerEsicRate?: number;
+  employerEsicAmount?: number;
+  esicCovered?: boolean;
+  otVariableAmount?: number;
 
   professionalTax: number;
 

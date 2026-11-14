@@ -2378,6 +2378,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     method: AttendanceRecord['method'] = 'Manual Punch'
   ): { success: boolean; message: string } => {
     const empId = currentUser.employeeId || currentUser.id || 'EMP-001';
+    if (isOwnerOrCEO(currentUser) || isOwnerOrCEO({ employeeId: empId })) {
+      return {
+        success: false,
+        message: 'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.'
+      };
+    }
     const clockValidation = validateAttendancePunchTime(attendanceRecords);
     if (!clockValidation.success) {
       return { success: false, message: clockValidation.message };
@@ -7843,9 +7849,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const punchType = wantsCheckOut ? 'Check-Out' : 'Check-In';
 
     const emp = employees.find(e => e.id === empId || e.employeeId === empId);
-    const isCeo = emp?.role === 'CEO' || 
-                  emp?.designation?.toLowerCase().includes('ceo') || 
-                  emp?.designation?.toLowerCase().includes('chief executive');
+    const isCeo = isOwnerOrCEO(emp || { employeeId: empId });
+    if (isCeo) {
+      return {
+        success: false,
+        message: 'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.'
+      };
+    }
 
     const activeFieldDuty = getTodayFieldAssignment(empId);
     const isFieldDutyExempt = Boolean(
@@ -8150,6 +8160,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Reflect an already-committed server punch in local UI state without writing it again.
   const applyServerAttendanceRecord = (record: AttendanceRecord) => {
+    if (isOwnerOrCEO(record as any)) return;
     const normDate = normalizeToYYYYMMDD(record.shiftDate || record.date) || record.shiftDate || record.date;
     const empLower = String(record.employeeId || '').trim().toLowerCase();
     const compositeKey = `${empLower}_${normDate}`;
@@ -8183,6 +8194,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addFaceLog = (log: Omit<FaceLog, 'id'>) => {
+    const empMatch = employees.find(e => e.id === log.employeeId || e.employeeId === log.employeeId);
+    if (isOwnerOrCEO(empMatch || { employeeId: log.employeeId, firstName: log.employeeName })) return;
     const newLog: FaceLog = { ...log, id: `FL-${Date.now()}` };
     setFaceLogs(prev => {
       const logDate = String(log.timestamp || '').slice(0, 10);

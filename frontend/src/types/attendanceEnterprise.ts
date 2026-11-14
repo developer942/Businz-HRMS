@@ -55,12 +55,15 @@ export type OtSalaryDivisorMode =
   | 'FIXED_26'
   | 'FIXED_30'
   | 'WORKING_DAYS'
+  | 'STATUTORY_DIVISOR'
   | 'CUSTOM_DAYS';
 
 export interface PayslipOvertimeVisibilityConfig {
   showOtHoursOnPayslip: boolean;
   showOtAmountOnPayslip: boolean;
   showOtCalculationDetailsOnPayslip: boolean;
+  showOtRateOnPayslip?: boolean;
+  showEmployerContributionOnPayslip?: boolean;
 }
 
 export interface OvertimeRequest {
@@ -146,18 +149,22 @@ export type OtRateType =
 export interface OvertimePolicy {
   id: string;
   policyName: string;
+  companyId?: string;
+  branchId?: string;
   enabled: boolean;
   calculationMethod: OtCalculationMethod;
   minimumOtDurationMinutes: number; // e.g. 30 mins
   maximumDailyOtHours: number;      // e.g. 4 hours
+  maximumWeeklyOtHours?: number;    // e.g. 12 hours
   maximumMonthlyOtHours: number;    // e.g. 60 hours
   approvalRequired: boolean;
-  approver: 'HR' | 'CEO' | 'HR_AND_CEO';
+  approver: 'HR' | 'CEO' | 'HR_AND_CEO' | 'MANAGER_HR_CEO';
   rateMethod: OtRateType;
   fixedRatePerHour: number;         // e.g. 100
-  regularMultiplier: number;        // e.g. 1.0
-  weekendMultiplier: number;        // e.g. 1.5
+  regularMultiplier: number;        // e.g. 2.0
+  weekendMultiplier: number;        // e.g. 2.0
   holidayMultiplier: number;        // e.g. 2.0
+  statutoryMultiplier?: number;     // e.g. 2.0
   wageBase?: OtWageBaseMode;
   divisorMode?: OtSalaryDivisorMode;
   customDivisorDays?: number;
@@ -172,16 +179,19 @@ export interface OvertimePolicy {
 
 export interface DepartmentOtPolicy {
   id: string;
+  companyId?: string;
+  branchId?: string;
   department: string;
   otAllowed: boolean;
   policyId?: string;
   maxOtHoursDaily: number;
+  maxOtHoursWeekly?: number;
   maxOtHoursMonthly?: number;
   minOtDurationMinutes: number;
   approvalRequired: boolean;
   calculationMethod?: 'Actual Extra Hours' | 'Shift End Based' | 'Approved OT Only' | 'Manual OT Only';
   standardShiftHours?: number;        // e.g. 9 hrs
-  otHourlyRate?: number;              // e.g. ₹100 / hr
+  otHourlyRate?: number;              // optional custom fixed rate
   wageBase?: OtWageBaseMode;          // 'FIXED_HOURLY' | 'BASIC' | 'GROSS' | 'CTC'
   divisorMode?: OtSalaryDivisorMode;
   customDivisorDays?: number;
@@ -200,6 +210,8 @@ export type IndividualOtException =
 
 export interface EmployeeOtPolicy {
   id: string;
+  companyId?: string;
+  branchId?: string;
   employeeId: string;
   employeeName: string;
   department: string;
@@ -221,7 +233,9 @@ export interface EmployeeOtPolicy {
   customMultiplier?: OvertimeMultiplierType;
   effectiveFrom?: string;
   effectiveTo?: string;
+  reason?: string;
   notes?: string;
+  authorizedBy?: string;
 }
 
 export interface AttendancePolicyConfig {

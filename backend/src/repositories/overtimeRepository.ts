@@ -1,4 +1,5 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
 
 export interface OvertimeModel {
   id: string;
@@ -39,10 +40,14 @@ export class OvertimeRepository {
   }
 
   async getApprovedOvertimeForMonth(employeeId: string, month: number, year: number): Promise<OvertimeModel[]> {
+    if (isCeoOrOwnerEmployee({ employeeId })) {
+      return [];
+    }
     const all = await this.getAllOvertime();
     const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
     return all.filter(
       ot =>
+        !isCeoOrOwnerEmployee({ employeeId: ot.employeeId }) &&
         ot.status === 'APPROVED' &&
         ot.employeeId?.toLowerCase().trim() === employeeId.toLowerCase().trim() &&
         ot.date.startsWith(monthPrefix)
@@ -50,6 +55,9 @@ export class OvertimeRepository {
   }
 
   async createOvertime(record: Omit<OvertimeModel, 'id' | 'createdAt' | 'status' | 'amount'>): Promise<OvertimeModel> {
+    if (isCeoOrOwnerEmployee({ employeeId: record.employeeId })) {
+      throw new Error('CEO is the company owner and is exempt from overtime calculation and records.');
+    }
     const amount = Number((record.hours * record.hourlyRate).toFixed(2));
     const newRecord: OvertimeModel = {
       id: `ot-${Date.now()}`,

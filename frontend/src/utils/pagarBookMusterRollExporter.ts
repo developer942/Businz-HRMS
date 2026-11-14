@@ -119,7 +119,18 @@ export function downloadPagarBookMusterRollExcel(
   ];
   aoaRows.push(headerRow);
 
-  employees.forEach((emp, empIdx) => {
+  const sortedEmployees = [...employees].sort((a, b) => {
+    const codeA = (a.employeeId || '').trim();
+    const codeB = (b.employeeId || '').trim();
+    const numA = parseInt(codeA.replace(/\D+/g, ''), 10);
+    const numB = parseInt(codeB.replace(/\D+/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numA - numB;
+    }
+    return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
+  sortedEmployees.forEach((emp, empIdx) => {
     const sn = String(empIdx + 1);
     const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Staff';
     const phone = emp.phone || '';

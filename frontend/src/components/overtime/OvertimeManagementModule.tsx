@@ -30,6 +30,7 @@ import { ManualOtEntryModal } from '../attendance/ManualOtEntryModal';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatCurrency } from '../../utils/numbers';
+import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 
 interface OvertimeManagementModuleProps {
   openRequestModal?: boolean;
@@ -107,9 +108,10 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
     return ['All', ...Array.from(set)];
   }, [overtimeRequests]);
 
-  // Base list filtered by role (Employee only sees their own; Manager sees their department; HR/CEO sees all)
+  // Base list filtered by role (Employee only sees their own; Manager sees their department; HR/CEO sees all; CEO is never an OT subject)
   const roleFilteredList = useMemo(() => {
     return overtimeRequests.filter(req => {
+      if (isOwnerOrCEO(req)) return false;
       if (isEmployee) {
         return req.employeeId === currentEmpId;
       }

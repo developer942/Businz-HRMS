@@ -1,5 +1,5 @@
 import { validateComponentEligibility } from './componentEligibilityEngine.js';
-import { computeFullPayroll } from './calculationEngine.js';
+import { computeFullPayroll, isCeoOrOwnerEmployee } from './calculationEngine.js';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { settingsRepository } from '../repositories/settingsRepository.js';
 import { payrollRepository } from '../repositories/payrollRepository.js';
@@ -46,11 +46,12 @@ export class PayrollService {
         }
         const settings = await settingsRepository.getSettings();
         const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
-        // Check approved overtime records if not explicitly passed
-        let otHours = input.overtime_hours ?? 0;
-        let otRate = input.overtime_rate ?? 0;
+        const isCeo = isCeoOrOwnerEmployee(employee);
+        // Check approved overtime records if not explicitly passed (exempt for CEO)
+        let otHours = isCeo ? 0 : (input.overtime_hours ?? 0);
+        let otRate = isCeo ? 0 : (input.overtime_rate ?? 0);
         let otAmount = 0;
-        if (otHours === 0) {
+        if (!isCeo && otHours === 0) {
             const approvedOt = await overtimeRepository.getApprovedOvertimeForMonth(employee.employeeId, input.payroll_month, input.payroll_year);
             if (approvedOt.length > 0) {
                 otHours = approvedOt.reduce((sum, r) => sum + r.hours, 0);
@@ -58,8 +59,8 @@ export class PayrollService {
             }
         }
         const workingDays = settings.standardWorkingDays || 26;
-        const lopDays = input.lop_days ?? 0;
-        const presentDays = Math.max(0, workingDays - lopDays);
+        const lopDays = isCeo ? 0 : (input.lop_days ?? 0);
+        const presentDays = isCeo ? workingDays : Math.max(0, workingDays - lopDays);
         return computeFullPayroll({
             employeeId: employee.employeeId,
             monthlySalary: structure.monthlySalary,
@@ -82,7 +83,7 @@ export class PayrollService {
                 overtimeHours: otHours,
             },
             earnings: {
-                attendanceBonus: input.attendance_bonus ?? 0,
+                attendanceBonus: isCeo ? 0 : (input.attendance_bonus ?? 0),
                 overtimeHours: otHours,
                 overtimeRate: otRate,
                 overtimeAmount: otAmount,
@@ -100,6 +101,9 @@ export class PayrollService {
             employeeContext: {
                 id: employee.id,
                 employeeId: employee.employeeId,
+                role: employee.role,
+                department: employee.department,
+                designation: employee.designation,
                 monthlyCtc: structure.monthlySalary,
                 basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
                 withPf: structure.withPf !== undefined ? structure.withPf : (employee.withPf !== undefined ? employee.withPf : true),
@@ -130,14 +134,7 @@ export class PayrollService {
         const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
         const processedRecords = [];
         for (const emp of employees) {
-            if (emp.employeeId === 'EMP-000' ||
-                emp.employeeId === 'VRM-001' ||
-                emp.designation?.toLowerCase() === 'ceo' ||
-                emp.department?.toLowerCase() === 'ceo' ||
-                emp.role?.toLowerCase() === 'ceo' ||
-                emp.designation?.toLowerCase().includes('chief executive') ||
-                emp.designation?.toLowerCase().includes('owner') ||
-                emp.designation?.toLowerCase().includes('managing director')) {
+            if (isCeoOrOwnerEmployee(emp)) {
                 continue;
             }
             const structure = await employeeRepository.getSalaryStructure(emp.employeeId, `${run.payrollYear}-${String(run.payrollMonth).padStart(2, '0')}-01`);

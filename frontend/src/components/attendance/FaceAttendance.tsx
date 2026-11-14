@@ -39,7 +39,12 @@ import {
   Search
 } from 'lucide-react';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
-import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
+import {
+  parseTimeToMinutes,
+  buildEmployeeMonthlyAttendanceOtReport
+} from '../../services/attendanceCalculationEngine';
+import { isOwnerOrCEO } from '../../data/hrmsInitialData';
+import { formatCurrency } from '../../utils/numbers';
 import type { FaceLog } from '../../types/hrms';
 import {
   submitVerifiedFacePunch,
@@ -127,7 +132,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     getTodayFieldAssignment,
     getEmployeeShiftAttendanceState,
     submitMissedPunchRequest,
-    syncAllWithCloud
+    syncAllWithCloud,
+    overtimeRequests,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig,
+    shifts
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -143,7 +154,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const [scanResult, setScanResult] = useState<{ status: 'success' | 'error' | null; message: string }>({ status: null, message: '' });
   const [punchType, setPunchType] = useState<'Check-In' | 'Check-Out'>('Check-In');
   const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString());
-  const [activityViewTab, setActivityViewTab] = useState<'my' | 'all'>('my');
+  const [activityViewTab, setActivityViewTab] = useState<'my' | 'all'>(() =>
+    isOwnerOrCEO(currentUser) ? 'all' : 'my'
+  );
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -279,7 +292,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
   const isCompletedToday = Boolean(isCheckedIn && isCheckedOut);
 
-  const isCEO = currentUser.role === 'CEO' || currentUser.designation === 'CEO';
+  const isCEO = isOwnerOrCEO(currentUser);
+
+  useEffect(() => {
+    if (isCEO && activityViewTab === 'my') {
+      setActivityViewTab('all');
+    }
+  }, [isCEO, activityViewTab]);
 
   // PagarBook 2-Step Camera + GPS states
   const [isRequestingPermissions, setIsRequestingPermissions] = useState<boolean>(false);
@@ -605,7 +624,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             message: 'GPS Verified'
           });
         }
-      } else if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
+      } else if (!geofenceConfig.enabled || evaluation.canPunch) {
         verifiedOnRetry = true;
         setActivePunchGps({
           latitude: reading.latitude,
@@ -1027,6 +1046,14 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       return;
     }
 
+    if (isCEO || isOwnerOrCEO(selectedEmp)) {
+      setScanResult({
+        status: 'error',
+        message: 'CEO / Company Owner is exempt from personal attendance tracking.'
+      });
+      return;
+    }
+
     setLastAttemptType(type);
     setPunchType(type);
     setUncertainContext(null);
@@ -1225,7 +1252,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             errorCode: 'NONE',
             message: 'GPS Verified'
           });
-        } else if (!geofenceConfig.enabled || evaluation.canPunch || isCEO) {
+        } else if (!geofenceConfig.enabled || evaluation.canPunch) {
           setActivePunchGps({
             latitude: reading.latitude,
             longitude: reading.longitude,
@@ -1706,9 +1733,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       role: currentUser.role
     };
 
-    const isCeo = activeEmp.role === 'CEO' || 
-                  (activeEmp as any).designation?.toLowerCase().includes('ceo') || 
-                  (activeEmp as any).designation?.toLowerCase().includes('chief executive');
+    const isCeo = isOwnerOrCEO(activeEmp) || isOwnerOrCEO(currentUser);
+    if (isCeo) {
+      setScanResult({
+        status: 'error',
+        message: 'CEO / Company Owner is exempt from personal attendance tracking.'
+      });
+      punchInProgressRef.current = false;
+      return;
+    }
 
     if (!gpsData) {
       setScanResult({
@@ -1726,7 +1759,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const canPunch = gpsData.canPunch;
     const addr = gpsData?.address || `${geofenceConfig.officeName} (GPS Clock-In)`;
 
-    if (geofenceConfig.enabled && !canPunch && !isCeo) {
+    if (geofenceConfig.enabled && !canPunch) {
       setScanResult({
         status: 'error',
         message: gpsData.reason || `Outside Office Geofence! You are ${dist}m away (Allowed radius: ${geofenceConfig.radiusMeters}m). Attendance cannot be punched outside ${geofenceConfig.officeName || 'the office'}.`
@@ -2028,6 +2061,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         String(e.employeeId || '').toLowerCase() === empKey || 
         String(e.id || '').toLowerCase() === empKey
       );
+      if (isOwnerOrCEO(emp || att)) {
+        return;
+      }
 
       const empName = att?.employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : (faceIn?.employeeName || faceOut?.employeeName || 'Staff'));
       const avatar = emp?.avatar || faceIn?.photoUrl || faceOut?.photoUrl || '';
@@ -2130,6 +2166,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
   // Current user's monthly attendance records (Consolidated & deduplicated per date)
   const myMonthlyRecords = useMemo(() => {
+    if (isCEO || isOwnerOrCEO(currentUserEmp)) return [];
     const rawList = attendanceRecords
       .filter(a => {
         const d = normalizeToYYYYMMDD(a.date);
@@ -2238,6 +2275,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const allStaffMonthlyRecords = useMemo(() => {
     const rawList = attendanceRecords
       .filter(a => {
+        if (isOwnerOrCEO(a)) return false;
+        const empMatch = employees.find(
+          e =>
+            String(e.employeeId || '').toLowerCase() === String(a.employeeId || '').toLowerCase() ||
+            String(e.id || '').toLowerCase() === String(a.employeeId || '').toLowerCase()
+        );
+        if (empMatch && isOwnerOrCEO(empMatch)) return false;
         const d = normalizeToYYYYMMDD(a.date);
         const sd = normalizeToYYYYMMDD(a.shiftDate);
         return (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
@@ -2297,6 +2341,37 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       (r.department && r.department.toLowerCase().includes(q))
     );
   }, [allStaffMonthlyRecords, staffSearchQuery]);
+
+  // Monthly Attendance & Overtime Report for the current user (excludes CEO; shows OT fields only for OT-eligible employees)
+  const myMonthlyOtReport = useMemo(() => {
+    const [yearPart, monthPart] = (selectedMonth || '').split('-').map(Number);
+    const now = new Date();
+    const targetYear = yearPart || now.getFullYear();
+    const targetMonth = monthPart || now.getMonth() + 1;
+    return buildEmployeeMonthlyAttendanceOtReport({
+      employee: currentUserEmp || currentUser,
+      attendanceRecords,
+      overtimeRequests,
+      overtimePolicy,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      payrollConfig: payrollSettingsConfig,
+      shifts,
+      month: targetMonth,
+      year: targetYear
+    });
+  }, [
+    selectedMonth,
+    currentUserEmp,
+    currentUser,
+    attendanceRecords,
+    overtimeRequests,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig,
+    shifts
+  ]);
 
   const renderMonthlyActivityCard = (isDedicatedLogPage: boolean) => (
     <div
@@ -2394,8 +2469,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           </div>
         </div>
 
-        {/* If HR / Admin: Toggle between My Monthly and All Staff Monthly */}
-        {isHrOrAdmin ? (
+        {/* If HR / Admin: Toggle between My Monthly and All Staff Monthly (CEO has no personal My Monthly tab) */}
+        {(isHrOrAdmin || isCEO) ? (
           <div style={{
             display: 'inline-flex',
             backgroundColor: '#f1f5f9',
@@ -2403,28 +2478,30 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             borderRadius: '10px',
             border: '1px solid #e2e8f0'
           }}>
-            <button
-              type="button"
-              onClick={() => setActivityViewTab('my')}
-              style={{
-                padding: '5px 12px',
-                borderRadius: '7px',
-                border: 'none',
-                fontSize: '0.76rem',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
-                color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
-                boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <User size={13} />
-              <span>My Monthly ({myMonthlyRecords.length})</span>
-            </button>
+            {!isCEO && (
+              <button
+                type="button"
+                onClick={() => setActivityViewTab('my')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '0.76rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
+                  color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
+                  boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <User size={13} />
+                <span>My Monthly ({myMonthlyRecords.length})</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setActivityViewTab('all')}
@@ -2467,7 +2544,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       </div>
 
       {/* Compact Monthly Summary Bar */}
-      {activityViewTab === 'my' && (
+      {!isCEO && activityViewTab === 'my' && (
         <div
           style={{
             display: 'grid',
@@ -2494,10 +2571,85 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         </div>
       )}
 
-      {/* VIEW 1: MY MONTHLY ACTIVITY */}
-      {activityViewTab === 'my' ? (
-        <div>
-          <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em', marginBottom: '10px' }}>
+      {/* VIEW 1: MY MONTHLY ACTIVITY (Only for attendance-tracked employees and HR, never CEO) */}
+      {!isCEO && activityViewTab === 'my' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Standardized Monthly Attendance + Overtime Details Table */}
+          {myMonthlyOtReport.rows.length > 0 && (
+            <div
+              data-testid="monthly-attendance-ot-table-card"
+              style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                backgroundColor: '#ffffff'
+              }}
+            >
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em' }}>DATE</th>
+                      <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em' }}>SHIFT TIME</th>
+                      <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>SHIFT WORK HRS</th>
+                      {myMonthlyOtReport.showOtFields ? (
+                        <>
+                          <th style={{ padding: '9px 12px', fontWeight: 800, color: '#0e7490', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT HRS</th>
+                          <th style={{ padding: '9px 12px', fontWeight: 800, color: '#0e7490', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT AMOUNT</th>
+                        </>
+                      ) : (
+                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>STATUS</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myMonthlyOtReport.rows.map(row => (
+                      <tr key={`ot-row-${row.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                          {formatDateDDMMYYYY(row.date)}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#334155' }}>
+                          <div style={{ fontWeight: 600 }}>{row.shiftTime}</div>
+                          <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{row.punchTimeDisplay}</div>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
+                          {row.shiftWorkHrs} hrs
+                        </td>
+                        {myMonthlyOtReport.showOtFields ? (
+                          <>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: row.otHrs > 0 ? '#0e7490' : '#94a3b8' }}>
+                              {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: row.otAmount > 0 ? '#15803d' : '#94a3b8' }}>
+                              {formatCurrency(row.otAmount)}
+                            </td>
+                          </>
+                        ) : (
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: row.status === 'Present' ? '#15803d' : '#64748b' }}>
+                            {row.status}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  {myMonthlyOtReport.showOtFields && (
+                    <tfoot>
+                      <tr style={{ backgroundColor: '#ecfeff', borderTop: '2px solid #a5f3fc' }}>
+                        <td colSpan={3} style={{ padding: '9px 12px', fontWeight: 800, color: '#0e7490', fontSize: '0.74rem' }}>
+                          TOTAL APPROVED OT HOURS: {myMonthlyOtReport.totalApprovedOtHours} hrs
+                        </td>
+                        <td colSpan={2} style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#0e7490', fontSize: '0.78rem' }}>
+                          TOTAL APPROVED OT AMOUNT: {formatCurrency(myMonthlyOtReport.totalApprovedOtAmount)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em', marginBottom: '2px' }}>
             {formatMonthDisplay(selectedMonth).toUpperCase()} PUNCH LOGS ({myMonthlyRecords.length})
           </div>
 
@@ -3878,10 +4030,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               {/* Smart GPS Punch Button */}
               {(() => {
                 const activeEmpModal = employees.find(e => e.employeeId === selectedEmpId || e.id === selectedEmpId);
-                const isEmpCeo = activeEmpModal?.role === 'CEO' || 
-                                 activeEmpModal?.designation?.toLowerCase().includes('ceo') || 
-                                 activeEmpModal?.designation?.toLowerCase().includes('chief executive');
-                const isAllowedByGeofence = Boolean(gpsData && (gpsData.canPunch || isEmpCeo));
+                const isEmpCeo = isOwnerOrCEO(activeEmpModal) || isOwnerOrCEO(currentUser);
+                const isAllowedByGeofence = Boolean(gpsData && gpsData.canPunch && !isEmpCeo);
 
                 return (
                   <div style={{ marginTop: '6px' }}>

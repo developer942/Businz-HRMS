@@ -29,8 +29,10 @@ import {
   formatHoursAndMinutes,
   resolveEmployeeOtEligibility,
   calculateAttendanceSalaryImpact,
-  aggregateMonthlyAttendanceSummary
+  aggregateMonthlyAttendanceSummary,
+  buildEmployeeMonthlyAttendanceOtReport
 } from '../../services/attendanceCalculationEngine';
+import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import { ShiftModel } from '../../types/attendanceEnterprise';
 
 interface AttendanceDetailsDrawerProps {
@@ -59,7 +61,8 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
     attendancePolicyConfig,
     missedPunchRequests,
     overtimeRequests,
-    attendanceRecords
+    attendanceRecords,
+    payrollSettingsConfig
   } = useHRMS();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'hours_ot' | 'salary_impact' | 'monthly' | 'history'>('overview');
@@ -75,6 +78,7 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
     currentUser?.role === 'ERP Administrator';
 
   const employee = employees.find(e => e.id === record.employeeId || e.employeeId === record.employeeId);
+  if (isOwnerOrCEO(employee || record)) return null;
 
   // Find assigned shift or fallback
   const assignedShift = shifts.find(s => s.assignments?.some(a => a.employeeId === record.employeeId));
@@ -119,6 +123,22 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
     overtimePolicy,
     employee
   );
+
+  const recDateStr = String(record.date || record.shiftDate || '');
+  const recYear = Number(recDateStr.slice(0, 4)) || new Date().getFullYear();
+  const recMonth = Number(recDateStr.slice(5, 7)) || (new Date().getMonth() + 1);
+  const monthlyOtReport = buildEmployeeMonthlyAttendanceOtReport({
+    employee: employee || { employeeId: record.employeeId, department: record.department },
+    attendanceRecords,
+    overtimeRequests,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollConfig: payrollSettingsConfig,
+    shifts,
+    month: recMonth,
+    year: recYear
+  });
 
   // Audit Logs for this record/employee
   const auditLogs = attendanceAuditLogs.filter(
@@ -572,40 +592,109 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
                   </div>
                 </div>
 
-                {/* Monthly OT & Payout Rollup */}
-                <div className="border border-cyan-200 bg-cyan-50/30 rounded-2xl p-4 space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-900">
-                    Monthly Overtime & Financial Summary
-                  </h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-white p-3 rounded-xl border border-cyan-100">
-                    <div>
-                      <span className="text-slate-400 block">Approved OT Hours</span>
-                      <strong className="text-emerald-700 text-sm font-mono">{monthlySummary.approvedOtHours} hrs</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Pending OT Claims</span>
-                      <strong className="text-amber-700 text-sm font-mono">{monthlySummary.pendingOtHours} hrs</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Rejected OT Hours</span>
-                      <strong className="text-rose-700 text-sm font-mono">{monthlySummary.rejectedOtHours} hrs</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Total OT Payout</span>
-                      <strong className="text-emerald-700 text-sm font-mono">+{formatCurrency(monthlySummary.totalOtAmount)}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Total Deductions</span>
-                      <strong className="text-rose-700 text-sm font-mono">-{formatCurrency(monthlySummary.totalDeductionAmount)}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Net Payout Impact</span>
-                      <strong className={monthlySummary.netImpact >= 0 ? 'text-emerald-700 text-sm font-mono' : 'text-rose-700 text-sm font-mono'}>
-                        {monthlySummary.netImpact >= 0 ? `+${formatCurrency(monthlySummary.netImpact)}` : `-${formatCurrency(Math.abs(monthlySummary.netImpact))}`}
-                      </strong>
+                {/* Monthly Attendance + Overtime Details Breakdown Table */}
+                {monthlyOtReport.rows.length > 0 && (
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-left text-[11px] font-bold text-slate-600 uppercase">
+                            <th className="py-2.5 px-3">DATE</th>
+                            <th className="py-2.5 px-3">SHIFT TIME</th>
+                            <th className="py-2.5 px-3 text-right">SHIFT WORK HRS</th>
+                            {monthlyOtReport.showOtFields ? (
+                              <>
+                                <th className="py-2.5 px-3 text-right text-cyan-800">OT HRS</th>
+                                <th className="py-2.5 px-3 text-right text-cyan-800">OT AMOUNT</th>
+                              </>
+                            ) : (
+                              <th className="py-2.5 px-3 text-right">STATUS</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monthlyOtReport.rows.map(row => (
+                            <tr key={row.id} className="border-b border-slate-100">
+                              <td className="py-2 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                                {formatDateDDMMYYYY(row.date)}
+                              </td>
+                              <td className="py-2 px-3 text-slate-600">
+                                <div className="font-medium text-slate-800">{row.shiftTime}</div>
+                                <div className="text-[10px] text-slate-400">{row.punchTimeDisplay}</div>
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
+                                {row.shiftWorkHrs} hrs
+                              </td>
+                              {monthlyOtReport.showOtFields ? (
+                                <>
+                                  <td className="py-2 px-3 text-right font-mono font-bold text-cyan-800">
+                                    {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                                    {formatCurrency(row.otAmount)}
+                                  </td>
+                                </>
+                              ) : (
+                                <td className="py-2 px-3 text-right font-semibold text-slate-700">
+                                  {row.status}
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                        {monthlyOtReport.showOtFields && (
+                          <tfoot>
+                            <tr className="bg-cyan-50 border-t-2 border-cyan-200 font-bold text-cyan-900">
+                              <td colSpan={3} className="py-2.5 px-3">
+                                TOTAL APPROVED OT HOURS: {monthlyOtReport.totalApprovedOtHours} hrs
+                              </td>
+                              <td colSpan={2} className="py-2.5 px-3 text-right">
+                                TOTAL APPROVED OT AMOUNT: {formatCurrency(monthlyOtReport.totalApprovedOtAmount)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Monthly OT & Payout Rollup (Only for OT-eligible employees) */}
+                {monthlyOtReport.showOtFields && (
+                  <div className="border border-cyan-200 bg-cyan-50/30 rounded-2xl p-4 space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-900">
+                      Monthly Overtime & Financial Summary
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-white p-3 rounded-xl border border-cyan-100">
+                      <div>
+                        <span className="text-slate-400 block">Approved OT Hours</span>
+                        <strong className="text-emerald-700 text-sm font-mono">{monthlyOtReport.totalApprovedOtHours} hrs</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Pending OT Claims</span>
+                        <strong className="text-amber-700 text-sm font-mono">{monthlySummary.pendingOtHours} hrs</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Rejected OT Hours</span>
+                        <strong className="text-rose-700 text-sm font-mono">{monthlySummary.rejectedOtHours} hrs</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Total OT Payout</span>
+                        <strong className="text-emerald-700 text-sm font-mono">+{formatCurrency(monthlyOtReport.totalApprovedOtAmount)}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Total Deductions</span>
+                        <strong className="text-rose-700 text-sm font-mono">-{formatCurrency(monthlySummary.totalDeductionAmount)}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Net Payout Impact</span>
+                        <strong className={monthlySummary.netImpact >= 0 ? 'text-emerald-700 text-sm font-mono' : 'text-rose-700 text-sm font-mono'}>
+                          {monthlySummary.netImpact >= 0 ? `+${formatCurrency(monthlySummary.netImpact)}` : `-${formatCurrency(Math.abs(monthlySummary.netImpact))}`}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

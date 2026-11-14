@@ -21,6 +21,41 @@ const DEFAULT_OT_ELIGIBLE_DEPARTMENTS = new Set([
   'dispatch loading',
 ]);
 
+/**
+ * Authoritative helper to identify the Company Owner / CEO.
+ * CEO is exempt from attendance tracking, punch-in/out, face attendance,
+ * overtime calculations, and attendance-based salary adjustments.
+ */
+export function isCeoOrOwnerEmployee(empOrUser?: {
+  employeeId?: string | null;
+  employee_id?: string | null;
+  id?: string | null;
+  role?: string | null;
+  department?: string | null;
+  departmentName?: string | null;
+  department_name?: string | null;
+  designation?: string | null;
+} | null): boolean {
+  if (!empOrUser) return false;
+  const empId = String(empOrUser.employeeId || empOrUser.employee_id || empOrUser.id || '').trim().toUpperCase();
+  const role = String(empOrUser.role || '').trim().toUpperCase();
+  const dept = String(
+    empOrUser.department || empOrUser.departmentName || empOrUser.department_name || ''
+  ).trim().toUpperCase();
+  const desig = String(empOrUser.designation || '').trim().toUpperCase();
+
+  return (
+    role === 'CEO' ||
+    dept === 'CEO' ||
+    desig === 'CEO' ||
+    desig.includes('CHIEF EXECUTIVE') ||
+    desig.includes('OWNER') ||
+    desig.includes('MANAGING DIRECTOR') ||
+    empId === 'VRM-001' ||
+    empId === 'EMP-000'
+  );
+}
+
 export function isDefaultOtEligibleDepartment(departmentName?: string): boolean {
   if (!departmentName) return false;
   return DEFAULT_OT_ELIGIBLE_DEPARTMENTS.has(departmentName.trim().toLowerCase());
@@ -65,8 +100,13 @@ export function resolvePayrollSalaryDivisor(params: {
   if (mode === 'FIXED_30') {
     return { calendarDays, divisorDays: 30, modeUsed: 'FIXED_30' };
   }
-  if (mode === 'FIXED_26') {
-    return { calendarDays, divisorDays: 26, modeUsed: 'FIXED_26' };
+  if (mode === 'FIXED_26' || mode === 'STATUTORY_DIVISOR') {
+    const statDays = Number(params.fixedDivisorDays) > 0 && mode === 'STATUTORY_DIVISOR' ? Number(params.fixedDivisorDays) : 26;
+    return {
+      calendarDays,
+      divisorDays: mode === 'STATUTORY_DIVISOR' ? statDays : 26,
+      modeUsed: mode === 'STATUTORY_DIVISOR' ? 'STATUTORY_DIVISOR' : 'FIXED_26',
+    };
   }
   if (mode === 'WORKING_DAYS' || mode === 'ACTUAL_WORKING_DAYS') {
     const weeklyOffs = countWeeklyOffDaysInMonth(params.month, params.year, params.weeklyOffDayIndex ?? 0);
@@ -116,7 +156,7 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
     const effectiveMult =
       params.multiplier && params.multiplier !== 'Fixed Amount Per Hour' ? multVal : new Decimal(1);
     const hourlyRate = fixedRate.times(effectiveMult).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-    const calculatedAmount = hours.times(hourlyRate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+    const calculatedAmount = hours.times(fixedRate).times(effectiveMult).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     return {
       hourlyRate: hourlyRate.toNumber(),
       multiplierValue: effectiveMult.toNumber(),
@@ -138,11 +178,12 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
   }
 
   if (baseSalary.lessThanOrEqualTo(0) && Number(params.fixedHourlyRate) > 0) {
-    const fallbackRate = new Decimal(Number(params.fixedHourlyRate)).times(multVal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const fallbackBase = new Decimal(Number(params.fixedHourlyRate));
+    const fallbackRate = fallbackBase.times(multVal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     return {
       hourlyRate: fallbackRate.toNumber(),
       multiplierValue: multVal.toNumber(),
-      calculatedAmount: hours.times(fallbackRate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber(),
+      calculatedAmount: hours.times(fallbackBase).times(multVal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
       wageBaseUsed: wageBase,
       baseSalaryAmount: 0,
       divisorUsed: divisor.toNumber(),
@@ -152,7 +193,7 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
 
   const baseHourly = baseSalary.dividedBy(divisor.times(shiftHours));
   const effectiveHourlyRate = baseHourly.times(multVal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-  const calculatedAmount = hours.times(effectiveHourlyRate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  const calculatedAmount = baseHourly.times(multVal).times(hours).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
   return {
     hourlyRate: effectiveHourlyRate.toNumber(),
@@ -167,6 +208,9 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
 
 export function resolveEmployeeOtEligibility(params: {
   departmentName: string;
+  employeeId?: string;
+  role?: string;
+  designation?: string;
   dateStr?: string;
   departmentOtAllowed?: boolean;
   departmentEffectiveFrom?: string;
@@ -180,6 +224,21 @@ export function resolveEmployeeOtEligibility(params: {
   source: 'DEPARTMENT_POLICY' | 'EMPLOYEE_EXCEPTION' | 'STATUTORY_ENTITLEMENT' | 'RESTRICTED';
   reason: string;
 } {
+  if (
+    isCeoOrOwnerEmployee({
+      employeeId: params.employeeId,
+      role: params.role,
+      designation: params.designation,
+      departmentName: params.departmentName,
+    })
+  ) {
+    return {
+      eligible: false,
+      source: 'RESTRICTED',
+      reason: 'CEO / Company Owner is exempt from attendance tracking and overtime eligibility',
+    };
+  }
+
   const dateStr = (params.dateStr || '').slice(0, 10);
   const isDateInRange = (from?: string, to?: string) => {
     if (!dateStr) return true;
@@ -294,6 +353,207 @@ export function formatPayslipOvertimeForViewer(params: {
     description,
   };
 }
+
+export const STANDARD_PAYROLL_VARIABLES = [
+  'BASIC',
+  'HRA',
+  'DA',
+  'CONV',
+  'CONVEYANCE',
+  'OT',
+  'OVERTIME',
+  'GROSS',
+  'CTC',
+  'DAILY_SALARY',
+  'WORKING_DAYS',
+  'PAID_DAYS',
+  'UNPAID_DAYS',
+  'LATE_COUNT',
+  'LEAVE_DAYS',
+  'INCENTIVE',
+  'BONUS',
+  'REWARD',
+  'ATTENDANCE_BONUS',
+] as const;
+
+export const evaluateFormula = (formula: string, context: Record<string, number | undefined>): number => {
+  if (!formula || typeof formula !== 'string') return 0;
+
+  let expr = formula.toUpperCase();
+  const sortedKeys = Object.keys(context).sort((a, b) => b.length - a.length);
+
+  for (const key of sortedKeys) {
+    const val = context[key];
+    if (val !== undefined) {
+      const regex = new RegExp(`\\b${key}\\b`, 'g');
+      expr = expr.replace(regex, `(${Number(val) || 0})`);
+    }
+  }
+
+  const sanitized = expr.replace(/[^0-9.+\-*/() ]/g, '');
+
+  try {
+    let index = 0;
+
+    const parseNumber = (): number => {
+      let numStr = '';
+      while (index < sanitized.length && /[0-9.]/.test(sanitized[index])) {
+        numStr += sanitized[index];
+        index++;
+      }
+      return parseFloat(numStr) || 0;
+    };
+
+    const parseFactor = (): number => {
+      while (index < sanitized.length && sanitized[index] === ' ') index++;
+      if (index >= sanitized.length) return 0;
+
+      if (sanitized[index] === '(') {
+        index++;
+        const res = parseExpression();
+        while (index < sanitized.length && sanitized[index] === ' ') index++;
+        if (sanitized[index] === ')') index++;
+        return res;
+      }
+
+      if (sanitized[index] === '-') {
+        index++;
+        return -parseFactor();
+      }
+
+      if (sanitized[index] === '+') {
+        index++;
+        return parseFactor();
+      }
+
+      return parseNumber();
+    };
+
+    const parseTerm = (): number => {
+      let left = parseFactor();
+      while (index < sanitized.length) {
+        while (index < sanitized.length && sanitized[index] === ' ') index++;
+        const op = sanitized[index];
+        if (op === '*' || op === '/') {
+          index++;
+          const right = parseFactor();
+          if (op === '*') left = left * right;
+          if (op === '/') left = right !== 0 ? left / right : 0;
+        } else {
+          break;
+        }
+      }
+      return left;
+    };
+
+    const parseExpression = (): number => {
+      let left = parseTerm();
+      while (index < sanitized.length) {
+        while (index < sanitized.length && sanitized[index] === ' ') index++;
+        const op = sanitized[index];
+        if (op === '+' || op === '-') {
+          index++;
+          const right = parseTerm();
+          if (op === '+') left = left + right;
+          if (op === '-') left = left - right;
+        } else {
+          break;
+        }
+      }
+      return left;
+    };
+
+    const result = parseExpression();
+    if (isNaN(result) || !isFinite(result)) return 0;
+    return new Decimal(result).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+  } catch {
+    return 0;
+  }
+};
+
+export const validateFormula = (
+  formula: string,
+  options?: {
+    allowedVariables?: string[];
+    currentComponentCode?: string;
+    allComponents?: { code: string; formula?: string; calculationMethod?: string }[];
+  }
+): { isValid: boolean; error?: string; referencedVariables?: string[] } => {
+  if (!formula || !formula.trim()) {
+    return { isValid: false, error: 'Formula cannot be empty' };
+  }
+  const trimmed = formula.trim();
+  let balance = 0;
+  for (const ch of trimmed) {
+    if (ch === '(') balance++;
+    if (ch === ')') balance--;
+    if (balance < 0) return { isValid: false, error: 'Unbalanced parentheses' };
+  }
+  if (balance !== 0) return { isValid: false, error: 'Unclosed parenthesis' };
+
+  const allowed = /^[A-Z0-9_.+\-*/() ]+$/i;
+  if (!allowed.test(trimmed)) {
+    return { isValid: false, error: 'Formula contains unsupported special characters' };
+  }
+
+  const compact = trimmed.replace(/\s+/g, '');
+  if (/\(\)/.test(compact) || /^[*/]|[+\-*/]$/.test(compact) || /[+\-*/]{2,}/.test(compact) || /\([*/]/.test(compact) || /[+\-*/]\)/.test(compact)) {
+    return { isValid: false, error: 'Formula contains invalid operator syntax' };
+  }
+
+  const rawTokens = trimmed.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || [];
+  const referencedVariables = Array.from(new Set(rawTokens.map(t => t.toUpperCase())));
+
+  const allowedSet = new Set<string>(STANDARD_PAYROLL_VARIABLES);
+  options?.allowedVariables?.forEach(v => v && allowedSet.add(v.trim().toUpperCase()));
+  options?.allComponents?.forEach(c => c?.code && allowedSet.add(c.code.trim().toUpperCase()));
+
+  const unknownVars = referencedVariables.filter(v => !allowedSet.has(v));
+  if (unknownVars.length > 0) {
+    return { isValid: false, error: `Unknown variable(s): ${unknownVars.join(', ')}`, referencedVariables };
+  }
+
+  const selfCode = options?.currentComponentCode?.trim().toUpperCase();
+  if (selfCode) {
+    if (referencedVariables.includes(selfCode)) {
+      return { isValid: false, error: `Circular dependency detected: ${selfCode} cannot reference itself`, referencedVariables };
+    }
+    if (options?.allComponents && options.allComponents.length > 0) {
+      const compMap = new Map<string, string[]>();
+      options.allComponents.forEach(c => {
+        const code = (c.code || '').trim().toUpperCase();
+        if (!code) return;
+        const fStr = code === selfCode ? trimmed : (c.calculationMethod === 'FORMULA' ? (c.formula || '') : '');
+        const deps = (fStr.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || []).map(t => t.toUpperCase());
+        compMap.set(code, Array.from(new Set(deps)));
+      });
+      compMap.set(selfCode, referencedVariables);
+
+      const visited = new Set<string>();
+      const visiting = new Set<string>();
+      const findCycle = (node: string, path: string[]): string[] | null => {
+        if (visiting.has(node)) return [...path, node];
+        if (visited.has(node)) return null;
+        visiting.add(node);
+        for (const next of compMap.get(node) || []) {
+          if (compMap.has(next)) {
+            const cycle = findCycle(next, [...path, node]);
+            if (cycle) return cycle;
+          }
+        }
+        visiting.delete(node);
+        visited.add(node);
+        return null;
+      };
+      const cycle = findCycle(selfCode, []);
+      if (cycle) {
+        return { isValid: false, error: `Circular dependency detected: ${cycle.join(' → ')}`, referencedVariables };
+      }
+    }
+  }
+
+  return { isValid: true, referencedVariables };
+};
 
 export class PayrollConfigurationError extends Error {
   public code: string;
@@ -429,28 +689,55 @@ export const calculateESIC = (
   esicRate: number | null | undefined,
   threshold: number | null | undefined,
   wageComponents?: Record<string, boolean>,
-  isContributionPeriodContinuation?: boolean
-): { esicBase: Decimal; esicRateApplied: Decimal; esicAmount: Decimal } => {
+  isContributionPeriodContinuation?: boolean,
+  options?: {
+    excludeOtFromEligibility?: boolean;
+    esicCovered?: boolean;
+    employerEsicRate?: number;
+  }
+): {
+  esicBase: Decimal;
+  esicRateApplied: Decimal;
+  esicAmount: Decimal;
+  employerEsicRateApplied: Decimal;
+  employerEsicAmount: Decimal;
+  esicCovered: boolean;
+} => {
   if (!esicEnabled) {
     return {
       esicBase: new Decimal(0),
       esicRateApplied: new Decimal(0),
       esicAmount: new Decimal(0),
+      employerEsicRateApplied: new Decimal(0),
+      employerEsicAmount: new Decimal(0),
+      esicCovered: false,
     };
   }
 
   const wageCeiling = new Decimal(threshold ?? 21000);
+  const eligibilityWage = options?.excludeOtFromEligibility
+    ? Decimal.max(0, grossSalary.minus(overtime))
+    : grossSalary;
 
-  // If gross salary exceeds statutory ceiling and employee is NOT in an active 6-month contribution continuation period, exempt
-  if (grossSalary.greaterThan(wageCeiling) && !isContributionPeriodContinuation) {
+  const isCovered =
+    options?.esicCovered === true ||
+    Boolean(isContributionPeriodContinuation) ||
+    eligibilityWage.lessThanOrEqualTo(wageCeiling);
+
+  // If eligibility wage exceeds statutory ceiling and employee is NOT covered / continuing, exempt
+  if (!isCovered) {
     return {
       esicBase: new Decimal(0),
       esicRateApplied: new Decimal(0),
       esicAmount: new Decimal(0),
+      employerEsicRateApplied: new Decimal(0),
+      employerEsicAmount: new Decimal(0),
+      esicCovered: false,
     };
   }
 
   const rate = new Decimal(esicRate ?? 0.75);
+  const employerRate = new Decimal(options?.employerEsicRate ?? 3.25);
   let base = new Decimal(0);
 
   if (wageComponents) {
@@ -473,11 +760,15 @@ export const calculateESIC = (
   }
 
   const esicAmount = base.times(rate).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const employerEsicAmount = base.times(employerRate).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
   return {
     esicBase: base.toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
     esicRateApplied: rate,
     esicAmount,
+    employerEsicRateApplied: employerRate,
+    employerEsicAmount,
+    esicCovered: true,
   };
 };
 
@@ -538,13 +829,21 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   });
 
   // 2. Additional Earnings & Enterprise Overtime Calculation
-  const attBonus = new Decimal(input.earnings?.attendanceBonus ?? 0);
+  const isCeo = isCeoOrOwnerEmployee({
+    employeeId: input.employeeId,
+    id: input.employeeContext?.id,
+    role: input.employeeContext?.role,
+    department: input.employeeContext?.department,
+    designation: input.employeeContext?.designation,
+  });
 
-  const otHours = new Decimal(input.earnings?.overtimeHours ?? 0);
-  let otRate = new Decimal(input.earnings?.overtimeRate ?? 0);
-  let otAmount = new Decimal(input.earnings?.overtimeAmount ?? 0);
+  const attBonus = isCeo ? new Decimal(0) : new Decimal(input.earnings?.attendanceBonus ?? 0);
 
-  if (otAmount.isZero() && otHours.greaterThan(0)) {
+  const otHours = isCeo ? new Decimal(0) : new Decimal(input.earnings?.overtimeHours ?? 0);
+  let otRate = isCeo ? new Decimal(0) : new Decimal(input.earnings?.overtimeRate ?? 0);
+  let otAmount = isCeo ? new Decimal(0) : new Decimal(input.earnings?.overtimeAmount ?? 0);
+
+  if (!isCeo && otAmount.isZero() && otHours.greaterThan(0)) {
     if (input.earnings?.overtimeWageBase || input.earnings?.overtimeMultiplier) {
       const enterpriseOt = calculateEnterpriseOvertimeRateAndAmount({
         approvedHours: otHours.toNumber(),
@@ -587,13 +886,29 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   const customEarningsBreakdown: CalculationBreakdownItem[] = [];
 
   const configured = input.configuredComponents || [];
-  const baseCodes = new Set(['BASIC', 'DA', 'HRA', 'CONV', 'CONVEYANCE']);
+  const baseCodes = new Set(['BASIC', 'DA', 'HRA', 'CONV', 'CONVEYANCE', 'OT', 'OVERTIME']);
+
+  // Build shared formula context with global OT variable (Section 7)
+  const formulaCtx: Record<string, number> = {
+    BASIC: basic.toNumber(),
+    DA: da.toNumber(),
+    CONV: conveyance.toNumber(),
+    CONVEYANCE: conveyance.toNumber(),
+    HRA: hra.toNumber(),
+    OT: otAmount.toNumber(),
+    OVERTIME: otAmount.toNumber(),
+    ATTENDANCE_BONUS: attBonus.toNumber(),
+    GROSS: fixedGross.plus(otAmount).toNumber(),
+    CTC: input.monthlySalary,
+  };
 
   // Evaluate custom earnings
   for (const comp of configured) {
     if (comp.type !== 'EARNING' || !comp.active) continue;
     const code = (comp.code || '').toUpperCase().trim();
+    // Prevent duplicate counting of base salary components or already-computed OT
     if (baseCodes.has(code)) continue;
+    if (comp.calculationMethod === 'ATTENDANCE_OT' && otAmount.greaterThan(0)) continue;
 
     if (isComponentEligible(comp, eligibilityCtx)) {
       let amount = new Decimal(0);
@@ -604,6 +919,13 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
           ? basic
           : (comp.percentageBase === 'GROSS' ? fixedGross : new Decimal(input.monthlySalary));
         amount = baseVal.times(comp.defaultValue || 0).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      } else if (comp.calculationMethod === 'ATTENDANCE_OT') {
+        amount = otAmount;
+      } else if (comp.calculationMethod === 'FORMULA' && comp.formula) {
+        amount = new Decimal(evaluateFormula(comp.formula, formulaCtx)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      }
+      if (code) {
+        formulaCtx[code] = amount.toNumber();
       }
       if (amount.greaterThan(0)) {
         customEarningsSum = customEarningsSum.plus(amount);
@@ -613,7 +935,11 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
           amount: amount.toNumber(),
           description: comp.calculationMethod === 'PERCENTAGE'
             ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'}`
-            : `Fixed ₹${comp.defaultValue}`
+            : comp.calculationMethod === 'FORMULA'
+              ? `Formula: ${comp.formula}`
+              : comp.calculationMethod === 'ATTENDANCE_OT'
+                ? 'Attendance-Based Overtime (OT)'
+                : `Fixed ₹${comp.defaultValue}`
         });
       }
     }
@@ -631,6 +957,7 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
   eligibilityCtx.grossSalary = grossSalary.toNumber();
+  formulaCtx.GROSS = grossSalary.toNumber();
 
   // 3. Statutory Deductions (PF & ESIC)
   // New employees under 6 months have no PF/ESIC deductions (withPf: false).
@@ -652,6 +979,11 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     input.settings.pfWageComponents
   );
 
+  const employerPfRate = pfEnabled ? new Decimal(12) : new Decimal(0);
+  const employerPfAmount = pfEnabled
+    ? pfResult.pfBase.times(employerPfRate).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+    : new Decimal(0);
+
   // 4. Statutory Deductions (ESIC)
   const esicResult = calculateESIC(
     basic,
@@ -666,7 +998,12 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     input.settings.esicRate,
     input.settings.esicSalaryThreshold,
     input.settings.esicWageComponents,
-    input.employeeContext?.isContributionPeriodContinuation
+    input.employeeContext?.isContributionPeriodContinuation,
+    {
+      excludeOtFromEligibility: input.employeeContext?.excludeOtFromEsicEligibility,
+      esicCovered: input.employeeContext?.esicCovered,
+      employerEsicRate: 3.25,
+    }
   );
 
   // 5. Professional Tax (PT)
@@ -679,9 +1016,13 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
   const workingDays = input.salaryDivisorMode
     ? resolvedDivisor.divisorDays
     : (input.attendance.workingDays || input.settings.standardWorkingDays || 26);
-  const lopDays = input.attendance.lopDays || (input.attendance.unpaidLeaveDays + input.attendance.absentDays) || 0;
+  const lopDays = isCeo
+    ? 0
+    : (input.attendance.lopDays || (input.attendance.unpaidLeaveDays + input.attendance.absentDays) || 0);
 
-  const lopResult = calculateLOP(new Decimal(input.monthlySalary), workingDays, lopDays);
+  const lopResult = isCeo
+    ? { dailySalary: new Decimal(0), lopAmount: new Decimal(0) }
+    : calculateLOP(new Decimal(input.monthlySalary), workingDays, lopDays);
 
   // 7. Advance Loan Recovery & Other Deductions
   const advanceRecovery = new Decimal(input.deductions?.advanceRecovery ?? 0);
@@ -708,6 +1049,13 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
           ? basic
           : (comp.percentageBase === 'CTC' ? new Decimal(input.monthlySalary) : grossSalary);
         amount = baseVal.times(comp.defaultValue || 0).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      } else if (comp.calculationMethod === 'ATTENDANCE_OT') {
+        amount = otAmount;
+      } else if (comp.calculationMethod === 'FORMULA' && comp.formula) {
+        amount = new Decimal(evaluateFormula(comp.formula, formulaCtx)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      }
+      if (code) {
+        formulaCtx[code] = amount.toNumber();
       }
       if (amount.greaterThan(0)) {
         customDeductionsSum = customDeductionsSum.plus(amount);
@@ -717,7 +1065,9 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
           amount: amount.toNumber(),
           description: comp.calculationMethod === 'PERCENTAGE'
             ? `${comp.defaultValue}% of ${comp.percentageBase || 'GROSS'}`
-            : `Fixed ₹${comp.defaultValue}`
+            : comp.calculationMethod === 'FORMULA'
+              ? `Formula: ${comp.formula}`
+              : `Fixed ₹${comp.defaultValue}`
         });
       }
     }
@@ -841,10 +1191,16 @@ export const computeFullPayroll = (input: PayrollCalculationInput): FullPayrollC
     pfBase: pfResult.pfBase.toNumber(),
     pfRate: pfResult.pfRateApplied.toNumber(),
     pfAmount: pfResult.pfAmount.toNumber(),
+    employerPfRate: employerPfRate.toNumber(),
+    employerPfAmount: employerPfAmount.toNumber(),
 
     esicBase: esicResult.esicBase.toNumber(),
     esicRate: esicResult.esicRateApplied.toNumber(),
     esicAmount: esicResult.esicAmount.toNumber(),
+    employerEsicRate: esicResult.employerEsicRateApplied.toNumber(),
+    employerEsicAmount: esicResult.employerEsicAmount.toNumber(),
+    esicCovered: esicResult.esicCovered,
+    otVariableAmount: otAmount.toNumber(),
 
     professionalTax: ptAmount.toNumber(),
 

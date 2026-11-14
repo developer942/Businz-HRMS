@@ -6,6 +6,7 @@ import { shiftRepository } from './shiftRepository.js';
 import { evaluateBackendShiftAttendance, calculateShiftDateTimes, toTimezoneWallClockDate, toDateStr, DEFAULT_COMPANY_TIMEZONE, } from '../services/shiftAttendanceEngine.js';
 import { assertAttendanceTransition } from '../services/attendanceStateMachine.js';
 import { loadActiveLatePoliciesFromDb, resolveEffectiveLatePolicyForEmployee, countEmployeeMonthlyLateOccurrences, evaluateCheckInPunctualityAndPenalty, } from '../services/latePolicyService.js';
+import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
 export class AttendancePunchError extends Error {
     statusCode;
     code;
@@ -266,8 +267,10 @@ export class AttendanceRepository {
     async getTodaySummary(dateStr) {
         const timeZone = await this.getCompanyTimezone();
         const today = dateStr || toDateStr(toTimezoneWallClockDate(new Date(), timeZone));
-        const records = await this.getAll({ date: today });
-        const allEmps = await employeeRepository.getAllEmployees();
+        const rawRecords = await this.getAll({ date: today });
+        const records = rawRecords.filter((r) => !isCeoOrOwnerEmployee(r));
+        const allEmpsRaw = await employeeRepository.getAllEmployees();
+        const allEmps = allEmpsRaw.filter((e) => !isCeoOrOwnerEmployee(e));
         const totalEmployees = allEmps.length || 1;
         const presentCount = records.filter((r) => r.status === 'Present' || r.status === 'Late' || r.status === 'Half Day').length;
         const lateCount = records.filter((r) => r.status === 'Late' || (r.lateDurationMinutes && r.lateDurationMinutes > 0)).length;
@@ -354,6 +357,9 @@ export class AttendanceRepository {
      * dynamic Late Policy evaluation, and duplicate punch prevention.
      */
     async recordPunch(params) {
+        if (isCeoOrOwnerEmployee({ employeeId: params.employeeId })) {
+            throw new AttendancePunchError('CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.', 403, 'CEO_ATTENDANCE_EXEMPT');
+        }
         return this.recordPostgresPunch(params);
     }
     async recordPostgresPunch(params) {
@@ -379,6 +385,13 @@ export class AttendanceRepository {
             const employee = empResult.rows[0];
             if (!employee) {
                 throw new AttendancePunchError(`Employee profile '${params.employeeId}' was not found in PostgreSQL.`, 404, 'EMPLOYEE_NOT_FOUND');
+            }
+            if (isCeoOrOwnerEmployee({
+                employeeId: employee.employee_id,
+                designation: employee.designation,
+                department_name: employee.department_name,
+            })) {
+                throw new AttendancePunchError('CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.', 403, 'CEO_ATTENDANCE_EXEMPT');
             }
             const fullName = `${employee.first_name || ''} ${employee.last_name || ''}`.trim() || 'Employee';
             // 2. Check idempotency key for network retry safety (only short-circuit if the target punch time is actually populated)
@@ -647,6 +660,17 @@ export class AttendanceRepository {
      */
     async verifyFace(employeeId, facePhotoBase64, options) {
         const timestamp = new Date().toISOString();
+        if (isCeoOrOwnerEmployee({ employeeId }) || isCeoOrOwnerEmployee(options)) {
+            const msg = 'CEO is the company owner and is exempt from face attendance.';
+            return {
+                verified: false,
+                confidence: 0,
+                employeeId,
+                timestamp,
+                reason: msg,
+                message: msg,
+            };
+        }
         if (!facePhotoBase64 || typeof facePhotoBase64 !== 'string' || facePhotoBase64.trim().length < 50) {
             const msg = 'Valid live camera face capture is required.';
             return {

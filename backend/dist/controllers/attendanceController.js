@@ -4,6 +4,7 @@ import { punchSchema, verifyFaceSchema, gpsDiagnosticSchema } from '../validator
 import { settingsRepository } from '../repositories/settingsRepository.js';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { verifyPunchGeofence, recordGpsDiagnostic, getRecentGpsDiagnostics, } from '../services/geofenceService.js';
+import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
 export const getAttendanceLogs = async (req, res, next) => {
     try {
         const user = req.user;
@@ -91,6 +92,19 @@ export const recordPunch = async (req, res, next) => {
             });
             return;
         }
+        const isSelfPunch = !requestedEmpId || (user.employeeId && requestedEmpId.toLowerCase() === user.employeeId.toLowerCase());
+        if ((isSelfPunch && isCeoOrOwnerEmployee(user)) ||
+            isCeoOrOwnerEmployee({ employeeId: targetEmpId })) {
+            res.status(403).json({
+                success: false,
+                error: {
+                    code: 'CEO_ATTENDANCE_EXEMPT',
+                    message: 'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.',
+                    details: [],
+                },
+            });
+            return;
+        }
         // Server-side Geofence & GPS Accuracy Verification
         let isInsideGeofence = validated.inGeofence ?? true;
         const isGpsOrFacePunch = !validated.method ||
@@ -107,6 +121,17 @@ export const recordPunch = async (req, res, next) => {
             employeeRepository.getEmployeeById(targetEmpId),
             attendanceRepository.getTodayFieldDutyAssignment(targetEmpId),
         ]);
+        if (preloadedEmployee && isCeoOrOwnerEmployee(preloadedEmployee)) {
+            res.status(403).json({
+                success: false,
+                error: {
+                    code: 'CEO_ATTENDANCE_EXEMPT',
+                    message: 'CEO is the company owner and is exempt from attendance tracking, punch-in/punch-out, and face attendance.',
+                    details: [],
+                },
+            });
+            return;
+        }
         const isFlexibleWorker = preloadedEmployee?.attendance_method === 'Flexible' ||
             preloadedEmployee?.attendanceMethod === 'Flexible' ||
             String(validated.method || '').toLowerCase().includes('flexible');
@@ -320,6 +345,19 @@ export const verifyFace = async (req, res, next) => {
                 error: {
                     code: 'VALIDATION_ERROR',
                     message: 'Employee identity could not be resolved from authenticated session.',
+                    details: [],
+                },
+            });
+            return;
+        }
+        const isSelfVerify = !requestedEmpId || (user.employeeId && requestedEmpId.toLowerCase() === user.employeeId.toLowerCase());
+        if ((isSelfVerify && isCeoOrOwnerEmployee(user)) ||
+            isCeoOrOwnerEmployee({ employeeId: targetEmpId })) {
+            res.status(403).json({
+                success: false,
+                error: {
+                    code: 'CEO_ATTENDANCE_EXEMPT',
+                    message: 'CEO is the company owner and is exempt from face attendance verification.',
                     details: [],
                 },
             });

@@ -518,6 +518,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       }
 
       return true;
+    }).sort((a, b) => {
+      const matchA = String(a.employeeId || '').match(/(\d+)/);
+      const matchB = String(b.employeeId || '').match(/(\d+)/);
+      const numA = matchA ? parseInt(matchA[1], 10) : Number.MAX_SAFE_INTEGER;
+      const numB = matchB ? parseInt(matchB[1], 10) : Number.MAX_SAFE_INTEGER;
+      if (numA !== numB) return numA - numB;
+      return String(a.employeeId || '').localeCompare(String(b.employeeId || ''), undefined, { numeric: true });
     });
   }, [employees, selectedDepartment, selectedLocation, activeSearchQuery, selectedStatusFilter, calendarDays, customEdits]);
 

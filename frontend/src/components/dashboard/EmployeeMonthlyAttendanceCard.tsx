@@ -1,6 +1,11 @@
 import React, { useState, useMemo } from 'react';
+import { X, Calendar, ExternalLink } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { getMonthInfo, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
+import { isOwnerOrCEO } from '../../data/hrmsInitialData';
+import { buildEmployeeMonthlyAttendanceOtReport } from '../../services/attendanceCalculationEngine';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatCurrency } from '../../utils/numbers';
 
 interface EmployeeMonthlyAttendanceCardProps {
   onOpenAttendance?: () => void;
@@ -11,21 +16,36 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
   onOpenAttendance,
   onOpenLeaves
 }) => {
-  const { currentUser, employees, attendanceRecords, leaveRequests, masterAttendancePolicies } = useHRMS();
+  const {
+    currentUser,
+    employees,
+    attendanceRecords,
+    leaveRequests,
+    masterAttendancePolicies,
+    overtimeRequests,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig,
+    shifts
+  } = useHRMS();
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState<boolean>(false);
+
+  const isCeoUser = isOwnerOrCEO(currentUser);
 
   const userLatePolicy = useMemo(() => {
     return (masterAttendancePolicies || []).find(p => p.status === 'Active');
   }, [masterAttendancePolicies]);
 
   // Compute monthly stats for current employee for the real current month (month-to-date)
-  const stats = useMemo(() => {
+  const { stats, currentEmpObj, monthInfo } = useMemo(() => {
     const month = getMonthInfo();
     const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
     const userName = (currentUser.name || '').trim().toLowerCase();
     const userEmail = (currentUser.email || '').trim().toLowerCase();
 
-    const currentEmpObj = (employees || []).find(e => {
+    const matchedEmpObj = (employees || []).find(e => {
       const eCode = (e.employeeId || '').trim().toLowerCase();
       const eId = (e.id || '').trim().toLowerCase();
       const eEmail = (e.email || '').trim().toLowerCase();
@@ -38,12 +58,12 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
     });
 
     const validIds = new Set(
-      [currentUser.employeeId, currentUser.id, currentEmpObj?.employeeId, currentEmpObj?.id]
+      [currentUser.employeeId, currentUser.id, matchedEmpObj?.employeeId, matchedEmpObj?.id]
         .filter(Boolean)
         .map(id => String(id).trim().toLowerCase())
     );
     const validNames = new Set(
-      [currentUser.name, currentEmpObj ? `${currentEmpObj.firstName} ${currentEmpObj.lastName}`.trim() : '']
+      [currentUser.name, matchedEmpObj ? `${matchedEmpObj.firstName} ${matchedEmpObj.lastName}`.trim() : '']
         .filter(Boolean)
         .map(n => String(n).trim().toLowerCase())
     );
@@ -97,16 +117,54 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
     const attendanceRate = totalWorkingDays > 0 ? Math.min(100, Math.round(((realPresent + (realLate * 0.5)) / totalWorkingDays) * 100)) : 0;
 
     return {
-      monthName: month.fullLabel,
-      monthLabel: month.labelUpper,
-      totalWorkingDays,
-      present: realPresent,
-      leave: realLeave,
-      late: realLate,
-      absent: realAbsent,
-      attendanceRate
+      currentEmpObj: matchedEmpObj,
+      monthInfo: month,
+      stats: {
+        monthName: month.fullLabel,
+        monthLabel: month.labelUpper,
+        totalWorkingDays,
+        present: realPresent,
+        leave: realLeave,
+        late: realLate,
+        absent: realAbsent,
+        attendanceRate
+      }
     };
   }, [currentUser, employees, attendanceRecords, leaveRequests]);
+
+  const monthlyOtReport = useMemo(() => {
+    return buildEmployeeMonthlyAttendanceOtReport({
+      employee: currentEmpObj || currentUser,
+      attendanceRecords,
+      overtimeRequests,
+      overtimePolicy,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      payrollConfig: payrollSettingsConfig,
+      shifts,
+      month: monthInfo.monthIndex + 1,
+      year: monthInfo.year
+    });
+  }, [
+    currentEmpObj,
+    currentUser,
+    attendanceRecords,
+    overtimeRequests,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig,
+    shifts,
+    monthInfo
+  ]);
+
+  if (isCeoUser || isOwnerOrCEO(currentEmpObj)) {
+    return null;
+  }
+
+  const handleOpenMonthlyDetails = () => {
+    setIsDetailsModalOpen(true);
+  };
 
   // Donut chart SVG geometry (Big, Bold & Perfectly Proportioned)
   const size = 172;
@@ -136,7 +194,13 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
   const aOffset = -((pPct + lPct + hPct) * circumference);
 
   return (
-    <div className="dashboard-widget-card">
+    <>
+    <div
+      className="dashboard-widget-card"
+      data-testid="employee-monthly-attendance-card"
+      onClick={handleOpenMonthlyDetails}
+      style={{ cursor: 'pointer' }}
+    >
       {/* Header */}
       <div className="dashboard-widget-header" style={{ marginBottom: '8px' }}>
         <h3 className="dashboard-widget-title">
@@ -205,7 +269,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                   }}
                   onMouseEnter={() => setHoveredSegment('present')}
                   onMouseLeave={() => setHoveredSegment(null)}
-                  onClick={() => onOpenAttendance?.()}
+                  onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
                 >
                   <title>Present: {present} Days</title>
                 </circle>
@@ -229,7 +293,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                   }}
                   onMouseEnter={() => setHoveredSegment('leave')}
                   onMouseLeave={() => setHoveredSegment(null)}
-                  onClick={() => onOpenLeaves?.()}
+                  onClick={(e) => { e.stopPropagation(); onOpenLeaves?.(); }}
                 >
                   <title>On Leave: {leave} Days</title>
                 </circle>
@@ -253,7 +317,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                   }}
                   onMouseEnter={() => setHoveredSegment('late')}
                   onMouseLeave={() => setHoveredSegment(null)}
-                  onClick={() => onOpenAttendance?.()}
+                  onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
                 >
                   <title>Late / Half Day: {late} Days</title>
                 </circle>
@@ -277,7 +341,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                   }}
                   onMouseEnter={() => setHoveredSegment('absent')}
                   onMouseLeave={() => setHoveredSegment(null)}
-                  onClick={() => onOpenAttendance?.()}
+                  onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
                 >
                   <title>Absent: {absent} Days</title>
                 </circle>
@@ -294,7 +358,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               fontWeight="800"
               fontFamily="'Plus Jakarta Sans', sans-serif"
               style={{ cursor: 'pointer', userSelect: 'none' }}
-              onClick={() => onOpenAttendance?.()}
+              onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
             >
               {attendanceRate}%
             </text>
@@ -308,7 +372,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               letterSpacing="0.06em"
               fontFamily="'Plus Jakarta Sans', sans-serif"
               style={{ cursor: 'pointer', userSelect: 'none' }}
-              onClick={() => onOpenAttendance?.()}
+              onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
             >
               ATTENDANCE
             </text>
@@ -328,7 +392,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               borderRadius: '6px',
               transition: 'background 0.15s ease'
             }}
-            onClick={() => onOpenAttendance?.()}
+            onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; setHoveredSegment('present'); }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; setHoveredSegment(null); }}
           >
@@ -359,7 +423,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               borderRadius: '6px',
               transition: 'background 0.15s ease'
             }}
-            onClick={() => onOpenLeaves?.()}
+            onClick={(e) => { e.stopPropagation(); onOpenLeaves?.(); }}
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; setHoveredSegment('leave'); }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; setHoveredSegment(null); }}
           >
@@ -390,7 +454,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               borderRadius: '6px',
               transition: 'background 0.15s ease'
             }}
-            onClick={() => onOpenAttendance?.()}
+            onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; setHoveredSegment('late'); }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; setHoveredSegment(null); }}
           >
@@ -421,7 +485,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
               borderRadius: '6px',
               transition: 'background 0.15s ease'
             }}
-            onClick={() => onOpenAttendance?.()}
+            onClick={(e) => { e.stopPropagation(); handleOpenMonthlyDetails(); }}
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; setHoveredSegment('absent'); }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; setHoveredSegment(null); }}
           >
@@ -466,5 +530,201 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
         </div>
       </div>
     </div>
+
+    {isDetailsModalOpen && (
+      <div
+        data-testid="monthly-attendance-details-modal"
+        onClick={() => setIsDetailsModalOpen(false)}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9999,
+          backgroundColor: 'rgba(15, 23, 42, 0.48)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            width: '100%',
+            maxWidth: '780px',
+            maxHeight: '85vh',
+            backgroundColor: '#FFFFFF',
+            borderRadius: '20px',
+            border: '1px solid #E2E8F0',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.12)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Modal Header */}
+          <div style={{
+            padding: '16px 20px',
+            borderBottom: '1px solid #E2E8F0',
+            backgroundColor: '#F8FAFC',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                backgroundColor: '#ECFEFF',
+                color: '#0E7490',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Calendar size={18} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
+                  Monthly Attendance {monthlyOtReport.showOtFields ? '& Overtime Details' : 'Report'} — {stats.monthName}
+                </h3>
+                <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>
+                  {currentEmpObj ? `${currentEmpObj.firstName} ${currentEmpObj.lastName}` : currentUser.name} ({currentEmpObj?.employeeId || currentUser.employeeId}) • {currentEmpObj?.department || currentUser.department || 'General'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {onOpenAttendance && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDetailsModalOpen(false);
+                    onOpenAttendance();
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    backgroundColor: '#FFFFFF',
+                    color: '#0E7490',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <span>Full Attendance Log</span>
+                  <ExternalLink size={13} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsDetailsModalOpen(false)}
+                aria-label="Close modal"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: '#64748B',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* Modal Body: Table */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+            {monthlyOtReport.rows.length === 0 ? (
+              <div style={{
+                padding: '32px 16px',
+                textAlign: 'center',
+                backgroundColor: '#F8FAFC',
+                borderRadius: '12px',
+                border: '1px dashed #CBD5E1',
+                color: '#64748B',
+                fontSize: '0.84rem',
+                fontWeight: 600
+              }}>
+                No attendance records found for {stats.monthName}.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', border: '1px solid #E2E8F0', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', textAlign: 'left' }}>
+                      <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>DATE</th>
+                      <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>SHIFT TIME</th>
+                      <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>SHIFT WORK HRS</th>
+                      {monthlyOtReport.showOtFields ? (
+                        <>
+                          <th style={{ padding: '10px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT HRS</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT AMOUNT</th>
+                        </>
+                      ) : (
+                        <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>STATUS</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyOtReport.rows.map((row) => (
+                      <tr key={row.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap' }}>
+                          {formatDateDDMMYYYY(row.date)}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#334155' }}>
+                          <div style={{ fontWeight: 600 }}>{row.shiftTime}</div>
+                          <div style={{ fontSize: '0.7rem', color: '#64748B' }}>{row.punchTimeDisplay}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#0F172A' }}>
+                          {row.shiftWorkHrs} hrs
+                        </td>
+                        {monthlyOtReport.showOtFields ? (
+                          <>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: row.otHrs > 0 ? '#0E7490' : '#94A3B8' }}>
+                              {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: row.otAmount > 0 ? '#15803D' : '#94A3B8' }}>
+                              {formatCurrency(row.otAmount)}
+                            </td>
+                          </>
+                        ) : (
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: row.status === 'Present' ? '#15803D' : '#64748B' }}>
+                            {row.status}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  {monthlyOtReport.showOtFields && (
+                    <tfoot>
+                      <tr style={{ backgroundColor: '#ECFEFF', borderTop: '2px solid #A5F3FC' }}>
+                        <td colSpan={3} style={{ padding: '10px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.76rem' }}>
+                          TOTAL APPROVED OT HOURS: {monthlyOtReport.totalApprovedOtHours} hrs
+                        </td>
+                        <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#0E7490', fontSize: '0.82rem' }}>
+                          TOTAL APPROVED OT AMOUNT: {formatCurrency(monthlyOtReport.totalApprovedOtAmount)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };

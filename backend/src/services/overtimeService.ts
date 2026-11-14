@@ -1,8 +1,11 @@
 import { overtimeRepository, OvertimeModel } from '../repositories/overtimeRepository.js';
+import { employeeRepository } from '../repositories/employeeRepository.js';
+import { isCeoOrOwnerEmployee } from './calculationEngine.js';
 
 export class OvertimeService {
   async getAllOvertime(): Promise<OvertimeModel[]> {
-    return overtimeRepository.getAllOvertime();
+    const all = await overtimeRepository.getAllOvertime();
+    return all.filter(ot => !isCeoOrOwnerEmployee({ employeeId: ot.employeeId }));
   }
 
   async createOvertime(data: {
@@ -12,6 +15,13 @@ export class OvertimeService {
     hourly_rate?: number;
     reason?: string;
   }): Promise<OvertimeModel> {
+    if (isCeoOrOwnerEmployee({ employeeId: data.employee_id })) {
+      throw new Error('CEO is the company owner and is exempt from overtime calculation and records.');
+    }
+    const emp = await employeeRepository.getEmployeeById(data.employee_id).catch(() => null);
+    if (emp && isCeoOrOwnerEmployee(emp as any)) {
+      throw new Error('CEO is the company owner and is exempt from overtime calculation and records.');
+    }
     return overtimeRepository.createOvertime({
       employeeId: data.employee_id,
       date: data.date,

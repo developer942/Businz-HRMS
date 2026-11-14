@@ -147,15 +147,17 @@ export const INITIAL_PAYROLL_CONFIG: PayrollSettingsConfig = {
     slabs: []
   },
 
-  standardWorkingDaysPerMonth: 26,
-  salaryDivisorMode: 'FIXED_DAYS',
+  standardWorkingDaysPerMonth: 30,
+  salaryDivisorMode: 'CALENDAR_DAYS',
   payrollCycleDay: 1,
   enableProfessionalTax: false,
   standardPtAmount: 0,
   payslipOvertimeVisibility: {
     showOtHoursOnPayslip: true,
     showOtAmountOnPayslip: true,
-    showOtCalculationDetailsOnPayslip: true
+    showOtCalculationDetailsOnPayslip: true,
+    showOtRateOnPayslip: true,
+    showEmployerContributionOnPayslip: false
   },
   updatedAt: new Date().toISOString(),
   updatedBy: ''
