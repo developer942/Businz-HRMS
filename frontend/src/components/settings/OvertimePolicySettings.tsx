@@ -1,19 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Building2,
-  ToggleLeft,
-  ToggleRight,
   Sliders,
   Eye,
   UserCheck,
   ShieldCheck,
-  Calendar,
   Calculator,
   Search,
   Plus,
   X,
   CheckCircle2,
-  AlertCircle
+  ChevronDown,
+  ChevronUp,
+  Check
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import {
@@ -22,7 +20,12 @@ import {
   resolvePayrollSalaryDivisor,
   calculateEnterpriseOvertimeRateAndAmount
 } from '../../services/attendanceCalculationEngine';
-import { OtWageBaseMode, OtSalaryDivisorMode, IndividualOtException } from '../../types/attendanceEnterprise';
+import {
+  OtWageBaseMode,
+  OtSalaryDivisorMode,
+  IndividualOtException,
+  OvertimeMultiplierType
+} from '../../types/attendanceEnterprise';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 
 export const OvertimePolicySettings: React.FC = () => {
@@ -40,7 +43,22 @@ export const OvertimePolicySettings: React.FC = () => {
     currentUser
   } = useHRMS();
 
-  const [inputDrafts, setInputDrafts] = useState<Record<string, string>>({});
+  // Section 1: Department search
+  const [deptSearchQuery, setDeptSearchQuery] = useState('');
+
+  // Section 2: Collapsible Advanced Settings
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+
+  // Section 3: Live Calculation Preview state (defaults match the ₹15,000 / Nov 2026 / 9h / 10h benchmark)
+  const [previewSalary, setPreviewSalary] = useState<string>('15000');
+  const [previewPayrollMonth, setPreviewPayrollMonth] = useState<string>('2026-11');
+  const [previewDailyHours, setPreviewDailyHours] = useState<string>(
+    String(overtimePolicy.defaultDailyPaidHours || 9)
+  );
+  const [previewOtHours, setPreviewOtHours] = useState<string>('10');
+  const [previewMultiplier, setPreviewMultiplier] = useState<OvertimeMultiplierType>('1x Salary');
+
+  // Manage Exceptions Dialog state
   const [isExceptionModalOpen, setIsExceptionModalOpen] = useState(false);
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
   const [selectedExceptionEmpId, setSelectedExceptionEmpId] = useState<string>('');
@@ -62,6 +80,8 @@ export const OvertimePolicySettings: React.FC = () => {
     currentUser?.role === 'Management' ||
     currentUser?.role === 'ERP Administrator';
 
+  const isMasterEnabled = overtimePolicy.enabled !== false;
+
   const normalizeOtAllowed = (value: unknown, fallback = false): boolean => {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') {
@@ -72,64 +92,58 @@ export const OvertimePolicySettings: React.FC = () => {
     return fallback;
   };
 
-  const getDraftValue = (key: string, value: number) =>
-    Object.prototype.hasOwnProperty.call(inputDrafts, key) ? inputDrafts[key] : String(value);
-
-  const handlePolicyNumberChange = (
-    key: string,
-    deptId: string,
-    department: string,
-    field: 'standardShiftHours' | 'otHourlyRate',
-    rawValue: string
-  ) => {
-    setInputDrafts(prev => ({ ...prev, [key]: rawValue }));
-    if (rawValue === '') {
-      updateDepartmentOtPolicy(deptId, { department, [field]: 0 });
-      return;
-    }
-    const parsed = Number(rawValue);
-    if (Number.isFinite(parsed)) {
-      updateDepartmentOtPolicy(deptId, { department, [field]: parsed });
-    }
-  };
-
-  // Dynamic department overtime policy mapping:
-  // FLOOR and Dispatch Loading default to eligible (ON); other departments default to restricted (OFF) unless enabled by HR/CEO.
+  // Load all non-CEO organization departments dynamically from database
   const activeDepartmentPolicies = useMemo(() => {
-    return departments.map(dept => {
-      const normalizedDeptId = dept.id.toLowerCase();
-      const normalizedDeptName = dept.name.toLowerCase();
-      const defaultEligible = isDefaultOtEligibleDepartment(dept.name);
-      const existing = departmentOtPolicies.find(
-        p =>
-          p.department.toLowerCase() === normalizedDeptName ||
-          p.id.toLowerCase() === normalizedDeptId ||
-          p.id.toLowerCase() === `dot-${normalizedDeptId}` ||
-          p.id.toLowerCase() === `dot-${normalizedDeptName.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
-      );
-      return existing
-        ? {
-            ...existing,
-            otAllowed: normalizeOtAllowed((existing as any).otAllowed, defaultEligible),
-          }
-        : {
-            id: `DOT-${dept.id}`,
-            department: dept.name,
-            otAllowed: defaultEligible,
-            policyId: 'OTP-001',
-            maxOtHoursDaily: overtimePolicy.maximumDailyOtHours || 4.0,
-            maxOtHoursMonthly: overtimePolicy.maximumMonthlyOtHours || 60,
-            minOtDurationMinutes: overtimePolicy.minimumOtDurationMinutes || 30,
-            approvalRequired: overtimePolicy.approvalRequired ?? true,
-            calculationMethod: 'Shift End Based' as const,
-            standardShiftHours: 9,
-            otHourlyRate: 100,
-          };
-    });
+    return departments
+      .filter(dept => {
+        const cleanName = (dept.name || '').trim().toUpperCase();
+        return cleanName !== 'CEO' && cleanName !== 'OWNER' && cleanName !== 'BOARD';
+      })
+      .map(dept => {
+        const normalizedDeptId = dept.id.toLowerCase();
+        const normalizedDeptName = dept.name.toLowerCase();
+        const defaultEligible = isDefaultOtEligibleDepartment(dept.name);
+        const existing = departmentOtPolicies.find(
+          p =>
+            p.department.toLowerCase() === normalizedDeptName ||
+            p.id.toLowerCase() === normalizedDeptId ||
+            p.id.toLowerCase() === `dot-${normalizedDeptId}` ||
+            p.id.toLowerCase() ===
+              `dot-${normalizedDeptName.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
+        );
+        return existing
+          ? {
+              ...existing,
+              otAllowed: normalizeOtAllowed((existing as any).otAllowed, defaultEligible),
+            }
+          : {
+              id: `DOT-${dept.id}`,
+              department: dept.name,
+              otAllowed: defaultEligible,
+              policyId: 'OTP-001',
+              maxOtHoursDaily: overtimePolicy.maximumDailyOtHours || 4.0,
+              maxOtHoursMonthly: overtimePolicy.maximumMonthlyOtHours || 60,
+              minOtDurationMinutes: overtimePolicy.minimumOtDurationMinutes || 30,
+              approvalRequired: overtimePolicy.approvalRequired ?? true,
+              calculationMethod: 'Shift End Based' as const,
+              standardShiftHours: overtimePolicy.defaultDailyPaidHours || 9,
+            };
+      });
   }, [departments, departmentOtPolicies, overtimePolicy]);
 
+  const filteredDepartments = useMemo(() => {
+    const q = deptSearchQuery.trim().toLowerCase();
+    if (!q) return activeDepartmentPolicies;
+    return activeDepartmentPolicies.filter(d => d.department.toLowerCase().includes(q));
+  }, [activeDepartmentPolicies, deptSearchQuery]);
+
+  const enabledDeptCount = useMemo(
+    () => activeDepartmentPolicies.filter(d => d.otAllowed).length,
+    [activeDepartmentPolicies]
+  );
+
   const handleBulkDepartmentToggle = (mode: 'ALL_ON' | 'ALL_OFF' | 'DEFAULT') => {
-    if (!isHrOrCeo || overtimePolicy.enabled === false) return;
+    if (!isHrOrCeo || !isMasterEnabled) return;
     activeDepartmentPolicies.forEach(dept => {
       const nextAllowed =
         mode === 'ALL_ON'
@@ -142,6 +156,37 @@ export const OvertimePolicySettings: React.FC = () => {
         otAllowed: nextAllowed,
       });
     });
+  };
+
+  // Calculation method & divisor state derived from overtimePolicy
+  const isSalaryBased = (overtimePolicy.wageBase || 'GROSS') !== 'FIXED_HOURLY';
+  const activeWageBase: OtWageBaseMode =
+    overtimePolicy.wageBase && overtimePolicy.wageBase !== 'FIXED_HOURLY'
+      ? overtimePolicy.wageBase
+      : 'GROSS';
+  const activeDivisorMode: OtSalaryDivisorMode = overtimePolicy.divisorMode || 'CALENDAR_DAYS';
+  const isAutomaticMonthDays = activeDivisorMode === 'CALENDAR_DAYS';
+
+  const handleDivisorModeChange = (mode: OtSalaryDivisorMode) => {
+    if (!isHrOrCeo || !isMasterEnabled) return;
+    updateOvertimePolicy({ divisorMode: mode });
+    if (updatePayrollSettingsConfig) {
+      if (mode === 'CALENDAR_DAYS') {
+        updatePayrollSettingsConfig({ salaryDivisorMode: 'CALENDAR_DAYS' });
+      } else if (mode === 'WORKING_DAYS') {
+        updatePayrollSettingsConfig({ salaryDivisorMode: 'WORKING_DAYS' });
+      } else if (mode === 'FIXED_26') {
+        updatePayrollSettingsConfig({
+          salaryDivisorMode: 'FIXED_DAYS',
+          standardWorkingDaysPerMonth: 26,
+        });
+      } else if (mode === 'FIXED_30') {
+        updatePayrollSettingsConfig({
+          salaryDivisorMode: 'FIXED_DAYS',
+          standardWorkingDaysPerMonth: 30,
+        });
+      }
+    }
   };
 
   const payslipVis = {
@@ -158,9 +203,7 @@ export const OvertimePolicySettings: React.FC = () => {
     field:
       | 'showOtHoursOnPayslip'
       | 'showOtAmountOnPayslip'
-      | 'showOtRateOnPayslip'
       | 'showOtCalculationDetailsOnPayslip'
-      | 'showEmployerContributionOnPayslip'
   ) => {
     if (!isHrOrCeo) return;
     const nextVis = {
@@ -173,6 +216,100 @@ export const OvertimePolicySettings: React.FC = () => {
     }
   };
 
+  // Section 3: Live Calculation Preview computation
+  const previewResult = useMemo(() => {
+    const [yearPart, monthPart] = (previewPayrollMonth || '2026-11').split('-');
+    const yearNum = Number(yearPart) || 2026;
+    const monthNum = Number(monthPart) || 11;
+    const calendarDays = getCalendarDaysInMonth(monthNum, yearNum);
+
+    const divisorResolved = resolvePayrollSalaryDivisor({
+      month: monthNum,
+      year: yearNum,
+      payrollConfig: payrollSettingsConfig,
+      overtimePolicy,
+      divisorModeOverride: activeDivisorMode,
+    });
+
+    const divisorDays = divisorResolved.divisorDays || calendarDays;
+    const salaryNum = Math.max(0, Number(previewSalary) || 0);
+    const paidHoursNum = Math.max(1, Number(previewDailyHours) || Number(overtimePolicy.defaultDailyPaidHours) || 9);
+    const otHoursNum = Math.max(0, Number(previewOtHours) || 0);
+
+    const calcSelected = calculateEnterpriseOvertimeRateAndAmount({
+      approvedOtHours: otHoursNum,
+      wageBaseMode: isSalaryBased ? activeWageBase : 'FIXED_HOURLY',
+      basicSalary: salaryNum,
+      grossSalary: salaryNum,
+      monthlyCtc: salaryNum,
+      fixedHourlyRate: overtimePolicy.fixedRatePerHour || 100,
+      divisor: divisorDays,
+      dailyPaidHours: paidHoursNum,
+      multiplier: previewMultiplier,
+      month: monthNum,
+      year: yearNum,
+    });
+
+    const calc1x = calculateEnterpriseOvertimeRateAndAmount({
+      approvedOtHours: otHoursNum,
+      wageBaseMode: isSalaryBased ? activeWageBase : 'FIXED_HOURLY',
+      basicSalary: salaryNum,
+      grossSalary: salaryNum,
+      monthlyCtc: salaryNum,
+      fixedHourlyRate: overtimePolicy.fixedRatePerHour || 100,
+      divisor: divisorDays,
+      dailyPaidHours: paidHoursNum,
+      multiplier: '1x Salary',
+      month: monthNum,
+      year: yearNum,
+    });
+
+    const calc2x = calculateEnterpriseOvertimeRateAndAmount({
+      approvedOtHours: otHoursNum,
+      wageBaseMode: isSalaryBased ? activeWageBase : 'FIXED_HOURLY',
+      basicSalary: salaryNum,
+      grossSalary: salaryNum,
+      monthlyCtc: salaryNum,
+      fixedHourlyRate: overtimePolicy.fixedRatePerHour || 100,
+      divisor: divisorDays,
+      dailyPaidHours: paidHoursNum,
+      multiplier: '2x Salary',
+      month: monthNum,
+      year: yearNum,
+    });
+
+    const dailyRate = divisorDays > 0 ? Math.round(((salaryNum / divisorDays) + Number.EPSILON) * 100) / 100 : 0;
+
+    return {
+      monthNum,
+      yearNum,
+      calendarDays,
+      divisorDays,
+      salaryNum,
+      paidHoursNum,
+      otHoursNum,
+      dailyRate,
+      baseHourlyRate: calcSelected.baseHourlyRate,
+      effectiveHourlyRate: calcSelected.hourlyRate,
+      otAmount: calcSelected.overtimeAmount,
+      amount1x: calc1x.overtimeAmount,
+      amount2x: calc2x.overtimeAmount,
+      multiplierFactor: calcSelected.multiplierFactor,
+    };
+  }, [
+    previewSalary,
+    previewPayrollMonth,
+    previewDailyHours,
+    previewOtHours,
+    previewMultiplier,
+    activeDivisorMode,
+    isSalaryBased,
+    activeWageBase,
+    overtimePolicy,
+    payrollSettingsConfig,
+  ]);
+
+  // Employee Exceptions modal helpers (excludes CEO completely)
   const filteredModalEmployees = useMemo(() => {
     const q = employeeSearchQuery.trim().toLowerCase();
     const eligibleEmps = employees.filter(emp => !isOwnerOrCEO(emp));
@@ -180,701 +317,374 @@ export const OvertimePolicySettings: React.FC = () => {
     return eligibleEmps.filter(
       emp =>
         `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(q) ||
-        emp.employeeId.toLowerCase().includes(q) ||
+        (emp.employeeId || '').toLowerCase().includes(q) ||
         (emp.department || '').toLowerCase().includes(q)
     );
   }, [employees, employeeSearchQuery]);
 
+  const activeEmployeeExceptions = useMemo(
+    () => employeeOtPolicies.filter(ep => !isOwnerOrCEO(ep as any)),
+    [employeeOtPolicies]
+  );
+
   const selectedModalEmployee = useMemo(
-    () => employees.find(e => (e.employeeId === selectedExceptionEmpId || e.id === selectedExceptionEmpId) && !isOwnerOrCEO(e)),
+    () =>
+      employees.find(
+        e =>
+          !isOwnerOrCEO(e) &&
+          (e.employeeId === selectedExceptionEmpId || e.id === selectedExceptionEmpId)
+      ),
     [employees, selectedExceptionEmpId]
   );
 
-  const handleSaveEmployeeException = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedModalEmployee || isOwnerOrCEO(selectedModalEmployee) || !isHrOrCeo) return;
-    updateEmployeeOtPolicy(selectedModalEmployee.employeeId, {
-      employeeId: selectedModalEmployee.employeeId,
-      employeeName: `${selectedModalEmployee.firstName} ${selectedModalEmployee.lastName}`.trim(),
-      department: selectedModalEmployee.department,
-      departmentDefaultOt: isDefaultOtEligibleDepartment(selectedModalEmployee.department),
+  const handleSaveEmployeeException = () => {
+    if (!selectedExceptionEmpId) return;
+    const emp = employees.find(
+      e => e.employeeId === selectedExceptionEmpId || e.id === selectedExceptionEmpId
+    );
+    if (!emp || isOwnerOrCEO(emp)) return;
+    updateEmployeeOtPolicy(emp.employeeId, {
+      employeeId: emp.employeeId,
+      employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+      department: emp.department,
+      departmentDefaultOt: isDefaultOtEligibleDepartment(emp.department),
       individualOtException: exceptionMode,
+      individualException: exceptionMode,
       statutoryEntitlement: statutoryFlag,
       customHourlyRate: exceptionCustomRate ? Number(exceptionCustomRate) : undefined,
       effectiveFrom: exceptionEffectiveFrom || undefined,
       effectiveTo: exceptionEffectiveTo || undefined,
-      reason: exceptionReason.trim() || undefined,
-      authorizedBy: currentUser?.name || currentUser?.role || 'HR Admin',
+      notes:
+        exceptionReason.trim() ||
+        `Configured by ${currentUser?.name || currentUser?.role || 'HR'}`,
     });
     setSelectedExceptionEmpId('');
     setExceptionCustomRate('');
     setExceptionEffectiveTo('');
     setExceptionReason('');
     setStatutoryFlag(false);
-    setIsExceptionModalOpen(false);
   };
 
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
-  const currentMonthDays = getCalendarDaysInMonth(currentMonth, currentYear);
-
-  const isSalaryBased = (overtimePolicy.wageBase || 'GROSS') !== 'FIXED_HOURLY';
-  const activeWageBase: OtWageBaseMode = overtimePolicy.wageBase || 'GROSS';
-  const activeDivisorMode: OtSalaryDivisorMode = overtimePolicy.divisorMode || 'CALENDAR_DAYS';
-  const activeMultiplier = overtimePolicy.defaultMultiplier || overtimePolicy.rateType || '2x Salary';
-  const defaultDailyPaidHours = activeDepartmentPolicies[0]?.standardShiftHours || 9;
-
-  // Live mathematical preview for ₹15,000 monthly salary, 30-day month (or active divisor), 9 daily hours, 10 OT hours
-  const previewDivisor = resolvePayrollSalaryDivisor({
-    month: 11, // November (30 days benchmark)
-    year: currentYear,
-    divisorMode: activeDivisorMode,
-    customDivisorDays: payrollSettingsConfig?.standardWorkingDaysPerMonth || 26,
-  });
-
-  const liveSample = calculateEnterpriseOvertimeRateAndAmount({
-    approvedHours: 10,
-    wageBaseMode: activeWageBase,
-    basicSalary: 15000,
-    grossSalary: 15000,
-    monthlyCtc: 15000,
-    fixedHourlyRate: activeDepartmentPolicies[0]?.otHourlyRate || 100,
-    divisorDays: previewDivisor.divisorDays,
-    dailyPaidHours: defaultDailyPaidHours,
-    multiplier: activeMultiplier,
-    statutoryMultiplier: overtimePolicy.statutoryMultiplier || 1,
-  });
-
-  const isMasterEnabled = overtimePolicy.enabled !== false;
-  const enabledDeptsCount = activeDepartmentPolicies.filter(d => d.otAllowed).length;
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* ==================== SECTION A — ENABLE OVERTIME ==================== */}
+    <div
+      style={{
+        backgroundColor: '#FFFFFF',
+        borderRadius: '16px',
+        border: '1px solid #E7ECF3',
+        padding: '24px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '24px',
+      }}
+    >
+      {/* PAGE HEADER */}
       <div
         style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid #E7ECF3',
-          padding: '18px 22px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '16px',
+          gap: '12px',
+          paddingBottom: '16px',
+          borderBottom: '1px solid #E7ECF3',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div
-            style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '12px',
-              backgroundColor: isMasterEnabled ? '#ECFEFF' : '#F1F5F9',
-              color: isMasterEnabled ? '#0E7490' : '#64748B',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <Sliders size={20} />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#1E293B' }}>
-                Section A — Enable Overtime Policy
-              </h3>
-              <span
-                style={{
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  padding: '2px 10px',
-                  borderRadius: '9999px',
-                  backgroundColor: isMasterEnabled ? '#DCFCE7' : '#FEE2E2',
-                  color: isMasterEnabled ? '#15803D' : '#DC2626',
-                }}
-              >
-                {isMasterEnabled ? 'Policy Active' : 'Policy Disabled'}
-              </span>
-              <span
-                style={{
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  padding: '2px 10px',
-                  borderRadius: '9999px',
-                  backgroundColor: '#ECFEFF',
-                  color: '#0E7490',
-                }}
-              >
-                {isSalaryBased ? `Salary-Based (${activeWageBase})` : 'Fixed Hourly Rate'} · {activeMultiplier}
-              </span>
-            </div>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#64748B' }}>
-              Master switch controlling organization-wide overtime calculation, attendance tracking, and payroll variable (<code>OT</code>) integration.
-            </p>
-          </div>
+        <div>
+          <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+            Overtime Policy
+          </h3>
+          <p style={{ margin: '3px 0 0 0', fontSize: '0.82rem', color: '#64748B' }}>
+            Set up overtime in three simple steps
+          </p>
         </div>
 
-        <button
-          type="button"
-          disabled={!isHrOrCeo}
-          onClick={() => updateOvertimePolicy({ enabled: !isMasterEnabled })}
+        <span
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 16px',
-            borderRadius: '12px',
-            border: `1px solid ${isMasterEnabled ? '#0E7490' : '#CBD5E1'}`,
-            backgroundColor: isMasterEnabled ? '#0E7490' : '#F8FAFC',
-            color: isMasterEnabled ? '#FFFFFF' : '#475569',
-            fontSize: '0.82rem',
-            fontWeight: 750,
-            cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
-            transition: 'all 0.15s ease',
+            padding: '5px 14px',
+            borderRadius: '9999px',
+            fontSize: '0.76rem',
+            fontWeight: 700,
+            backgroundColor: isMasterEnabled ? '#DCFCE7' : '#FEF3C7',
+            color: isMasterEnabled ? '#15803D' : '#B45309',
+            border: isMasterEnabled ? '1px solid #BBF7D0' : '1px solid #FDE68A',
           }}
         >
-          {isMasterEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-          {isMasterEnabled ? 'Overtime Enabled' : 'Overtime Disabled'}
-        </button>
+          {isMasterEnabled ? 'Enabled' : 'Disabled'}
+        </span>
       </div>
 
-      {/* ==================== SECTION B — ELIGIBLE DEPARTMENTS ==================== */}
+      {/* =================================================================== */}
+      {/* SECTION 1 — ELIGIBLE DEPARTMENTS: Who Can Receive Overtime?         */}
+      {/* =================================================================== */}
       <div
         style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid #E7ECF3',
-          padding: '20px 22px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
           display: 'flex',
           flexDirection: 'column',
           gap: '14px',
+          paddingBottom: '22px',
+          borderBottom: '1px solid #E7ECF3',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px',
+          }}
+        >
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Building2 size={17} color="#0E7490" />
-              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1E293B' }}>
-                Section B — Eligible Departments
-              </h4>
-              <span
-                style={{
-                  fontSize: '0.72rem',
-                  color: '#0E7490',
-                  fontWeight: 700,
-                  background: '#ECFEFF',
-                  padding: '2px 8px',
-                  borderRadius: '999px',
-                }}
-              >
-                {enabledDeptsCount} of {activeDepartmentPolicies.length} Enabled
-              </span>
+            <div style={{ fontSize: '0.96rem', fontWeight: 800, color: '#0F172A' }}>
+              1. Allow Overtime — Who Can Receive Overtime?
             </div>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.79rem', color: '#64748B' }}>
-              Toggle overtime eligibility per department. A department restriction does not eliminate overtime legally payable to a statutorily covered employee.
-            </p>
+            <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
+              Select departments eligible for OT ({enabledDeptCount} of {activeDepartmentPolicies.length} enabled)
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={!isHrOrCeo}
+            onClick={() => updateOvertimePolicy({ enabled: !isMasterEnabled })}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '7px 14px',
+              borderRadius: '9999px',
+              border: isMasterEnabled ? '1px solid #0E7490' : '1px solid #CBD5E1',
+              backgroundColor: isMasterEnabled ? '#ECFEFF' : '#F8FAFC',
+              color: isMasterEnabled ? '#0E7490' : '#64748B',
+              fontWeight: 800,
+              fontSize: '0.8rem',
+              cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span
+              style={{
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                backgroundColor: isMasterEnabled ? '#0E7490' : '#CBD5E1',
+                color: '#FFFFFF',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {isMasterEnabled && <Check size={12} strokeWidth={3} />}
+            </span>
+            {isMasterEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        {/* Search & Compact Quick Selection Controls */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '10px',
+          }}
+        >
+          <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: '320px' }}>
+            <Search
+              size={14}
+              color="#94A3B8"
+              style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }}
+            />
+            <input
+              type="text"
+              value={deptSearchQuery}
+              onChange={e => setDeptSearchQuery(e.target.value)}
+              placeholder="Search department..."
+              style={{
+                width: '100%',
+                padding: '7px 10px 7px 32px',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+                fontSize: '0.8rem',
+                color: '#1E293B',
+                backgroundColor: '#F8FAFC',
+                boxSizing: 'border-box',
+              }}
+            />
           </div>
 
           {isHrOrCeo && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 disabled={!isMasterEnabled}
                 onClick={() => handleBulkDepartmentToggle('DEFAULT')}
                 style={{
-                  padding: '6px 12px',
+                  padding: '5px 10px',
                   borderRadius: '8px',
-                  border: '1px solid #CBD5E1',
-                  backgroundColor: '#F8FAFC',
-                  color: '#334155',
-                  fontSize: '0.75rem',
+                  border: '1px solid #CFFAFE',
+                  backgroundColor: '#ECFEFF',
+                  color: '#0E7490',
+                  fontSize: '0.73rem',
                   fontWeight: 700,
                   cursor: isMasterEnabled ? 'pointer' : 'not-allowed',
                 }}
               >
-                Default (FLOOR &amp; Dispatch ON)
+                FLOOR &amp; Dispatch Loading Only
               </button>
               <button
                 type="button"
                 disabled={!isMasterEnabled}
                 onClick={() => handleBulkDepartmentToggle('ALL_ON')}
                 style={{
-                  padding: '6px 12px',
+                  padding: '5px 10px',
                   borderRadius: '8px',
-                  border: '1px solid #A5F3FC',
-                  backgroundColor: '#ECFEFF',
-                  color: '#0E7490',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#FFFFFF',
+                  color: '#475569',
+                  fontSize: '0.73rem',
+                  fontWeight: 600,
                   cursor: isMasterEnabled ? 'pointer' : 'not-allowed',
                 }}
               >
-                Enable All
+                Select All
               </button>
               <button
                 type="button"
                 disabled={!isMasterEnabled}
                 onClick={() => handleBulkDepartmentToggle('ALL_OFF')}
                 style={{
-                  padding: '6px 12px',
+                  padding: '5px 10px',
                   borderRadius: '8px',
                   border: '1px solid #E2E8F0',
                   backgroundColor: '#FFFFFF',
                   color: '#64748B',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
+                  fontSize: '0.73rem',
+                  fontWeight: 600,
                   cursor: isMasterEnabled ? 'pointer' : 'not-allowed',
                 }}
               >
-                Restrict All
+                Clear All
               </button>
             </div>
           )}
         </div>
 
-        <div style={{ overflowX: 'auto', border: '1px solid #E7ECF3', borderRadius: '12px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.83rem' }}>
-            <thead style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E7ECF3' }}>
-              <tr>
-                <th style={{ padding: '10px 16px', fontWeight: 700, color: '#475569', fontSize: '0.73rem', textTransform: 'uppercase' }}>
-                  Department
-                </th>
-                <th style={{ padding: '10px 16px', fontWeight: 700, color: '#475569', fontSize: '0.73rem', textTransform: 'uppercase' }}>
-                  OT Eligibility
-                </th>
-                <th style={{ padding: '10px 16px', fontWeight: 700, color: '#475569', fontSize: '0.73rem', textTransform: 'uppercase' }}>
-                  Daily Shift Hours
-                </th>
-                <th style={{ padding: '10px 16px', fontWeight: 700, color: '#475569', fontSize: '0.73rem', textTransform: 'uppercase' }}>
-                  Applicable OT Calculation Rule
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {activeDepartmentPolicies.length === 0 ? (
-                <tr>
-                  <td colSpan={4} style={{ padding: '28px 16px', textAlign: 'center', color: '#64748B' }}>
-                    No departments found. Add departments under Organization settings.
-                  </td>
-                </tr>
-              ) : (
-                activeDepartmentPolicies.map(dept => {
-                  const isDepartmentOtAllowed = normalizeOtAllowed(
-                    (dept as any).otAllowed,
-                    isDefaultOtEligibleDepartment(dept.department)
-                  );
-                  const isOtAllowed = isMasterEnabled && isDepartmentOtAllowed;
-                  const shiftHours = dept.standardShiftHours ?? 9;
-                  const hourlyRate = dept.otHourlyRate ?? 100;
-                  const shiftDraftKey = `${dept.id}:standardShiftHours`;
-                  const rateDraftKey = `${dept.id}:otHourlyRate`;
-
-                  return (
-                    <tr key={dept.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1E293B', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Building2 size={15} color={isOtAllowed ? '#0E7490' : '#94A3B8'} />
-                        {dept.department}
-                      </td>
-
-                      <td style={{ padding: '12px 16px' }}>
-                        <button
-                          type="button"
-                          disabled={!isHrOrCeo || !isMasterEnabled}
-                          onClick={() =>
-                            updateDepartmentOtPolicy(dept.id, {
-                              department: dept.department,
-                              otAllowed: !isDepartmentOtAllowed,
-                            })
-                          }
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '4px 12px',
-                            borderRadius: '9999px',
-                            border: 'none',
-                            fontSize: '0.74rem',
-                            fontWeight: 750,
-                            cursor: !isHrOrCeo || !isMasterEnabled ? 'not-allowed' : 'pointer',
-                            backgroundColor: isOtAllowed ? '#DCFCE7' : '#F1F5F9',
-                            color: isOtAllowed ? '#15803D' : '#64748B',
-                          }}
-                        >
-                          {isOtAllowed ? (
-                            <>
-                              <ToggleRight size={15} color="#15803D" /> ON
-                            </>
-                          ) : (
-                            <>
-                              <ToggleLeft size={15} color="#94A3B8" /> OFF
-                            </>
-                          )}
-                        </button>
-                      </td>
-
-                      <td style={{ padding: '12px 16px' }}>
-                        {isOtAllowed && isHrOrCeo ? (
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <input
-                              type="number"
-                              step="0.5"
-                              min="4"
-                              max="16"
-                              value={getDraftValue(shiftDraftKey, shiftHours)}
-                              onChange={e =>
-                                handlePolicyNumberChange(
-                                  shiftDraftKey,
-                                  dept.id,
-                                  dept.department,
-                                  'standardShiftHours',
-                                  e.target.value
-                                )
-                              }
-                              style={{
-                                width: '56px',
-                                padding: '5px 8px',
-                                borderRadius: '8px',
-                                border: '1px solid #CBD5E1',
-                                fontSize: '0.8rem',
-                                fontWeight: 700,
-                                color: '#1E293B',
-                              }}
-                            />
-                            <span style={{ color: '#64748B', fontSize: '0.76rem' }}>hrs/day</span>
-                          </div>
-                        ) : (
-                          <span style={{ color: '#64748B', fontSize: '0.78rem' }}>{shiftHours} hrs/day</span>
-                        )}
-                      </td>
-
-                      <td style={{ padding: '12px 16px' }}>
-                        {!isOtAllowed ? (
-                          <span
-                            style={{
-                              fontSize: '0.75rem',
-                              color: '#94A3B8',
-                              fontWeight: 600,
-                            }}
-                          >
-                            Overtime Restricted (Except Statutory / Individual Exception)
-                          </span>
-                        ) : isSalaryBased ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '3px 10px',
-                              borderRadius: '6px',
-                              backgroundColor: '#ECFEFF',
-                              border: '1px solid #CFFAFE',
-                              color: '#0E7490',
-                              fontSize: '0.75rem',
-                              fontWeight: 700,
-                            }}
-                          >
-                            Salary-Based ({activeWageBase} ÷ Divisor ÷ {shiftHours}h × {activeMultiplier})
-                          </span>
-                        ) : (
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ color: '#0E7490', fontWeight: 700, fontSize: '0.82rem' }}>₹</span>
-                            <input
-                              type="number"
-                              step="10"
-                              min="0"
-                              disabled={!isHrOrCeo}
-                              value={getDraftValue(rateDraftKey, hourlyRate)}
-                              onChange={e =>
-                                handlePolicyNumberChange(
-                                  rateDraftKey,
-                                  dept.id,
-                                  dept.department,
-                                  'otHourlyRate',
-                                  e.target.value
-                                )
-                              }
-                              style={{
-                                width: '70px',
-                                padding: '5px 8px',
-                                borderRadius: '8px',
-                                border: '1px solid #CBD5E1',
-                                fontSize: '0.8rem',
-                                fontWeight: 700,
-                                color: '#1E293B',
-                              }}
-                            />
-                            <span style={{ color: '#64748B', fontSize: '0.76rem' }}>/ hr</span>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ==================== SECTION C — OVERTIME CALCULATION ==================== */}
-      <div
-        style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid #E7ECF3',
-          padding: '20px 22px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Calculator size={17} color="#0E7490" />
-            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1E293B' }}>
-              Section C — Overtime Calculation Formula &amp; Rules
-            </h4>
-          </div>
-
-          {/* Primary Calculation Mode Selector */}
-          <div
-            style={{
-              display: 'inline-flex',
-              backgroundColor: '#F1F5F9',
-              padding: '3px',
-              borderRadius: '10px',
-              gap: '4px',
-            }}
-          >
-            <button
-              type="button"
-              disabled={!isHrOrCeo}
-              onClick={() => updateOvertimePolicy({ wageBase: 'GROSS' })}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                border: 'none',
-                fontSize: '0.76rem',
-                fontWeight: 750,
-                cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
-                backgroundColor: isSalaryBased ? '#0E7490' : 'transparent',
-                color: isSalaryBased ? '#FFFFFF' : '#64748B',
-              }}
-            >
-              Salary-Based Hourly Rate (Recommended)
-            </button>
-            <button
-              type="button"
-              disabled={!isHrOrCeo}
-              onClick={() => updateOvertimePolicy({ wageBase: 'FIXED_HOURLY' })}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                border: 'none',
-                fontSize: '0.76rem',
-                fontWeight: 750,
-                cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
-                backgroundColor: !isSalaryBased ? '#0E7490' : 'transparent',
-                color: !isSalaryBased ? '#FFFFFF' : '#64748B',
-              }}
-            >
-              Fixed Hourly Rate
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
-              Eligible Wage Base
-            </label>
-            <select
-              disabled={!isHrOrCeo}
-              value={activeWageBase}
-              onChange={e => updateOvertimePolicy({ wageBase: e.target.value as OtWageBaseMode })}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.82rem',
-                color: '#1E293B',
-                backgroundColor: '#FFFFFF',
-              }}
-            >
-              <option value="GROSS">Gross Salary ÷ Divisor ÷ Daily Hours</option>
-              <option value="BASIC">Basic Salary ÷ Divisor ÷ Daily Hours</option>
-              <option value="CTC">Monthly CTC ÷ Divisor ÷ Daily Hours</option>
-              <option value="FIXED_HOURLY">Fixed Hourly Rate (Where Legally Permitted)</option>
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
-              Monthly Salary Divisor
-            </label>
-            <select
-              disabled={!isHrOrCeo}
-              value={activeDivisorMode}
-              onChange={e => {
-                const mode = e.target.value as OtSalaryDivisorMode;
-                updateOvertimePolicy({ divisorMode: mode });
-                if (updatePayrollSettingsConfig) {
-                  if (mode === 'CALENDAR_DAYS') updatePayrollSettingsConfig({ salaryDivisorMode: 'CALENDAR_DAYS' });
-                  else if (mode === 'WORKING_DAYS') updatePayrollSettingsConfig({ salaryDivisorMode: 'WORKING_DAYS' });
-                  else if (mode === 'STATUTORY_DIVISOR') updatePayrollSettingsConfig({ salaryDivisorMode: 'STATUTORY_DIVISOR', standardWorkingDaysPerMonth: 26 });
-                  else if (mode === 'FIXED_26') updatePayrollSettingsConfig({ salaryDivisorMode: 'FIXED_DAYS', standardWorkingDaysPerMonth: 26 });
-                  else if (mode === 'FIXED_30') updatePayrollSettingsConfig({ salaryDivisorMode: 'FIXED_DAYS', standardWorkingDaysPerMonth: 30 });
-                }
-              }}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.82rem',
-                color: '#1E293B',
-                backgroundColor: '#FFFFFF',
-              }}
-            >
-              <option value="CALENDAR_DAYS">Automatic Calendar Days ({currentMonthDays} Days this month: 28/29/30/31)</option>
-              <option value="FIXED_30">Fixed 30 Days</option>
-              <option value="WORKING_DAYS">Configured Paid Working Days ({payrollSettingsConfig?.standardWorkingDaysPerMonth || 26} Days)</option>
-              <option value="STATUTORY_DIVISOR">Applicable Statutory Divisor (26 Days)</option>
-              <option value="COMPANY_DIVISOR">Company Divisor ({payrollSettingsConfig?.standardWorkingDaysPerMonth || 26} Days)</option>
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
-              Daily Paid Working Hours
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              min="4"
-              max="16"
-              disabled={!isHrOrCeo}
-              value={defaultDailyPaidHours}
-              onChange={e => {
-                const hrs = Math.max(1, Number(e.target.value) || 9);
-                activeDepartmentPolicies.forEach(d => {
-                  updateDepartmentOtPolicy(d.id, { department: d.department, standardShiftHours: hrs });
-                });
-              }}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.82rem',
-                color: '#1E293B',
-                backgroundColor: '#FFFFFF',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
-              Overtime Multiplier
-            </label>
-            <select
-              disabled={!isHrOrCeo}
-              value={activeMultiplier}
-              onChange={e => {
-                const val = e.target.value as any;
-                const numMult = val === '2x Salary' ? 2.0 : val === '1.5x Salary' ? 1.5 : 1.0;
-                updateOvertimePolicy({
-                  defaultMultiplier: val,
-                  rateType: val,
-                  regularMultiplier: numMult,
-                });
-              }}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.82rem',
-                color: '#1E293B',
-                backgroundColor: '#FFFFFF',
-              }}
-            >
-              <option value="2x Salary">2.0× Statutory Double Rate (Default)</option>
-              <option value="1.5x Salary">1.5× Overtime Multiplier</option>
-              <option value="1x Salary">1.0× Standard Hourly Rate</option>
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
-              Approval Requirement
-            </label>
-            <button
-              type="button"
-              disabled={!isHrOrCeo}
-              onClick={() => updateOvertimePolicy({ approvalRequired: !overtimePolicy.approvalRequired })}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 12px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: overtimePolicy.approvalRequired ? '#ECFEFF' : '#F8FAFC',
-                color: overtimePolicy.approvalRequired ? '#0E7490' : '#64748B',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
-              }}
-            >
-              <span>{overtimePolicy.approvalRequired ? 'Manager / HR Approval Required' : 'Auto-Approve Eligible OT'}</span>
-              {overtimePolicy.approvalRequired ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-            </button>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
-              Policy Effective Date
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Calendar size={15} color="#64748B" />
-              <input
-                type="date"
-                disabled={!isHrOrCeo}
-                value={overtimePolicy.effectiveFrom || '2026-01-01'}
-                onChange={e =>
-                  updateOvertimePolicy({
-                    effectiveFrom: e.target.value,
-                    version: (overtimePolicy.version || 1) + 1,
+        {/* Clean 2-Column Department Pill Grid (No hourly rate inputs, no ₹100 fields) */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: '10px',
+            opacity: isMasterEnabled ? 1 : 0.55,
+          }}
+        >
+          {filteredDepartments.map(dept => {
+            const isAllowed = Boolean(dept.otAllowed);
+            return (
+              <button
+                key={dept.id}
+                type="button"
+                disabled={!isHrOrCeo || !isMasterEnabled}
+                onClick={() =>
+                  updateDepartmentOtPolicy(dept.id, {
+                    department: dept.department,
+                    otAllowed: !isAllowed,
                   })
                 }
                 style={{
-                  width: '100%',
-                  padding: '7px 10px',
-                  borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
-                  fontSize: '0.82rem',
-                  color: '#1E293B',
-                  backgroundColor: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  padding: '11px 14px',
+                  borderRadius: '12px',
+                  border: isAllowed ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                  backgroundColor: isAllowed ? '#ECFEFF' : '#FFFFFF',
+                  cursor: isHrOrCeo && isMasterEnabled ? 'pointer' : 'not-allowed',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
                 }}
-              />
-            </div>
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <span
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      border: isAllowed ? 'none' : '1.5px solid #CBD5E1',
+                      backgroundColor: isAllowed ? '#0E7490' : 'transparent',
+                      color: '#FFFFFF',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isAllowed && <Check size={12} strokeWidth={3} />}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.85rem',
+                      fontWeight: isAllowed ? 700 : 600,
+                      color: isAllowed ? '#0F172A' : '#475569',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {dept.department}
+                  </span>
+                </div>
+
+                <span
+                  style={{
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    backgroundColor: isAllowed ? '#0E7490' : '#F1F5F9',
+                    color: isAllowed ? '#FFFFFF' : '#64748B',
+                    flexShrink: 0,
+                  }}
+                >
+                  {isAllowed ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* SECTION 2 — HOW OVERTIME IS CALCULATED                              */}
+      {/* =================================================================== */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+          paddingBottom: '22px',
+          borderBottom: '1px solid #E7ECF3',
+          opacity: isMasterEnabled ? 1 : 0.6,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: '0.96rem', fontWeight: 800, color: '#0F172A' }}>
+            2. How to Calculate OT — How Should Overtime Be Calculated?
+          </div>
+          <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
+            Automatically derives each employee&apos;s hourly overtime rate from their monthly salary
           </div>
         </div>
 
-        {/* Live Salary-Based OT Calculation Preview Banner */}
+        {/* Highlighted Salary-Based Calculation Formula Banner */}
         <div
           style={{
-            padding: '12px 16px',
-            borderRadius: '10px',
+            padding: '14px 16px',
+            borderRadius: '12px',
             backgroundColor: '#F8FAFC',
             border: '1px solid #E2E8F0',
             display: 'flex',
@@ -882,124 +692,406 @@ export const OvertimePolicySettings: React.FC = () => {
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: '10px',
-            fontSize: '0.78rem',
-            color: '#334155',
           }}
         >
           <div>
-            <strong>Formula:</strong>{' '}
-            <code>Hourly Rate = Eligible Monthly Wages ÷ Applicable Divisor ÷ Daily Paid Hours</code> ·{' '}
-            <code>OT = Hourly Rate × Approved OT Hours × Multiplier</code>
+            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0F172A' }}>
+              {isSalaryBased ? 'Salary-Based Calculation' : 'Fixed Hourly Rate Calculation'}
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '3px', fontFamily: 'monospace' }}>
+              {isSalaryBased
+                ? 'Eligible Monthly Wages ÷ Month Days ÷ Paid Daily Hours × OT Hours × Applicable Multiplier'
+                : 'Fixed Hourly Rate × Approved OT Hours × Applicable Multiplier'}
+            </div>
           </div>
-          <div style={{ color: '#0E7490', fontWeight: 700 }}>
-            Example (₹15,000 Salary, {previewDivisor.divisorDays} Days, {defaultDailyPaidHours}h Shift, 10h OT):{' '}
-            ₹{(15000 / previewDivisor.divisorDays / defaultDailyPaidHours).toFixed(2)}/hr ×{' '}
-            {liveSample.multiplierApplied}× = ₹{liveSample.calculatedAmount.toFixed(2)}
-          </div>
-        </div>
-      </div>
-
-      {/* ==================== SECTION D — PAYSLIP VISIBILITY ==================== */}
-      <div
-        style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid #E7ECF3',
-          padding: '18px 22px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Eye size={17} color="#0E7490" />
-            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1E293B' }}>
-              Section D — Payslip Visibility
-            </h4>
-          </div>
-          <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-            Controls payslip display only; never alters payable Gross/Net salary or mandatory statutory disclosures.
+          <span
+            style={{
+              padding: '4px 10px',
+              borderRadius: '9999px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              backgroundColor: '#DCFCE7',
+              color: '#15803D',
+              border: '1px solid #BBF7D0',
+            }}
+          >
+            Recommended
           </span>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-          {[
-            { key: 'showOtAmountOnPayslip' as const, label: 'Show OT Amount' },
-            { key: 'showOtHoursOnPayslip' as const, label: 'Show OT Hours' },
-            { key: 'showOtRateOnPayslip' as const, label: 'Show OT Rate' },
-            { key: 'showOtCalculationDetailsOnPayslip' as const, label: 'Show Optional Calculation Details' },
-            { key: 'showEmployerContributionOnPayslip' as const, label: 'Show Employer PF/ESIC Info' },
-          ].map(item => {
-            const active = Boolean(payslipVis[item.key]);
-            return (
-              <button
-                key={item.key}
-                type="button"
-                disabled={!isHrOrCeo}
-                onClick={() => handlePayslipVisibilityToggle(item.key)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  borderRadius: '9999px',
-                  border: `1px solid ${active ? '#0E7490' : '#E2E8F0'}`,
-                  backgroundColor: active ? '#ECFEFF' : '#F8FAFC',
-                  color: active ? '#0E7490' : '#64748B',
-                  fontSize: '0.76rem',
-                  fontWeight: 700,
-                  cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
-                }}
-              >
-                {active ? <ToggleRight size={15} color="#0E7490" /> : <ToggleLeft size={15} color="#94A3B8" />}
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ==================== SECTION E — EMPLOYEE EXCEPTIONS ==================== */}
-      <div
-        style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid #E7ECF3',
-          padding: '18px 22px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <UserCheck size={17} color="#0E7490" />
-              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1E293B' }}>
-                Section E — Employee Overtime Exceptions
-              </h4>
+        {/* Field 1: Calculation Method */}
+        <div>
+          <label
+            style={{
+              display: 'block',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              color: '#334155',
+              marginBottom: '8px',
+            }}
+          >
+            Calculation Method
+          </label>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '10px',
+            }}
+          >
+            <button
+              type="button"
+              disabled={!isHrOrCeo || !isMasterEnabled}
+              onClick={() =>
+                updateOvertimePolicy({
+                  wageBase:
+                    overtimePolicy.wageBase && overtimePolicy.wageBase !== 'FIXED_HOURLY'
+                      ? overtimePolicy.wageBase
+                      : 'GROSS',
+                  rateMethod: 'Daily Salary Based',
+                })
+              }
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '11px 14px',
+                borderRadius: '10px',
+                border: isSalaryBased ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                backgroundColor: isSalaryBased ? '#ECFEFF' : '#FFFFFF',
+                cursor: isHrOrCeo && isMasterEnabled ? 'pointer' : 'not-allowed',
+                textAlign: 'left',
+              }}
+            >
               <span
                 style={{
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: '9999px',
-                  backgroundColor: '#F1F5F9',
-                  color: '#475569',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  border: isSalaryBased ? '5px solid #0E7490' : '1.5px solid #94A3B8',
+                  backgroundColor: '#FFFFFF',
+                  flexShrink: 0,
+                  boxSizing: 'border-box',
+                }}
+              />
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A' }}>
+                  Salary-Based Rate (Recommended)
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                  Individual hourly rate from employee salary
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              disabled={!isHrOrCeo || !isMasterEnabled}
+              onClick={() =>
+                updateOvertimePolicy({
+                  wageBase: 'FIXED_HOURLY',
+                  rateMethod: 'Fixed Amount Per Hour',
+                  fixedRatePerHour: overtimePolicy.fixedRatePerHour || 100,
+                })
+              }
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '11px 14px',
+                borderRadius: '10px',
+                border: !isSalaryBased ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                backgroundColor: !isSalaryBased ? '#ECFEFF' : '#FFFFFF',
+                cursor: isHrOrCeo && isMasterEnabled ? 'pointer' : 'not-allowed',
+                textAlign: 'left',
+              }}
+            >
+              <span
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  border: !isSalaryBased ? '5px solid #0E7490' : '1.5px solid #94A3B8',
+                  backgroundColor: '#FFFFFF',
+                  flexShrink: 0,
+                  boxSizing: 'border-box',
+                }}
+              />
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A' }}>
+                  Fixed Hourly Rate (where permitted)
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                  Flat rate only when legally permitted
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Show Fixed Hourly Rate input ONLY if Fixed Hourly Rate method is explicitly selected */}
+        {!isSalaryBased && (
+          <div style={{ maxWidth: '280px' }}>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.76rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '5px',
+              }}
+            >
+              Permitted Fixed Hourly Rate (₹ / hr)
+            </label>
+            <input
+              type="number"
+              min={1}
+              disabled={!isHrOrCeo || !isMasterEnabled}
+              value={overtimePolicy.fixedRatePerHour || 100}
+              onChange={e =>
+                updateOvertimePolicy({
+                  fixedRatePerHour: Math.max(1, Number(e.target.value) || 0),
+                })
+              }
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.84rem',
+                color: '#0F172A',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        )}
+
+        {/* Field 2: Monthly Divisor (Radio options matching reference design) */}
+        <div>
+          <label
+            style={{
+              display: 'block',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              color: '#334155',
+              marginBottom: '8px',
+            }}
+          >
+            Monthly Divisor
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '0.84rem',
+                fontWeight: isAutomaticMonthDays ? 700 : 500,
+                color: '#0F172A',
+                cursor: isHrOrCeo && isMasterEnabled ? 'pointer' : 'not-allowed',
+              }}
+            >
+              <input
+                type="radio"
+                name="otMonthlyDivisor"
+                checked={isAutomaticMonthDays}
+                disabled={!isHrOrCeo || !isMasterEnabled}
+                onChange={() => handleDivisorModeChange('CALENDAR_DAYS')}
+                style={{ accentColor: '#0E7490', width: '16px', height: '16px' }}
+              />
+              <span>Automatic month days (28/29/30/31)</span>
+            </label>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  fontSize: '0.84rem',
+                  fontWeight: !isAutomaticMonthDays ? 700 : 500,
+                  color: '#0F172A',
+                  cursor: isHrOrCeo && isMasterEnabled ? 'pointer' : 'not-allowed',
                 }}
               >
-                {employeeOtPolicies.length} Active {employeeOtPolicies.length === 1 ? 'Exception' : 'Exceptions'}
-              </span>
+                <input
+                  type="radio"
+                  name="otMonthlyDivisor"
+                  checked={!isAutomaticMonthDays}
+                  disabled={!isHrOrCeo || !isMasterEnabled}
+                  onChange={() =>
+                    handleDivisorModeChange(
+                      activeDivisorMode === 'CALENDAR_DAYS' ? 'FIXED_26' : activeDivisorMode
+                    )
+                  }
+                  style={{ accentColor: '#0E7490', width: '16px', height: '16px' }}
+                />
+                <span>Applicable statutory / configured divisor</span>
+              </label>
+
+              {!isAutomaticMonthDays && (
+                <select
+                  disabled={!isHrOrCeo || !isMasterEnabled}
+                  value={activeDivisorMode}
+                  onChange={e => handleDivisorModeChange(e.target.value as OtSalaryDivisorMode)}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#0F172A',
+                    backgroundColor: '#FFFFFF',
+                  }}
+                >
+                  <option value="FIXED_26">Statutory 26 Days</option>
+                  <option value="FIXED_30">Fixed 30 Days</option>
+                  <option value="WORKING_DAYS">Paid Working Days (Excl. Weekly Offs)</option>
+                  <option value="COMPANY_DIVISOR">
+                    Company Configured ({payrollSettingsConfig?.standardWorkingDaysPerMonth || 26} Days)
+                  </option>
+                </select>
+              )}
             </div>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: '#64748B' }}>
-              Individual employee overrides and statutory overtime entitlements with effective dates and audit reasons.
-            </p>
+          </div>
+        </div>
+
+        {/* Fields 3 & 4: Paid Working Hours per Day & Applicable OT Multiplier */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '14px',
+          }}
+        >
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '6px',
+              }}
+            >
+              Paid Working Hours per Day
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={24}
+              step={0.5}
+              disabled={!isHrOrCeo || !isMasterEnabled}
+              value={overtimePolicy.defaultDailyPaidHours || 9}
+              onChange={e => {
+                const hrs = Math.max(1, Math.min(24, Number(e.target.value) || 9));
+                updateOvertimePolicy({ defaultDailyPaidHours: hrs });
+                setPreviewDailyHours(String(hrs));
+              }}
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: '#0F172A',
+                backgroundColor: '#FFFFFF',
+                boxSizing: 'border-box',
+              }}
+            />
+            <span style={{ display: 'block', fontSize: '0.71rem', color: '#64748B', marginTop: '4px' }}>
+              Uses employee&apos;s shift hours or this company default (9 hrs)
+            </span>
           </div>
 
-          {isHrOrCeo && (
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '6px',
+              }}
+            >
+              Applicable OT Multiplier
+            </label>
+            <select
+              disabled={!isHrOrCeo || !isMasterEnabled}
+              value={overtimePolicy.defaultMultiplier || '2x Salary'}
+              onChange={e => {
+                const mult = e.target.value as OvertimeMultiplierType;
+                const factor = mult === '2x Salary' ? 2.0 : mult === '1.5x Salary' ? 1.5 : 1.0;
+                updateOvertimePolicy({
+                  defaultMultiplier: mult,
+                  rateType: mult as any,
+                  regularMultiplier: factor,
+                });
+              }}
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: '#0F172A',
+                backgroundColor: '#FFFFFF',
+                boxSizing: 'border-box',
+              }}
+            >
+              <option value="2x Salary">2× Salary (Statutory Double Rate)</option>
+              <option value="1.5x Salary">1.5× Salary</option>
+              <option value="1x Salary">1× Salary (Standard Hourly Rate)</option>
+            </select>
+            <span style={{ display: 'block', fontSize: '0.71rem', color: '#64748B', marginTop: '4px' }}>
+              Resolved from effective policy and statutory rules
+            </span>
+          </div>
+        </div>
+
+        {/* Compact Advanced Settings & Employee Exceptions Bar */}
+        <div
+          style={{
+            marginTop: '4px',
+            borderRadius: '12px',
+            border: '1px solid #E2E8F0',
+            backgroundColor: '#F8FAFC',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '10px 14px',
+              flexWrap: 'wrap',
+              gap: '8px',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowAdvancedSettings(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                color: '#0F172A',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <Sliders size={14} color="#0E7490" />
+              <span>Advanced Settings (Wage Base, Payslip Visibility &amp; Compliance)</span>
+              {showAdvancedSettings ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+
             <button
               type="button"
               onClick={() => setIsExceptionModalOpen(true)}
@@ -1007,346 +1099,802 @@ export const OvertimePolicySettings: React.FC = () => {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '8px 14px',
-                borderRadius: '10px',
-                border: 'none',
-                backgroundColor: '#0E7490',
-                color: '#FFFFFF',
-                fontSize: '0.79rem',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                border: '1px solid #0E7490',
+                backgroundColor: '#FFFFFF',
+                color: '#0E7490',
+                fontSize: '0.75rem',
                 fontWeight: 700,
                 cursor: 'pointer',
               }}
             >
-              <Plus size={15} />
-              Manage Exceptions
+              <UserCheck size={13} />
+              <span>Manage Exceptions ({activeEmployeeExceptions.length})</span>
             </button>
-          )}
-        </div>
-
-        {employeeOtPolicies.length === 0 ? (
-          <div style={{ fontSize: '0.79rem', color: '#64748B', padding: '8px 0' }}>
-            No employee-specific exceptions configured. All employees follow their department eligibility rule.
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {employeeOtPolicies.map(ep => (
+
+          {showAdvancedSettings && (
+            <div
+              style={{
+                padding: '14px',
+                borderTop: '1px solid #E2E8F0',
+                backgroundColor: '#FFFFFF',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+              }}
+            >
               <div
-                key={ep.id}
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  backgroundColor: ep.individualOtException === 'Block OT' ? '#FEF2F2' : '#F0FDF4',
-                  border: `1px solid ${ep.individualOtException === 'Block OT' ? '#FECACA' : '#BBF7D0'}`,
-                  fontSize: '0.76rem',
-                  color: '#1E293B',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+                  gap: '12px',
                 }}
               >
-                <ShieldCheck size={14} color={ep.individualOtException === 'Block OT' ? '#DC2626' : '#16A34A'} />
-                <strong>{ep.employeeName}</strong> ({ep.department}) —{' '}
-                <span style={{ fontWeight: 700 }}>
-                  {ep.statutoryEntitlement ? 'Statutory Entitlement' : ep.individualOtException}
-                </span>
-                {ep.customHourlyRate ? ` · ₹${ep.customHourlyRate}/hr` : ''}
-                {ep.effectiveFrom ? ` · From ${ep.effectiveFrom}` : ''}
-                {ep.effectiveTo ? ` to ${ep.effectiveTo}` : ''}
-                {ep.reason ? ` · "${ep.reason}"` : ''}
+                {isSalaryBased && (
+                  <div>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        color: '#475569',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      Eligible Wage Base
+                    </label>
+                    <select
+                      disabled={!isHrOrCeo}
+                      value={activeWageBase}
+                      onChange={e =>
+                        updateOvertimePolicy({ wageBase: e.target.value as OtWageBaseMode })
+                      }
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.8rem',
+                        color: '#0F172A',
+                      }}
+                    >
+                      <option value="GROSS">Gross Salary (Basic + Allowances)</option>
+                      <option value="BASIC">Basic Salary Only</option>
+                      <option value="CTC">Monthly CTC</option>
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      color: '#475569',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    Approval Requirement
+                  </label>
+                  <select
+                    disabled={!isHrOrCeo}
+                    value={overtimePolicy.approvalRequired !== false ? 'REQUIRED' : 'AUTO'}
+                    onChange={e =>
+                      updateOvertimePolicy({
+                        approvalRequired: e.target.value === 'REQUIRED',
+                      })
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.8rem',
+                      color: '#0F172A',
+                    }}
+                  >
+                    <option value="REQUIRED">Require HR / Manager Approval</option>
+                    <option value="AUTO">Auto-Approve Eligible Dept OT</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      color: '#475569',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    Policy Effective Date
+                  </label>
+                  <input
+                    type="date"
+                    disabled={!isHrOrCeo}
+                    value={overtimePolicy.effectiveFrom || '2026-01-01'}
+                    onChange={e => updateOvertimePolicy({ effectiveFrom: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '6px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.8rem',
+                      color: '#0F172A',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Compact Payslip Visibility ON/OFF Switches */}
+              <div
+                style={{
+                  paddingTop: '10px',
+                  borderTop: '1px solid #F1F5F9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Eye size={14} color="#0E7490" />
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155' }}>
+                    Payslip Visibility:
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  {(
+                    [
+                      { key: 'showOtAmountOnPayslip', label: 'Show OT Amount' },
+                      { key: 'showOtHoursOnPayslip', label: 'Show OT Hours' },
+                      { key: 'showOtCalculationDetailsOnPayslip', label: 'Show OT Calculation Details' },
+                    ] as const
+                  ).map(item => {
+                    const active = Boolean(payslipVis[item.key]);
+                    return (
+                      <label
+                        key={item.key}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontSize: '0.76rem',
+                          fontWeight: 600,
+                          color: '#334155',
+                          cursor: isHrOrCeo ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          disabled={!isHrOrCeo}
+                          onChange={() => handlePayslipVisibilityToggle(item.key)}
+                          style={{ accentColor: '#0E7490', width: '14px', height: '14px' }}
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ==================== MANAGE EXCEPTIONS DIALOG ==================== */}
+      {/* =================================================================== */}
+      {/* SECTION 3 — LIVE CALCULATION PREVIEW                                */}
+      {/* =================================================================== */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '0.96rem', fontWeight: 800, color: '#0F172A' }}>
+              3. Calculation Preview
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
+              Automatic live overtime calculation preview using selected month days and paid hours
+            </div>
+          </div>
+
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '4px 10px',
+              borderRadius: '8px',
+              backgroundColor: '#ECFEFF',
+              color: '#0E7490',
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              border: '1px solid #CFFAFE',
+            }}
+          >
+            <Calculator size={13} />
+            Live Formula Engine
+          </span>
+        </div>
+
+        {/* Preview Input Grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: '12px',
+          }}
+        >
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '5px',
+              }}
+            >
+              Monthly Salary (₹)
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={previewSalary}
+              onChange={e => setPreviewSalary(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 11px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                color: '#0F172A',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '5px',
+              }}
+            >
+              Payroll Month
+            </label>
+            <input
+              type="month"
+              value={previewPayrollMonth}
+              onChange={e => setPreviewPayrollMonth(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 11px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                color: '#0F172A',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '5px',
+              }}
+            >
+              Daily Paid Hours
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={24}
+              step={0.5}
+              value={previewDailyHours}
+              onChange={e => setPreviewDailyHours(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 11px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                color: '#0F172A',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '5px',
+              }}
+            >
+              Approved OT Hours
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={previewOtHours}
+              onChange={e => setPreviewOtHours(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 11px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                color: '#0F172A',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: '#334155',
+                marginBottom: '5px',
+              }}
+            >
+              Multiplier
+            </label>
+            <select
+              value={previewMultiplier}
+              onChange={e => setPreviewMultiplier(e.target.value as OvertimeMultiplierType)}
+              style={{
+                width: '100%',
+                padding: '8px 11px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                color: '#0F172A',
+                backgroundColor: '#FFFFFF',
+                boxSizing: 'border-box',
+              }}
+            >
+              <option value="1x Salary">1× (illustration only)</option>
+              <option value="1.5x Salary">1.5× rate</option>
+              <option value="2x Salary">2× (statutory rate)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Live Output Metrics Strip */}
+        <div
+          style={{
+            padding: '16px',
+            borderRadius: '12px',
+            backgroundColor: '#F8FAFC',
+            border: '1px solid #E2E8F0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: '14px',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
+                Month Days
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+                {previewResult.divisorDays}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
+                Daily Rate
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+                ₹{previewResult.dailyRate.toFixed(2)}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
+                Base Hourly Rate
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+                ₹{previewResult.baseHourlyRate.toFixed(2)}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
+                OT Amount ({previewResult.multiplierFactor}×)
+              </div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#16A34A', marginTop: '2px' }}>
+                ₹{previewResult.otAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              paddingTop: '10px',
+              borderTop: '1px solid #E2E8F0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '8px',
+              fontSize: '0.76rem',
+              color: '#475569',
+            }}
+          >
+            <span>
+              Daily Rate = ₹{previewResult.salaryNum.toLocaleString('en-IN')} ÷ {previewResult.divisorDays} ={' '}
+              <strong>₹{previewResult.dailyRate.toFixed(2)}</strong> • Base Hourly Rate = ₹
+              {previewResult.dailyRate.toFixed(2)} ÷ {previewResult.paidHoursNum} ={' '}
+              <strong>₹{previewResult.baseHourlyRate.toFixed(2)}/hr</strong>
+            </span>
+            <span>
+              At 1× illustrative: <strong>₹{previewResult.amount1x.toFixed(2)}</strong> • At 2× statutory:{' '}
+              <strong style={{ color: '#0E7490' }}>₹{previewResult.amount2x.toFixed(2)}</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* MANAGE EMPLOYEE EXCEPTIONS DIALOG                                   */}
+      {/* =================================================================== */}
       {isExceptionModalOpen && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            backgroundColor: 'rgba(15, 23, 42, 0.5)',
+            zIndex: 10000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 1000,
             padding: '16px',
           }}
         >
           <div
             style={{
               backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
+              borderRadius: '18px',
               width: '100%',
-              maxWidth: '540px',
-              padding: '24px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.12)',
+              maxWidth: '680px',
+              maxHeight: '88vh',
               display: 'flex',
               flexDirection: 'column',
-              gap: '16px',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+              overflow: 'hidden',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #E2E8F0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
               <div>
-                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1E293B' }}>
-                  Manage Employee Overtime Exception
-                </h3>
-                <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: '#64748B' }}>
-                  Configure individual overtime eligibility, custom rate, and effective dates.
+                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
+                  Manage Employee Overtime Exceptions
+                </h4>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.76rem', color: '#64748B' }}>
+                  Configure authorized employee-level overrides with effective dates and audit reason
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsExceptionModalOpen(false)}
                 style={{
+                  background: 'none',
                   border: 'none',
-                  background: '#F1F5F9',
-                  borderRadius: '8px',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
                   cursor: 'pointer',
-                  color: '#475569',
+                  color: '#64748B',
+                  padding: '4px',
                 }}
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEmployeeException} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                  Search Employee
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Search size={14} color="#94A3B8" style={{ position: 'absolute', left: '10px', top: '10px' }} />
-                  <input
-                    type="text"
-                    placeholder="Filter by employee name, code, or department..."
-                    value={employeeSearchQuery}
-                    onChange={e => setEmployeeSearchQuery(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px 8px 32px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.82rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Select Employee *
-                  </label>
-                  <select
-                    required
-                    value={selectedExceptionEmpId}
-                    onChange={e => setSelectedExceptionEmpId(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.82rem',
-                    }}
-                  >
-                    <option value="">Choose employee...</option>
-                    {filteredModalEmployees.map(emp => (
-                      <option key={emp.id} value={emp.employeeId}>
-                        {emp.firstName} {emp.lastName} ({emp.employeeId})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Employee Department
-                  </label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={selectedModalEmployee?.department || '—'}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      border: '1px solid #E2E8F0',
-                      backgroundColor: '#F8FAFC',
-                      color: '#475569',
-                      fontSize: '0.82rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Allow / Restrict OT
-                  </label>
-                  <select
-                    value={exceptionMode}
-                    onChange={e => setExceptionMode(e.target.value as IndividualOtException)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.82rem',
-                    }}
-                  >
-                    <option value="Allow OT">Allow OT (Override)</option>
-                    <option value="Block OT">Restrict OT</option>
-                    <option value="Default to Department">Default to Department</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Applicable Custom Rate (₹/hr)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Leave blank for salary formula"
-                    value={exceptionCustomRate}
-                    onChange={e => setExceptionCustomRate(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.82rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Effective From
-                  </label>
-                  <input
-                    type="date"
-                    value={exceptionEffectiveFrom}
-                    onChange={e => setExceptionEffectiveFrom(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.82rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Effective To (Optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={exceptionEffectiveTo}
-                    onChange={e => setExceptionEffectiveTo(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.82rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                  Authorization Reason
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., Floor shift supervisor / statutory factory worker coverage"
-                  value={exceptionReason}
-                  onChange={e => setExceptionReason(e.target.value)}
+            <div style={{ padding: '18px 20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {isHrOrCeo && (
+                <div
                   style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.82rem',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              <label
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  color: '#1E293B',
-                  cursor: 'pointer',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={statutoryFlag}
-                  onChange={e => setStatutoryFlag(e.target.checked)}
-                  style={{ accentColor: '#0E7490' }}
-                />
-                Statutorily Covered Worker (Cannot be blocked by department restriction)
-              </label>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsExceptionModalOpen(false)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#475569',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
+                    padding: '14px',
+                    borderRadius: '12px',
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
                   }}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!selectedExceptionEmpId}
-                  style={{
-                    padding: '8px 18px',
-                    borderRadius: '10px',
-                    border: 'none',
-                    backgroundColor: selectedExceptionEmpId ? '#0E7490' : '#CBD5E1',
-                    color: '#FFFFFF',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    cursor: selectedExceptionEmpId ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  Save Exception
-                </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                        Search Employee
+                      </label>
+                      <input
+                        type="text"
+                        value={employeeSearchQuery}
+                        onChange={e => setEmployeeSearchQuery(e.target.value)}
+                        placeholder="Search name, ID, or department..."
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8rem',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                        Select Employee
+                      </label>
+                      <select
+                        value={selectedExceptionEmpId}
+                        onChange={e => setSelectedExceptionEmpId(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8rem',
+                          backgroundColor: '#FFFFFF',
+                        }}
+                      >
+                        <option value="">-- Select Employee --</option>
+                        {filteredModalEmployees.map(emp => (
+                          <option key={emp.id} value={emp.employeeId}>
+                            {emp.firstName} {emp.lastName} ({emp.employeeId} • {emp.department})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {selectedModalEmployee && (
+                    <div style={{ fontSize: '0.76rem', color: '#0E7490', fontWeight: 700 }}>
+                      Department: {selectedModalEmployee.department}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                        Eligibility Override
+                      </label>
+                      <select
+                        value={exceptionMode}
+                        onChange={e => setExceptionMode(e.target.value as IndividualOtException)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8rem',
+                          backgroundColor: '#FFFFFF',
+                        }}
+                      >
+                        <option value="Allow OT">Allow OT</option>
+                        <option value="Block OT">Restrict OT</option>
+                        <option value="Default to Department">Default to Department</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                        Custom Rate (Optional ₹/hr)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={exceptionCustomRate}
+                        onChange={e => setExceptionCustomRate(e.target.value)}
+                        placeholder="Use Salary Formula"
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8rem',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                        Effective From
+                      </label>
+                      <input
+                        type="date"
+                        value={exceptionEffectiveFrom}
+                        onChange={e => setExceptionEffectiveFrom(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8rem',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                        Effective To (Optional)
+                      </label>
+                      <input
+                        type="date"
+                        value={exceptionEffectiveTo}
+                        onChange={e => setExceptionEffectiveTo(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8rem',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', fontWeight: 600, color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={statutoryFlag}
+                        onChange={e => setStatutoryFlag(e.target.checked)}
+                        style={{ accentColor: '#0E7490' }}
+                      />
+                      <ShieldCheck size={14} color="#0E7490" />
+                      <span>Statutory OT Entitlement</span>
+                    </label>
+
+                    <input
+                      type="text"
+                      value={exceptionReason}
+                      onChange={e => setExceptionReason(e.target.value)}
+                      placeholder="Reason / authorization note..."
+                      style={{
+                        flex: '1 1 200px',
+                        padding: '7px 10px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.8rem',
+                      }}
+                    />
+
+                    <button
+                      type="button"
+                      disabled={!selectedExceptionEmpId}
+                      onClick={handleSaveEmployeeException}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '7px 14px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        backgroundColor: selectedExceptionEmpId ? '#0E7490' : '#94A3B8',
+                        color: '#FFFFFF',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        cursor: selectedExceptionEmpId ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      <Plus size={14} />
+                      Save Exception
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Existing Exceptions List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>
+                  Active Employee Exceptions ({activeEmployeeExceptions.length})
+                </div>
+                {activeEmployeeExceptions.length === 0 ? (
+                  <div style={{ padding: '16px', textAlign: 'center', color: '#64748B', fontSize: '0.8rem', backgroundColor: '#F8FAFC', borderRadius: '10px' }}>
+                    No employee-specific overtime exceptions configured. All employees follow their department eligibility rule.
+                  </div>
+                ) : (
+                  activeEmployeeExceptions.map(ep => {
+                    const mode = ep.individualOtException || ep.individualException || 'Default to Department';
+                    const isAllowed = mode === 'Allow OT' || ep.statutoryEntitlement;
+                    return (
+                      <div
+                        key={ep.id}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '10px',
+                          border: '1px solid #E2E8F0',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '8px',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '0.83rem', fontWeight: 700, color: '#0F172A' }}>
+                            {ep.employeeName} ({ep.employeeId}) • {ep.department}
+                          </div>
+                          <div style={{ fontSize: '0.73rem', color: '#64748B', marginTop: '2px' }}>
+                            {ep.effectiveFrom ? `From ${ep.effectiveFrom}` : 'Immediate'}
+                            {ep.effectiveTo ? ` to ${ep.effectiveTo}` : ''}
+                            {ep.customHourlyRate ? ` • Custom ₹${ep.customHourlyRate}/hr` : ' • Salary-Based Rate'}
+                            {ep.notes ? ` • ${ep.notes}` : ''}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            padding: '3px 10px',
+                            borderRadius: '9999px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            backgroundColor: isAllowed ? '#DCFCE7' : '#FEE2E2',
+                            color: isAllowed ? '#15803D' : '#B91C1C',
+                          }}
+                        >
+                          {ep.statutoryEntitlement ? 'Statutory Entitled' : mode}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

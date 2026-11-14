@@ -31,6 +31,7 @@ import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatCurrency } from '../../utils/numbers';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
+import { calculateEnterpriseOvertimeRateAndAmount } from '../../services/attendanceCalculationEngine';
 
 interface OvertimeManagementModuleProps {
   openRequestModal?: boolean;
@@ -43,13 +44,52 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
 }) => {
   const {
     currentUser,
+    employees = [],
     overtimeRequests = [],
+    overtimePolicy,
+    departmentOtPolicies = [],
+    employeeOtPolicies = [],
+    payrollSettingsConfig,
     approveOtRequest,
     rejectOtRequest,
     deleteOtRequest,
     identifyAttendanceOvertime,
     addNotification
   } = useHRMS();
+
+  const getRequestCalculatedOt = (
+    req: OvertimeRequest,
+    overrideHours?: number,
+    overrideMultiplier?: OvertimeMultiplierType
+  ) => {
+    const emp = employees.find(e => e.employeeId === req.employeeId || e.id === req.employeeId);
+    const hrs =
+      overrideHours !== undefined
+        ? overrideHours
+        : (req.status === 'Approved' || (req.status as string) === 'Partially Approved' || req.status === 'Paid'
+            ? (req.approvedOtHours || 0)
+            : ((req as any).requestedOtHours ?? req.otHours ?? 0));
+    const mult = overrideMultiplier || (req as any).multiplier || req.rateType || overtimePolicy?.defaultMultiplier || '2x Salary';
+    const calc = calculateEnterpriseOvertimeRateAndAmount({
+      employee: emp || { employeeId: req.employeeId, department: req.department },
+      approvedOtHours: hrs,
+      dateStr: req.date,
+      overtimePolicy,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      payrollConfig: payrollSettingsConfig,
+      rateType: mult,
+      fixedHourlyRate: req.hourlyRate && req.hourlyRate !== 100 ? req.hourlyRate : undefined,
+    });
+    return {
+      hours: hrs,
+      multiplierLabel: mult,
+      baseHourlyRate: calc.baseHourlyRate,
+      effectiveHourlyRate: calc.hourlyRate,
+      overtimeAmount: calc.overtimeAmount,
+      multiplierFactor: calc.multiplierFactor,
+    };
+  };
 
   // Role detection
   const isEmployee = currentUser.role === 'Employee';
@@ -181,9 +221,9 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
     return Math.round(
       roleFilteredList
         .filter(r => r.status === 'Approved' || (r.status as string) === 'Partially Approved' || r.status === 'Paid')
-        .reduce((sum, r) => sum + ((r as any).calculatedAmount || r.otAmount || (r.approvedOtHours * (r.hourlyRate || 100))), 0)
+        .reduce((sum, r) => sum + getRequestCalculatedOt(r).overtimeAmount, 0)
     );
-  }, [roleFilteredList]);
+  }, [roleFilteredList, employees, overtimePolicy, departmentOtPolicies, employeeOtPolicies, payrollSettingsConfig]);
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filteredList.length / pageSize));
@@ -849,8 +889,9 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                   const isPending = (item.status as string) === 'Pending' || (item.status as string) === 'Pending Approval';
                   const isLockedOrPaid = Boolean(item.isLocked || item.status === 'Paid' || item.payrollStatus === 'Paid');
                   const reqHrs = (item as any).requestedOtHours ?? item.otHours ?? 0;
-                  const payoutAmt = Number((item as any).calculatedAmount ?? item.otAmount ?? (item.approvedOtHours * (item.hourlyRate || 100))) || 0;
-                  const multLabel = (item as any).multiplier || item.rateType || '1x Salary';
+                  const rowCalc = getRequestCalculatedOt(item);
+                  const payoutAmt = rowCalc.overtimeAmount;
+                  const multLabel = rowCalc.multiplierLabel;
                   const initials = item.employeeName
                     .split(' ')
                     .map(n => n[0])
@@ -960,7 +1001,7 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                           ₹{payoutAmt.toFixed(2)}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px', whiteSpace: 'nowrap' }}>
-                          {multLabel} • {formatCurrency(item.hourlyRate || 100)}/hr
+                          {multLabel} • {formatCurrency(rowCalc.effectiveHourlyRate)}/hr
                         </div>
                       </td>
 
@@ -1596,15 +1637,14 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                     Approved Payout Preview
                   </div>
                   <div style={{ fontSize: '0.76rem', color: '#155E75', marginTop: '2px' }}>
-                    {approvedHours} hrs × {formatCurrency(reviewingRequest.hourlyRate || 100)} × {selectedMultiplier === '2x Salary' ? '2.0' : selectedMultiplier === '1.5x Salary' ? '1.5' : '1.0'}
+                    {(() => {
+                      const prevCalc = getRequestCalculatedOt(reviewingRequest, approvedHours, selectedMultiplier);
+                      return `${approvedHours} hrs × ${formatCurrency(prevCalc.baseHourlyRate)}/hr × ${prevCalc.multiplierFactor}x`;
+                    })()}
                   </div>
                 </div>
                 <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0E7490' }}>
-                  ₹{(
-                    approvedHours *
-                    (reviewingRequest.hourlyRate || 100) *
-                    (selectedMultiplier === '2x Salary' ? 2 : selectedMultiplier === '1.5x Salary' ? 1.5 : 1)
-                  ).toFixed(2)}
+                  ₹{getRequestCalculatedOt(reviewingRequest, approvedHours, selectedMultiplier).overtimeAmount.toFixed(2)}
                 </div>
               </div>
 
@@ -1896,13 +1936,13 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                 <div>
                   <div style={{ color: '#64748B', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Multiplier</div>
                   <div style={{ fontWeight: 700, color: '#0F172A', marginTop: '2px' }}>
-                    {detailRequest.multiplier} ({formatCurrency(detailRequest.hourlyRate || 100)}/hr)
+                    {getRequestCalculatedOt(detailRequest).multiplierLabel} ({formatCurrency(getRequestCalculatedOt(detailRequest).effectiveHourlyRate)}/hr)
                   </div>
                 </div>
                 <div>
                   <div style={{ color: '#64748B', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Payout</div>
                   <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.95rem', marginTop: '2px' }}>
-                    ₹{(detailRequest.calculatedAmount || 0).toFixed(2)}
+                    ₹{getRequestCalculatedOt(detailRequest).overtimeAmount.toFixed(2)}
                   </div>
                 </div>
               </div>

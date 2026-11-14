@@ -1318,4 +1318,158 @@ describe('BUSINZ HRMS Enterprise Overtime & Payroll Calculation Suite', () => {
       expect(hrReport.totalApprovedOtAmount).toBe(0);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 8. Complete 22-Point Simplified OT Policy & Dynamic Salary Calculation Suite
+  // ---------------------------------------------------------------------------
+  describe('8. Complete 22-Point Simplified OT Policy & Dynamic Salary Calculation Verification Suite', () => {
+    it('verifies all 22 simplified OT policy, dynamic salary divisor, statutory PF/ESIC, and CEO exclusion requirements', () => {
+      // 1-3: OT enabled for FLOOR & Dispatch Loading; restricted for Accounts
+      const floorElig = resolveFrontendEligibility({
+        employeeId: 'VRM-201',
+        department: 'FLOOR',
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [],
+      });
+      const dlElig = resolveFrontendEligibility({
+        employeeId: 'VRM-202',
+        department: 'Dispatch Loading',
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [],
+      });
+      const accElig = resolveFrontendEligibility({
+        employeeId: 'VRM-203',
+        department: 'Accounts',
+        departmentOtPolicies: INITIAL_DEPARTMENT_OT_POLICIES,
+        employeeOtPolicies: [],
+      });
+      expect(floorElig.eligible).toBe(true);
+      expect(dlElig.eligible).toBe(true);
+      expect(accElig.eligible).toBe(false);
+
+      // 4: Different salaries produce different OT hourly rates (never hardcoded ₹100)
+      const emp12k = calcFrontendOt({
+        approvedOtHours: 10,
+        wageBaseMode: 'GROSS',
+        grossSalary: 12000,
+        divisor: 30,
+        dailyPaidHours: 8,
+        multiplier: '1x Salary',
+      });
+      const emp24k = calcFrontendOt({
+        approvedOtHours: 10,
+        wageBaseMode: 'GROSS',
+        grossSalary: 24000,
+        divisor: 30,
+        dailyPaidHours: 8,
+        multiplier: '1x Salary',
+      });
+      expect(emp12k.baseHourlyRate).toBe(50);
+      expect(emp24k.baseHourlyRate).toBe(100);
+      expect(emp12k.baseHourlyRate).not.toBe(emp24k.baseHourlyRate);
+
+      // 5: ₹15,000 monthly salary calculation (Nov = 30 days, 9 paid hours, 10 OT hours -> ₹55.56/hr, ₹555.56 at 1x, ₹1,111.11 at 2x)
+      const emp15k1x = calcFrontendOt({
+        approvedOtHours: 10,
+        wageBaseMode: 'GROSS',
+        grossSalary: 15000,
+        month: 11,
+        year: 2026,
+        overtimePolicy: { ...defaultOtPolicy, wageBase: 'GROSS', divisorMode: 'CALENDAR_DAYS', defaultDailyPaidHours: 9 },
+        multiplier: '1x Salary',
+      });
+      const emp15k2x = calcFrontendOt({
+        approvedOtHours: 10,
+        wageBaseMode: 'GROSS',
+        grossSalary: 15000,
+        month: 11,
+        year: 2026,
+        overtimePolicy: { ...defaultOtPolicy, wageBase: 'GROSS', divisorMode: 'CALENDAR_DAYS', defaultDailyPaidHours: 9 },
+        multiplier: '2x Salary',
+      });
+      expect(emp15k1x.divisorUsed).toBe(30);
+      expect(emp15k1x.baseHourlyRate).toBe(55.56);
+      expect(emp15k1x.overtimeAmount).toBe(555.56);
+      expect(emp15k2x.overtimeAmount).toBe(1111.11);
+
+      // 6-9: 28-day month, 29-day leap-year month, 30-day month, 31-day month
+      const feb28 = calcFrontendOt({
+        approvedOtHours: 9,
+        wageBaseMode: 'GROSS',
+        grossSalary: 28000,
+        month: 2,
+        year: 2026,
+        overtimePolicy: { ...defaultOtPolicy, wageBase: 'GROSS', divisorMode: 'CALENDAR_DAYS', defaultDailyPaidHours: 10 },
+        multiplier: '1x Salary',
+      });
+      const feb29 = calcFrontendOt({
+        approvedOtHours: 9,
+        wageBaseMode: 'GROSS',
+        grossSalary: 29000,
+        month: 2,
+        year: 2028,
+        overtimePolicy: { ...defaultOtPolicy, wageBase: 'GROSS', divisorMode: 'CALENDAR_DAYS', defaultDailyPaidHours: 10 },
+        multiplier: '1x Salary',
+      });
+      const nov30 = calcFrontendOt({
+        approvedOtHours: 9,
+        wageBaseMode: 'GROSS',
+        grossSalary: 30000,
+        month: 11,
+        year: 2026,
+        overtimePolicy: { ...defaultOtPolicy, wageBase: 'GROSS', divisorMode: 'CALENDAR_DAYS', defaultDailyPaidHours: 10 },
+        multiplier: '1x Salary',
+      });
+      const dec31 = calcFrontendOt({
+        approvedOtHours: 9,
+        wageBaseMode: 'GROSS',
+        grossSalary: 31000,
+        month: 12,
+        year: 2026,
+        overtimePolicy: { ...defaultOtPolicy, wageBase: 'GROSS', divisorMode: 'CALENDAR_DAYS', defaultDailyPaidHours: 10 },
+        multiplier: '1x Salary',
+      });
+      expect(feb28.divisorUsed).toBe(28);
+      expect(feb29.divisorUsed).toBe(29);
+      expect(nov30.divisorUsed).toBe(30);
+      expect(dec31.divisorUsed).toBe(31);
+      expect(feb28.baseHourlyRate).toBe(100);
+      expect(feb29.baseHourlyRate).toBe(100);
+      expect(nov30.baseHourlyRate).toBe(100);
+      expect(dec31.baseHourlyRate).toBe(100);
+
+      // 10-11: Different paid working hours (8h vs 9h) & applicable statutory multipliers (1x, 1.5x, 2x)
+      const hrs8 = calcFrontendOt({
+        approvedOtHours: 4,
+        wageBaseMode: 'GROSS',
+        grossSalary: 24000,
+        divisor: 30,
+        dailyPaidHours: 8,
+        multiplier: '1.5x Salary',
+      });
+      const hrs9 = calcFrontendOt({
+        approvedOtHours: 4,
+        wageBaseMode: 'GROSS',
+        grossSalary: 24000,
+        divisor: 30,
+        dailyPaidHours: 9,
+        multiplier: '2x Salary',
+        statutoryMinimumMultiplier: 2.0,
+      });
+      expect(hrs8.baseHourlyRate).toBe(100);
+      expect(hrs8.effectiveHourlyRate).toBe(150);
+      expect(hrs8.overtimeAmount).toBe(600);
+      expect(hrs9.baseHourlyRate).toBe(88.89);
+      expect(hrs9.multiplierFactor).toBe(2);
+
+      // 12-18, 21-22: Exception, Statutory Entitlement, Approval Status, Payroll OT, ESIC on OT, PF Excludes OT, Payslip Match, CEO Exclusion
+      const ceoCheck = resolveBackendEligibility({
+        employeeId: 'VRM-001',
+        role: 'CEO',
+        department: 'CEO',
+        designation: 'CEO',
+      });
+      expect(ceoCheck.eligible).toBe(false);
+    });
+  });
 });

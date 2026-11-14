@@ -496,12 +496,12 @@ export function resolveEmployeeOtEligibility(
     resolvedOtPolicy?.defaultMultiplier ||
     (resolvedOtPolicy?.regularMultiplier === 2 ? '2x Salary' : resolvedOtPolicy?.regularMultiplier === 1.5 ? '1.5x Salary' : '1x Salary');
 
-  const baseShiftHours = deptPolicy?.standardShiftHours || resolvedOtPolicy?.defaultDailyPaidHours || 9;
+  const baseShiftHours = resolvedOtPolicy?.defaultDailyPaidHours || deptPolicy?.standardShiftHours || 9;
   const baseHourlyRate = empPolicy?.customHourlyRate ?? deptPolicy?.otHourlyRate ?? resolvedOtPolicy?.fixedRatePerHour ?? 100;
-  const baseWageBase: OtWageBaseMode = empPolicy?.customWageBase || deptPolicy?.wageBase || resolvedOtPolicy?.wageBase || 'FIXED_HOURLY';
-  const baseDivisorMode: OtSalaryDivisorMode = deptPolicy?.divisorMode || resolvedOtPolicy?.divisorMode || 'COMPANY_DIVISOR';
-  const baseMultiplier: OvertimeMultiplierType = empPolicy?.customMultiplier || deptPolicy?.defaultMultiplier || policyMultiplierFallback;
-  const baseMinMins = empPolicy?.minOtDurationMinutes ?? deptPolicy?.minOtDurationMinutes ?? resolvedOtPolicy?.minimumOtDurationMinutes ?? 30;
+  const baseWageBase: OtWageBaseMode = empPolicy?.customWageBase || resolvedOtPolicy?.wageBase || deptPolicy?.wageBase || 'FIXED_HOURLY';
+  const baseDivisorMode: OtSalaryDivisorMode = resolvedOtPolicy?.divisorMode || deptPolicy?.divisorMode || 'COMPANY_DIVISOR';
+  const baseMultiplier: OvertimeMultiplierType = empPolicy?.customMultiplier || resolvedOtPolicy?.defaultMultiplier || deptPolicy?.defaultMultiplier || policyMultiplierFallback;
+  const baseMinMins = empPolicy?.minOtDurationMinutes ?? resolvedOtPolicy?.minimumOtDurationMinutes ?? deptPolicy?.minOtDurationMinutes ?? 30;
 
   const makeOut = (
     isElig: boolean,

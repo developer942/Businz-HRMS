@@ -2279,14 +2279,54 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Enterprise Attendance, Shifts & Overtime Policy State
   const [missedPunchRequests, setMissedPunchRequests] = useState<MissedPunchRequest[]>(INITIAL_MISSED_PUNCH_REQUESTS);
   const [overtimeRequests, setOvertimeRequests] = useState<OvertimeRequest[]>(INITIAL_OVERTIME_REQUESTS);
-  const [departmentOtPolicies, setDepartmentOtPolicies] = useState<DepartmentOtPolicy[]>(INITIAL_DEPARTMENT_OT_POLICIES);
-  const [employeeOtPolicies, setEmployeeOtPolicies] = useState<EmployeeOtPolicy[]>(INITIAL_EMPLOYEE_OT_POLICIES);
+  const [departmentOtPolicies, setDepartmentOtPolicies] = useState<DepartmentOtPolicy[]>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_department_ot_policies_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_DEPARTMENT_OT_POLICIES;
+  });
+  const [employeeOtPolicies, setEmployeeOtPolicies] = useState<EmployeeOtPolicy[]>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_employee_ot_policies_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return INITIAL_EMPLOYEE_OT_POLICIES;
+  });
   const [attendanceGlobalSettings, setAttendanceGlobalSettings] = useState<AttendanceGlobalSettings>(INITIAL_ATTENDANCE_GLOBAL_SETTINGS);
-  const [overtimePolicy, setOvertimePolicy] = useState<OvertimePolicy>(INITIAL_OVERTIME_POLICY);
+  const [overtimePolicy, setOvertimePolicy] = useState<OvertimePolicy>(() => {
+    try {
+      const saved = localStorage.getItem('vrm_hrms_overtime_policy_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") {
+          return { ...INITIAL_OVERTIME_POLICY, ...parsed };
+        }
+      }
+    } catch {}
+    return { ...INITIAL_OVERTIME_POLICY, version: 2 };
+  });
   const [attendancePolicyConfig, setAttendancePolicyConfig] = useState<AttendancePolicyConfig>(INITIAL_ATTENDANCE_POLICY_CONFIG);
 
   const updateOvertimePolicy = (policyUpdates: Partial<OvertimePolicy>) => {
-    setOvertimePolicy(prev => ({ ...prev, ...policyUpdates }));
+    setOvertimePolicy(prev => {
+      const next: OvertimePolicy = {
+        ...prev,
+        ...policyUpdates,
+        version: Math.max(2, Number(policyUpdates.version ?? prev.version ?? 2)),
+      };
+      try {
+        localStorage.setItem('vrm_hrms_overtime_policy_persistent', JSON.stringify(next));
+      } catch {}
+      supabaseDirect.saveCompanySetting('overtime_policy_data', next).catch(() => {});
+      return next;
+    });
     addNotification({
       title: 'Overtime Policy Updated',
       message: 'Overtime calculation method, multipliers, or limits updated.',
@@ -3897,10 +3937,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return fallback;
   };
 
-  const normalizeDepartmentOtPolicy = (policy: DepartmentOtPolicy): DepartmentOtPolicy => ({
-    ...policy,
-    otAllowed: normalizeOtAllowedValue((policy as any).otAllowed, isDefaultOtEligibleDepartment(policy.department))
-  });
+  const normalizeDepartmentOtPolicy = (policy: DepartmentOtPolicy): DepartmentOtPolicy => {
+    const { otHourlyRate: _legacyRate, wageBase: _legacyWageBase, divisorMode: _legacyDivisor, ...rest } = policy as any;
+    return {
+      ...rest,
+      otAllowed: normalizeOtAllowedValue((policy as any).otAllowed, isDefaultOtEligibleDepartment(policy.department)),
+    };
+  };
 
   const updateDepartmentOtPolicy = (idOrDeptName: string, policy: Partial<DepartmentOtPolicy>) => {
     setDepartmentOtPolicies(prev => {
@@ -3928,10 +3971,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           normalizedPolicyDept === normalizedDepartment
         );
       });
+      let nextList: DepartmentOtPolicy[];
       if (idx >= 0) {
-        return prev.map((p, i) => i === idx ? normalizeDepartmentOtPolicy({ ...p, ...normalizedPolicy }) : p);
+        nextList = prev.map((p, i) => i === idx ? normalizeDepartmentOtPolicy({ ...p, ...normalizedPolicy }) : p);
       } else {
-        const newPolicy: DepartmentOtPolicy = {
+        const newPolicy: DepartmentOtPolicy = normalizeDepartmentOtPolicy({
           id: stableId,
           department: nextDepartment,
           otAllowed: normalizeOtAllowedValue((normalizedPolicy as any).otAllowed, defaultAllowed),
@@ -3942,11 +3986,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           approvalRequired: normalizedPolicy.approvalRequired ?? true,
           calculationMethod: normalizedPolicy.calculationMethod ?? 'Shift End Based',
           standardShiftHours: normalizedPolicy.standardShiftHours ?? 9,
-          otHourlyRate: normalizedPolicy.otHourlyRate ?? 100,
           ...normalizedPolicy
-        };
-        return [...prev, newPolicy];
+        });
+        nextList = [...prev, newPolicy];
       }
+      try {
+        localStorage.setItem('vrm_hrms_department_ot_policies_persistent', JSON.stringify(nextList));
+      } catch {}
+      supabaseDirect.saveCompanySetting('department_ot_policies_data', nextList).catch(() => {});
+      return nextList;
     });
   };
 
@@ -3986,6 +4034,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
         next = [...prev, newEntry];
       }
+      try {
+        localStorage.setItem('vrm_hrms_employee_ot_policies_persistent', JSON.stringify(next));
+      } catch {}
       supabaseDirect.saveCompanySetting('employee_ot_policies_data', next).catch(() => {});
       return next;
     });
@@ -12834,7 +12885,28 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         if (hasSetting('overtime_policy_data') && settings.overtime_policy_data && typeof settings.overtime_policy_data === 'object') {
-          setOvertimePolicy(prev => ({ ...prev, ...settings.overtime_policy_data }));
+          const rawOtPol = settings.overtime_policy_data;
+          const isLegacyV1 = Number(rawOtPol.version || 1) < 2;
+          const upgradedOtPol: OvertimePolicy = isLegacyV1
+            ? {
+                ...INITIAL_OVERTIME_POLICY,
+                ...rawOtPol,
+                wageBase: rawOtPol.wageBase && rawOtPol.wageBase !== 'FIXED_HOURLY' ? rawOtPol.wageBase : 'GROSS',
+                divisorMode: rawOtPol.divisorMode && rawOtPol.divisorMode !== 'COMPANY_DIVISOR' ? rawOtPol.divisorMode : 'CALENDAR_DAYS',
+                rateMethod: 'Daily Salary Based',
+                fixedRatePerHour: 0,
+                defaultDailyPaidHours: Number(rawOtPol.defaultDailyPaidHours) || 9,
+                defaultMultiplier: rawOtPol.defaultMultiplier || '2x Salary',
+                version: 2,
+              }
+            : { ...INITIAL_OVERTIME_POLICY, ...rawOtPol };
+          setOvertimePolicy(upgradedOtPol);
+          try {
+            localStorage.setItem('vrm_hrms_overtime_policy_persistent', JSON.stringify(upgradedOtPol));
+          } catch {}
+          if (isLegacyV1) {
+            supabaseDirect.saveCompanySetting('overtime_policy_data', upgradedOtPol).catch(() => {});
+          }
         }
 
         // Loan Policies
@@ -12988,7 +13060,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Department OT Policies
         if (hasSetting('department_ot_policies_data') && Array.isArray(settings.department_ot_policies_data)) {
-          setDepartmentOtPolicies(settings.department_ot_policies_data.map(normalizeDepartmentOtPolicy));
+          const normalizedDepts = settings.department_ot_policies_data.map(normalizeDepartmentOtPolicy);
+          setDepartmentOtPolicies(normalizedDepts);
+          try {
+            localStorage.setItem('vrm_hrms_department_ot_policies_persistent', JSON.stringify(normalizedDepts));
+          } catch {}
+        }
+
+        // Employee OT Policies
+        if (hasSetting('employee_ot_policies_data') && Array.isArray(settings.employee_ot_policies_data)) {
+          const validEmpOt = settings.employee_ot_policies_data.filter((p: any) => !isOwnerOrCEO(p));
+          setEmployeeOtPolicies(validEmpOt);
+          try {
+            localStorage.setItem('vrm_hrms_employee_ot_policies_persistent', JSON.stringify(validEmpOt));
+          } catch {}
         }
 
         // Designations
