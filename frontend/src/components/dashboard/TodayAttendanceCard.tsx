@@ -8,6 +8,7 @@ interface TodayAttendanceCardProps {
   leave: number;
   late?: number;
   weekOff?: number;
+  notStarted?: number;
   onSelectCategory?: (category: AttendanceCategoryType) => void;
   onOpenLeaves?: () => void;
 }
@@ -19,6 +20,7 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
   leave,
   late = 0,
   weekOff = 0,
+  notStarted = 0,
   onSelectCategory,
   onOpenLeaves
 }) => {
@@ -49,6 +51,9 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
   const lateOffset = -(pPct * circumference);
   const lOffset = -((pPct + latePct) * circumference);
   const aOffset = -((pPct + latePct + lPct) * circumference);
+  const nPct = notStarted / safeTotal;
+  const nLength = Math.max(0, nPct * circumference - (nPct > 0 && safeTotal > 1 ? gap : 0));
+  const nOffset = -((pPct + latePct + lPct + aPct) * circumference);
 
   return (
     <div className="dashboard-widget-card">
@@ -195,6 +200,30 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
                   onClick={() => onSelectCategory && onSelectCategory('absent')}
                 >
                   <title>Absent: {absent} ({((aPct) * 100).toFixed(0)}%)</title>
+                </circle>
+              )}
+
+              {/* Yet to Punch In Arc (Slate #94A3B8) */}
+              {notStarted > 0 && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill="none"
+                  stroke="#94A3B8"
+                  strokeWidth={hoveredSegment === 'notstarted' ? strokeWidth + 3 : strokeWidth}
+                  strokeDasharray={`${nLength} ${circumference}`}
+                  strokeDashoffset={nOffset}
+                  style={{
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: hoveredSegment && hoveredSegment !== 'notstarted' ? 0.65 : 1
+                  }}
+                  onMouseEnter={() => setHoveredSegment('notstarted')}
+                  onMouseLeave={() => setHoveredSegment(null)}
+                  onClick={() => onSelectCategory && onSelectCategory('notstarted')}
+                >
+                  <title>Yet to Punch In: {notStarted} ({((nPct) * 100).toFixed(0)}%)</title>
                 </circle>
               )}
             </g>
@@ -355,6 +384,40 @@ export const TodayAttendanceCard: React.FC<TodayAttendanceCardProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Yet to Punch In (shift not started / within grace) */}
+          {notStarted > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                transition: 'background 0.15s ease'
+              }}
+              title="Shift not started or still within grace period"
+              onClick={() => onSelectCategory && onSelectCategory('notstarted')}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; setHoveredSegment('notstarted'); }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; setHoveredSegment(null); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#94A3B8', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#0B1A2D', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  Yet to Punch In
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.80rem', fontWeight: 750, color: '#0B1A2D', minWidth: '32px', textAlign: 'right' }}>
+                  {((notStarted / safeTotal) * 100).toFixed(0)}%
+                </span>
+                <span style={{ fontSize: '0.80rem', fontWeight: 500, color: '#64748B', minWidth: '18px', textAlign: 'right' }}>
+                  {notStarted}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

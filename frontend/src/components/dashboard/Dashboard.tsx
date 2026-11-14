@@ -586,6 +586,10 @@ export const Dashboard: React.FC = () => {
     date: todayStr
   });
   const absentEmployees = attendanceReport.absent.map(row => row.employee);
+  // Employees whose shift start + grace has not been reached yet (neither Present nor Absent)
+  const yetToPunchInCount = (attendanceReport.notDue || []).filter(row =>
+    !presentEmployees.some(emp => emp.employeeId === row.employee.employeeId)
+  ).length;
 
   const presentToday = presentEmployees.length;
   const absentToday = absentEmployees.length;
@@ -1615,9 +1619,20 @@ export const Dashboard: React.FC = () => {
                 <div className="kpi-value" style={{ color: absentToday > 0 ? '#DC2626' : 'inherit' }}>
                   {absentToday}
                 </div>
-                <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
                   <span className="kpi-trend-badge red">{absentRatePct}%</span>
-                  <span>Unplanned Leave</span>
+                  {yetToPunchInCount > 0 ? (
+                    <span
+                      role="button"
+                      title="Shift not started / within grace period — not yet Present or Absent"
+                      onClick={(e) => { e.stopPropagation(); setSelectedCategory('notstarted'); }}
+                      style={{ color: '#475569', fontWeight: 700, textDecoration: 'underline dotted', cursor: 'pointer' }}
+                    >
+                      +{yetToPunchInCount} Yet to Punch In
+                    </span>
+                  ) : (
+                    <span>Unplanned Leave</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1680,6 +1695,7 @@ export const Dashboard: React.FC = () => {
             absent={donutAbsent}
             leave={donutLeave}
             late={donutLate}
+            notStarted={yetToPunchInCount}
             onSelectCategory={(cat) => setSelectedCategory(cat)}
             onOpenLeaves={() => setActiveModule('leaves')}
           />

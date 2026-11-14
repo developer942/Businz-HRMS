@@ -23,7 +23,7 @@ import {
   CalendarCheck
 } from 'lucide-react';
 
-export type AttendanceCategoryType = 'total' | 'absent' | 'present' | 'early' | 'missed' | 'late' | 'weekoff';
+export type AttendanceCategoryType = 'total' | 'absent' | 'present' | 'early' | 'missed' | 'late' | 'weekoff' | 'notstarted';
 
 interface CategoryItem {
   employee: Employee;
@@ -132,6 +132,14 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       accentColor: '#0e7490',
       badgeBg: '#cffafe',
       badgeColor: '#0e7490'
+    },
+    notstarted: {
+      title: 'Yet to Punch In',
+      subtitle: 'Shift has not started or is still within the grace period — not yet counted as Present or Absent',
+      icon: <Clock size={22} color="#64748b" />,
+      accentColor: '#64748b',
+      badgeBg: '#f1f5f9',
+      badgeColor: '#475569'
     }
   }[category];
 
@@ -213,9 +221,9 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
         statusType = 'info';
         note = reportRow.reason || 'Company holiday';
       } else if (reportRow?.classification === 'Not Due') {
-        statusLabel = 'Not Due';
-        statusType = 'info';
-        note = 'Shift not started';
+        statusLabel = 'Yet to Punch In';
+        statusType = 'warning';
+        note = reportRow.reason || 'Shift not started';
       } else {
         statusLabel = 'Absent';
         statusType = 'danger';
@@ -264,6 +272,9 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
     if (category === 'weekoff') {
       return item.statusLabel === 'Week Off' || item.statusLabel === 'Holiday';
     }
+    if (category === 'notstarted') {
+      return item.statusLabel === 'Yet to Punch In';
+    }
     if (category === 'absent') {
       return absentEmployeeIds.has(item.employee.employeeId);
     }
@@ -284,6 +295,18 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
 
     return matchesSearch && matchesDept;
   });
+
+  // When a search returns nothing here, tell the user which status the employee is actually in
+  const otherCategoryMatches = searchQuery.trim()
+    ? categoryItems
+        .filter(item =>
+          !filteredByCategory.includes(item) && (
+            `${item.employee.firstName} ${item.employee.lastName}`.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+            item.employee.employeeId.toLowerCase().includes(searchQuery.trim().toLowerCase())
+          )
+        )
+        .slice(0, 3)
+    : [];
 
   const exportColumns = [
     { key: 'employeeId', label: 'Employee ID' },
@@ -502,6 +525,19 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
               <p style={{ fontSize: '0.84rem', margin: 0 }}>
                 No employees matching your criteria were found in this category.
               </p>
+              {searchQuery.trim() && otherCategoryMatches.length > 0 && (
+                <div style={{ marginTop: '16px', display: 'inline-flex', flexDirection: 'column', gap: '6px', textAlign: 'left' }}>
+                  {otherCategoryMatches.map(item => (
+                    <div
+                      key={item.employee.employeeId}
+                      style={{ fontSize: '0.82rem', color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px' }}
+                    >
+                      <strong>{item.employee.firstName} {item.employee.lastName}</strong> ({item.employee.employeeId}) is currently
+                      {' '}<strong>{item.statusLabel}</strong>{item.note ? ` — ${item.note}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
