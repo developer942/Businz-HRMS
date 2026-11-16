@@ -2493,7 +2493,7 @@ input:-webkit-autofill:active {
   background: white;
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
-  padding: 30px;
+  padding: 20px 24px;
 }
 
 .payslip-header {

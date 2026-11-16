@@ -7,7 +7,8 @@ import {
   Trash2,
   X,
   Search,
-  SlidersHorizontal
+  SlidersHorizontal,
+  RotateCcw
 } from 'lucide-react';
 import { computeDueStatus, EnhancedTask, TaskPriority } from '../../types/tasks';
 import { formatShortDateDayMonth, formatDateDayMonthYear } from '../../utils/dateUtils';
@@ -18,23 +19,14 @@ interface Props {
 }
 
 export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
-  const { enhancedTasks, currentUser, employees, departments, deleteEnhancedTask, updateAssigneeProgress } = useHRMS();
+  const { enhancedTasks, currentUser, employees, departments, deleteEnhancedTask, reopenTask } = useHRMS();
 
-  const handleQuickStatusChange = (
-    task: EnhancedTask,
-    newStatus: 'Pending' | 'In Process' | 'Under Review' | 'Completed'
-  ) => {
-    const progress =
-      newStatus === 'Completed'
-        ? 100
-        : newStatus === 'Under Review'
-        ? 85
-        : newStatus === 'In Process'
-        ? 50
-        : 0;
-    task.assignees.forEach(a => {
-      updateAssigneeProgress(task.id, a.id || a.employeeId, progress, newStatus);
-    });
+  const handleQuickReopen = (task: EnhancedTask, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const reason = window.prompt(`Reopen task "${task.title}"? Enter reason:`, 'Reopened for further work');
+    if (reason && reason.trim()) {
+      reopenTask(task.id, currentUser.name, reason.trim());
+    }
   };
 
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'OPEN' | 'IN_PROGRESS' | 'UNDER_REVIEW' | 'COMPLETED'>('ALL');
@@ -762,15 +754,8 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
                           {pStyle.label}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 12px' }} onClick={e => e.stopPropagation()}>
-                        <select
-                          value={sStyle.label}
-                          onChange={e =>
-                            handleQuickStatusChange(
-                              task,
-                              e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
-                            )
-                          }
+                      <td style={{ padding: '12px 12px' }}>
+                        <span
                           style={{
                             background: sStyle.bg,
                             color: sStyle.color,
@@ -778,40 +763,72 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
                             fontSize: '0.73rem',
                             padding: '4px 10px',
                             borderRadius: '999px',
-                            border: '1px solid rgba(148, 163, 184, 0.25)',
-                            cursor: 'pointer',
-                            outline: 'none'
-                          }}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="In Process">In Process</option>
-                          <option value="Under Review">Under Review</option>
-                          <option value="Completed">Completed</option>
-                        </select>
-                      </td>
-                      <td style={{ padding: '12px 12px', textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation();
-                            onViewTask(task.id);
-                          }}
-                          style={{
-                            padding: '5px 10px',
-                            borderRadius: '8px',
-                            border: '1px solid #E2E8F0',
-                            background: '#F8FAFC',
-                            color: '#0E7490',
-                            fontSize: '0.74rem',
-                            fontWeight: 700,
-                            cursor: 'pointer',
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px'
+                            gap: '5px',
+                            whiteSpace: 'nowrap'
                           }}
                         >
-                          <Eye size={13} /> Daily Report
-                        </button>
+                          {sStyle.showDot && (
+                            <span
+                              style={{
+                                width: '6px',
+                                height: '6px',
+                                borderRadius: '50%',
+                                background: sStyle.color
+                              }}
+                            />
+                          )}
+                          {sStyle.label}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          {task.overallStatus !== 'OPEN' && (
+                            <button
+                              type="button"
+                              onClick={e => handleQuickReopen(task, e)}
+                              style={{
+                                padding: '5px 8px',
+                                borderRadius: '8px',
+                                border: '1px solid #FCD34D',
+                                background: '#FFFBEB',
+                                color: '#B45309',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title="Reopen Task"
+                            >
+                              <RotateCcw size={12} /> Reopen
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              onViewTask(task.id);
+                            }}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid #E2E8F0',
+                              background: '#F8FAFC',
+                              color: '#0E7490',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Eye size={13} /> Daily Report
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1038,34 +1055,54 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
                     {task.department || 'General'} • Due {formatShortDateDayMonth(task.dueDate)}
                   </span>
 
-                  <select
-                    value={sStyle.label}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => {
-                      e.stopPropagation();
-                      handleQuickStatusChange(
-                        task,
-                        e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
-                      );
-                    }}
-                    style={{
-                      background: sStyle.bg,
-                      color: sStyle.color,
-                      fontSize: '0.73rem',
-                      fontWeight: 700,
-                      padding: '3.5px 10px',
-                      borderRadius: '999px',
-                      border: '1px solid rgba(148, 163, 184, 0.25)',
-                      flexShrink: 0,
-                      cursor: 'pointer',
-                      outline: 'none'
-                    }}
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="In Process">In Process</option>
-                    <option value="Under Review">Under Review</option>
-                    <option value="Completed">Completed</option>
-                  </select>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    {task.overallStatus !== 'OPEN' && (
+                      <button
+                        type="button"
+                        onClick={e => handleQuickReopen(task, e)}
+                        style={{
+                          padding: '3.5px 8px',
+                          borderRadius: '999px',
+                          border: '1px solid #FCD34D',
+                          background: '#FFFBEB',
+                          color: '#B45309',
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <RotateCcw size={11} /> Reopen
+                      </button>
+                    )}
+                    <span
+                      style={{
+                        background: sStyle.bg,
+                        color: sStyle.color,
+                        fontSize: '0.73rem',
+                        fontWeight: 700,
+                        padding: '3.5px 10px',
+                        borderRadius: '999px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                    >
+                      {sStyle.showDot && (
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            background: sStyle.color
+                          }}
+                        />
+                      )}
+                      {sStyle.label}
+                    </span>
+                  </div>
                 </div>
               </div>
             );

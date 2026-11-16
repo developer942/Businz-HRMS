@@ -46,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
     setActiveSettingsTab,
     resetToDashboard
   } = useHRMS();
+  const { setSelectedGlobalTaskId } = useHRMS() as any;
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -122,6 +123,12 @@ export const Header: React.FC<HeaderProps> = ({
   const isEmployeeOrAccounts = (currentUser.role === 'Employee' || isAccountsStaff) && !isAdminOrHR;
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  useEffect(() => {
+    if (showNotifications && unreadCount > 0) {
+      markAllNotificationsRead();
+    }
+  }, [showNotifications, unreadCount]);
 
   const getModuleTitle = (mod: string): string => {
     switch (mod) {
@@ -475,13 +482,11 @@ export const Header: React.FC<HeaderProps> = ({
           <button 
             className="header-action-circle-btn" 
             onClick={() => {
-              setShowNotifications(prev => {
-                const next = !prev;
-                if (next && unreadCount > 0) {
-                  markAllNotificationsRead();
-                }
-                return next;
-              });
+              const next = !showNotifications;
+              setShowNotifications(next);
+              if (next && unreadCount > 0) {
+                markAllNotificationsRead();
+              }
               setShowQuickAddMenu(false);
               setShowProfileMenu(false);
             }}
@@ -568,13 +573,35 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={() => {
                         markNotificationRead(n.id);
                         setShowNotifications(false);
-                        const targetMod = n.link || (
-                          n.category === 'Leave' ? 'leaves' :
-                          n.category === 'Shift' ? 'shifts' :
-                          n.category === 'Task' ? 'tasks' :
-                          n.category === 'Payroll' ? 'payroll' :
-                          n.category === 'Attendance' ? 'attendance' : undefined
-                        );
+                        const validModules = new Set([
+                          'dashboard', 'employees', 'face_attendance', 'attendance', 'leaves', 'shifts',
+                          'tasks', 'tracking', 'customer_data', 'whatsapp_crm', 'performance', 'recruitment',
+                          'accounts_payment', 'finance', 'payroll', 'advance_salary', 'petty_cash',
+                          'field_allowance', 'assets', 'settings', 'notifications'
+                        ]);
+                        const rawLink = String(n.link || '').trim();
+                        const titleLower = String(n.title || '').toLowerCase();
+                        let targetMod: string | undefined;
+                        if (validModules.has(rawLink)) {
+                          targetMod = rawLink;
+                        } else if (rawLink === 'loans' || titleLower.includes('advance') || titleLower.includes('loan')) {
+                          targetMod = 'advance_salary';
+                        } else if (n.category === 'Task' || rawLink.toUpperCase().startsWith('TSK')) {
+                          targetMod = 'tasks';
+                          if (rawLink && rawLink !== 'tasks' && typeof setSelectedGlobalTaskId === 'function') {
+                            setSelectedGlobalTaskId(rawLink);
+                          }
+                        } else if (n.category === 'Leave') {
+                          targetMod = 'leaves';
+                        } else if (n.category === 'Shift') {
+                          targetMod = 'shifts';
+                        } else if (n.category === 'Finance' || (n.category as string) === 'Expense') {
+                          targetMod = 'finance';
+                        } else if (n.category === 'Payroll') {
+                          targetMod = 'payroll';
+                        } else if (n.category === 'Attendance') {
+                          targetMod = 'attendance';
+                        }
                         if (targetMod && typeof setActiveModule === 'function') {
                           setActiveModule(targetMod as any);
                         }

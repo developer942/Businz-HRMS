@@ -4,7 +4,7 @@ import { OfferLetterTemplate } from '../../types/offerLetter';
 import { INITIAL_OFFER_LETTER_TEMPLATES, OFFICIAL_CORPORATE_OFFER_TEMPLATE } from '../../data/offerLetterTemplates';
 import { useHRMS } from '../../context/HRMSContext';
 import { API_BASE_URL } from '../../config/api';
-import { downloadElementAsPDF, generateOfferLetterPdfBase64, downloadOfferLetterPdf } from '../../utils/exportUtils';
+import { generateOfferLetterPdfBase64, downloadOfferLetterPdf, printOfferLetterPdf } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { formatCurrency, toNum } from '../../utils/numbers';
 import { calculateSalaryBreakdown } from '../../services/policyEngine';
@@ -361,8 +361,8 @@ ${documentProfile.phone || '+91 9876543210'}`;
     return clauses;
   }, [customizedContent]);
 
-  const page1Clauses = useMemo(() => parsedClauses.slice(0, 12), [parsedClauses]);
-  const page2Clauses = useMemo(() => parsedClauses.slice(12), [parsedClauses]);
+  const page1Clauses = useMemo(() => parsedClauses.slice(0, 17), [parsedClauses]);
+  const page2Clauses = useMemo(() => parsedClauses.slice(17), [parsedClauses]);
 
   if (!isOpen) return null;
 
@@ -397,13 +397,12 @@ ${documentProfile.phone || '+91 9876543210'}`;
     setTimeout(() => setSavedToProfileToast(false), 2500);
   };
 
-  // Download PDF Document
-  const handleDownloadPDF = async () => {
+  const buildPdfOptions = () => {
     const candidateFullName = `${currentEmployee?.firstName || ''} ${currentEmployee?.lastName || ''}`.trim();
     const joiningDateStr = (currentEmployee?.joiningDate ? formatDateDDMMYYYY(currentEmployee.joiningDate) : '') || formatDateDDMMYYYY(new Date());
     const formattedDeadline = formatDateDDMMYYYY(new Date(Date.now() + 7 * 86400000));
 
-    await downloadOfferLetterPdf({
+    return {
       companyName: documentProfile.legalName || documentProfile.companyName,
       companyAddress: documentProfile.address,
       companyEmail: documentProfile.email,
@@ -429,7 +428,17 @@ ${documentProfile.phone || '+91 9876543210'}`;
       monthlyCtc,
       annualCtc,
       customizedClauses: customizedContent,
-    });
+    };
+  };
+
+  // Download PDF Document
+  const handleDownloadPDF = async () => {
+    await downloadOfferLetterPdf(buildPdfOptions());
+  };
+
+  // Print PDF Document (Vector 2-page PDF without DOM slicing)
+  const handlePrintPDF = async () => {
+    await printOfferLetterPdf(buildPdfOptions());
   };
 
   // Download text file
@@ -826,7 +835,7 @@ ${documentProfile.phone || ''}`;
         {/* MODAL BODY */}
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, backgroundColor: '#f1f5f9' }}>
           
-          {/* MODE 1: DOCUMENT PREVIEW */}
+          {/* MODE 1: DOCUMENT PREVIEW (CLEAN 2-PAGE CORPORATE LAYOUT) */}
           {activeMode === 'preview' && (
             <div id="printable-offer-letter" style={{ maxWidth: '800px', margin: '0 auto' }}>
               
@@ -836,287 +845,271 @@ ${documentProfile.phone || ''}`;
                   backgroundColor: '#ffffff', 
                   borderRadius: '10px', 
                   boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
-                  padding: '40px 48px', 
+                  padding: '32px 42px', 
                   fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
                   color: '#1e293b',
-                  lineHeight: 1.6,
+                  lineHeight: 1.5,
                   border: '1px solid #e2e8f0',
-                  marginBottom: '24px'
+                  marginBottom: '20px'
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '92px' }}>
-                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '20px' }}>
-                    <div style={{ width: '4px', height: '56px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0E7490', paddingBottom: '12px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '18px' }}>
+                    <div style={{ width: '4px', height: '46px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
-                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px', lineHeight: 1.35 }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
                   {activeLogo && (
                     <img
                       src={activeLogo}
                       alt="Logo"
-                      style={{ maxHeight: '82px', maxWidth: '340px', height: '70px', width: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      style={{ maxHeight: '56px', maxWidth: '200px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '20px' }}>
-                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
-                  <span>Page 1</span>
-                </div>
-
-                <div style={{ marginBottom: '18px' }}>
-                  <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: '0 0 6px', letterSpacing: '-0.01em' }}>OFFER OF EMPLOYMENT</h1>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#64748b' }}>
-                    <span>Reference: OL-{new Date().getFullYear()}-{currentEmployee?.employeeId || 'EMP'}</span>
-                    <span>Date: {todayStr}</span>
+                {/* Title & Reference Strip */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                  <h1 style={{ fontSize: '1.12rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.01em' }}>OFFER OF EMPLOYMENT</h1>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>
+                    Ref: OL-{new Date().getFullYear()}-{currentEmployee?.employeeId || 'EMP'} &nbsp;|&nbsp; Date: {todayStr}
                   </div>
                 </div>
 
-                <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '18px', fontSize: '0.82rem' }}>
-                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>To</div>
-                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{candidateFullName}</div>
-                  <div style={{ color: '#475569' }}>{currentEmployee?.address || 'Candidate Residential Address'}</div>
-                  <div style={{ color: '#64748b', marginTop: '4px', fontSize: '0.78rem' }}>
-                    Contact: {currentEmployee?.phone || '—'} &nbsp;|&nbsp; Email: {currentEmployee?.email || '—'}
+                {/* Candidate Recipient Box */}
+                <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px', fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <div style={{ fontWeight: 800, color: '#0f172a' }}>To: {candidateFullName}</div>
+                    {currentEmployee?.employeeId && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0E7490' }}>Employee ID: {currentEmployee.employeeId}</span>
+                    )}
+                  </div>
+                  <div style={{ color: '#475569', fontSize: '0.78rem' }}>{currentEmployee?.address || 'Candidate Residential Address'}</div>
+                  <div style={{ color: '#64748b', marginTop: '2px', fontSize: '0.76rem' }}>
+                    Contact: {currentEmployee?.phone || '—'} &nbsp;&nbsp;|&nbsp;&nbsp; Email: {currentEmployee?.email || '—'}
                   </div>
                 </div>
 
-                <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a', marginBottom: '14px' }}>
-                  Subject: Offer of Employment - {currentEmployee?.designation || 'Specialist'}
+                <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a', marginBottom: '10px' }}>
+                  Subject: Offer of Employment &mdash; {currentEmployee?.designation || 'Specialist'} ({currentEmployee?.department || 'Operations'})
                 </div>
 
-                <div style={{ fontSize: '0.84rem', color: '#334155', lineHeight: 1.6, marginBottom: '16px' }}>
-                  <p style={{ margin: '0 0 8px' }}>Dear Mr./Ms. {candidateFullName},</p>
+                <div style={{ fontSize: '0.81rem', color: '#334155', lineHeight: 1.5, marginBottom: '12px' }}>
+                  <p style={{ margin: '0 0 6px' }}>Dear Mr./Ms. {candidateFullName},</p>
                   <p style={{ margin: 0 }}>
-                    We are pleased to offer you the position of <strong>{currentEmployee?.designation}</strong> in the <strong>{currentEmployee?.department || 'Operations'}</strong> department of <strong>{companyLegal}</strong>, subject to the following terms and conditions.
+                    We are pleased to offer you the position of <strong>{currentEmployee?.designation}</strong> in the <strong>{currentEmployee?.department || 'Operations'}</strong> department at <strong>{companyLegal}</strong>, subject to the terms and conditions set forth below.
                   </p>
                 </div>
 
-                <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '14px' }}>
+                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '10px' }}>
                   EMPLOYMENT TERMS &amp; CONDITIONS
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.79rem', color: '#334155', lineHeight: 1.55 }}>
-                  {page1Clauses.map((clause, idx) => (
-                    <div key={idx} style={{ paddingLeft: '4px' }}>
-                      {clause}
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '24px' }}>
-                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
-                  <span>Page 1</span>
-                </div>
-              </div>
-
-              {/* PAGE BREAK INDICATOR */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '20px 0', gap: '12px', color: '#94a3b8', fontSize: '0.76rem', fontWeight: 600 }}>
-                <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
-                <span>PAGE BREAK &bull; PAGE 2 OF 3</span>
-                <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
-              </div>
-
-              {/* PAGE 2 SHEET */}
-              <div 
-                style={{ 
-                  backgroundColor: '#ffffff', 
-                  borderRadius: '10px', 
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
-                  padding: '40px 48px', 
-                  fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-                  color: '#1e293b',
-                  lineHeight: 1.6,
-                  border: '1px solid #e2e8f0',
-                  marginBottom: '24px'
-                }}
-              >
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '92px' }}>
-                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '20px' }}>
-                    <div style={{ width: '4px', height: '56px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
-                    <div>
-                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
-                    </div>
-                  </div>
-                  {activeLogo && (
-                    <img
-                      src={activeLogo}
-                      alt="Logo"
-                      style={{ maxHeight: '82px', maxWidth: '340px', height: '70px', width: 'auto', objectFit: 'contain', flexShrink: 0 }}
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    />
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '20px' }}>
-                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
-                  <span>Page 2</span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.79rem', color: '#334155', lineHeight: 1.55, marginBottom: '24px' }}>
-                  {page2Clauses.map((clause, idx) => (
-                    <div key={idx} style={{ paddingLeft: '4px' }}>
-                      {clause}
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '12px', marginTop: '24px' }}>
-                  ACCEPTANCE &amp; AUTHORIZATION
-                </div>
-
-                <div style={{ fontSize: '0.82rem', color: '#334155', lineHeight: 1.6, marginBottom: '28px' }}>
-                  Please confirm your acceptance of the terms above by <strong>{formattedDeadline}</strong>. We look forward to welcoming you to <strong>{companyLegal}</strong>.
-                </div>
-
-                {/* Company Authorization Section (Employee acceptance removed) */}
-                <div style={{ paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
-                  <div style={{ maxWidth: '380px' }}>
-                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '8px' }}>
-                      For {companyLegal}
-                    </div>
-                    <div style={{ minHeight: '80px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '14px', marginBottom: '4px' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', minHeight: '36px' }}>
-                        {documentProfile.signatureImageUrl ? (
-                          <img
-                            src={documentProfile.signatureImageUrl}
-                            alt="Authorized signature"
-                            style={{ width: 'auto', height: 'auto', maxHeight: '56px', maxWidth: '140px', objectFit: 'contain' }}
-                            onError={event => { event.currentTarget.style.display = 'none'; }}
-                          />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.78rem', color: '#334155', lineHeight: 1.48 }}>
+                  {page1Clauses.map((clause, idx) => {
+                    const m = clause.match(/^(\d+\.\s*[^:]+:)\s*(.*)$/);
+                    return (
+                      <div key={idx}>
+                        {m ? (
+                          <>
+                            <strong style={{ color: '#0f172a' }}>{m[1]}</strong> {m[2]}
+                          </>
                         ) : (
-                          <span style={{ color: '#94a3b8', fontSize: '0.74rem', fontStyle: 'italic', paddingBottom: '4px' }}>Authorized Signature</span>
+                          clause
                         )}
                       </div>
-                      {documentProfile.stampImageUrl && (
-                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'flex-end', flexShrink: 0 }}>
-                          <img
-                            src={documentProfile.stampImageUrl}
-                            alt="Company stamp"
-                            style={{ width: 'auto', height: 'auto', maxHeight: '92px', maxWidth: '115px', objectFit: 'contain' }}
-                            onError={event => { event.currentTarget.style.display = 'none'; }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '8px', fontSize: '0.8rem' }}>
-                      <div style={{ fontWeight: 800, color: '#0f172a' }}>{documentProfile.authorizedSignatoryName || 'Authorized Signatory'}</div>
-                      <div style={{ color: '#64748b' }}>{documentProfile.authorizedSignatoryDesignation || 'HR Management'}</div>
-                      <div style={{ color: '#94a3b8', fontSize: '0.74rem', marginTop: '4px' }}>Official Seal / Digital Stamp</div>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '18px' }}>
                   <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
-                  <span>Page 2</span>
+                  <span>Page 1 of 2</span>
                 </div>
               </div>
 
               {/* PAGE BREAK INDICATOR */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '20px 0', gap: '12px', color: '#94a3b8', fontSize: '0.76rem', fontWeight: 600 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '16px 0', gap: '12px', color: '#94a3b8', fontSize: '0.74rem', fontWeight: 600 }}>
                 <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
-                <span>PAGE BREAK &bull; PAGE 3 (ANNEXURE A)</span>
+                <span>PAGE BREAK &bull; PAGE 2 OF 2</span>
                 <div style={{ flex: 1, height: '1px', backgroundColor: '#cbd5e1' }} />
               </div>
 
-              {/* PAGE 3 SHEET (ANNEXURE A) */}
+              {/* PAGE 2 SHEET (CLAUSES 18-25 + ANNEXURE A + ACCEPTANCE & AUTHORIZATION) */}
               <div 
                 style={{ 
                   backgroundColor: '#ffffff', 
                   borderRadius: '10px', 
                   boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)', 
-                  padding: '40px 48px', 
+                  padding: '32px 42px', 
                   fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
                   color: '#1e293b',
-                  lineHeight: 1.6,
+                  lineHeight: 1.5,
                   border: '1px solid #e2e8f0',
-                  marginBottom: '24px'
+                  marginBottom: '20px'
                 }}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid #0E7490', paddingBottom: '16px', marginBottom: '14px', minHeight: '92px' }}>
-                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '20px' }}>
-                    <div style={{ width: '4px', height: '56px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0E7490', paddingBottom: '12px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', minWidth: 0, flex: 1, paddingRight: '18px' }}>
+                    <div style={{ width: '4px', height: '46px', backgroundColor: '#0E7490', borderRadius: '2px', flexShrink: 0 }} />
                     <div>
-                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{companyLegal}</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px', lineHeight: 1.35 }}>{documentProfile.address || 'Corporate Headquarters & Registered Office'}</div>
                     </div>
                   </div>
                   {activeLogo && (
                     <img
                       src={activeLogo}
                       alt="Logo"
-                      style={{ maxHeight: '82px', maxWidth: '340px', height: '70px', width: 'auto', objectFit: 'contain', flexShrink: 0 }}
+                      style={{ maxHeight: '56px', maxWidth: '200px', width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0 }}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   )}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '20px' }}>
-                  <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
-                  <span>Page 3</span>
+                {page2Clauses.length > 0 && (
+                  <>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '10px' }}>
+                      EMPLOYMENT TERMS &amp; CONDITIONS (CONTINUED)
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.78rem', color: '#334155', lineHeight: 1.48, marginBottom: '16px' }}>
+                      {page2Clauses.map((clause, idx) => {
+                        const m = clause.match(/^(\d+\.\s*[^:]+:)\s*(.*)$/);
+                        return (
+                          <div key={idx}>
+                            {m ? (
+                              <>
+                                <strong style={{ color: '#0f172a' }}>{m[1]}</strong> {m[2]}
+                              </>
+                            ) : (
+                              clause
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {/* ANNEXURE A: COMPENSATION & BENEFITS STRUCTURE */}
+                <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '8px' }}>
+                  ANNEXURE A &mdash; COMPENSATION &amp; BENEFITS STRUCTURE
                 </div>
 
-                <div style={{ marginBottom: '14px' }}>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0E7490', letterSpacing: '-0.01em', margin: 0 }}>
-                    ANNEXURE A
-                  </div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
-                    COMPENSATION &amp; BENEFITS STRUCTURE
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '6px' }}>
-                    Employee: <strong>{candidateFullName}</strong> &nbsp;|&nbsp; Designation: <strong>{currentEmployee?.designation}</strong> &nbsp;|&nbsp; Effective from: <strong>{joiningDateStr}</strong>
-                  </div>
+                <div style={{ fontSize: '0.77rem', color: '#475569', marginBottom: '8px' }}>
+                  Employee: <strong>{candidateFullName}</strong> &nbsp;|&nbsp; Designation: <strong>{currentEmployee?.designation}</strong> &nbsp;|&nbsp; Effective From: <strong>{joiningDateStr}</strong>
                 </div>
 
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', border: '1px solid #cbd5e1', marginBottom: '10px' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#0E7490', color: '#ffffff' }}>
-                      <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Salary Component</th>
-                      <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Monthly (INR)</th>
-                      <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Annual (INR)</th>
+                      <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 700 }}>Salary Component</th>
+                      <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700 }}>Monthly (INR)</th>
+                      <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700 }}>Annual (INR)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {compensationRows.filter(row => row.amount > 0).map((row, idx) => (
                       <tr key={row.label} style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '8px 14px' }}>{row.label}</td>
-                        <td style={{ padding: '8px 14px', textAlign: 'right' }}>{formatCurrency(row.amount)}</td>
-                        <td style={{ padding: '8px 14px', textAlign: 'right' }}>{formatCurrency(row.amount * 12)}</td>
+                        <td style={{ padding: '6px 12px' }}>{row.label}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right' }}>{formatCurrency(row.amount)}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right' }}>{formatCurrency(row.amount * 12)}</td>
                       </tr>
                     ))}
                     <tr style={{ backgroundColor: '#f0fdf4', fontWeight: 800, color: '#15803d', borderTop: '2px solid #bbf7d0' }}>
-                      <td style={{ padding: '10px 14px' }}>TOTAL COST TO COMPANY (CTC)</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatCurrency(monthlyCtc)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatCurrency(annualCtc)}</td>
+                      <td style={{ padding: '8px 12px' }}>TOTAL COST TO COMPANY (CTC)</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatCurrency(monthlyCtc)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatCurrency(annualCtc)}</td>
                     </tr>
                   </tbody>
                 </table>
 
-                <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '28px' }}>
-                  <div><strong>Compensation notes:</strong> All cash components are subject to statutory deductions (PF, ESI, Professional Tax, TDS) as applicable.</div>
-                  <div><strong>Benefits / deductions:</strong> Statutory employee benefits are governed in accordance with Indian statutory labor compliances.</div>
-                  <div><strong>Variable incentives:</strong> Annual performance bonus evaluated based on company and individual key performance indicators.</div>
-                  <div>This annexure forms part of the offer letter issued on <strong>{todayStr}</strong>.</div>
+                <div style={{ fontSize: '0.74rem', color: '#64748b', lineHeight: 1.45, display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '16px' }}>
+                  <div>&bull; <strong>Compensation Notes:</strong> All salary components are subject to applicable statutory deductions (EPF, ESIC, PT, TDS).</div>
+                  <div>&bull; <strong>Statutory Compliance:</strong> Benefits and deductions are governed by Indian labor laws. Issued on <strong>{todayStr}</strong>.</div>
                 </div>
 
-                <div style={{ paddingTop: '16px', borderTop: '1px solid #e2e8f0', fontSize: '0.8rem' }}>
-                  <div style={{ fontWeight: 800, color: '#0f172a' }}>
-                    Authorized signatory: {documentProfile.authorizedSignatoryName || 'Authorized Signatory'}
-                  </div>
-                  <div style={{ color: '#64748b', fontSize: '0.74rem' }}>{companyLegal}</div>
+                {/* ACCEPTANCE & AUTHORIZATION */}
+                <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1.5px solid #0E7490', paddingBottom: '4px', marginBottom: '8px' }}>
+                  ACCEPTANCE &amp; AUTHORIZATION
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '24px' }}>
+                <div style={{ fontSize: '0.78rem', color: '#334155', lineHeight: 1.45, marginBottom: '12px' }}>
+                  Please confirm your acceptance of this Offer of Employment by <strong>{formattedDeadline}</strong>. We look forward to welcoming you to <strong>{companyLegal}</strong>.
+                </div>
+
+                {(() => {
+                  const sigName = (documentProfile.authorizedSignatoryName || 'Authorized Signatory').trim();
+                  const rawRole = (documentProfile.authorizedSignatoryDesignation || 'HR Management').trim();
+                  const sigRole = rawRole.toLowerCase() === sigName.toLowerCase() ? 'HR Management & Administration' : rawRole;
+
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                      {/* Left Card: Company Authorization */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#0f172a', marginBottom: '6px' }}>
+                          For {companyLegal}
+                        </div>
+                        <div style={{ minHeight: '64px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', minHeight: '32px' }}>
+                            {documentProfile.signatureImageUrl ? (
+                              <img
+                                src={documentProfile.signatureImageUrl}
+                                alt="Authorized signature"
+                                style={{ width: 'auto', height: 'auto', maxHeight: '48px', maxWidth: '130px', objectFit: 'contain' }}
+                                onError={event => { event.currentTarget.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontSize: '0.74rem', fontStyle: 'italic', paddingBottom: '4px' }}>Authorized Signature</span>
+                            )}
+                          </div>
+                          {documentProfile.stampImageUrl && (
+                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'flex-end', flexShrink: 0 }}>
+                              <img
+                                src={documentProfile.stampImageUrl}
+                                alt="Company stamp"
+                                style={{ width: 'auto', height: 'auto', maxHeight: '68px', maxWidth: '95px', objectFit: 'contain' }}
+                                onError={event => { event.currentTarget.style.display = 'none'; }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '6px', fontSize: '0.76rem' }}>
+                          <div style={{ fontWeight: 800, color: '#0f172a' }}>{sigName}</div>
+                          <div style={{ color: '#64748b' }}>{sigRole}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '2px' }}>Official Seal / Digital Stamp</div>
+                        </div>
+                      </div>
+
+                      {/* Right Card: Candidate Acceptance */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#0f172a', marginBottom: '6px' }}>
+                            Candidate Acceptance &amp; Acknowledgement
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: '#475569', lineHeight: 1.45, marginBottom: '20px' }}>
+                            I have read, understood, and accept all terms and conditions of employment and Annexure A stated in this Offer Letter.
+                          </div>
+                        </div>
+                        <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '6px', fontSize: '0.76rem' }}>
+                          <div style={{ fontWeight: 800, color: '#0f172a' }}>Candidate: {candidateFullName}</div>
+                          <div style={{ color: '#64748b' }}>Signature of Candidate</div>
+                          <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '2px' }}>Date: ________________________</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '18px' }}>
                   <span>{[documentProfile.email || 'developer@businz.com', documentProfile.phone || '+91 9876543210', documentProfile.website || 'https://businz.com'].filter(Boolean).join(' | ')}</span>
-                  <span>Page 3</span>
+                  <span>Page 2 of 2</span>
                 </div>
               </div>
 
@@ -1445,7 +1438,7 @@ ${documentProfile.phone || ''}`;
             <button 
               type="button" 
               className="btn btn-secondary btn-sm" 
-              onClick={() => downloadElementAsPDF('printable-offer-letter', `Offer_Letter_${currentEmployee?.firstName || 'Candidate'}_${currentEmployee?.lastName || ''}`, documentProfile.companyName)}
+              onClick={handlePrintPDF}
               title="Print Offer Letter"
               style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
             >

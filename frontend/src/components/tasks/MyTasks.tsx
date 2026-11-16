@@ -20,6 +20,31 @@ interface Props {
 export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
   const { enhancedTasks, currentUser, employees, departments, deleteEnhancedTask, updateAssigneeProgress } = useHRMS();
 
+  const myEmpRecord = useMemo(() => {
+    return employees.find(
+      e =>
+        e.employeeId === currentUser.employeeId ||
+        e.id === currentUser.id ||
+        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
+    );
+  }, [employees, currentUser]);
+
+  const matchesMe = (idOrCode?: string, name?: string) => {
+    if (idOrCode) {
+      if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
+      if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
+    }
+    if (name) {
+      const target = name.trim().toLowerCase();
+      if (target === currentUser.name.trim().toLowerCase()) return true;
+      if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const handleQuickStatusChange = (
     task: EnhancedTask,
     newStatus: 'Pending' | 'In Process' | 'Under Review' | 'Completed'
@@ -32,9 +57,8 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
         : newStatus === 'In Process'
         ? 50
         : 0;
-    const targetAssignee =
-      task.assignees.find(a => a.employeeId === selectedEmployeeId || a.employeeId === currentUser.employeeId) ||
-      task.assignees[0];
+    // Strictly ONLY the logged-in assigned employee can change their own status!
+    const targetAssignee = task.assignees.find(a => matchesMe(a.employeeId, a.employeeName));
     if (targetAssignee) {
       updateAssigneeProgress(task.id, targetAssignee.id || targetAssignee.employeeId, progress, newStatus);
     }
@@ -55,7 +79,8 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
       currentUser.role === 'Super Admin' ||
       currentUser.role === 'CEO' ||
       currentUser.role === 'HR' ||
-      currentUser.role === 'Manager'
+      currentUser.role === 'HR Manager' ||
+      currentUser.role === 'HR Admin'
     );
   }, [currentUser.role]);
 
@@ -710,8 +735,11 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
               </thead>
               <tbody>
                 {paginatedTasks.map(task => {
-                  const myAssignee = task.assignees.find(a => a.employeeId === selectedEmployeeId);
-                  const currentStatus = myAssignee ? myAssignee.individualStatus : task.overallStatus;
+                  const myOwnAssignee = task.assignees.find(a => matchesMe(a.employeeId, a.employeeName));
+                  const viewedAssignee =
+                    myOwnAssignee || task.assignees.find(a => a.employeeId === selectedEmployeeId);
+                  const canChangeMyStatus = task.overallStatus !== 'CLOSED' && Boolean(myOwnAssignee);
+                  const currentStatus = viewedAssignee ? viewedAssignee.individualStatus : task.overallStatus;
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
                   const isSelected = selectedTaskIds.includes(task.id);
                   const pStyle = getPriorityBadgeStyle(task.priority);
@@ -821,31 +849,60 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                         </span>
                       </td>
                       <td style={{ padding: '12px 12px' }} onClick={e => e.stopPropagation()}>
-                        <select
-                          value={sStyle.label}
-                          onChange={e =>
-                            handleQuickStatusChange(
-                              task,
-                              e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
-                            )
-                          }
-                          style={{
-                            background: sStyle.bg,
-                            color: sStyle.color,
-                            fontWeight: 700,
-                            fontSize: '0.73rem',
-                            padding: '4px 10px',
-                            borderRadius: '999px',
-                            border: '1px solid rgba(148, 163, 184, 0.25)',
-                            cursor: 'pointer',
-                            outline: 'none'
-                          }}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="In Process">In Process</option>
-                          <option value="Under Review">Under Review</option>
-                          <option value="Completed">Completed</option>
-                        </select>
+                        {canChangeMyStatus ? (
+                          <select
+                            value={sStyle.label}
+                            onChange={e =>
+                              handleQuickStatusChange(
+                                task,
+                                e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
+                              )
+                            }
+                            style={{
+                              background: sStyle.bg,
+                              color: sStyle.color,
+                              fontWeight: 700,
+                              fontSize: '0.73rem',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              border: '1px solid rgba(148, 163, 184, 0.25)',
+                              cursor: 'pointer',
+                              outline: 'none'
+                            }}
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="In Process">In Process</option>
+                            <option value="Under Review">Under Review</option>
+                            <option value="Completed">Completed</option>
+                          </select>
+                        ) : (
+                          <span
+                            style={{
+                              background: sStyle.bg,
+                              color: sStyle.color,
+                              fontWeight: 700,
+                              fontSize: '0.73rem',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {sStyle.showDot && (
+                              <span
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  background: sStyle.color
+                                }}
+                              />
+                            )}
+                            {sStyle.label}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '12px 12px', textAlign: 'right' }}>
                         <button
@@ -1028,8 +1085,11 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
           </div>
         ) : (
           filteredMyTasks.map((task: EnhancedTask) => {
-            const myAssignee = task.assignees.find((a: any) => a.employeeId === selectedEmployeeId);
-            const currentStatus = myAssignee ? myAssignee.individualStatus : task.overallStatus;
+            const myOwnAssignee = task.assignees.find((a: any) => matchesMe(a.employeeId, a.employeeName));
+            const viewedAssignee =
+              myOwnAssignee || task.assignees.find((a: any) => a.employeeId === selectedEmployeeId);
+            const canChangeMyStatus = task.overallStatus !== 'CLOSED' && Boolean(myOwnAssignee);
+            const currentStatus = viewedAssignee ? viewedAssignee.individualStatus : task.overallStatus;
             const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
             const pStyle = getPriorityBadgeStyle(task.priority);
             const sStyle = getDisplayStatusBadge(currentStatus);
@@ -1098,34 +1158,63 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                     {task.department || 'General'} • Due {formatShortDateDayMonth(task.dueDate)}
                   </span>
 
-                  <select
-                    value={sStyle.label}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => {
-                      e.stopPropagation();
-                      handleQuickStatusChange(
-                        task,
-                        e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
-                      );
-                    }}
-                    style={{
-                      background: sStyle.bg,
-                      color: sStyle.color,
-                      fontSize: '0.73rem',
-                      fontWeight: 700,
-                      padding: '3.5px 10px',
-                      borderRadius: '999px',
-                      border: '1px solid rgba(148, 163, 184, 0.25)',
-                      flexShrink: 0,
-                      cursor: 'pointer',
-                      outline: 'none'
-                    }}
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="In Process">In Process</option>
-                    <option value="Under Review">Under Review</option>
-                    <option value="Completed">Completed</option>
-                  </select>
+                  {canChangeMyStatus ? (
+                    <select
+                      value={sStyle.label}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => {
+                        e.stopPropagation();
+                        handleQuickStatusChange(
+                          task,
+                          e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
+                        );
+                      }}
+                      style={{
+                        background: sStyle.bg,
+                        color: sStyle.color,
+                        fontSize: '0.73rem',
+                        fontWeight: 700,
+                        padding: '3.5px 10px',
+                        borderRadius: '999px',
+                        border: '1px solid rgba(148, 163, 184, 0.25)',
+                        flexShrink: 0,
+                        cursor: 'pointer',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="In Process">In Process</option>
+                      <option value="Under Review">Under Review</option>
+                      <option value="Completed">Completed</option>
+                    </select>
+                  ) : (
+                    <span
+                      style={{
+                        background: sStyle.bg,
+                        color: sStyle.color,
+                        fontSize: '0.73rem',
+                        fontWeight: 700,
+                        padding: '3.5px 10px',
+                        borderRadius: '999px',
+                        flexShrink: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                    >
+                      {sStyle.showDot && (
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            background: sStyle.color
+                          }}
+                        />
+                      )}
+                      {sStyle.label}
+                    </span>
+                  )}
                 </div>
               </div>
             );

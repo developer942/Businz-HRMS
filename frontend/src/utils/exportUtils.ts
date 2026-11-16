@@ -289,6 +289,8 @@ export function downloadPDF(
 /**
  * Directly downloads an HTML element (e.g. Payslip) as a PDF file
  * without opening the browser print dialog.
+ * Ensures single-page documents (like Payslips) always fit cleanly on 1 A4 page
+ * without slicing rows or signatures across pages.
  */
 export async function downloadElementAsDirectPdf(
   elementId: string,
@@ -307,17 +309,32 @@ export async function downloadElementAsDirectPdf(
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff',
-      windowWidth: elem.scrollWidth || 780
+      windowWidth: Math.max(elem.scrollWidth || 780, 960),
+      onclone: (clonedDoc) => {
+        const clonedElem = clonedDoc.getElementById(elementId);
+        if (clonedElem) {
+          clonedElem.style.width = '740px';
+          clonedElem.style.maxWidth = '740px';
+          clonedElem.style.padding = '18px 22px';
+          clonedElem.style.margin = '0 auto';
+          clonedElem.style.boxSizing = 'border-box';
+          const desktopTables = clonedElem.querySelectorAll<HTMLElement>('.payslip-table-desktop');
+          desktopTables.forEach(t => { t.style.display = 'block'; });
+          const mobileTables = clonedElem.querySelectorAll<HTMLElement>('.payslip-tables-mobile');
+          mobileTables.forEach(t => { t.style.display = 'none'; });
+        }
+      }
     });
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const imgData = canvas.toDataURL('image/jpeg', 0.96);
 
     // Standard A4 dimensions in points: 595.28 x 841.89
     const pdfWidth = 595.28;
     const pdfHeight = 841.89;
     const margin = 20;
-    const printableWidth = pdfWidth - (margin * 2);
-    const printableHeight = (canvas.height * printableWidth) / canvas.width;
+    const maxWidth = pdfWidth - margin * 2;
+    const maxHeight = pdfHeight - margin * 2;
+    const rawHeight = (canvas.height * maxWidth) / canvas.width;
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -325,20 +342,32 @@ export async function downloadElementAsDirectPdf(
       format: 'a4'
     });
 
-    if (printableHeight <= pdfHeight - (margin * 2)) {
-      doc.addImage(imgData, 'JPEG', margin, margin, printableWidth, printableHeight, undefined, 'FAST');
+    const isSinglePageTarget =
+      elementId.toLowerCase().includes('payslip') ||
+      elementId.toLowerCase().includes('receipt') ||
+      rawHeight <= maxHeight * 1.55;
+
+    if (rawHeight <= maxHeight) {
+      doc.addImage(imgData, 'JPEG', margin, margin, maxWidth, rawHeight, undefined, 'FAST');
+    } else if (isSinglePageTarget) {
+      // Scale proportionally so the entire Payslip fits cleanly onto 1 single A4 page without cropping
+      const scaleRatio = maxHeight / rawHeight;
+      const drawWidth = maxWidth * scaleRatio;
+      const drawHeight = maxHeight;
+      const offsetX = margin + (maxWidth - drawWidth) / 2;
+      doc.addImage(imgData, 'JPEG', offsetX, margin, drawWidth, drawHeight, undefined, 'FAST');
     } else {
-      let heightLeft = printableHeight;
+      let heightLeft = rawHeight;
       let position = margin;
 
-      doc.addImage(imgData, 'JPEG', margin, position, printableWidth, printableHeight, undefined, 'FAST');
-      heightLeft -= (pdfHeight - (margin * 2));
+      doc.addImage(imgData, 'JPEG', margin, position, maxWidth, rawHeight, undefined, 'FAST');
+      heightLeft -= maxHeight;
 
-      while (heightLeft > 0) {
-        position = heightLeft - printableHeight + margin;
+      while (heightLeft > 5) {
+        position = heightLeft - rawHeight + margin;
         doc.addPage();
-        doc.addImage(imgData, 'JPEG', margin, position, printableWidth, printableHeight, undefined, 'FAST');
-        heightLeft -= (pdfHeight - (margin * 2));
+        doc.addImage(imgData, 'JPEG', margin, position, maxWidth, rawHeight, undefined, 'FAST');
+        heightLeft -= maxHeight;
       }
     }
 
@@ -390,11 +419,30 @@ export function printElement(
     body {
       font-family: 'Plus Jakarta Sans', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       color: #0F172A;
-      padding: 16px;
+      padding: 12px;
       margin: 0;
       background: #ffffff;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+    }
+
+    .payslip-container {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 16px 20px !important;
+      max-width: 760px;
+      margin: 0 auto;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
+    .payslip-table-desktop {
+      display: block !important;
+    }
+
+    .payslip-tables-mobile {
+      display: none !important;
     }
 
     img {
@@ -406,11 +454,13 @@ export function printElement(
     table {
       width: 100%;
       border-collapse: collapse;
-      page-break-inside: auto;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
 
     tr {
-      page-break-inside: avoid;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
       page-break-after: auto;
     }
 
@@ -418,13 +468,30 @@ export function printElement(
       word-wrap: break-word;
     }
 
+    .company-doc-header-root,
+    .employee-details-grid-doc,
+    .company-netpay-section,
+    .company-authorized-signatory {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
     @media print {
       @page {
-        margin: 10mm;
+        margin: 8mm;
         size: A4 portrait;
       }
-      body {
+      html, body {
         padding: 0;
+        margin: 0;
+        width: 100%;
+      }
+      .payslip-container {
+        max-width: 100% !important;
+        padding: 14px 18px !important;
+        border: 1px solid #cbd5e1 !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
       .no-print {
         display: none !important;
@@ -707,7 +774,7 @@ async function safeLoadImage(src?: string, trimWhitespace = false): Promise<Load
 }
 
 /**
- * Builds the official 3-page Offer Letter jsPDF instance matching corporate template
+ * Builds the official 2-page Offer Letter jsPDF instance with crisp alignment and zero excessive blank gaps
  */
 export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): Promise<jsPDF> {
   const [logoImg, sigImg, stampImg] = await Promise.all([
@@ -724,7 +791,7 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
 
   const pageWidth = 595.28;
   const pageHeight = 841.89;
-  const margin = 40;
+  const margin = 38;
   const contentWidth = pageWidth - margin * 2;
   const primaryTeal: [number, number, number] = [14, 116, 144]; // #0E7490
 
@@ -736,23 +803,26 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
   const drawHeader = (docInstance: any) => {
     // Teal vertical accent bar
     docInstance.setFillColor(...primaryTeal);
-    docInstance.rect(margin, 36, 4, 30, 'F');
+    docInstance.rect(margin, 28, 3.5, 36, 'F');
 
-    docInstance.setFontSize(13);
+    docInstance.setFontSize(12);
     docInstance.setFont('helvetica', 'bold');
     docInstance.setTextColor(15, 23, 42);
-    docInstance.text(opts.companyName || 'Businz Technologies Private Limited', margin + 12, 49);
+    docInstance.text(opts.companyName || 'Businz Technologies Private Limited', margin + 10, 40);
 
-    docInstance.setFontSize(8);
+    docInstance.setFontSize(7.8);
     docInstance.setFont('helvetica', 'normal');
     docInstance.setTextColor(100, 116, 139);
-    docInstance.text(opts.companyAddress || 'Corporate Headquarters & Registered Office', margin + 12, 62);
+    const addrText = opts.companyAddress || 'Corporate Headquarters & Registered Office';
+    const addrMaxW = logoImg ? contentWidth - 175 : contentWidth - 12;
+    const addrLines = docInstance.splitTextToSize(addrText, addrMaxW).slice(0, 2);
+    docInstance.text(addrLines, margin + 10, 52);
 
-    // If company logo is available, render large and crisp on top right
+    // Company logo on top right
     if (logoImg) {
       try {
-        const maxLogoH = 46;
-        const maxLogoW = 185;
+        const maxLogoH = 42;
+        const maxLogoW = 160;
         let logoW = maxLogoH * logoImg.aspectRatio;
         let logoH = maxLogoH;
         if (logoW > maxLogoW) {
@@ -760,20 +830,23 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
           logoH = logoW / logoImg.aspectRatio;
         }
         const logoX = pageWidth - margin - logoW;
-        const logoY = 26 + (maxLogoH - logoH) / 2;
+        const logoY = 25 + (maxLogoH - logoH) / 2;
         docInstance.addImage(logoImg.dataUrl, logoImg.format, logoX, logoY, logoW, logoH, undefined, 'FAST');
       } catch (err) {
         console.warn('Could not add logo to PDF:', err);
       }
     }
 
-    docInstance.setDrawColor(226, 232, 240);
-    docInstance.line(margin, 76, pageWidth - margin, 76);
+    docInstance.setDrawColor(...primaryTeal);
+    docInstance.setLineWidth(1.2);
+    docInstance.line(margin, 72, pageWidth - margin, 72);
+    docInstance.setLineWidth(0.5);
   };
 
-  const drawFooter = (docInstance: any, pageNum: number) => {
+  const drawFooter = (docInstance: any, pageNum: number, totalPages = 2) => {
     docInstance.setDrawColor(226, 232, 240);
-    docInstance.line(margin, pageHeight - 34, pageWidth - margin, pageHeight - 34);
+    docInstance.setLineWidth(0.6);
+    docInstance.line(margin, pageHeight - 32, pageWidth - margin, pageHeight - 32);
 
     docInstance.setFontSize(7.5);
     docInstance.setFont('helvetica', 'normal');
@@ -783,67 +856,60 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
       opts.companyEmail || 'developer@businz.com',
       opts.companyPhone || '+91 9876543210',
       opts.companyWebsite || 'https://businz.com'
-    ].filter(Boolean).join(' | ');
+    ].filter(Boolean).join('  |  ');
 
-    docInstance.text(contactStr, margin, pageHeight - 20);
-    const pStr = `Page ${pageNum}`;
-    docInstance.text(pStr, pageWidth - margin - docInstance.getTextWidth(pStr), pageHeight - 20);
+    docInstance.text(contactStr, margin, pageHeight - 19);
+    const pStr = `Page ${pageNum} of ${totalPages}`;
+    docInstance.text(pStr, pageWidth - margin - docInstance.getTextWidth(pStr), pageHeight - 19);
   };
 
-  // ================= PAGE 1 =================
-  drawHeader(doc);
+  const drawFormattedClause = (
+    docInstance: any,
+    clauseText: string,
+    x: number,
+    startY: number,
+    maxW: number,
+    fontSize = 8.4,
+    lineH = 11.4
+  ): number => {
+    docInstance.setFontSize(fontSize);
+    docInstance.setFont('helvetica', 'normal');
+    const lines: string[] = docInstance.splitTextToSize(clauseText, maxW);
+    const prefixMatch = clauseText.match(/^(\d+\.\s*[^:]+:)\s*(.*)$/);
+    let curY = startY;
 
-  let y = 96;
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text('OFFER OF EMPLOYMENT', margin, y);
+    for (let i = 0; i < lines.length; i++) {
+      const lineStr = lines[i];
+      if (i === 0 && prefixMatch) {
+        const prefix = prefixMatch[1];
+        if (lineStr.startsWith(prefix)) {
+          docInstance.setFont('helvetica', 'bold');
+          docInstance.setTextColor(15, 23, 42);
+          docInstance.text(prefix, x, curY);
+          const prefixW = docInstance.getTextWidth(prefix + ' ');
+          const rest = lineStr.slice(prefix.length).trimStart();
+          if (rest) {
+            docInstance.setFont('helvetica', 'normal');
+            docInstance.setTextColor(51, 65, 85);
+            docInstance.text(rest, x + prefixW, curY);
+          }
+        } else {
+          docInstance.setFont('helvetica', 'bold');
+          docInstance.setTextColor(15, 23, 42);
+          docInstance.text(lineStr, x, curY);
+        }
+      } else {
+        docInstance.setFont('helvetica', 'normal');
+        docInstance.setTextColor(51, 65, 85);
+        docInstance.text(lineStr, x, curY);
+      }
+      curY += lineH;
+    }
 
-  doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Reference: ${refCode}`, margin, y + 14);
-  const dateMeta = `Date: ${todayStr}`;
-  doc.text(dateMeta, pageWidth - margin - doc.getTextWidth(dateMeta), y + 14);
+    return curY;
+  };
 
-  y += 34;
-  doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text('To', margin, y);
-
-  y += 12;
-  doc.setFont('helvetica', 'bold');
-  doc.text(opts.candidateName, margin, y);
-  y += 11;
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(51, 65, 85);
-  doc.text(opts.candidateAddress || 'Candidate Residential Address', margin, y);
-  y += 11;
-  doc.text(`Contact: ${opts.candidatePhone || '—'}   Email: ${opts.candidateEmail || '—'}`, margin, y);
-
-  y += 18;
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(`Subject: Offer of Employment - ${opts.designation}`, margin, y);
-
-  y += 16;
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(30, 41, 59);
-  doc.text(`Dear ${opts.salutation || 'Mr./Ms.'} ${opts.candidateName},`, margin, y);
-
-  y += 12;
-  const introText = `We are pleased to offer you the position of ${opts.designation} in the ${opts.department || 'Operations'} department of ${opts.companyName}, subject to the following terms and conditions.`;
-  const introLines = doc.splitTextToSize(introText, contentWidth);
-  doc.text(introLines, margin, y);
-  y += introLines.length * 11 + 6;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...primaryTeal);
-  doc.text('EMPLOYMENT TERMS & CONDITIONS', margin, y);
-  y += 12;
-
-  const page1Clauses = [
+  const defaultClauses = [
     `1. Nature of Employment: Your employment will be on a ${opts.employmentType || 'Full-Time'} basis.`,
     `2. Probation: The probation period will be 3 months, subject to the company policy.`,
     `3. Working Hours: Your work schedule will be 6 days per week, from 09:30 AM to 06:30 PM, with 1 hour of break time. Attendance, absences and reporting will follow the applicable company policy.`,
@@ -855,26 +921,7 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
     `9. Performance and Monitoring: Your performance may be evaluated against role objectives and key result areas in accordance with company policy.`,
     `10. Notice Period: The applicable notice period is 30 days, subject to the employment agreement and applicable law.`,
     `11. Minimum Service Commitment: Any minimum service commitment or bond will apply only if specifically agreed in a separate, valid agreement: Standard service commitment terms as applicable.`,
-    `12. Non-Disclosure Agreement: You may be required to sign a confidentiality or non-disclosure agreement as applicable to the role.`
-  ];
-
-  doc.setFontSize(7.8);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(51, 65, 85);
-  for (const clause of page1Clauses) {
-    const lines = doc.splitTextToSize(clause, contentWidth);
-    doc.text(lines, margin, y);
-    y += lines.length * 9.5 + 3.5;
-  }
-
-  drawFooter(doc, 1);
-
-  // ================= PAGE 2 =================
-  doc.addPage();
-  drawHeader(doc);
-  y = 96;
-
-  const page2Clauses = [
+    `12. Non-Disclosure Agreement: You may be required to sign a confidentiality or non-disclosure agreement as applicable to the role.`,
     `13. Reference and Background Checks: This offer is subject to satisfactory verification of employment history, credentials and any required background checks.`,
     `14. Location and Transfer: Your initial work location is ${opts.workLocation || 'Head Office'}. Any transfer or remote-work arrangement will follow written company policy and applicable terms.`,
     `15. Fitness for Work: You must be able to perform essential role duties, with reasonable accommodations where required by applicable law.`,
@@ -890,121 +937,145 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
     `25. Accuracy of Information: All information and documents provided during recruitment must be accurate. Material misrepresentations may be addressed under company policy and applicable law.`
   ];
 
-  doc.setFontSize(7.8);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(51, 65, 85);
-  for (const clause of page2Clauses) {
-    const lines = doc.splitTextToSize(clause, contentWidth);
-    doc.text(lines, margin, y);
-    y += lines.length * 9.5 + 3.5;
+  const parsedCustomClauses = (() => {
+    if (!opts.customizedClauses || !opts.customizedClauses.trim()) return defaultClauses;
+    const rawLines = opts.customizedClauses
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.includes('EMPLOYMENT TERMS & CONDITIONS'));
+    const clauses: string[] = [];
+    let current = '';
+    for (const line of rawLines) {
+      if (/^\d+\./.test(line)) {
+        if (current) clauses.push(current);
+        current = line;
+      } else if (current) {
+        current += ' ' + line;
+      } else {
+        clauses.push(line);
+      }
+    }
+    if (current) clauses.push(current);
+    return clauses.length >= 5 ? clauses : defaultClauses;
+  })();
+
+  const page1Clauses = parsedCustomClauses.slice(0, 17);
+  const page2Clauses = parsedCustomClauses.slice(17);
+
+  // ================= PAGE 1 =================
+  drawHeader(doc);
+
+  let y = 90;
+  doc.setFontSize(11.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('OFFER OF EMPLOYMENT', margin, y);
+
+  doc.setFontSize(8.2);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  const metaRight = `Ref: ${refCode}   |   Date: ${todayStr}`;
+  doc.text(metaRight, pageWidth - margin - doc.getTextWidth(metaRight), y);
+
+  y += 10;
+  // Candidate Recipient Card
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, y, contentWidth, 46, 5, 5, 'FD');
+
+  doc.setFontSize(8.4);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`To: ${opts.candidateName}`, margin + 10, y + 14);
+
+  if (opts.employeeId) {
+    const empTag = `Employee ID: ${opts.employeeId}`;
+    doc.setFontSize(7.8);
+    doc.setTextColor(...primaryTeal);
+    doc.text(empTag, pageWidth - margin - 10 - doc.getTextWidth(empTag), y + 14);
   }
 
-  y += 14;
-  doc.setFontSize(9.5);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  const candAddr = (opts.candidateAddress || 'Candidate Residential Address').replace(/\s+/g, ' ').trim();
+  doc.text(doc.splitTextToSize(candAddr, contentWidth - 20)[0] || candAddr, margin + 10, y + 26);
+  doc.text(`Contact: ${opts.candidatePhone || '—'}     |     Email: ${opts.candidateEmail || '—'}`, margin + 10, y + 38);
+
+  y += 60;
+  doc.setFontSize(8.8);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...primaryTeal);
-  doc.text('ACCEPTANCE & AUTHORIZATION', margin, y);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Subject: Offer of Employment — ${opts.designation} (${opts.department || 'Operations'})`, margin, y);
 
   y += 14;
-  doc.setFontSize(8.2);
+  doc.setFontSize(8.4);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(30, 41, 59);
-  const acceptNote = `Please confirm your acceptance of the terms above by ${deadlineStr}. We look forward to welcoming you to ${opts.companyName}.`;
-  const acceptLines = doc.splitTextToSize(acceptNote, contentWidth);
-  doc.text(acceptLines, margin, y);
-  y += acceptLines.length * 11 + 20;
-
-  // Company Authorization Block (Employee acceptance removed as requested)
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text(`For ${opts.companyName}`, margin, y);
-  y += 10;
-
-  // Render Signature and Stamp / Seal images if available
-  const sigStampY = y;
-  const sigStampH = 50;
-
-  if (sigImg) {
-    try {
-      const maxSigH = 44;
-      const maxSigW = 130;
-      let sigW = maxSigH * sigImg.aspectRatio;
-      let sigH = maxSigH;
-      if (sigW > maxSigW) {
-        sigW = maxSigW;
-        sigH = sigW / sigImg.aspectRatio;
-      }
-      const sigX = margin;
-      const sigY = sigStampY + (sigStampH - sigH);
-      doc.addImage(sigImg.dataUrl, sigImg.format, sigX, sigY, sigW, sigH, undefined, 'FAST');
-    } catch (err) {
-      console.warn('Could not add signature to PDF:', err);
-    }
-  }
-
-  if (stampImg) {
-    try {
-      const maxStampH = 50;
-      const maxStampW = 85;
-      let stampW = maxStampH * stampImg.aspectRatio;
-      let stampH = maxStampH;
-      if (stampW > maxStampW) {
-        stampW = maxStampW;
-        stampH = stampW / stampImg.aspectRatio;
-      }
-      const stampX = margin + 160;
-      const stampY = sigStampY + (sigStampH - stampH);
-      doc.addImage(stampImg.dataUrl, stampImg.format, stampX, stampY, stampW, stampH, undefined, 'FAST');
-    } catch (err) {
-      console.warn('Could not add stamp to PDF:', err);
-    }
-  }
-
-  y = sigStampY + sigStampH + 6;
-
-  // Divider line under signature
-  doc.setDrawColor(203, 213, 225);
-  doc.line(margin, y, margin + 260, y);
+  doc.text(`Dear ${opts.salutation || 'Mr./Ms.'} ${opts.candidateName},`, margin, y);
 
   y += 12;
-  doc.setFontSize(8.2);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(opts.signatoryName || 'Authorized Signatory', margin, y);
+  const introText = `We are pleased to offer you the position of ${opts.designation} in the ${opts.department || 'Operations'} department at ${opts.companyName}, subject to the terms and conditions set forth below.`;
+  const introLines = doc.splitTextToSize(introText, contentWidth);
+  doc.text(introLines, margin, y);
+  y += introLines.length * 11.2 + 6;
 
-  y += 11;
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text(opts.signatoryDesignation || 'HR Management', margin, y);
-
-  y += 11;
-  doc.setFontSize(7.5);
-  doc.text('Official Seal / Digital Stamp', margin, y);
-
-  drawFooter(doc, 2);
-
-  // ================= PAGE 3 (ANNEXURE A) =================
-  doc.addPage();
-  drawHeader(doc);
-  y = 96;
-
-  doc.setFontSize(12);
+  doc.setFontSize(8.8);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...primaryTeal);
-  doc.text('ANNEXURE A', margin, y);
-
+  doc.text('EMPLOYMENT TERMS & CONDITIONS', margin, y);
+  doc.setDrawColor(...primaryTeal);
+  doc.setLineWidth(0.8);
+  doc.line(margin, y + 3, pageWidth - margin, y + 3);
+  doc.setLineWidth(0.5);
   y += 14;
+
+  for (const clause of page1Clauses) {
+    y = drawFormattedClause(doc, clause, margin, y, contentWidth, 8.3, 11.2) + 4.2;
+  }
+
+  // ================= PAGE 2 =================
+  doc.addPage();
+  drawHeader(doc);
+  y = 90;
+
+  if (page2Clauses.length > 0) {
+    doc.setFontSize(8.8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryTeal);
+    doc.text('EMPLOYMENT TERMS & CONDITIONS (CONTINUED)', margin, y);
+    doc.setDrawColor(...primaryTeal);
+    doc.setLineWidth(0.8);
+    doc.line(margin, y + 3, pageWidth - margin, y + 3);
+    doc.setLineWidth(0.5);
+    y += 14;
+
+    for (const clause of page2Clauses) {
+      y = drawFormattedClause(doc, clause, margin, y, contentWidth, 8.3, 11.1) + 3.8;
+    }
+    y += 6;
+  }
+
+  // ================= ANNEXURE A (COMPENSATION & BENEFITS) ON PAGE 2 =================
   doc.setFontSize(9.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text('COMPENSATION & BENEFITS STRUCTURE', margin, y);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...primaryTeal);
+  doc.text('ANNEXURE A — COMPENSATION & BENEFITS STRUCTURE', margin, y);
+  doc.setDrawColor(...primaryTeal);
+  doc.setLineWidth(0.8);
+  doc.line(margin, y + 3, pageWidth - margin, y + 3);
+  doc.setLineWidth(0.5);
 
-  y += 14;
-  doc.setFontSize(8.2);
+  y += 13;
+  doc.setFontSize(7.9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(51, 65, 85);
-  doc.text(`Employee: ${opts.candidateName}   |   Designation: ${opts.designation}   |   Effective from: ${opts.joiningDate || todayStr}`, margin, y);
-  y += 12;
+  doc.text(
+    `Employee: ${opts.candidateName}   |   Designation: ${opts.designation}   |   Effective From: ${opts.joiningDate || todayStr}`,
+    margin,
+    y
+  );
+  y += 7;
 
   const tableHead = [['Salary Component', 'Monthly (INR)', 'Annual (INR)']];
   const tableBody = opts.compensationRows.map(r => [
@@ -1028,71 +1099,190 @@ export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions)
       fillColor: primaryTeal,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 8.5,
+      fontSize: 8.2,
+      cellPadding: 4.5,
     },
     bodyStyles: {
       textColor: [30, 41, 59],
-      fontSize: 8,
-      cellPadding: 6,
+      fontSize: 7.9,
+      cellPadding: 4.2,
+    },
+    columnStyles: {
+      0: { cellWidth: contentWidth * 0.52 },
+      1: { cellWidth: contentWidth * 0.24, halign: 'right' },
+      2: { cellWidth: contentWidth * 0.24, halign: 'right' },
     },
     alternateRowStyles: {
       fillColor: [248, 250, 252],
     },
     margin: { left: margin, right: margin },
     didParseCell: (data: any) => {
-      // Highlight the last row (TOTAL COST TO COMPANY)
+      if (data.section === 'head' && data.column.index > 0) {
+        data.cell.styles.halign = 'right';
+      }
       if (data.row.index === tableBody.length - 1) {
         data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [240, 253, 244]; // Soft green
+        data.cell.styles.fillColor = [240, 253, 244];
         data.cell.styles.textColor = [22, 101, 52];
       }
     }
   });
 
-  const finalY = (doc as any).lastAutoTable?.finalY || y + 160;
-  y = finalY + 20;
+  const finalY = (doc as any).lastAutoTable?.finalY || y + 125;
+  y = finalY + 11;
 
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Compensation notes: All cash components are subject to statutory deductions (PF, ESI, Professional Tax, TDS) as applicable.', margin, y);
-  y += 12;
-  doc.text('Benefits / deductions: Statutory employee benefits are governed in accordance with Indian statutory labor compliances.', margin, y);
-  y += 12;
-  doc.text(`This annexure forms part of the offer letter issued on ${todayStr}.`, margin, y);
+  doc.text('• Compensation Notes: All salary components are subject to applicable statutory deductions (EPF, ESIC, PT, TDS).', margin, y);
+  y += 10;
+  doc.text(`• Statutory Compliance: Benefits and deductions are governed by Indian labor laws. Issued on ${todayStr}.`, margin, y);
 
-  y += 24;
-  if (sigImg) {
-    try {
-      const maxSigH = 34;
-      let sigW = maxSigH * sigImg.aspectRatio;
-      let sigH = maxSigH;
-      if (sigW > 100) {
-        sigW = 100;
-        sigH = sigW / sigImg.aspectRatio;
-      }
-      doc.addImage(sigImg.dataUrl, sigImg.format, margin, y, sigW, sigH, undefined, 'FAST');
-      y += sigH + 6;
-    } catch (err) {
-      y += 10;
-    }
-  } else {
-    y += 10;
+  // ================= ACCEPTANCE & AUTHORIZATION BLOCK =================
+  y += 16;
+  if (y + 135 > pageHeight - 36) {
+    doc.addPage();
+    drawHeader(doc);
+    y = 90;
   }
+
+  doc.setFontSize(9.2);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...primaryTeal);
+  doc.text('ACCEPTANCE & AUTHORIZATION', margin, y);
+  doc.setDrawColor(...primaryTeal);
+  doc.setLineWidth(0.8);
+  doc.line(margin, y + 3, pageWidth - margin, y + 3);
+  doc.setLineWidth(0.5);
+
+  y += 13;
+  doc.setFontSize(7.9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(30, 41, 59);
+  doc.text(
+    `Please confirm your acceptance of this Offer of Employment by ${deadlineStr}. We look forward to welcoming you to ${opts.companyName}.`,
+    margin,
+    y
+  );
+  y += 10;
+
+  const boxWidth = (contentWidth - 16) / 2;
+  const boxHeight = 108;
+  const leftBoxX = margin;
+  const rightBoxX = margin + boxWidth + 16;
+
+  // Left Box: Company Authorization
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(leftBoxX, y, boxWidth, boxHeight, 5, 5, 'FD');
+
+  doc.setFontSize(8.2);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`Authorized Signatory: ${opts.signatoryName || 'Authorized Signatory'}`, margin, y);
+  doc.text(`For ${opts.companyName}`, leftBoxX + 10, y + 14);
+
+  const sigStampTopY = y + 18;
+  const sigStampAreaH = 46;
+
+  if (sigImg) {
+    try {
+      const maxSigH = 38;
+      const maxSigW = 115;
+      let sigW = maxSigH * sigImg.aspectRatio;
+      let sigH = maxSigH;
+      if (sigW > maxSigW) {
+        sigW = maxSigW;
+        sigH = sigW / sigImg.aspectRatio;
+      }
+      const sigX = leftBoxX + 10;
+      const sigY = sigStampTopY + (sigStampAreaH - sigH);
+      doc.addImage(sigImg.dataUrl, sigImg.format, sigX, sigY, sigW, sigH, undefined, 'FAST');
+    } catch (err) {
+      console.warn('Could not add signature to PDF:', err);
+    }
+  }
+
+  if (stampImg) {
+    try {
+      const maxStampH = 46;
+      const maxStampW = 76;
+      let stampW = maxStampH * stampImg.aspectRatio;
+      let stampH = maxStampH;
+      if (stampW > maxStampW) {
+        stampW = maxStampW;
+        stampH = stampW / stampImg.aspectRatio;
+      }
+      const stampX = leftBoxX + boxWidth - stampW - 12;
+      const stampY = sigStampTopY + (sigStampAreaH - stampH);
+      doc.addImage(stampImg.dataUrl, stampImg.format, stampX, stampY, stampW, stampH, undefined, 'FAST');
+    } catch (err) {
+      console.warn('Could not add stamp to PDF:', err);
+    }
+  }
+
+  const lineY = sigStampTopY + sigStampAreaH + 4;
+  doc.setDrawColor(203, 213, 225);
+  doc.line(leftBoxX + 10, lineY, leftBoxX + boxWidth - 10, lineY);
+
+  const cleanSigName = (opts.signatoryName || 'Authorized Signatory').trim();
+  const rawSigDesig = (opts.signatoryDesignation || 'HR Management').trim();
+  const cleanSigDesig = rawSigDesig.toLowerCase() === cleanSigName.toLowerCase() ? 'HR Management & Administration' : rawSigDesig;
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(cleanSigName, leftBoxX + 10, lineY + 11);
+
+  doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text(`${opts.companyName}`, margin, y + 12);
+  doc.text(cleanSigDesig, leftBoxX + 10, lineY + 21);
+  doc.text('Official Seal / Digital Stamp', leftBoxX + 10, lineY + 31);
 
-  drawFooter(doc, 3);
+  // Right Box: Candidate Acceptance
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(rightBoxX, y, boxWidth, boxHeight, 5, 5, 'FD');
+
+  doc.setFontSize(8.2);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Candidate Acceptance & Acknowledgement', rightBoxX + 10, y + 14);
+
+  doc.setFontSize(7.4);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  const ackLines = doc.splitTextToSize(
+    'I have read, understood, and accept all terms and conditions of employment and Annexure A stated in this Offer Letter.',
+    boxWidth - 20
+  );
+  doc.text(ackLines, rightBoxX + 10, y + 26);
+
+  doc.setDrawColor(203, 213, 225);
+  doc.line(rightBoxX + 10, lineY, rightBoxX + boxWidth - 10, lineY);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Candidate: ${opts.candidateName}`, rightBoxX + 10, lineY + 11);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Signature of Candidate', rightBoxX + 10, lineY + 21);
+  doc.text(`Date: ________________________`, rightBoxX + 10, lineY + 31);
+
+  const totalPagesCount = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPagesCount; p++) {
+    doc.setPage(p);
+    drawFooter(doc, p, totalPagesCount);
+  }
 
   return doc;
 }
 
 /**
- * Generates an official 3-page Offer Letter PDF matching the corporate template
+ * Generates an official Offer Letter PDF matching the corporate template
  * Returns Base64 encoded PDF string
  */
 export async function generateOfferLetterPdfBase64(opts: GenerateOfferLetterPdfOptions): Promise<string> {
@@ -1103,11 +1293,27 @@ export async function generateOfferLetterPdfBase64(opts: GenerateOfferLetterPdfO
 }
 
 /**
- * Triggers direct vector PDF download of the official 3-page Offer Letter
+ * Triggers direct vector PDF download of the official Offer Letter
  */
 export async function downloadOfferLetterPdf(opts: GenerateOfferLetterPdfOptions, filename?: string): Promise<void> {
   const doc = await buildOfferLetterJsPdf(opts);
   const targetName = (filename || `Offer_Letter_${opts.candidateName.replace(/\s+/g, '_')}_${opts.employeeId || 'EMP'}`).replace(/\.pdf$/i, '') + '.pdf';
   doc.save(targetName);
+}
+
+/**
+ * Opens the vector Offer Letter PDF directly for native printing without DOM page-break cropping
+ */
+export async function printOfferLetterPdf(opts: GenerateOfferLetterPdfOptions): Promise<void> {
+  const doc = await buildOfferLetterJsPdf(opts);
+  doc.autoPrint();
+  const blob = doc.output('blob');
+  const blobUrl = URL.createObjectURL(blob);
+  const printWin = window.open(blobUrl, '_blank');
+  if (!printWin) {
+    const targetName = `Offer_Letter_${opts.candidateName.replace(/\s+/g, '_')}_${opts.employeeId || 'EMP'}.pdf`;
+    doc.save(targetName);
+  }
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }
 

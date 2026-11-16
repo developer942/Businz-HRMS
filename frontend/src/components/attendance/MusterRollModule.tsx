@@ -124,7 +124,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   fromDateProp,
   toDateProp
 }) => {
-  const { employees, attendanceRecords, leaveRequests, currentUser, shifts, holidayPolicies, businessSettings, companyInfo } = useHRMS();
+  const { employees, attendanceRecords, leaveRequests, currentUser, shifts, holidayPolicies, businessSettings, companyInfo, addManualAttendanceRecord } = useHRMS();
 
   // ---------------------------------------------------------------------------
   // 1. FILTER STATES (Default: Current Month & Year)
@@ -368,34 +368,24 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       };
     }
 
-    // Check Official Holiday
-    if (dayItem.isHoliday) {
-      return {
-        status: 'H' as AttendanceStatusCode,
-        checkIn: '-',
-        checkOut: '-',
-        workingHours: '00:00',
-        shift: 'Holiday',
-        location: 'Company Wide',
-        remarks: 'Official Public Holiday'
-      };
-    }
-
-    // Check Sunday / Weekly Off -> Mapped to Holiday
-    if (dayItem.isSunday) {
-      return {
-        status: 'H' as AttendanceStatusCode,
-        checkIn: '-',
-        checkOut: '-',
-        workingHours: '00:00',
-        shift: 'Holiday',
-        location: 'Offsite',
-        remarks: 'Weekly Holiday'
-      };
-    }
-
+    // Check explicit Attendance Record first (including HR/CEO overrides on Sundays or Holidays!)
     if (attRec) {
-      const st = String(attRec.status || '').toLowerCase();
+      const st = String(attRec.status || '').toLowerCase().trim();
+      const methodLower = String(attRec.method || '').toLowerCase().trim();
+      const reasonLower = String(attRec.reason || '').toLowerCase().trim();
+
+      if (st === 'holiday' || st === 'week off' || methodLower.includes('holiday')) {
+        return {
+          status: 'H' as AttendanceStatusCode,
+          checkIn: '-',
+          checkOut: '-',
+          workingHours: '00:00',
+          shift: 'Holiday',
+          location: 'Company Wide',
+          remarks: attRec.reason || (dayItem.isSunday ? 'Weekly Holiday' : 'Official Public Holiday')
+        };
+      }
+
       if (st === 'on leave') {
         return {
           status: 'PL' as AttendanceStatusCode,
@@ -404,18 +394,25 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           workingHours: '00:00',
           shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
           location: 'On Leave',
-          remarks: 'Approved Leave'
+          remarks: attRec.reason || 'Approved Leave'
         };
       }
+
       let code: AttendanceStatusCode = 'P';
-      if (st === 'absent') code = 'A';
-      else if (st === 'holiday') code = 'H';
-      else if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) code = 'WFH';
-      else if (st.includes('duty') || st.includes('field') || st.includes('visit') || st.includes('on duty') || attRec.method?.toLowerCase().includes('field')) code = 'FV';
-      else code = 'P';
+      if (st === 'absent') {
+        code = (methodLower.includes('unpaid') || reasonLower.includes('unpaid')) ? 'UL' : 'A';
+      } else if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) {
+        code = 'WFH';
+      } else if (st.includes('duty') || st.includes('field') || st.includes('visit') || st.includes('on duty') || methodLower.includes('field')) {
+        code = 'FV';
+      } else {
+        code = 'P';
+      }
 
       let whDisplay = '--:--';
-      if (attRec.checkIn && attRec.checkOut && attRec.checkOut !== '--:--') {
+      if (code === 'A' || code === 'UL') {
+        whDisplay = '00:00';
+      } else if (attRec.checkIn && attRec.checkOut && attRec.checkOut !== '--:--') {
         const inM = parseTimeToMinutes ? parseTimeToMinutes(attRec.checkIn) : 0;
         const outM = parseTimeToMinutes ? parseTimeToMinutes(attRec.checkOut) : 0;
         let diff = outM - inM;
@@ -431,12 +428,38 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
 
       return {
         status: code,
-        checkIn: formatTimeDisplay(attRec.checkIn, '--:--'),
-        checkOut: attRec.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '--:--') : (attRec.checkIn ? 'In Progress' : '--:--'),
+        checkIn: code === 'A' || code === 'UL' ? '-' : formatTimeDisplay(attRec.checkIn, '--:--'),
+        checkOut: code === 'A' || code === 'UL' ? '-' : (attRec.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '--:--') : (attRec.checkIn ? 'In Progress' : '--:--')),
         workingHours: whDisplay,
         shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
         location: attRec.location?.address || employee.address || 'Main Campus',
-        remarks: attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : (code === 'WFH' ? 'Work From Home' : 'Regular Attendance'))
+        remarks: attRec.reason || (code === 'A' ? 'Marked Absent by HR/CEO' : code === 'UL' ? 'Unpaid Leave (LOP)' : attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : (code === 'WFH' ? 'Work From Home' : 'Regular Attendance')))
+      };
+    }
+
+    // Check Official Holiday (only when not overridden by an explicit attendance record)
+    if (dayItem.isHoliday) {
+      return {
+        status: 'H' as AttendanceStatusCode,
+        checkIn: '-',
+        checkOut: '-',
+        workingHours: '00:00',
+        shift: 'Holiday',
+        location: 'Company Wide',
+        remarks: 'Official Public Holiday'
+      };
+    }
+
+    // Check Sunday / Weekly Off -> Mapped to Holiday (only when not overridden by an explicit attendance record)
+    if (dayItem.isSunday) {
+      return {
+        status: 'H' as AttendanceStatusCode,
+        checkIn: '-',
+        checkOut: '-',
+        workingHours: '00:00',
+        shift: 'Holiday',
+        location: 'Offsite',
+        remarks: 'Weekly Holiday'
       };
     }
 
@@ -526,7 +549,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       if (numA !== numB) return numA - numB;
       return String(a.employeeId || '').localeCompare(String(b.employeeId || ''), undefined, { numeric: true });
     });
-  }, [employees, selectedDepartment, selectedLocation, activeSearchQuery, selectedStatusFilter, calendarDays, customEdits]);
+  }, [employees, attendanceRecords, leaveRequests, selectedDepartment, selectedLocation, activeSearchQuery, selectedStatusFilter, calendarDays, customEdits]);
 
   // All Filtered Employees
   const paginatedEmployees = filteredEmployees;
@@ -547,11 +570,14 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         const res = getCellAttendance(emp, dayItem);
         switch (res.status) {
           case 'P': presentCount++; break;
-          case 'A': absentCount++; break;
+          case 'A':
+          case 'UL': absentCount++; break;
+          case 'PL':
           case 'L': leaveCount++; break;
           case 'WO': weeklyOffCount++; break;
           case 'H': holidayCount++; break;
           case 'HD': halfDayCount++; break;
+          case 'FV':
           case 'OD': odCount++; break;
           case 'WFH': wfhCount++; break;
         }
@@ -569,7 +595,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       odCount,
       wfhCount
     };
-  }, [filteredEmployees, calendarDays, customEdits]);
+  }, [filteredEmployees, attendanceRecords, leaveRequests, calendarDays, customEdits]);
 
   // ---------------------------------------------------------------------------
   // 5. EVENT HANDLERS & EXPORT / PRINT
@@ -601,24 +627,70 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     });
     setEditForm({
       status: data.status,
-      checkIn: data.checkIn === '-' ? '09:00 AM' : data.checkIn,
-      checkOut: data.checkOut === '-' ? '06:00 PM' : data.checkOut,
+      checkIn: data.checkIn === '-' || data.checkIn === '--:--' ? '09:00 AM' : data.checkIn,
+      checkOut: data.checkOut === '-' || data.checkOut === '--:--' ? '06:00 PM' : data.checkOut,
       remarks: data.remarks || ''
     });
   };
 
   const handleSaveCellEdit = () => {
     if (!selectedCellDetail) return;
-    const editKey = `${selectedCellDetail.employee.employeeId}_${selectedCellDetail.dateStr}`;
+    const emp = selectedCellDetail.employee;
+    const dateStr = selectedCellDetail.dateStr;
+    const editKey = `${emp.employeeId}_${dateStr}`;
+
     setCustomEdits(prev => ({
       ...prev,
       [editKey]: {
         status: editForm.status,
-        checkIn: editForm.checkIn,
-        checkOut: editForm.checkOut,
+        checkIn: editForm.status === 'A' || editForm.status === 'UL' || editForm.status === 'H' || editForm.status === 'PL' ? '-' : editForm.checkIn,
+        checkOut: editForm.status === 'A' || editForm.status === 'UL' || editForm.status === 'H' || editForm.status === 'PL' ? '-' : editForm.checkOut,
         remarks: editForm.remarks
       }
     }));
+
+    // Persist the attendance change into HRMSContext & PostgreSQL database so it survives refresh and updates all reports/exports
+    const mappedRecordStatus: AttendanceRecord['status'] =
+      editForm.status === 'A' || editForm.status === 'UL'
+        ? 'Absent'
+        : editForm.status === 'PL' || editForm.status === 'L' || editForm.status === 'ML'
+        ? 'On Leave'
+        : editForm.status === 'H' || editForm.status === 'WO'
+        ? 'Holiday'
+        : editForm.status === 'WFH' || editForm.status === 'WFO'
+        ? 'Work From Home'
+        : editForm.status === 'HD'
+        ? 'Half Day'
+        : 'Present';
+
+    const isNonWorking =
+      editForm.status === 'A' ||
+      editForm.status === 'UL' ||
+      editForm.status === 'H' ||
+      editForm.status === 'WO' ||
+      editForm.status === 'PL' ||
+      editForm.status === 'L';
+
+    const reasonPrefix =
+      editForm.status === 'UL'
+        ? 'Unpaid Leave (LOP)'
+        : editForm.status === 'FV' || editForm.status === 'OD'
+        ? 'Field Visit'
+        : editForm.status === 'A'
+        ? 'Marked Absent by HR/CEO'
+        : 'Updated from Muster Roll';
+
+    addManualAttendanceRecord({
+      employeeId: emp.id || emp.employeeId,
+      date: dateStr,
+      status: mappedRecordStatus,
+      checkIn: isNonWorking ? null : (editForm.checkIn && editForm.checkIn !== '-' && editForm.checkIn !== '--:--' ? editForm.checkIn : '09:00 AM'),
+      checkOut: isNonWorking ? null : (editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--' ? editForm.checkOut : '06:00 PM'),
+      workingHours: isNonWorking ? 0 : (editForm.status === 'HD' ? 4 : 9),
+      reason: editForm.remarks ? `${reasonPrefix}: ${editForm.remarks}` : reasonPrefix,
+      addedBy: `${currentUser?.name || 'Admin'} (${currentUser?.role || 'HR/CEO'})`
+    });
+
     setSelectedCellDetail(null);
   };
 

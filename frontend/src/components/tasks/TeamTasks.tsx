@@ -22,7 +22,49 @@ interface Props {
 const AVATAR_COLORS = ['#0E7490', '#6366F1', '#0D9488', '#7C3AED', '#2563EB'];
 
 export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
-  const { enhancedTasks, departments, deleteEnhancedTask, currentUser, employees } = useHRMS();
+  const { enhancedTasks, departments, deleteEnhancedTask, currentUser, employees, updateAssigneeProgress } = useHRMS();
+
+  const myEmpRecord = useMemo(() => {
+    return employees.find(
+      e =>
+        e.employeeId === currentUser.employeeId ||
+        e.id === currentUser.id ||
+        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
+    );
+  }, [employees, currentUser]);
+
+  const matchesMe = (idOrCode?: string, name?: string) => {
+    if (idOrCode) {
+      if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
+      if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
+    }
+    if (name) {
+      const target = name.trim().toLowerCase();
+      if (target === currentUser.name.trim().toLowerCase()) return true;
+      if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const handleMyTeamStatusChange = (
+    task: EnhancedTask,
+    newStatus: 'Pending' | 'In Process' | 'Under Review' | 'Completed'
+  ) => {
+    const myAsg = task.assignees.find(a => matchesMe(a.employeeId, a.employeeName));
+    if (!myAsg) return;
+    const progress =
+      newStatus === 'Completed'
+        ? 100
+        : newStatus === 'Under Review'
+        ? 85
+        : newStatus === 'In Process'
+        ? 50
+        : 0;
+    updateAssigneeProgress(task.id, myAsg.id || myAsg.employeeId, progress, newStatus);
+  };
 
   const [selectedDepartment, setSelectedDepartment] = useState<string>('All');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'OPEN' | 'IN_PROGRESS' | 'COMPLETED'>('ALL');
@@ -45,34 +87,12 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
       currentUser.role === 'Super Admin' ||
       currentUser.role === 'CEO' ||
       currentUser.role === 'HR' ||
-      currentUser.role === 'Manager'
+      currentUser.role === 'HR Manager' ||
+      currentUser.role === 'HR Admin'
     );
   }, [currentUser.role]);
 
   const teamTasks = useMemo(() => {
-    const myEmpRecord = employees.find(
-      e =>
-        e.employeeId === currentUser.employeeId ||
-        e.id === currentUser.id ||
-        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
-    );
-
-    const matchesMe = (idOrCode?: string, name?: string) => {
-      if (idOrCode) {
-        if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
-        if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
-      }
-      if (name) {
-        const target = name.trim().toLowerCase();
-        if (target === currentUser.name.trim().toLowerCase()) return true;
-        if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
-          return true;
-        }
-      }
-      return false;
-    };
-
     return enhancedTasks.filter(t => {
       const isTeam = t.assignmentType === 'Team' || t.assignees.length > 1;
       if (!isTeam) return false;
@@ -814,51 +834,116 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
                                 gap: '8px'
                               }}
                             >
-                              {task.assignees.map(a => (
-                                <div
-                                  key={a.employeeId}
-                                  style={{
-                                    padding: '8px 12px',
-                                    background: '#FFFFFF',
-                                    borderRadius: '10px',
-                                    border: '1px solid #E2E8F0',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                  }}
-                                >
-                                  <div>
-                                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A' }}>
-                                      {a.employeeName}
-                                    </div>
-                                    <div style={{ fontSize: '0.68rem', color: '#64748B' }}>
-                                      {a.designation || a.department}
-                                    </div>
-                                  </div>
-                                  <span
+                              {task.assignees.map(a => {
+                                const isMe = matchesMe(a.employeeId, a.employeeName);
+                                const normStatus =
+                                  a.individualStatus === 'Completed'
+                                    ? 'Completed'
+                                    : a.individualStatus === 'Under Review'
+                                    ? 'Under Review'
+                                    : a.individualStatus === 'In Progress' || a.individualStatus === 'In Process'
+                                    ? 'In Process'
+                                    : 'Pending';
+                                return (
+                                  <div
+                                    key={a.id || a.employeeId}
                                     style={{
-                                      fontSize: '0.68rem',
-                                      fontWeight: 700,
-                                      padding: '2px 8px',
-                                      borderRadius: '999px',
-                                      background:
-                                        a.individualStatus === 'Completed'
-                                          ? '#DCFCE7'
-                                          : a.individualStatus === 'In Progress'
-                                          ? '#E0F2FE'
-                                          : '#F1F5F9',
-                                      color:
-                                        a.individualStatus === 'Completed'
-                                          ? '#15803D'
-                                          : a.individualStatus === 'In Progress'
-                                          ? '#0284C7'
-                                          : '#475569'
+                                      padding: '8px 12px',
+                                      background: '#FFFFFF',
+                                      borderRadius: '10px',
+                                      border: isMe ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      gap: '8px'
                                     }}
                                   >
-                                    {a.individualStatus}
-                                  </span>
-                                </div>
-                              ))}
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A' }}>
+                                        {a.employeeName}
+                                        {isMe && (
+                                          <span style={{ marginLeft: '5px', fontSize: '0.66rem', color: '#0E7490' }}>
+                                            (You)
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div style={{ fontSize: '0.68rem', color: '#64748B' }}>
+                                        {a.designation || a.department}
+                                      </div>
+                                    </div>
+                                    {isMe && task.overallStatus !== 'CLOSED' ? (
+                                      <select
+                                        value={normStatus}
+                                        onClick={e => e.stopPropagation()}
+                                        onChange={e => {
+                                          e.stopPropagation();
+                                          handleMyTeamStatusChange(
+                                            task,
+                                            e.target.value as 'Pending' | 'In Process' | 'Under Review' | 'Completed'
+                                          );
+                                        }}
+                                        style={{
+                                          fontSize: '0.7rem',
+                                          fontWeight: 700,
+                                          padding: '3px 8px',
+                                          borderRadius: '999px',
+                                          border: '1px solid #0E7490',
+                                          background:
+                                            normStatus === 'Completed'
+                                              ? '#DCFCE7'
+                                              : normStatus === 'Under Review'
+                                              ? '#FEF3C7'
+                                              : normStatus === 'In Process'
+                                              ? '#E0F2FE'
+                                              : '#F1F5F9',
+                                          color:
+                                            normStatus === 'Completed'
+                                              ? '#15803D'
+                                              : normStatus === 'Under Review'
+                                              ? '#D97706'
+                                              : normStatus === 'In Process'
+                                              ? '#0284C7'
+                                              : '#475569',
+                                          cursor: 'pointer',
+                                          outline: 'none'
+                                        }}
+                                      >
+                                        <option value="Pending">Pending</option>
+                                        <option value="In Process">In Process</option>
+                                        <option value="Under Review">Under Review</option>
+                                        <option value="Completed">Completed</option>
+                                      </select>
+                                    ) : (
+                                      <span
+                                        style={{
+                                          fontSize: '0.68rem',
+                                          fontWeight: 700,
+                                          padding: '2px 8px',
+                                          borderRadius: '999px',
+                                          background:
+                                            normStatus === 'Completed'
+                                              ? '#DCFCE7'
+                                              : normStatus === 'Under Review'
+                                              ? '#FEF3C7'
+                                              : normStatus === 'In Process'
+                                              ? '#E0F2FE'
+                                              : '#F1F5F9',
+                                          color:
+                                            normStatus === 'Completed'
+                                              ? '#15803D'
+                                              : normStatus === 'Under Review'
+                                              ? '#D97706'
+                                              : normStatus === 'In Process'
+                                              ? '#0284C7'
+                                              : '#475569'
+                                        }}
+                                      >
+                                        {normStatus}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </td>
                         </tr>

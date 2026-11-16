@@ -156,12 +156,13 @@ export const buildAttendanceReport = (scope: AttendanceScope): AttendanceReportR
       attendance.checkIn !== '--:--'
     );
     if (isApprovedLeave(employee, scope.leaveRequests, date) || attendance?.status === 'On Leave') return { employee, attendance, classification: 'On Leave' as const, reason: 'Approved leave' };
-    if (isHoliday(employee, holidays, date)) return { employee, attendance, classification: 'Holiday' as const, reason: 'Company holiday' };
-    if (isWeeklyOff(employee, schedules, date)) return { employee, attendance, classification: 'Week Off' as const, reason: 'Scheduled weekly off' };
+    if (attendance?.status === 'Absent') return { employee, attendance, classification: 'Absent' as const, reason: attendance.reason || 'Marked Absent by HR/Management' };
     if (hasFieldWork(employee, assignments, date)) return { employee, attendance, classification: 'Field Work' as const, reason: 'Active field work assignment' };
     if (checkedIn && attendance?.status === 'Late') return { employee, attendance, classification: 'Late' as const, reason: 'Check-in recorded after shift grace period' };
     // Present requires an actual check-in punch (WFH is the only exception).
     if (checkedIn || attendance?.status === 'Work From Home') return { employee, attendance, classification: 'Present' as const, reason: 'Attendance recorded' };
+    if (isHoliday(employee, holidays, date)) return { employee, attendance, classification: 'Holiday' as const, reason: 'Company holiday' };
+    if (isWeeklyOff(employee, schedules, date)) return { employee, attendance, classification: 'Week Off' as const, reason: 'Scheduled weekly off' };
     const shiftHint = shift?.startTime ? ` (Shift: ${shift.startTime})` : '';
     return {
       employee,

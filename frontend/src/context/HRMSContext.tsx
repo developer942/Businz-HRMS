@@ -3789,60 +3789,67 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     let existingRecord: AttendanceRecord | undefined;
     let persistedAttendanceId: string | undefined;
+    const reasonLower = (entry.reason || '').toLowerCase();
+    const resolvedMethod: AttendanceRecord['method'] =
+      finalStatus === 'Holiday' || finalStatus === 'Week Off'
+        ? ('Holiday' as any)
+        : reasonLower.includes('field visit')
+        ? 'Field Visit'
+        : reasonLower.includes('unpaid leave')
+        ? ('Unpaid Leave' as any)
+        : 'Manual Punch';
+
+    const committedRecord: AttendanceRecord = {
+      id: `ATT-${Date.now()}`,
+      employeeId: canonicalEmployeeId,
+      employeeName: fullName,
+      department: emp.department,
+      date: entry.date,
+      shiftDate: entry.date,
+      status: finalStatus,
+      lateStatus: finalLateStatus,
+      lateDurationMinutes: finalLateMinutes,
+      checkIn: cleanCheckIn,
+      checkOut: cleanCheckOut,
+      workingHours: computedHours || 0,
+      breakDurationMinutes: breakMins,
+      halfDayType: entry.halfDayType,
+      shiftName: matchedShift?.shiftName || emp.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
+      method: resolvedMethod,
+      otHours: otHrs,
+      approvedOtHours: otHrs,
+      otStatus: otHrs > 0 ? 'Approved' : 'Pending',
+      reason: `Manual Attendance (HR/CEO): ${entry.reason}`
+    };
+
+    const compKey = `${String(canonicalEmployeeId || '').trim().toLowerCase()}_${entry.date}`;
+    recentServerPunchesRef.current.set(compKey, { record: committedRecord, committedAt: Date.now() });
 
     setAttendanceRecords(prev => {
       const idx = prev.findIndex(a => 
         (a.employeeId === emp.id || a.employeeId === emp.employeeId || a.employeeId === entry.employeeId) && 
-        a.date === entry.date
+        (a.date === entry.date || a.shiftDate === entry.date)
       );
       if (idx !== -1) {
         existingRecord = prev[idx];
         persistedAttendanceId = prev[idx].id;
         const updated: AttendanceRecord = {
           ...prev[idx],
-          employeeId: canonicalEmployeeId,
-          employeeName: fullName,
+          ...committedRecord,
+          id: prev[idx].id,
           department: emp.department || prev[idx].department,
-          status: finalStatus,
-          lateStatus: finalLateStatus,
-          lateDurationMinutes: finalLateMinutes,
-          checkIn: cleanCheckIn,
-          checkOut: cleanCheckOut,
-          workingHours: computedHours || 0,
-          breakDurationMinutes: breakMins,
-          halfDayType: entry.halfDayType,
-          otHours: otHrs,
           approvedOtHours: otHrs > 0 ? otHrs : prev[idx].approvedOtHours,
           otStatus: otHrs > 0 ? 'Approved' : prev[idx].otStatus,
-          method: 'Manual Punch',
-          reason: `Manual Attendance (HR/CEO): ${entry.reason}`
         };
+        if (updated.id) {
+          recentServerPunchesRef.current.set(updated.id, { record: updated, committedAt: Date.now() });
+        }
+        recentServerPunchesRef.current.set(compKey, { record: updated, committedAt: Date.now() });
         const copy = [...prev];
         copy[idx] = updated;
         return copy;
       } else {
-        const newRec: AttendanceRecord = {
-          id: `ATT-${Date.now()}`,
-          employeeId: canonicalEmployeeId,
-          employeeName: fullName,
-          department: emp.department,
-          date: entry.date,
-          status: finalStatus,
-          lateStatus: finalLateStatus,
-          lateDurationMinutes: finalLateMinutes,
-          checkIn: cleanCheckIn,
-          checkOut: cleanCheckOut,
-          workingHours: computedHours || 0,
-          breakDurationMinutes: breakMins,
-          halfDayType: entry.halfDayType,
-          shiftName: matchedShift?.shiftName || emp.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
-          method: 'Manual Punch',
-          otHours: otHrs,
-          approvedOtHours: otHrs,
-          otStatus: otHrs > 0 ? 'Approved' : 'Pending',
-          reason: `Manual Attendance (HR/CEO): ${entry.reason}`
-        };
-        return [newRec, ...prev];
+        return [committedRecord, ...prev];
       }
     });
 
@@ -3865,7 +3872,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         working_hours: computedHours || 0,
         status: finalStatus,
         late_status: finalLateStatus,
-        method: 'Manual Punch',
+        method: resolvedMethod,
       });
     }
 
@@ -3877,12 +3884,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       working_hours: computedHours || 0,
       status: finalStatus,
       late_status: finalLateStatus,
-      method: 'Manual Punch',
+      method: resolvedMethod,
       shift_date: entry.date,
     }).then(res => {
       if (res.data?.id) {
+        const persistedRec = { ...committedRecord, id: res.data.id };
+        recentServerPunchesRef.current.set(res.data.id, { record: persistedRec, committedAt: Date.now() });
+        recentServerPunchesRef.current.set(compKey, { record: persistedRec, committedAt: Date.now() });
         setAttendanceRecords(curr => curr.map(r =>
-          (r.employeeId === canonicalEmployeeId || r.employeeId === emp.id || r.employeeId === entry.employeeId) && r.date === entry.date
+          (r.employeeId === canonicalEmployeeId || r.employeeId === emp.id || r.employeeId === entry.employeeId) && (r.date === entry.date || r.shiftDate === entry.date)
             ? { ...r, id: res.data.id }
             : r
         ));
@@ -4259,29 +4269,79 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     persistSharedNotifications([newNote]);
   };
 
+  const getReadNotifStorageKey = () => {
+    const keys = getUserNotificationKeys();
+    return 'vrm_hrms_read_notifs_' + (keys[0] || 'guest');
+  };
+
+  const getPersistedReadNotifIds = (): Set<string> => {
+    try {
+      const raw = localStorage.getItem(getReadNotifStorageKey());
+      if (raw) return new Set(JSON.parse(raw));
+    } catch {}
+    return new Set();
+  };
+
+  const savePersistedReadNotifIds = (ids: string[]) => {
+    if (!ids.length) return;
+    try {
+      const set = getPersistedReadNotifIds();
+      ids.forEach(id => { if (id) set.add(id); });
+      const arr = Array.from(set).slice(-600);
+      localStorage.setItem(getReadNotifStorageKey(), JSON.stringify(arr));
+    } catch {}
+  };
+
+  const doesNotificationMatchModule = (n: NotificationItem, mod: string): boolean => {
+    const link = String(n.link || '').toLowerCase().trim();
+    const cat = String(n.category || '').toLowerCase().trim();
+    const title = String(n.title || '').toLowerCase();
+    if (link === mod) return true;
+    if (mod === 'leaves' && cat.includes('leave')) return true;
+    if (mod === 'tasks' && (cat.includes('task') || link.startsWith('tsk'))) return true;
+    if (mod === 'finance' && (cat.includes('finance') || cat.includes('expense'))) return true;
+    if (mod === 'attendance' && cat.includes('attendance')) return true;
+    if (mod === 'shifts' && cat.includes('shift')) return true;
+    if (mod === 'payroll' && cat.includes('payroll') && !title.includes('advance') && !title.includes('loan')) return true;
+    if ((mod === 'advance_salary' || mod === 'loans' || mod === 'accounts_payment') && (cat.includes('loan') || cat.includes('salary') || title.includes('advance') || title.includes('loan') || link === 'advance_salary' || link === 'loans')) return true;
+    if (mod === 'assets' && (cat.includes('asset') || title.includes('asset'))) return true;
+    return false;
+  };
+
   const markNotificationRead = (id: string) => {
+    savePersistedReadNotifIds([id]);
     const shared = sharedNotifications.find(n => n.id === id);
     if (shared) {
       const myKeys = getUserNotificationKeys();
       const myKey = myKeys[0];
-      if (!myKey || (shared.readBy || []).some(k => myKeys.includes(String(k).toLowerCase()))) return;
-      const updated = { ...shared, readBy: [...(shared.readBy || []), myKey] };
-      setSharedNotifications(prev => prev.map(n => n.id === id ? updated : n));
-      persistSharedNotifications([updated]);
+      if (!myKey) return;
+      const alreadyInReadBy = (shared.readBy || []).some(k => myKeys.includes(String(k).toLowerCase()));
+      const updated = alreadyInReadBy ? shared : { ...shared, readBy: [...(shared.readBy || []), myKey] };
+      setSharedNotifications(prev => prev.map(n => n.id === id ? { ...updated, read: true } : n));
+      if (!alreadyInReadBy) {
+        persistSharedNotifications([updated]);
+      }
       return;
     }
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
 
   const markAllNotificationsRead = () => {
+    const localIds = notifications.map(n => n.id);
+    const sharedForMe = sharedNotifications.filter(isSharedNotificationForMe);
+    savePersistedReadNotifIds([...localIds, ...sharedForMe.map(n => n.id)]);
+
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     const myKeys = getUserNotificationKeys();
     const myKey = myKeys[0];
     if (!myKey) return;
-    const toUpdate = sharedNotifications
-      .filter(n => isSharedNotificationForMe(n) && !(n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())))
+    const toUpdate = sharedForMe
+      .filter(n => !(n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())))
       .map(n => ({ ...n, readBy: [...(n.readBy || []), myKey] }));
-    if (!toUpdate.length) return;
+    if (!toUpdate.length) {
+      setSharedNotifications(prev => [...prev]);
+      return;
+    }
     const updatedMap = new Map(toUpdate.map(n => [n.id, n]));
     setSharedNotifications(prev => prev.map(n => updatedMap.get(n.id) || n));
     persistSharedNotifications(toUpdate);
@@ -4292,40 +4352,40 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const mod = moduleName.toLowerCase().trim();
     const myKeys = getUserNotificationKeys();
     const myKey = myKeys[0];
+    const matchedIds: string[] = [];
 
     // 1. Mark local notifications matching module
     setNotifications(prev => prev.map(n => {
-      const cat = String(n.category || '').toLowerCase();
-      const match = (n.link && n.link.toLowerCase().trim() === mod) ||
-        (mod === 'leaves' && cat.includes('leave')) ||
-        (mod === 'tasks' && cat.includes('task')) ||
-        (mod === 'finance' && (cat.includes('finance') || cat.includes('expense'))) ||
-        (mod === 'attendance' && cat.includes('attendance')) ||
-        (mod === 'shifts' && cat.includes('shift'));
-      return match ? { ...n, read: true } : n;
+      if (doesNotificationMatchModule(n, mod)) {
+        matchedIds.push(n.id);
+        return { ...n, read: true };
+      }
+      return n;
     }));
 
     // 2. Mark shared notifications matching module
-    if (!myKey) return;
+    if (!myKey) {
+      savePersistedReadNotifIds(matchedIds);
+      return;
+    }
     const toUpdate: NotificationItem[] = [];
     const updatedShared = sharedNotifications.map(n => {
       const isForMe = isSharedNotificationForMe(n);
       const isRead = (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase()));
-      const cat = String(n.category || '').toLowerCase();
-      const match = (n.link && n.link.toLowerCase().trim() === mod) ||
-        (mod === 'leaves' && cat.includes('leave')) ||
-        (mod === 'tasks' && cat.includes('task')) ||
-        (mod === 'finance' && (cat.includes('finance') || cat.includes('expense'))) ||
-        (mod === 'attendance' && cat.includes('attendance')) ||
-        (mod === 'shifts' && cat.includes('shift'));
+      const match = doesNotificationMatchModule(n, mod);
 
-      if (isForMe && !isRead && match) {
-        const updated = { ...n, readBy: [...(n.readBy || []), myKey] };
-        toUpdate.push(updated);
-        return updated;
+      if (isForMe && match) {
+        matchedIds.push(n.id);
+        if (!isRead) {
+          const updated = { ...n, readBy: [...(n.readBy || []), myKey] };
+          toUpdate.push(updated);
+          return updated;
+        }
       }
       return n;
     });
+
+    savePersistedReadNotifIds(matchedIds);
 
     if (toUpdate.length > 0) {
       setSharedNotifications(updatedShared);
@@ -4375,7 +4435,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         markModuleNotificationsRead(activeModule);
       }
     }
-  }, [activeModule]);
+  }, [activeModule, sharedNotifications.length, notifications.length]);
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>(INITIAL_DEPTS);
   const [designations, setDesignations] = useState<DesignationItem[]>([]);
@@ -9530,13 +9590,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setEnhancedTasks(prev => prev.map(task => {
       if (task.id !== taskId) return task;
 
-      const targetAssignee = task.assignees.find(a => 
-        a.id === assigneeId || 
-        a.employeeId === assigneeId || 
-        (a.employeeName && a.employeeName.toLowerCase().includes(assigneeId.toLowerCase()))
-      ) || task.assignees[0];
-      if (!targetAssignee) return task;
+      const myKeys = getUserNotificationKeys();
+      const myAssignee = task.assignees.find(a => {
+        const aId = String(a.id || '').trim().toLowerCase();
+        const empId = String(a.employeeId || '').trim().toLowerCase();
+        const empName = String(a.employeeName || '').trim().toLowerCase();
+        const empEmail = String(a.employeeEmail || '').trim().toLowerCase();
+        return (aId && myKeys.includes(aId)) ||
+               (empId && myKeys.includes(empId)) ||
+               (empName && myKeys.includes(empName)) ||
+               (empEmail && myKeys.includes(empEmail));
+      });
 
+      if (!myAssignee) {
+        console.warn('[HRMS] Task status update blocked: Only the assigned employee can change their own status.');
+        return task;
+      }
+
+      const targetAssignee = myAssignee;
       const oldStatus = targetAssignee.individualStatus;
       const oldProgress = targetAssignee.progressPercentage;
 
@@ -9545,7 +9616,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const completedDate = isNowCompleted ? (targetAssignee.completedDate || today) : undefined;
 
       const updatedAssignees: TaskAssignee[] = task.assignees.map(asn => {
-        if (asn.id === targetAssignee.id) {
+        const isSameAssignee =
+          (asn.id && targetAssignee.id && asn.id === targetAssignee.id) ||
+          (asn.employeeId && targetAssignee.employeeId && asn.employeeId.toLowerCase() === targetAssignee.employeeId.toLowerCase()) ||
+          (asn.employeeName && targetAssignee.employeeName && asn.employeeName.trim().toLowerCase() === targetAssignee.employeeName.trim().toLowerCase());
+        if (isSameAssignee) {
           return {
             ...asn,
             individualStatus,
@@ -9726,8 +9801,21 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setEnhancedTasks(prev => prev.map(t => {
       if (t.id !== taskId) return t;
 
+      const reopenedAssignees = t.assignees.map(a => {
+        if (a.individualStatus === 'Completed' || a.individualStatus === 'Under Review') {
+          return {
+            ...a,
+            individualStatus: 'In Process' as TaskAssigneeStatus,
+            progressPercentage: 50,
+            completedDate: undefined,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return a;
+      });
+
       const { overallStatus: derivedStatus, overallProgress } = 
-        computeTaskOverallStatusAndProgress(t.assignees, 'IN PROGRESS', t.dueDate);
+        computeTaskOverallStatusAndProgress(reopenedAssignees, 'REOPENED', t.dueDate);
 
       const newTimeline = {
         id: `TL-${Date.now()}`,
@@ -9754,7 +9842,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const updated: TaskItemEnhanced = {
         ...t,
-        overallStatus: derivedStatus === 'CLOSED' ? 'IN PROGRESS' : derivedStatus,
+        assignees: reopenedAssignees,
+        overallStatus: 'REOPENED',
         overallProgress,
         isReopened: true,
         reopenReason,
@@ -9820,11 +9909,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         'Blocked': 30
       };
 
-      const currentEmpId = currentUser.employeeId || currentUser.id || '';
+      const myKeys = getUserNotificationKeys();
       const updatedAssignees = t.assignees.map(a => {
-        const isTarget = a.employeeId === currentEmpId || 
-                         (currentUser.name && a.employeeName.toLowerCase().includes(currentUser.name.toLowerCase())) ||
-                         t.assignees.length === 1;
+        const empId = String(a.employeeId || '').trim().toLowerCase();
+        const empName = String(a.employeeName || '').trim().toLowerCase();
+        const empEmail = String(a.employeeEmail || '').trim().toLowerCase();
+        const isTarget = (empId && myKeys.includes(empId)) ||
+                         (empName && myKeys.includes(empName)) ||
+                         (empEmail && myKeys.includes(empEmail));
         if (isTarget) {
           return {
             ...a,
@@ -12492,11 +12584,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
             return {
               ...rec,
-              checkIn: rec.checkIn || recentRec?.checkIn || null,
-              checkOut: rec.checkOut || recentRec?.checkOut || null,
+              status: recentRec?.status || rec.status,
+              method: recentRec?.method || rec.method,
+              reason: recentRec?.reason || prevRec?.reason || rec.reason,
+              checkIn: recentRec ? recentRec.checkIn : (rec.checkIn || null),
+              checkOut: recentRec ? recentRec.checkOut : (rec.checkOut || null),
               checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
               checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
-              workingHours: rec.workingHours || recentRec?.workingHours || 0,
+              workingHours: recentRec ? recentRec.workingHours : (rec.workingHours || 0),
             };
           });
 
@@ -13305,6 +13400,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Bell feed: shared notifications addressed to this user + this session's local notifications
   const combinedNotifications = useMemo(() => {
     const myKeys = getUserNotificationKeys();
+    const persistedRead = getPersistedReadNotifIds();
     const shared = sharedNotifications
       .filter(isSharedNotificationForMe)
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
@@ -13312,13 +13408,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...n,
         title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
         message: (n.message || '').replace(/⚠️\s*/g, '').trim(),
-        read: (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())),
+        read: persistedRead.has(n.id) || (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())),
         timestamp: formatNotificationTime(n.createdAt)
       }));
     const local = notifications.map(n => ({
       ...n,
       title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
-      message: (n.message || '').replace(/⚠️\s*/g, '').trim()
+      message: (n.message || '').replace(/⚠️\s*/g, '').trim(),
+      read: Boolean(n.read || persistedRead.has(n.id))
     }));
     return [...shared, ...local];
   }, [sharedNotifications, notifications, currentUser]);

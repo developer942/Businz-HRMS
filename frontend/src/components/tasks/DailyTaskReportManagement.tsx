@@ -63,16 +63,19 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
   }, [employees, currentUser]);
 
   const isManagerOrAdmin = useMemo(() => {
+    const role = (currentUser.role || '').trim();
     if (
-      currentUser.role === 'Super Admin' ||
-      currentUser.role === 'CEO' ||
-      currentUser.role === 'HR' ||
-      currentUser.role === 'Manager'
+      role === 'Super Admin' ||
+      role === 'CEO' ||
+      role === 'HR' ||
+      role === 'HR Manager' ||
+      role === 'HR Admin'
     ) {
       return true;
     }
     const desig = (currentEmpRecord?.designation || currentUser.designation || '').toLowerCase();
-    return desig.includes('head') || desig.includes('manager') || desig.includes('lead') || desig.includes('director');
+    const dept = (currentEmpRecord?.department || currentUser.department || '').toLowerCase();
+    return desig === 'ceo' || desig.includes('managing director') || dept === 'hr' || dept.includes('human resource');
   }, [currentUser, currentEmpRecord]);
 
   const [reportScope, setReportScope] = useState<'all' | 'my_reports' | 'team_reports'>(
@@ -129,6 +132,17 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
     }
     return false;
   };
+
+  // Strictly only tasks assigned to the logged-in employee can be selected when filling a Daily Report
+  const myAssignedTasks = useMemo(() => {
+    return enhancedTasks.filter(t => {
+      if (t.overallStatus === 'CLOSED') return false;
+      if (t.assignees && t.assignees.length > 0) {
+        return t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName));
+      }
+      return matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName);
+    });
+  }, [enhancedTasks, currentUser, currentEmpRecord]);
 
   const allReportRows = useMemo<FlattenedDailyReportRow[]>(() => {
     const rows: FlattenedDailyReportRow[] = [];
@@ -750,8 +764,10 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
             <button
               type="button"
               onClick={() => {
-                if (!newReportTaskId && enhancedTasks.length > 0) {
-                  setNewReportTaskId(enhancedTasks[0].id);
+                if (myAssignedTasks.length > 0) {
+                  setNewReportTaskId(myAssignedTasks[0].id);
+                } else {
+                  setNewReportTaskId('');
                 }
                 setShowAddReportModal(true);
               }}
@@ -982,8 +998,10 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
           <button
             type="button"
             onClick={() => {
-              if (!newReportTaskId && enhancedTasks.length > 0) {
-                setNewReportTaskId(enhancedTasks[0].id);
+              if (myAssignedTasks.length > 0) {
+                setNewReportTaskId(myAssignedTasks[0].id);
+              } else {
+                setNewReportTaskId('');
               }
               setShowAddReportModal(true);
             }}
@@ -1568,9 +1586,7 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
                       : newReportStatus === 'In Process'
                       ? 50
                       : 0;
-                  const myAsg =
-                    targetTask.assignees.find(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
-                    targetTask.assignees[0];
+                  const myAsg = targetTask.assignees.find(a => matchesCurrentUser(a.employeeId, a.employeeName));
                   if (myAsg) {
                     updateAssigneeProgress(targetTask.id, myAsg.id || myAsg.employeeId, progress, newReportStatus);
                   }
@@ -1582,7 +1598,7 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
             >
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', marginBottom: '5px' }}>
-                  Select Task <span style={{ color: '#EF4444' }}>*</span>
+                  Select Your Assigned Task <span style={{ color: '#EF4444' }}>*</span>
                 </label>
                 <select
                   value={newReportTaskId}
@@ -1599,11 +1615,15 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
                     color: '#0F172A'
                   }}
                 >
-                  {enhancedTasks.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.taskNumber} — {t.title} ({t.department})
-                    </option>
-                  ))}
+                  {myAssignedTasks.length === 0 ? (
+                    <option value="">No tasks assigned to you</option>
+                  ) : (
+                    myAssignedTasks.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.taskNumber} — {t.title} ({t.department})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 

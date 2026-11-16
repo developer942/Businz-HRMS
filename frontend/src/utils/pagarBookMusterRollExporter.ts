@@ -347,15 +347,16 @@ export function downloadPagarBookMusterRollExcel(
             totalPaidLeaves++;
           }
         }
-      } else if (isSunday || isHoliday) {
-        state = isHoliday && !isSunday ? 'H' : 'WO';
-        totalPaidLeaves++;
       } else if (rec) {
         const stLower = (rec.status || '').toLowerCase();
-        if (stLower.includes('wfh') || stLower.includes('home') || stLower.includes('wfo') || stLower.includes('office')) {
+        const methodLower = (rec.method || '').toLowerCase();
+        if (stLower === 'holiday' || stLower === 'week off' || methodLower.includes('holiday')) {
+          state = isHoliday && !isSunday ? 'H' : 'WO';
+          totalPaidLeaves++;
+        } else if (stLower.includes('wfh') || stLower.includes('home') || stLower.includes('wfo') || stLower.includes('office')) {
           state = 'WFH';
           totalPresent++;
-        } else if (stLower.includes('field') || stLower.includes('visit') || stLower.includes('duty')) {
+        } else if (stLower.includes('field') || stLower.includes('visit') || stLower.includes('duty') || methodLower.includes('field')) {
           state = 'FV';
           totalPresent++;
         } else if (rec.status === 'Present' || rec.status === 'Late') {
@@ -379,24 +380,26 @@ export function downloadPagarBookMusterRollExcel(
           totalAbsent++;
         }
 
-        inTime = formatPunchTimeForSheet(rec.checkIn);
-        outTime = formatPunchTimeForSheet(rec.checkOut);
+        inTime = state === 'A' || state === 'H' || state === 'WO' ? '-' : formatPunchTimeForSheet(rec.checkIn);
+        outTime = state === 'A' || state === 'H' || state === 'WO' ? '-' : formatPunchTimeForSheet(rec.checkOut);
 
         let whMins = 0;
-        if (rec.workingHours && rec.workingHours > 0) {
-          whMins = Math.round(rec.workingHours * 60);
-        } else if (inTime !== '-' && outTime !== '-') {
-          const inM = parseTimeToMins(rec.checkIn);
-          const outM = parseTimeToMins(rec.checkOut);
-          if (inM !== null && outM !== null) {
-            let diff = outM - inM;
-            // Handle 12-hour evening punch-out without AM/PM (e.g. IN 09:30, OUT 06:30 -> 18:30)
-            if (diff <= 0 && outM < 12 * 60 && inM >= 6 * 60) {
-              diff = (outM + 12 * 60) - inM;
-            } else if (diff < 0) {
-              diff += 24 * 60;
+        if (state !== 'A' && state !== 'H' && state !== 'WO' && state !== 'PL') {
+          if (rec.workingHours && rec.workingHours > 0) {
+            whMins = Math.round(rec.workingHours * 60);
+          } else if (inTime !== '-' && outTime !== '-') {
+            const inM = parseTimeToMins(rec.checkIn);
+            const outM = parseTimeToMins(rec.checkOut);
+            if (inM !== null && outM !== null) {
+              let diff = outM - inM;
+              // Handle 12-hour evening punch-out without AM/PM (e.g. IN 09:30, OUT 06:30 -> 18:30)
+              if (diff <= 0 && outM < 12 * 60 && inM >= 6 * 60) {
+                diff = (outM + 12 * 60) - inM;
+              } else if (diff < 0) {
+                diff += 24 * 60;
+              }
+              whMins = Math.max(0, diff);
             }
-            whMins = Math.max(0, diff);
           }
         }
 
@@ -411,6 +414,9 @@ export function downloadPagarBookMusterRollExcel(
             totalOTMinutes += otMins;
           }
         }
+      } else if (isSunday || isHoliday) {
+        state = isHoliday && !isSunday ? 'H' : 'WO';
+        totalPaidLeaves++;
       } else {
         state = 'A';
         totalAbsent++;

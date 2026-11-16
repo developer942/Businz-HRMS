@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import {
   X,
@@ -59,8 +59,19 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
     closeTask,
     reopenTask,
     updateEnhancedTask,
-    addNotification
+    addNotification,
+    markTaskViewed,
+    markTaskDailyReportsSeen,
+    markModuleNotificationsRead
   } = useHRMS();
+
+  useEffect(() => {
+    if (taskId) {
+      markTaskViewed?.(taskId);
+      markTaskDailyReportsSeen?.(taskId);
+      markModuleNotificationsRead?.('tasks');
+    }
+  }, [taskId]);
 
   const updateAssigneeStatus = (tId: string, empIdOrAssigneeId: string, newStatus: IndividualTaskStatus) => {
     const targetTask = enhancedTasks.find(t => t.id === tId);
@@ -157,13 +168,27 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
 
   const isAssignedByCurrentUser = matchesCurrentUser(task.assignedById, task.assignedByName);
   const isResponsiblePerson = matchesCurrentUser(task.responsiblePersonId, task.responsiblePersonName);
-  const isAssigneeMember = task.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName));
+  const myAssigneeObj = task.assignees.find(a => matchesCurrentUser(a.employeeId, a.employeeName));
+  const isAssigneeMember = Boolean(myAssigneeObj);
   const isAdminOrHrOrCeo =
     currentUser.role === 'Super Admin' || currentUser.role === 'CEO' || currentUser.role === 'HR';
 
+  useEffect(() => {
+    if (myAssigneeObj) {
+      const st = myAssigneeObj.individualStatus;
+      if (st === 'Completed') setProcessStage('Completed');
+      else if (st === 'Under Review') setProcessStage('Under Review');
+      else if (st === 'In Process' || st === 'In Progress') setProcessStage('In Process');
+      else setProcessStage('Pending');
+    }
+  }, [myAssigneeObj?.individualStatus]);
+
+  // Strictly ONLY the assigned employee can change their own status.
+  // The person who assigned the task (or HR/CEO who is not an assignee) CANNOT change the status, only Reopen!
+  const isAssignedEmployee = task.assignees.length > 0 ? isAssigneeMember : isResponsiblePerson;
   const canEditTaskDetails = !isClosed && (isAssignedByCurrentUser || isAdminOrHrOrCeo);
-  const canEditProcess = !isClosed && (isResponsiblePerson || isAssigneeMember || isAdminOrHrOrCeo);
-  const isTaskDoer = isResponsiblePerson || isAssigneeMember;
+  const canEditProcess = !isClosed && isAssignedEmployee;
+  const isTaskDoer = isAssignedEmployee;
   const canAddLink = !isClosed && isTaskDoer;
   const canDeleteLink = !isClosed && isTaskDoer;
   const canDownloadReport = isAssignedByCurrentUser || isResponsiblePerson || isAssigneeMember || isAdminOrHrOrCeo;
@@ -211,11 +236,7 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
 
     const myAssignee = task.assignees.find(a => matchesCurrentUser(a.employeeId, a.employeeName));
     if (myAssignee) {
-      updateAssigneeStatus(task.id, myAssignee.employeeId, mappedIndividualStatus);
-    } else if (task.assignees.length > 0 && (isResponsiblePerson || isAdminOrHrOrCeo)) {
-      task.assignees.forEach(a => {
-        updateAssigneeStatus(task.id, a.employeeId, mappedIndividualStatus);
-      });
+      updateAssigneeStatus(task.id, myAssignee.id || myAssignee.employeeId, mappedIndividualStatus);
     }
   };
 
@@ -530,7 +551,7 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
               </button>
             )}
 
-            {(isAssignedByCurrentUser || isResponsiblePerson || isAdminOrHrOrCeo) && (
+            {(isAssignedByCurrentUser || isAdminOrHrOrCeo) && (
               <>
                 {!isClosed && task.overallStatus === 'COMPLETED' && (
                   <button
@@ -554,7 +575,7 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
                     <Lock size={12} /> Close
                   </button>
                 )}
-                {(task.overallStatus === 'COMPLETED' || isClosed) && (
+                {task.overallStatus !== 'OPEN' && (
                   <button
                     type="button"
                     onClick={() => setShowReopenPrompt(true)}
@@ -1134,11 +1155,9 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {task.assignees.map(a => {
+                    // Strictly ONLY the logged-in team member can change their own status!
                     const canModifyThisAssignee =
-                      !isClosed &&
-                      (matchesCurrentUser(a.employeeId, a.employeeName) ||
-                        isResponsiblePerson ||
-                        isAdminOrHrOrCeo);
+                      !isClosed && matchesCurrentUser(a.employeeId, a.employeeName);
                     const normalizedAssigneeStatus =
                       a.individualStatus === 'Completed'
                         ? 'Completed'
@@ -1149,7 +1168,7 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
                         : 'Pending';
                     return (
                       <div
-                        key={a.employeeId}
+                        key={a.id || a.employeeId}
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -1163,6 +1182,11 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A' }}>
                             {a.employeeName}
+                            {canModifyThisAssignee && (
+                              <span style={{ marginLeft: '6px', fontSize: '0.68rem', color: '#0E7490', fontWeight: 700 }}>
+                                (You)
+                              </span>
+                            )}
                           </div>
                           <div style={{ fontSize: '0.7rem', color: '#64748B' }}>
                             {a.employeeDepartment || a.department || task.department}
@@ -1172,47 +1196,75 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
                           </div>
                         </div>
 
-                        <select
-                          disabled={!canModifyThisAssignee}
-                          value={normalizedAssigneeStatus}
-                          onChange={e =>
-                            updateAssigneeStatus(
-                              task.id,
-                              a.employeeId,
-                              e.target.value as IndividualTaskStatus
-                            )
-                          }
-                          style={{
-                            height: '32px',
-                            padding: '0 10px',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            borderRadius: '8px',
-                            border: '1px solid #CBD5E1',
-                            background:
-                              normalizedAssigneeStatus === 'Completed'
-                                ? '#DCFCE7'
-                                : normalizedAssigneeStatus === 'Under Review'
-                                ? '#FEF3C7'
-                                : normalizedAssigneeStatus === 'In Process'
-                                ? '#E0F2FE'
-                                : '#FFFFFF',
-                            color:
-                              normalizedAssigneeStatus === 'Completed'
-                                ? '#15803D'
-                                : normalizedAssigneeStatus === 'Under Review'
-                                ? '#D97706'
-                                : normalizedAssigneeStatus === 'In Process'
-                                ? '#0284C7'
-                                : '#334155',
-                            cursor: canModifyThisAssignee ? 'pointer' : 'not-allowed'
-                          }}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="In Process">In Process</option>
-                          <option value="Under Review">Under Review</option>
-                          <option value="Completed">Completed</option>
-                        </select>
+                        {canModifyThisAssignee ? (
+                          <select
+                            value={normalizedAssigneeStatus}
+                            onChange={e =>
+                              updateAssigneeStatus(
+                                task.id,
+                                a.id || a.employeeId,
+                                e.target.value as IndividualTaskStatus
+                              )
+                            }
+                            style={{
+                              height: '32px',
+                              padding: '0 10px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              borderRadius: '8px',
+                              border: '1px solid #0E7490',
+                              background:
+                                normalizedAssigneeStatus === 'Completed'
+                                  ? '#DCFCE7'
+                                  : normalizedAssigneeStatus === 'Under Review'
+                                  ? '#FEF3C7'
+                                  : normalizedAssigneeStatus === 'In Process'
+                                  ? '#E0F2FE'
+                                  : '#FFFFFF',
+                              color:
+                                normalizedAssigneeStatus === 'Completed'
+                                  ? '#15803D'
+                                  : normalizedAssigneeStatus === 'Under Review'
+                                  ? '#D97706'
+                                  : normalizedAssigneeStatus === 'In Process'
+                                  ? '#0284C7'
+                                  : '#334155',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="In Process">In Process</option>
+                            <option value="Under Review">Under Review</option>
+                            <option value="Completed">Completed</option>
+                          </select>
+                        ) : (
+                          <span
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                              borderRadius: '999px',
+                              background:
+                                normalizedAssigneeStatus === 'Completed'
+                                  ? '#DCFCE7'
+                                  : normalizedAssigneeStatus === 'Under Review'
+                                  ? '#FEF3C7'
+                                  : normalizedAssigneeStatus === 'In Process'
+                                  ? '#E0F2FE'
+                                  : '#F1F5F9',
+                              color:
+                                normalizedAssigneeStatus === 'Completed'
+                                  ? '#15803D'
+                                  : normalizedAssigneeStatus === 'Under Review'
+                                  ? '#D97706'
+                                  : normalizedAssigneeStatus === 'In Process'
+                                  ? '#0284C7'
+                                  : '#475569'
+                            }}
+                          >
+                            {normalizedAssigneeStatus}
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -1914,23 +1966,48 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                width: '100%',
-                height: '42px',
-                borderRadius: '12px',
-                border: '1px solid #E2E8F0',
-                background: '#F8FAFC',
-                color: '#334155',
-                fontSize: '0.86rem',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              Close
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {(isAssignedByCurrentUser || isAdminOrHrOrCeo) && task.overallStatus !== 'OPEN' && (
+                <button
+                  type="button"
+                  onClick={() => setShowReopenPrompt(true)}
+                  style={{
+                    flex: 1,
+                    height: '42px',
+                    borderRadius: '12px',
+                    border: '1px solid #FCD34D',
+                    background: '#FFFBEB',
+                    color: '#B45309',
+                    fontSize: '0.86rem',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <RotateCcw size={15} /> Reopen Task
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  flex: 1,
+                  height: '42px',
+                  borderRadius: '12px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  color: '#334155',
+                  fontSize: '0.86rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
           )}
         </div>
 

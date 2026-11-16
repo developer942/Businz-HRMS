@@ -657,14 +657,6 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             return;
           }
 
-          if (isSunday || isHoliday) {
-            hCount++;
-            row[`day_${d}`] = 'H';
-            return;
-          }
-
-          eligibleWorkingDays++;
-
           const rec = filteredAttendance.find(r => {
             const rEmp = (r.employeeId || '').toLowerCase().trim();
             const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
@@ -683,6 +675,20 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             return s <= d && e >= d;
           });
           const approvedLeaveType = (approvedLeave?.leaveType || '').toLowerCase();
+
+          // If Sunday or Official Holiday AND not overridden by an explicit attendance record or approved leave -> Holiday (H)
+          if ((isSunday || isHoliday) && !rec && !approvedLeave) {
+            hCount++;
+            row[`day_${d}`] = 'H';
+            return;
+          }
+          if (st === 'holiday' || st === 'week off' || (rec?.method || '').toLowerCase().includes('holiday')) {
+            hCount++;
+            row[`day_${d}`] = 'H';
+            return;
+          }
+
+          eligibleWorkingDays++;
 
           if (approvedLeave && (approvedLeaveType.includes('wfh') || approvedLeaveType.includes('home') || approvedLeaveType.includes('wfo') || approvedLeaveType.includes('office'))) {
             pCount++;
@@ -705,7 +711,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               pCount++;
               row[`day_${d}`] = 'PL';
             }
-          } else if (st === 'present' || st === 'late' || hasPunch) {
+          } else if (st === 'present' || st === 'late' || (hasPunch && st !== 'absent')) {
             pCount++;
             row[`day_${d}`] = 'P';
           } else if (st === 'half day') {
@@ -740,14 +746,17 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         dateRangeList.forEach(d => {
           if (d > currentMonthInfo.today) return;
           const dateObj = new Date(d + 'T12:00:00');
-          if (dateObj.getDay() === 0) return; // Sunday Weekly Off
-          if ((holidayPolicies || []).some(h => normalizeToYYYYMMDD(h.date) === d)) return; // Official Holiday
+          const isSunday = dateObj.getDay() === 0;
+          const isHoliday = (holidayPolicies || []).some(h => normalizeToYYYYMMDD(h.date) === d);
 
           const rec = filteredAttendance.find(r => {
             const rEmp = (r.employeeId || '').toLowerCase().trim();
             const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
             return (rEmp === empCode || rEmp === empUid) && rDate === d;
           });
+
+          // Skip Sundays/Holidays unless HR/CEO explicitly marked the employee Absent on that date
+          if ((isSunday || isHoliday) && rec?.status !== 'Absent') return;
 
           const recStatus = (rec?.status as string || '').toLowerCase();
           const isPresentOrDuty = Boolean(rec && (
@@ -1489,18 +1498,18 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                       // 1. Exclude future dates
                       if (d > currentMonthInfo.today) return;
 
-                      // 2. Exclude Sundays (Weekly Off) and Official Company Holidays
-                      const dateObj = new Date(d + 'T12:00:00');
-                      const isSunday = dateObj.getDay() === 0;
-                      const isHoliday = (holidayPolicies || []).some(h => normalizeToYYYYMMDD(h.date) === d);
-                      if (isSunday || isHoliday) return;
-
-                      // 3. Find any attendance record for this employee and date
+                      // 2. Find any attendance record for this employee and date
                       const rec = filteredAttendance.find(r => {
                         const rEmp = (r.employeeId || '').toLowerCase().trim();
                         const rDate = normalizeToYYYYMMDD(r.date || r.shiftDate);
                         return (rEmp === empCode || rEmp === empUid) && rDate === d;
                       });
+
+                      // 3. Exclude Sundays (Weekly Off) and Official Company Holidays unless HR/CEO explicitly marked Absent
+                      const dateObj = new Date(d + 'T12:00:00');
+                      const isSunday = dateObj.getDay() === 0;
+                      const isHoliday = (holidayPolicies || []).some(h => normalizeToYYYYMMDD(h.date) === d);
+                      if ((isSunday || isHoliday) && rec?.status !== 'Absent') return;
 
                       // 4. Check if employee is present, late, WFO, Field Visit, or has a valid punch
                       const recStatus = (rec?.status as string || '').toLowerCase();

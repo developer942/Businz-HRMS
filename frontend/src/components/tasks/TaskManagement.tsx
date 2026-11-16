@@ -34,7 +34,10 @@ export const TaskManagement: React.FC = () => {
   const {
     enhancedTasks,
     currentUser,
-    employees
+    employees,
+    markTaskViewed,
+    markTaskDailyReportsSeen,
+    markModuleNotificationsRead
   } = useHRMS();
   const {
     selectedGlobalTaskId,
@@ -53,18 +56,33 @@ export const TaskManagement: React.FC = () => {
     );
   }, [employees, currentUser]);
 
+  // Strictly HR / CEO / Super Admin can view company-wide Register, Reports, and Total Tasks KPI row.
+  // Regular Employees (including Developers, BDEs, Team Leads, Department Managers) see ONLY:
+  // My Tasks, Assigned, Team, and Daily.
   const isManagerOrAdmin = useMemo(() => {
+    const role = (currentUser.role || '').trim();
     if (
-      currentUser.role === 'Super Admin' ||
-      currentUser.role === 'CEO' ||
-      currentUser.role === 'HR' ||
-      currentUser.role === 'Manager'
+      role === 'Super Admin' ||
+      role === 'CEO' ||
+      role === 'HR' ||
+      role === 'HR Manager' ||
+      role === 'HR Admin'
     ) {
       return true;
     }
     const desig = (currentEmpRecord?.designation || currentUser.designation || '').toLowerCase();
-    return desig.includes('head') || desig.includes('manager') || desig.includes('lead') || desig.includes('director');
+    const dept = (currentEmpRecord?.department || currentUser.department || '').toLowerCase();
+    if (desig === 'ceo' || desig.includes('managing director') || dept === 'hr' || dept.includes('human resource')) {
+      return true;
+    }
+    return false;
   }, [currentUser, currentEmpRecord]);
+
+  const myReadKey = useMemo(() => {
+    return String(currentUser.employeeId || currentUser.id || currentUser.email || currentUser.name || '')
+      .trim()
+      .toLowerCase();
+  }, [currentUser]);
 
   const [activeTab, setActiveTab] = useState<
     'register' | 'my_tasks' | 'assigned_tasks' | 'team_tasks' | 'daily_reports' | 'reports'
@@ -154,25 +172,44 @@ export const TaskManagement: React.FC = () => {
       if (dStatus === 'Due Today') dueToday++;
     });
 
+    const isTaskUnseen = (t: (typeof enhancedTasks)[0]) => {
+      if (!myReadKey) return false;
+      if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED') return false;
+      return !(t.viewedBy || []).some(k => String(k).trim().toLowerCase() === myReadKey);
+    };
+
+    const unseenRegisterCount = relevantTasks.filter(isTaskUnseen).length;
+
     const myTasksCount = enhancedTasks.filter(
       t =>
-        t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
-        matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName)
+        (t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
+          matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName)) &&
+        isTaskUnseen(t)
     ).length;
 
-    const assignedByMeCount = enhancedTasks.filter(t => matchesCurrentUser(t.assignedById, t.assignedByName)).length;
+    const assignedByMeCount = enhancedTasks.filter(
+      t => matchesCurrentUser(t.assignedById, t.assignedByName) && isTaskUnseen(t)
+    ).length;
 
     const teamTasksCount = enhancedTasks.filter(t => {
       const isTeamTask = t.assignmentType === 'Team' || t.assignees.length > 1;
       if (!isTeamTask) return false;
-      if (isManagerOrAdmin) return true;
-      return isInvolvedInTask(t);
+      if (!(isManagerOrAdmin || isInvolvedInTask(t))) return false;
+      return isTaskUnseen(t);
     }).length;
 
     let dailyReportsCount = 0;
     enhancedTasks.forEach(t => {
       if (isManagerOrAdmin || isInvolvedInTask(t)) {
-        dailyReportsCount += (t.dailyReports || []).length;
+        (t.dailyReports || []).forEach(r => {
+          const isSeen = myReadKey
+            ? (r.seenBy || []).some(k => String(k).trim().toLowerCase() === myReadKey)
+            : true;
+          const isMine = matchesCurrentUser(r.employeeId, r.employeeName);
+          if (!isSeen && !isMine) {
+            dailyReportsCount++;
+          }
+        });
       }
     });
 
@@ -183,12 +220,61 @@ export const TaskManagement: React.FC = () => {
       completed,
       overdue,
       dueToday,
+      unseenRegisterCount,
       myTasksCount,
       assignedByMeCount,
       teamTasksCount,
       dailyReportsCount
     };
-  }, [enhancedTasks, currentUser, currentEmpRecord, isManagerOrAdmin]);
+  }, [enhancedTasks, currentUser, currentEmpRecord, isManagerOrAdmin, myReadKey]);
+
+  // Clear unseen badges for the active tab whenever the user opens/views that tab
+  useEffect(() => {
+    markModuleNotificationsRead?.('tasks');
+    if (!myReadKey || !enhancedTasks.length) return;
+
+    const isTaskUnseen = (t: (typeof enhancedTasks)[0]) => {
+      if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED') return false;
+      return !(t.viewedBy || []).some(k => String(k).trim().toLowerCase() === myReadKey);
+    };
+
+    if (activeTab === 'register') {
+      enhancedTasks.filter(isTaskUnseen).forEach(t => markTaskViewed?.(t.id));
+    } else if (activeTab === 'my_tasks') {
+      enhancedTasks
+        .filter(
+          t =>
+            (t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
+              matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName)) &&
+            isTaskUnseen(t)
+        )
+        .forEach(t => markTaskViewed?.(t.id));
+    } else if (activeTab === 'assigned_tasks') {
+      enhancedTasks
+        .filter(t => matchesCurrentUser(t.assignedById, t.assignedByName) && isTaskUnseen(t))
+        .forEach(t => markTaskViewed?.(t.id));
+    } else if (activeTab === 'team_tasks') {
+      enhancedTasks
+        .filter(
+          t =>
+            (t.assignmentType === 'Team' || t.assignees.length > 1) &&
+            (isManagerOrAdmin || isInvolvedInTask(t)) &&
+            isTaskUnseen(t)
+        )
+        .forEach(t => markTaskViewed?.(t.id));
+    } else if (activeTab === 'daily_reports') {
+      enhancedTasks.forEach(t => {
+        if ((isManagerOrAdmin || isInvolvedInTask(t)) && t.dailyReports?.length) {
+          const hasUnseen = t.dailyReports.some(
+            r => !(r.seenBy || []).some(k => String(k).trim().toLowerCase() === myReadKey)
+          );
+          if (hasUnseen) {
+            markTaskDailyReportsSeen?.(t.id);
+          }
+        }
+      });
+    }
+  }, [activeTab, enhancedTasks.length, myReadKey, isManagerOrAdmin]);
 
   const handleKpiClick = (status: string, due: string = 'All') => {
     setStatusFilter(status);
@@ -255,50 +341,59 @@ export const TaskManagement: React.FC = () => {
     }
   };
 
-  const tabsConfig = [
-    {
-      id: 'register' as const,
-      shortLabel: 'Register',
-      desktopLabel: 'Register',
-      icon: Calendar,
-      count: kpis.total
-    },
-    {
-      id: 'my_tasks' as const,
-      shortLabel: 'My Tasks',
-      desktopLabel: 'My Tasks',
-      icon: CheckSquare,
-      count: kpis.myTasksCount
-    },
-    {
-      id: 'assigned_tasks' as const,
-      shortLabel: 'Assigned',
-      desktopLabel: 'Assigned',
-      icon: UserCheck,
-      count: kpis.assignedByMeCount
-    },
-    {
-      id: 'team_tasks' as const,
-      shortLabel: 'Team',
-      desktopLabel: 'Team',
-      icon: Users,
-      count: kpis.teamTasksCount
-    },
-    {
-      id: 'daily_reports' as const,
-      shortLabel: 'Daily',
-      desktopLabel: 'Daily',
-      icon: BookOpen,
-      count: kpis.dailyReportsCount
-    },
-    {
-      id: 'reports' as const,
-      shortLabel: 'Reports',
-      desktopLabel: 'Reports',
-      icon: BarChart2,
-      count: null
-    }
-  ];
+  const tabsConfig = useMemo(() => {
+    const allTabs = [
+      {
+        id: 'register' as const,
+        shortLabel: 'Register',
+        desktopLabel: 'Register',
+        icon: Calendar,
+        count: kpis.unseenRegisterCount,
+        adminOnly: true
+      },
+      {
+        id: 'my_tasks' as const,
+        shortLabel: 'My Tasks',
+        desktopLabel: 'My Tasks',
+        icon: CheckSquare,
+        count: kpis.myTasksCount,
+        adminOnly: false
+      },
+      {
+        id: 'assigned_tasks' as const,
+        shortLabel: 'Assigned',
+        desktopLabel: 'Assigned',
+        icon: UserCheck,
+        count: kpis.assignedByMeCount,
+        adminOnly: false
+      },
+      {
+        id: 'team_tasks' as const,
+        shortLabel: 'Team',
+        desktopLabel: 'Team',
+        icon: Users,
+        count: kpis.teamTasksCount,
+        adminOnly: false
+      },
+      {
+        id: 'daily_reports' as const,
+        shortLabel: 'Daily',
+        desktopLabel: 'Daily',
+        icon: BookOpen,
+        count: kpis.dailyReportsCount,
+        adminOnly: false
+      },
+      {
+        id: 'reports' as const,
+        shortLabel: 'Reports',
+        desktopLabel: 'Reports',
+        icon: BarChart2,
+        count: null,
+        adminOnly: true
+      }
+    ];
+    return isManagerOrAdmin ? allTabs : allTabs.filter(t => !t.adminOnly);
+  }, [isManagerOrAdmin, kpis]);
 
   return (
     <div
@@ -499,8 +594,9 @@ export const TaskManagement: React.FC = () => {
       </div>
 
       {/* ============================================================ */}
-      {/* DESKTOP COMPACT KPI ROW (Hidden on Mobile for Clean Look)    */}
+      {/* DESKTOP COMPACT KPI ROW (Only for Admin / HR / CEO)          */}
       {/* ============================================================ */}
+      {isManagerOrAdmin && (
       <div
         className="desktop-only-block"
         style={{
@@ -632,11 +728,10 @@ export const TaskManagement: React.FC = () => {
           })}
         </div>
       </div>
+      )}
 
       {/* ============================================================ */}
-      {/* ALL 6 TABS BAR (Unified Apple-Like Navigation Web & Mobile)  */}
-      {/* Matches Reference Image: Register | My Tasks | Assigned |    */}
-      {/* Team | Daily | Reports                                       */}
+      {/* TABS BAR (Unified Apple-Like Navigation Web & Mobile)        */}
       {/* ============================================================ */}
       <div
         className="task-unified-six-tabs"
@@ -654,7 +749,7 @@ export const TaskManagement: React.FC = () => {
           className="task-six-tabs-grid"
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+            gridTemplateColumns: `repeat(${tabsConfig.length}, minmax(0, 1fr))`,
             gap: '2px',
             width: '100%'
           }}
