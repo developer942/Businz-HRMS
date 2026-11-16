@@ -11112,7 +11112,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             String(p.month || '').toLowerCase() === batchMonthName.toLowerCase() &&
             Number(p.year) === batchYear
         );
-        // Never overwrite Paid records; preserve locked/approved records unless forceApproved is true
         if (existingPayrollRec && (existingPayrollRec.status === 'Paid' || (existingPayrollRec.isLocked && !forceApproved))) {
           return existingPayrollRec;
         }
@@ -12048,6 +12047,244 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         dbPayload.assigned_employee_id = null;
         dbPayload.assigned_date = null;
       }
+
+      persistAssetPatch(assetId, dbPayload, editSnapshot, 'Asset update');
+    }
+  };
+
+  const deleteAsset = (assetId: string) => {
+    setAssets(prev => prev.filter(a => a.id !== assetId));
+    if (assetId.length === 36) {
+      supabaseDirect.deleteAsset(assetId);
+    }
+  };
+
+  // ============================================================================
+  // Field Duty & GPS Live Tracking
+  // ============================================================================
+  const [fieldAssignments, setFieldAssignments] = useState<FieldAssignment[]>(INITIAL_FIELD_ASSIGNMENTS);
+  const [tripSessions, setTripSessions] = useState<FieldTripSession[]>(INITIAL_TRIP_SESSIONS);
+  const [trackingAlerts, setTrackingAlerts] = useState<TrackingAlert[]>(INITIAL_TRACKING_ALERTS);
+
+  useEffect(() => {
+    try {
+      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
+        supabaseDirect.saveCompanySetting('field_assignments_data', fieldAssignments);
+      }
+    } catch (e) {
+      console.warn('Failed to save field assignments', e);
+    }
+  }, [fieldAssignments]);
+
+  useEffect(() => {
+    try {
+      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
+        supabaseDirect.saveCompanySetting('trip_sessions_data', tripSessions);
+      }
+    } catch (e) {
+      console.warn('Failed to save trip sessions', e);
+    }
+  }, [tripSessions]);
+
+  useEffect(() => {
+    try {
+      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
+        supabaseDirect.saveCompanySetting('tracking_alerts_data', trackingAlerts);
+      }
+    } catch (e) {
+      console.warn('Failed to save tracking alerts', e);
+    }
+  }, [trackingAlerts]);
+
+  const createFieldAssignment = (data: Omit<FieldAssignment, 'id' | 'createdAt' | 'updatedAt'>): FieldAssignment => {
+    const effectiveEndDate = data.scheduleType === 'One Day' ? data.startDate : (data.endDate || data.startDate);
+    const rangeVal = validateDateRange(data.startDate, effectiveEndDate);
+    if (!rangeVal.valid) {
+      alert(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
+      throw new Error(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
+    }
+    const dupCheck = checkDuplicateFieldAssignment(
+      fieldAssignments,
+      data.employeeId,
+      data.startDate,
+      effectiveEndDate
+    );
+    if (dupCheck.hasDuplicate) {
+      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+      throw new Error(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
+    }
+
+    const now = new Date().toISOString();
+    const newAssignment: FieldAssignment = {
+      ...data,
+      id: `FA-${new Date().getFullYear()}-${String(fieldAssignments.length + 1).padStart(3, '0')}`,
+      createdAt: now,
+      updatedAt: now
+    };
+    setFieldAssignments(prev => [newAssignment, ...prev]);
+    // Persist assignment to PostgreSQL
+    trackingApiService.createAssignment(newAssignment).then(serverAssignment => {
+      if (serverAssignment?.id) {
+        setFieldAssignments(prev => prev.map(a => a.id === newAssignment.id ? serverAssignment : a));
+      }
+    }).catch(() => {});
+
+    addNotification({
+      title: 'New Field Duty Assigned',
+      message: `Field duty assigned to ${data.employeeName}: ${data.dutyType} at ${data.customerSiteName}`,
+      priority: 'Normal',
+      category: 'Task'
+    });
+    return newAssignment;
+  };
+
+  const updateFieldAssignment = (id: string, updates: Partial<FieldAssignment>) => {
+    setFieldAssignments(prev => prev.map(a => a.id === id ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a));
+    trackingApiService.updateAssignment(id, updates).catch(() => {});
+  };
+
+  const doesAssignmentBelongToEmployee = (assignment: FieldAssignment, employeeIdOrName: string): boolean => {
+    const key = (employeeIdOrName || '').trim().toLowerCase();
+    if (!key) return false;
+    return (
+      assignment.employeeId.trim().toLowerCase() === key ||
+      assignment.employeeName.trim().toLowerCase() === key
+    );
+  };
+
+  const cancelFieldAssignment = (id: string) => {
+    const now = new Date().toISOString();
+    setFieldAssignments(prev => prev.map(a => a.id === id ? { ...a, status: 'Cancelled', updatedAt: now } : a));
+    setTripSessions(prev => prev.map(t => t.assignmentId === id && t.status === 'Active' ? {
+      ...t,
+      status: 'Cancelled',
+      trackingStatus: 'Completed',
+      tripEndTime: now,
+      updatedAt: now
+    } : t));
+    trackingApiService.updateAssignment(id, { status: 'Cancelled' }).catch(() => {});
+  };
+
+  const startTrip = (assignmentId: string, startLat: number, startLng: number, startAddress: string = 'Starting Point'): FieldTripSession => {
+    const now = new Date().toISOString();
+    const assignment = fieldAssignments.find(a => a.id === assignmentId);
+    if (assignment && (assignment.status === 'Cancelled' || assignment.status === 'Completed')) {
+      throw new Error('Cannot start trip for cancelled or completed field assignment.');
+    }
+
+    const existingActiveTrip = tripSessions.find(t => t.assignmentId === assignmentId && t.status === 'Active');
+    if (existingActiveTrip) {
+      return existingActiveTrip;
+    }
+
+    const initialPoint: LocationPoint = {
+      id: `pt-${Date.now()}-1`,
+      tripId: `TRIP-${Date.now()}`,
+      assignmentId,
+      employeeId: assignment?.employeeId || currentUser.employeeId || currentUser.id,
+      recordedAt: now,
+      latitude: startLat,
+      longitude: startLng,
+      accuracy: 15,
+      speed: 0
+    };
+    const newTrip: FieldTripSession = {
+      id: initialPoint.tripId,
+      assignmentId,
+      employeeId: assignment?.employeeId || currentUser.employeeId || currentUser.id,
+      employeeName: assignment?.employeeName || currentUser.name,
+      department: assignment?.department || currentUser.department || 'Operations',
+      dutyType: assignment?.dutyType || 'Travel',
+      customerSiteName: assignment?.customerSiteName || 'Assigned Site',
+      tripStartTime: now,
+      startLat,
+      startLng,
+      startAddress,
+      totalKm: 0,
+      recordedDistanceMeters: 0,
+      roadMatchedDistanceMeters: 0,
+      unverifiedDistanceMeters: 0,
+      status: 'Active',
+      locationPoints: [initialPoint],
+      gpsStatus: 'GPS Active',
+      trackingStatus: 'Travelling',
+      lastGpsUpdate: now,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    setTripSessions(prev => [newTrip, ...prev.filter(t => !(t.assignmentId === assignmentId && t.status === 'Active'))]);
+    setFieldAssignments(prev => prev.map(a => a.id === assignmentId && a.status === 'Scheduled' ? { ...a, status: 'Active', updatedAt: now } : a));
+
+    // Persist trip to PostgreSQL backend
+    trackingApiService.startTrip({
+      assignmentId,
+      employeeId: newTrip.employeeId,
+      startLat,
+      startLng,
+      startAddress
+    }).then(serverTrip => {
+      if (serverTrip?.id) {
+        setTripSessions(prev => prev.map(t => t.id === newTrip.id ? { ...t, id: serverTrip.id } : t));
+      }
+    }).catch(err => {
+      console.warn('[HRMSContext] trackingApiService.startTrip async error:', err);
+    });
+
+    return newTrip;
+  };
+
+  const recordLocationPoint = (tripId: string, point: Omit<LocationPoint, 'id' | 'tripId'>) => {
+    // Send point to PostgreSQL backend for persistence & validation
+    trackingApiService.recordLocationPoints({
+      ...point,
+      tripId,
+    } as LocationPoint).then(res => {
+      if (res?.totalKm !== undefined) {
+        setTripSessions(prev => prev.map(t => t.id === tripId ? {
+          ...t,
+          totalKm: res.totalKm,
+          recordedDistanceMeters: res.recordedKm * 1000,
+          roadMatchedDistanceMeters: res.roadMatchedKm * 1000
+        } : t));
+      }
+    }).catch(() => {});
+
+    setTripSessions(prev => prev.map(trip => {
+      if (trip.id !== tripId || trip.status !== 'Active') return trip;
+
+      const prevPoint = trip.locationPoints[trip.locationPoints.length - 1] || null;
+      const recordedAtMs = point.recordedAt ? new Date(point.recordedAt).getTime() : Date.now();
+      const validation = isValidMovementPoint(
+        prevPoint,
+        point.latitude,
+        point.longitude,
+        point.accuracy,
+        Number.isFinite(recordedAtMs) ? recordedAtMs : Date.now()
+      );
+
+      if (!validation.valid && prevPoint) {
+        return {
+          ...trip,
+          lastGpsUpdate: point.recordedAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      const newPt: LocationPoint = {
+        ...point,
+        id: `pt-${Date.now()}-${trip.locationPoints.length + 1}`,
+        tripId,
+        distanceFromPrevMeters: validation.distanceMeters,
+        isRejected: false
+      };
+      const updatedPoints = [...trip.locationPoints, newPt];
+      const metrics = calculateSequentialRouteMetrics(updatedPoints);
+
+      return {
+        ...trip,
+        locationPoints: updatedPoints,
+        totalKm: metrics.totalKm,
         recordedDistanceMeters: metrics.recordedDistanceMeters,
         roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
         unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
