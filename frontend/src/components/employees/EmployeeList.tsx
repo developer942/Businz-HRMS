@@ -143,6 +143,68 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
     return owner ? `${owner.firstName} ${owner.lastName}`.trim() : currentUser.name || '-';
   };
 
+  const getEmployeeProfileCompletion = (emp: Employee): { pct: number; filled: number; total: number } => {
+    const raw: any = emp || {};
+    const phoneDigits = String(emp.phone || '').replace(/\D/g, '');
+    const hasPhone = phoneDigits.length >= 10 && !/^0+$/.test(phoneDigits);
+    const hasAddress = Boolean(
+      emp.currentAddress?.line1?.trim() ||
+      emp.currentAddress?.city?.trim() ||
+      emp.address?.trim() ||
+      raw.address_line1?.trim() ||
+      raw.city?.trim()
+    );
+    const hasEmergency = Boolean(
+      emp.emergencyContact?.name?.trim() ||
+      emp.emergencyContact?.mobile?.trim() ||
+      raw.emergency_contact_name?.trim() ||
+      raw.emergency_contact_phone?.trim()
+    );
+    const hasEducation = Boolean(
+      emp.educationalDetails?.highestQualification?.trim() ||
+      emp.educationalDetails?.degreeName?.trim() ||
+      emp.educationalDetails?.university?.trim() ||
+      emp.professionalDetails?.qualification?.trim() ||
+      raw.highest_qualification?.trim() ||
+      raw.degree_name?.trim()
+    );
+    const hasSalary =
+      Number(emp.salaryDetails?.monthlyCtc || emp.salaryDetails?.basicSalary || emp.basicSalary || raw.basic_salary || 0) > 0;
+    const hasBankAccount = Boolean(emp.bankDetails?.accountNumber?.trim() || raw.account_number?.trim());
+    const hasBankIfsc = Boolean(
+      emp.bankDetails?.ifscCode?.trim() ||
+      emp.bankDetails?.bankName?.trim() ||
+      raw.ifsc_code?.trim() ||
+      raw.bank_name?.trim()
+    );
+    const hasPan = Boolean(emp.salaryDetails?.panNumber?.trim() || raw.pan_number?.trim());
+
+    const checks = [
+      Boolean(emp.firstName?.trim()),
+      Boolean(emp.email?.trim()),
+      hasPhone,
+      Boolean(emp.dob?.trim()),
+      Boolean(emp.gender?.trim()),
+      Boolean(emp.employeeId?.trim()),
+      Boolean(emp.department?.trim()),
+      Boolean(emp.designation?.trim()),
+      Boolean(emp.joiningDate?.trim()),
+      Boolean(emp.workLocation?.trim()),
+      hasAddress,
+      hasEmergency,
+      hasEducation,
+      hasSalary,
+      hasBankAccount,
+      hasBankIfsc,
+      hasPan
+    ];
+
+    const filled = checks.filter(Boolean).length;
+    const total = checks.length;
+    const pct = Math.round((filled / total) * 100);
+    return { pct, filled, total };
+  };
+
   // Sync quick add trigger from layout header
   React.useEffect(() => {
     if (openAddModal) {
@@ -194,7 +256,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
     { key: 'designation', label: 'Designation' },
     { key: 'joiningDate', label: 'Date of Joining' },
     { key: 'workLocation', label: 'Location' },
-    { key: 'status', label: 'Status' }
+    { key: 'detailsRate', label: 'Details % Rate' }
   ];
 
   const getExportData = () => filteredEmployees.map(e => ({
@@ -206,7 +268,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
     designation: e.designation,
     joiningDate: formatDateDDMMYYYY(e.joiningDate),
     workLocation: e.workLocation || 'Chennai HQ',
-    status: e.status
+    detailsRate: `${getEmployeeProfileCompletion(e).pct}%`
   }));
 
   const handleExportCSV = () => {
@@ -777,7 +839,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
               <th>Reporting Manager</th>
               <th>Type</th>
               <th>Join Date</th>
-              <th>Status</th>
+              <th>Details % Rate</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -847,9 +909,64 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                     <td>{emp.employmentType}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{formatDateDDMMYYYY(emp.joiningDate)}</td>
                     <td>
-                      <span className={`status-pill ${emp.status.toLowerCase().replace(' ', '-')}`}>
-                        {emp.status}
-                      </span>
+                      {(() => {
+                        const { pct, filled, total } = getEmployeeProfileCompletion(emp);
+                        const isHigh = pct >= 80;
+                        const isMid = pct >= 55 && pct < 80;
+                        const badgeBg = isHigh ? '#DCFCE7' : isMid ? '#ECFEFF' : '#FEF3C7';
+                        const badgeColor = isHigh ? '#15803D' : isMid ? '#0E7490' : '#D97706';
+                        const barColor = isHigh ? '#22C55E' : isMid ? '#0E7490' : '#F59E0B';
+                        return (
+                          <div
+                            onClick={() => setActiveProfileEmp(emp)}
+                            title={`Employee Details Completion: ${pct}% (${filled}/${total} fields filled)`}
+                            style={{
+                              display: 'inline-flex',
+                              flexDirection: 'column',
+                              gap: '4px',
+                              minWidth: '84px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.74rem',
+                                  fontWeight: 800,
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  backgroundColor: badgeBg,
+                                  color: badgeColor
+                                }}
+                              >
+                                {pct}%
+                              </span>
+                              <span style={{ fontSize: '0.66rem', color: '#64748B', fontWeight: 600 }}>
+                                {filled}/{total}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                width: '100%',
+                                height: '5px',
+                                backgroundColor: '#E2E8F0',
+                                borderRadius: '999px',
+                                overflow: 'hidden'
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${pct}%`,
+                                  height: '100%',
+                                  backgroundColor: barColor,
+                                  borderRadius: '999px',
+                                  transition: 'width 0.25s ease'
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle', width: '80px' }}>
                       <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
@@ -1040,9 +1157,25 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                 </div>
 
                 <div className="employee-mobile-meta">
-                  <span className={`status-pill ${emp.status.toLowerCase().replace(' ', '-')}`}>
-                    {emp.status}
-                  </span>
+                  {(() => {
+                    const { pct } = getEmployeeProfileCompletion(emp);
+                    const isHigh = pct >= 80;
+                    const isMid = pct >= 55 && pct < 80;
+                    return (
+                      <span
+                        style={{
+                          fontSize: '0.73rem',
+                          fontWeight: 800,
+                          padding: '3px 9px',
+                          borderRadius: '999px',
+                          backgroundColor: isHigh ? '#DCFCE7' : isMid ? '#ECFEFF' : '#FEF3C7',
+                          color: isHigh ? '#15803D' : isMid ? '#0E7490' : '#D97706'
+                        }}
+                      >
+                        {pct}%
+                      </span>
+                    );
+                  })()}
                   <ChevronRight size={18} color="#94A3B8" />
                 </div>
               </div>
