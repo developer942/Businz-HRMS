@@ -104,6 +104,19 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
     return enhancedTasks.filter(t => matchesMeAsAssigner(t));
   }, [enhancedTasks, currentUser, employees]);
 
+  const departmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    departments.forEach(d => {
+      const name = (d.name || '').trim();
+      if (name) map.set(name.toLowerCase(), name);
+    });
+    assignedTasks.forEach(t => {
+      const name = (t.department || '').trim();
+      if (name && !map.has(name.toLowerCase())) map.set(name.toLowerCase(), name);
+    });
+    return Array.from(map.values());
+  }, [departments, assignedTasks]);
+
   const filteredTasks = useMemo(() => {
     return assignedTasks.filter(t => {
       if (searchQuery.trim() !== '') {
@@ -115,7 +128,11 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
         if (!matchesTitle && !matchesNumber && !matchesDept && !matchesAssignee) return false;
       }
 
-      if (filterDepartment !== 'ALL' && t.department !== filterDepartment) return false;
+      if (
+        filterDepartment !== 'ALL' &&
+        (t.department || '').trim().toLowerCase() !== filterDepartment.trim().toLowerCase()
+      )
+        return false;
       if (filterPriority !== 'ALL' && t.priority !== filterPriority) return false;
 
       if (filterStatus === 'ALL') return true;
@@ -284,6 +301,30 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <select
+              value={filterDepartment}
+              onChange={e => setFilterDepartment(e.target.value)}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                color: '#0F172A',
+                cursor: 'pointer'
+              }}
+              aria-label="Filter by Department"
+            >
+              <option value="ALL">All Departments</option>
+              {departmentOptions.map(deptName => (
+                <option key={deptName} value={deptName}>
+                  {deptName}
+                </option>
+              ))}
+            </select>
+
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {[
                 { key: 'ALL', label: 'All', count: assignedTasks.length },
