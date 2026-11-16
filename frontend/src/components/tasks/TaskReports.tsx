@@ -218,44 +218,6 @@ export const TaskReports: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
       {/* ============================================================ */}
-      {/* STATUS BREAKDOWN KPI STRIP                                   */}
-      {/* ============================================================ */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
-          gap: '10px'
-        }}
-      >
-        {[
-          { label: 'Total Tasks', value: kpiOverview.total, color: '#0F172A', bg: '#FFFFFF' },
-          { label: 'Pending', value: kpiOverview.pending, color: '#475569', bg: '#FFFFFF' },
-          { label: 'In Process', value: kpiOverview.inProcess, color: '#0284C7', bg: '#FFFFFF' },
-          { label: 'Under Review', value: kpiOverview.underReview, color: '#D97706', bg: '#FFFFFF' },
-          { label: 'Completed', value: kpiOverview.completed, color: '#16A34A', bg: '#FFFFFF' },
-          { label: 'Completion Rate', value: `${kpiOverview.completionRate}%`, color: '#0E7490', bg: '#ECFEFF' }
-        ].map((card, idx) => (
-          <div
-            key={idx}
-            style={{
-              background: card.bg,
-              border: '1px solid #E2E8F0',
-              borderRadius: '14px',
-              padding: '12px 14px',
-              boxShadow: '0 1px 2px rgba(15, 23, 42, 0.02)'
-            }}
-          >
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>
-              {card.label}
-            </div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: card.color, lineHeight: 1.1 }}>
-              {card.value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* ============================================================ */}
       {/* REPORT SUB-TABS & FILTER BAR                                 */}
       {/* ============================================================ */}
       <div
@@ -393,13 +355,12 @@ export const TaskReports: React.FC = () => {
             <table className="hrms-table" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
-                  <th style={{ width: '22%', padding: '12px 14px' }}>Department</th>
-                  <th style={{ width: '10%', padding: '12px 10px' }}>Total</th>
-                  <th style={{ width: '10%', padding: '12px 10px' }}>Pending</th>
-                  <th style={{ width: '11%', padding: '12px 10px' }}>In Process</th>
-                  <th style={{ width: '12%', padding: '12px 10px' }}>Under Review</th>
-                  <th style={{ width: '11%', padding: '12px 10px' }}>Completed</th>
-                  <th style={{ width: '14%', padding: '12px 10px' }}>Avg Progress</th>
+                  <th style={{ width: '26%', padding: '12px 14px' }}>Department</th>
+                  <th style={{ width: '12%', padding: '12px 10px' }}>Total</th>
+                  <th style={{ width: '12%', padding: '12px 10px' }}>Pending</th>
+                  <th style={{ width: '13%', padding: '12px 10px' }}>In Process</th>
+                  <th style={{ width: '14%', padding: '12px 10px' }}>Under Review</th>
+                  <th style={{ width: '13%', padding: '12px 10px' }}>Completed</th>
                   <th style={{ width: '10%', padding: '12px 14px', textAlign: 'right' }}>Rate</th>
                 </tr>
               </thead>
@@ -412,31 +373,6 @@ export const TaskReports: React.FC = () => {
                     <td style={{ padding: '12px 10px', fontWeight: 700, color: '#0284C7' }}>{d.inProcess}</td>
                     <td style={{ padding: '12px 10px', fontWeight: 700, color: '#D97706' }}>{d.underReview}</td>
                     <td style={{ padding: '12px 10px', fontWeight: 700, color: '#16A34A' }}>{d.completed}</td>
-                    <td style={{ padding: '12px 10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div
-                          style={{
-                            flex: 1,
-                            height: '7px',
-                            background: '#E2E8F0',
-                            borderRadius: '999px',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${d.avgProgress}%`,
-                              height: '100%',
-                              background: '#0E7490',
-                              borderRadius: '999px'
-                            }}
-                          />
-                        </div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A' }}>
-                          {d.avgProgress}%
-                        </span>
-                      </div>
-                    </td>
                     <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                       <span
                         style={{
@@ -485,9 +421,6 @@ export const TaskReports: React.FC = () => {
                   >
                     {d.compRate}% Done
                   </span>
-                </div>
-                <div style={{ width: '100%', height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
-                  <div style={{ width: `${d.avgProgress}%`, height: '100%', background: '#0E7490', borderRadius: '999px' }} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', fontSize: '0.73rem', color: '#64748B', paddingTop: '4px' }}>
                   <div><strong style={{ color: '#0F172A', display: 'block' }}>{d.total}</strong>Total</div>

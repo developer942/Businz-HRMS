@@ -5,7 +5,6 @@ import {
   Calendar,
   FileText,
   Send,
-  Lock,
   RotateCcw,
   Upload,
   Check,
@@ -551,55 +550,6 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
               </button>
             )}
 
-            {(isAssignedByCurrentUser || isAdminOrHrOrCeo) && (
-              <>
-                {!isClosed && task.overallStatus === 'COMPLETED' && (
-                  <button
-                    type="button"
-                    onClick={() => setShowClosePrompt(true)}
-                    style={{
-                      height: '32px',
-                      padding: '0 10px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: '#10B981',
-                      color: '#FFFFFF',
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <Lock size={12} /> Close
-                  </button>
-                )}
-                {task.overallStatus !== 'OPEN' && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReopenPrompt(true)}
-                    style={{
-                      height: '32px',
-                      padding: '0 10px',
-                      borderRadius: '8px',
-                      border: '1px solid #FCD34D',
-                      background: '#FFFBEB',
-                      color: '#B45309',
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <RotateCcw size={12} /> Reopen
-                  </button>
-                )}
-              </>
-            )}
-
             <button
               type="button"
               onClick={onClose}
@@ -765,42 +715,6 @@ export const TaskDetailModal: React.FC<Props> = ({ taskId, onClose }) => {
                     />
                     {task.priority}
                   </span>
-                </div>
-              </div>
-
-              {/* Progress Bar Row (Matches Reference Image Screen 4) */}
-              <div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '6px'
-                  }}
-                >
-                  <span style={{ fontSize: '0.84rem', fontWeight: 700, color: '#334155' }}>Progress</span>
-                  <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0F172A' }}>
-                    {task.overallProgress}%
-                  </span>
-                </div>
-                <div
-                  style={{
-                    width: '100%',
-                    height: '8px',
-                    borderRadius: '999px',
-                    background: '#E2E8F0',
-                    overflow: 'hidden'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${task.overallProgress}%`,
-                      height: '100%',
-                      borderRadius: '999px',
-                      background: '#0E7490',
-                      transition: 'width 0.25s ease'
-                    }}
-                  />
                 </div>
               </div>
             </div>

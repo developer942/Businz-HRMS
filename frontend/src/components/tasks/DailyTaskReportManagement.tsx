@@ -4,10 +4,8 @@ import { useHRMS } from '../../context/HRMSContext';
 import {
   FileText,
   Search,
-  Calendar,
   Plus,
   Eye,
-  RotateCcw,
   SlidersHorizontal,
   X,
   LayoutList,
@@ -185,13 +183,6 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
 
   const filteredReports = useMemo(() => {
     return allReportRows.filter(row => {
-      if (reportScope === 'my_reports') {
-        if (!matchesCurrentUser(row.employeeId, row.employeeName)) return false;
-      } else if (reportScope === 'team_reports') {
-        const isMyOwn = matchesCurrentUser(row.employeeId, row.employeeName);
-        if (!isManagerOrAdmin && isMyOwn) return false;
-      }
-
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase();
         const matchesTaskNo = row.taskNumber.toLowerCase().includes(q);
@@ -594,46 +585,8 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
             gap: '10px'
           }}
         >
-          {/* Left: Scope Pill Tabs + Search + Dropdowns */}
+          {/* Left: Search + Dropdowns */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
-            <div
-              style={{
-                display: 'inline-flex',
-                background: '#F1F5F9',
-                padding: '3px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0'
-              }}
-            >
-              {[
-                ...(isManagerOrAdmin ? [{ id: 'all', label: 'All' }] : []),
-                { id: 'my_reports', label: 'My Reports' },
-                { id: 'team_reports', label: 'Team' }
-              ].map(tab => {
-                const isActive = reportScope === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setReportScope(tab.id as any)}
-                    style={{
-                      height: '30px',
-                      padding: '0 12px',
-                      borderRadius: '7px',
-                      border: 'none',
-                      background: isActive ? '#0E7490' : 'transparent',
-                      color: isActive ? '#FFFFFF' : '#475569',
-                      fontSize: '0.76rem',
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-
             <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: '280px' }}>
               <Search
                 size={14}
@@ -715,45 +668,6 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
                   </option>
                 ))}
               </select>
-            )}
-
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-              title="From Date"
-              style={{
-                height: '36px',
-                padding: '0 8px',
-                fontSize: '0.76rem',
-                borderRadius: '9px',
-                border: '1px solid #E2E8F0',
-                background: '#FFFFFF',
-                color: '#334155'
-              }}
-            />
-
-            {(searchQuery || selectedDepartment !== 'All' || selectedEmployee !== 'All' || dateFrom || dateTo) && (
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                style={{
-                  height: '36px',
-                  padding: '0 10px',
-                  borderRadius: '9px',
-                  border: '1px solid #E2E8F0',
-                  background: '#FFFFFF',
-                  color: '#64748B',
-                  fontSize: '0.76rem',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  cursor: 'pointer'
-                }}
-              >
-                <RotateCcw size={12} /> Reset
-              </button>
             )}
           </div>
 
@@ -1294,26 +1208,6 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
               </div>
               <div className="mobile-bottom-sheet-body">
                 <div>
-                  <div className="mobile-filter-group-title">Report Scope</div>
-                  <div className="mobile-filter-chips-grid">
-                    {[
-                      ...(isManagerOrAdmin ? [{ id: 'all', label: 'All Reports' }] : []),
-                      { id: 'my_reports', label: 'My Reports' },
-                      { id: 'team_reports', label: 'Team Reports' }
-                    ].map(sc => (
-                      <button
-                        key={sc.id}
-                        type="button"
-                        className={`mobile-filter-select-chip ${reportScope === sc.id ? 'selected' : ''}`}
-                        onClick={() => setReportScope(sc.id as any)}
-                      >
-                        {sc.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
                   <div className="mobile-filter-group-title">Stage Status</div>
                   <div className="mobile-filter-chips-grid">
                     {['All', 'Not Started', 'In Process', 'Under Review', 'Completed'].map(st => (
@@ -1349,48 +1243,6 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
                         {d.name}
                       </button>
                     ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mobile-filter-group-title">Date Range</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    <div>
-                      <span style={{ fontSize: '0.7rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>
-                        From
-                      </span>
-                      <input
-                        type="date"
-                        value={tempDateFrom}
-                        onChange={e => setTempDateFrom(e.target.value)}
-                        style={{
-                          width: '100%',
-                          height: '36px',
-                          padding: '0 8px',
-                          borderRadius: '8px',
-                          border: '1px solid #CBD5E1',
-                          fontSize: '0.78rem'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.7rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>
-                        To
-                      </span>
-                      <input
-                        type="date"
-                        value={tempDateTo}
-                        onChange={e => setTempDateTo(e.target.value)}
-                        style={{
-                          width: '100%',
-                          height: '36px',
-                          padding: '0 8px',
-                          borderRadius: '8px',
-                          border: '1px solid #CBD5E1',
-                          fontSize: '0.78rem'
-                        }}
-                      />
-                    </div>
                   </div>
                 </div>
               </div>
