@@ -500,21 +500,9 @@ export const TaskReports: React.FC = () => {
                     <td style={{ padding: '12px 10px', fontWeight: 700, color: '#0284C7' }}>{metrics.inProgressTasks}</td>
                     <td style={{ padding: '12px 10px', fontWeight: 700, color: '#16A34A' }}>{metrics.completedTasks}</td>
                     <td style={{ padding: '12px 10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ flex: 1, height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              width: `${metrics.completionRate}%`,
-                              height: '100%',
-                              background: '#0E7490',
-                              borderRadius: '999px'
-                            }}
-                          />
-                        </div>
-                        <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0F172A' }}>
-                          {metrics.completionRate}%
-                        </span>
-                      </div>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A' }}>
+                        {metrics.completionRate}%
+                      </span>
                     </td>
                     <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                       <span
@@ -581,9 +569,6 @@ export const TaskReports: React.FC = () => {
                   >
                     {metrics.completionRate}%
                   </span>
-                </div>
-                <div style={{ width: '100%', height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
-                  <div style={{ width: `${metrics.completionRate}%`, height: '100%', background: '#0E7490', borderRadius: '999px' }} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: '#64748B' }}>
                   <span>Assigned: <strong style={{ color: '#0F172A' }}>{metrics.totalAssigned}</strong></span>
