@@ -413,8 +413,8 @@ export const TaskManagement: React.FC = () => {
     const allTabs = [
       {
         id: 'register' as const,
-        shortLabel: 'Register',
-        desktopLabel: 'Register',
+        shortLabel: 'All Tasks',
+        desktopLabel: 'All Tasks',
         icon: Calendar,
         count: kpis.unseenRegisterCount,
         adminOnly: true
@@ -595,7 +595,7 @@ export const TaskManagement: React.FC = () => {
             {
               label: isManagerOrAdmin ? 'Total Tasks' : 'My Total Tasks',
               value: kpis.total,
-              sub: 'Active register',
+              sub: 'All tasks',
               icon: ListTodo,
               iconBg: '#ECFEFF',
               iconColor: '#0E7490',

@@ -1324,7 +1324,8 @@ export const TaskRegister: React.FC<Props> = ({
                             height: 7,
                             borderRadius: '50%',
                             background: '#0E7490',
-                            marginLeft: 'auto'
+                            marginLeft: 'auto',
+                            flexShrink: 0
                           }}
                         />
                       )}
@@ -1332,206 +1333,516 @@ export const TaskRegister: React.FC<Props> = ({
                   ))}
                 </div>
 
-                <div className="filter-content-pane">
+                <div
+                  className="filter-content-pane"
+                  style={{
+                    padding: '16px 20px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    background: '#FFFFFF',
+                    boxSizing: 'border-box'
+                  }}
+                >
                   {activeFilterCategory === 'department' && (
                     <div>
-                      <div className="filter-pane-title">Select Department</div>
-                      <div className="filter-radio-list">
-                        <label className="filter-radio-item">
-                          <input
-                            type="radio"
-                            name="deptFilter"
-                            checked={tempDepartment === 'All'}
-                            onChange={() => setTempDepartment('All')}
-                          />
-                          <span>All Departments</span>
-                        </label>
-                        {departments.map(d => (
-                          <label key={d.id} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="deptFilter"
-                              checked={tempDepartment === d.name}
-                              onChange={() => setTempDepartment(d.name)}
-                            />
-                            <span>{d.name}</span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Department
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {[{ id: 'all', name: 'All', label: 'All Departments' }, ...departments.map(d => ({ id: d.id, name: d.name, label: d.name }))].map(item => {
+                          const isSelected = tempDepartment === item.name;
+                          return (
+                            <label
+                              key={item.id}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="deptFilter"
+                                checked={isSelected}
+                                onChange={() => setTempDepartment(item.name)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{item.label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'priority' && (
                     <div>
-                      <div className="filter-pane-title">Select Priority</div>
-                      <div className="filter-radio-list">
-                        {['All', 'Low', 'Medium', 'High', 'Urgent'].map(p => (
-                          <label key={p} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="priorityFilter"
-                              checked={tempPriority === p}
-                              onChange={() => setTempPriority(p)}
-                            />
-                            <span>{p === 'All' ? 'All Priorities' : p}</span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Priority
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {['All', 'Low', 'Medium', 'High', 'Urgent'].map(p => {
+                          const isSelected = tempPriority === p;
+                          return (
+                            <label
+                              key={p}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="priorityFilter"
+                                checked={isSelected}
+                                onChange={() => setTempPriority(p)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{p === 'All' ? 'All Priorities' : p}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'status' && (
                     <div>
-                      <div className="filter-pane-title">Select Task Status</div>
-                      <div className="filter-radio-list">
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Task Status
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
                         {[
                           { val: 'All', label: 'All Statuses' },
                           { val: 'OPEN', label: 'Open' },
                           { val: 'IN PROGRESS', label: 'In Progress' },
                           { val: 'COMPLETED', label: 'Completed' },
                           { val: 'CLOSED', label: 'Closed' }
-                        ].map(s => (
-                          <label key={s.val} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="statusFilter"
-                              checked={tempStatus === s.val}
-                              onChange={() => setTempStatus(s.val)}
-                            />
-                            <span>{s.label}</span>
-                          </label>
-                        ))}
+                        ].map(s => {
+                          const isSelected = tempStatus === s.val;
+                          return (
+                            <label
+                              key={s.val}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="statusFilter"
+                                checked={isSelected}
+                                onChange={() => setTempStatus(s.val)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{s.label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'dueStatus' && (
                     <div>
-                      <div className="filter-pane-title">Select Due Status</div>
-                      <div className="filter-radio-list">
-                        {['All', 'On Track', 'Due Today', 'Overdue', 'Completed'].map(ds => (
-                          <label key={ds} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="dueFilter"
-                              checked={tempDueStatus === ds}
-                              onChange={() => setTempDueStatus(ds)}
-                            />
-                            <span>{ds === 'All' ? 'All Due States' : ds}</span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Due Status
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {['All', 'On Track', 'Due Today', 'Overdue', 'Completed'].map(ds => {
+                          const isSelected = tempDueStatus === ds;
+                          return (
+                            <label
+                              key={ds}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="dueFilter"
+                                checked={isSelected}
+                                onChange={() => setTempDueStatus(ds)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{ds === 'All' ? 'All Due States' : ds}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'type' && (
                     <div>
-                      <div className="filter-pane-title">Select Assignment Type</div>
-                      <div className="filter-radio-list">
-                        {['All', 'Individual', 'Team'].map(tp => (
-                          <label key={tp} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="typeFilter"
-                              checked={tempType === tp}
-                              onChange={() => setTempType(tp)}
-                            />
-                            <span>{tp === 'All' ? 'All Assignment Types' : `${tp} Assignment`}</span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Assignment Type
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {['All', 'Individual', 'Team'].map(tp => {
+                          const isSelected = tempType === tp;
+                          return (
+                            <label
+                              key={tp}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="typeFilter"
+                                checked={isSelected}
+                                onChange={() => setTempType(tp)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{tp === 'All' ? 'All Assignment Types' : `${tp} Assignment`}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'category' && (
                     <div>
-                      <div className="filter-pane-title">Select Task Category</div>
-                      <div className="filter-radio-list">
-                        <label className="filter-radio-item">
-                          <input
-                            type="radio"
-                            name="catFilter"
-                            checked={tempCategory === 'All'}
-                            onChange={() => setTempCategory('All')}
-                          />
-                          <span>All Categories</span>
-                        </label>
-                        {TASK_CATEGORIES.map(c => (
-                          <label key={c} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="catFilter"
-                              checked={tempCategory === c}
-                              onChange={() => setTempCategory(c)}
-                            />
-                            <span>{c}</span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Task Category
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {['All', ...TASK_CATEGORIES].map(c => {
+                          const isSelected = tempCategory === c;
+                          return (
+                            <label
+                              key={c}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="catFilter"
+                                checked={isSelected}
+                                onChange={() => setTempCategory(c)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{c === 'All' ? 'All Categories' : c}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'assignee' && (
                     <div>
-                      <div className="filter-pane-title">Select Team Member</div>
-                      <div className="filter-radio-list">
-                        <label className="filter-radio-item">
-                          <input
-                            type="radio"
-                            name="empFilter"
-                            checked={tempAssignee === 'All'}
-                            onChange={() => setTempAssignee('All')}
-                          />
-                          <span>All Employees</span>
-                        </label>
-                        {employees.map(emp => (
-                          <label key={emp.id} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="empFilter"
-                              checked={tempAssignee === emp.employeeId}
-                              onChange={() => setTempAssignee(emp.employeeId)}
-                            />
-                            <span>
-                              {emp.firstName} {emp.lastName} ({emp.department})
-                            </span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Team Member
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {[
+                          { id: 'all', val: 'All', label: 'All Employees' },
+                          ...employees.map(emp => ({
+                            id: emp.id,
+                            val: emp.employeeId,
+                            label: `${emp.firstName} ${emp.lastName} (${emp.department})`
+                          }))
+                        ].map(item => {
+                          const isSelected = tempAssignee === item.val;
+                          return (
+                            <label
+                              key={item.id}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="empFilter"
+                                checked={isSelected}
+                                onChange={() => setTempAssignee(item.val)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{item.label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {activeFilterCategory === 'assignedBy' && (
                     <div>
-                      <div className="filter-pane-title">Select Assigned By</div>
-                      <div className="filter-radio-list">
-                        <label className="filter-radio-item">
-                          <input
-                            type="radio"
-                            name="assignerFilter"
-                            checked={tempAssignedBy === 'All'}
-                            onChange={() => setTempAssignedBy('All')}
-                          />
-                          <span>Anyone</span>
-                        </label>
-                        {uniqueAssigners.map(name => (
-                          <label key={name} className="filter-radio-item">
-                            <input
-                              type="radio"
-                              name="assignerFilter"
-                              checked={tempAssignedBy === name}
-                              onChange={() => setTempAssignedBy(name)}
-                            />
-                            <span>{name}</span>
-                          </label>
-                        ))}
+                      <div
+                        className="filter-pane-title"
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#64748B',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #F1F5F9'
+                        }}
+                      >
+                        Select Assigned By
+                      </div>
+                      <div
+                        className="filter-radio-list"
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
+                      >
+                        {['All', ...uniqueAssigners].map(name => {
+                          const isSelected = tempAssignedBy === name;
+                          return (
+                            <label
+                              key={name}
+                              className={`filter-radio-item ${isSelected ? 'selected' : ''}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                                background: isSelected ? '#ECFEFF' : '#F8FAFC',
+                                color: isSelected ? '#0E7490' : '#1E293B',
+                                fontWeight: isSelected ? 700 : 500,
+                                fontSize: '0.86rem',
+                                cursor: 'pointer',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                margin: 0
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="assignerFilter"
+                                checked={isSelected}
+                                onChange={() => setTempAssignedBy(name)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', margin: 0, flexShrink: 0, cursor: 'pointer' }}
+                              />
+                              <span>{name === 'All' ? 'Anyone' : name}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="filter-modal-footer">
+              <div
+                className="filter-modal-footer"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  padding: '14px 20px',
+                  borderTop: '1px solid #E2E8F0',
+                  background: '#F8FAFC'
+                }}
+              >
                 <button
                   type="button"
                   className="filter-reset-btn"
@@ -1545,14 +1856,55 @@ export const TaskRegister: React.FC<Props> = ({
                     setTempAssignee('All');
                     setTempAssignedBy('All');
                   }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '10px',
+                    border: '1px solid #E2E8F0',
+                    background: '#FFFFFF',
+                    color: '#64748B',
+                    fontSize: '0.84rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
                 >
                   Reset All
                 </button>
-                <div className="filter-footer-actions">
-                  <button type="button" className="filter-cancel-btn" onClick={() => setShowFilterModal(false)}>
+                <div
+                  className="filter-footer-actions"
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' }}
+                >
+                  <button
+                    type="button"
+                    className="filter-cancel-btn"
+                    onClick={() => setShowFilterModal(false)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      background: '#FFFFFF',
+                      color: '#334155',
+                      fontSize: '0.84rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
                     Cancel
                   </button>
-                  <button type="button" className="filter-apply-btn" onClick={handleApplyModalFilters}>
+                  <button
+                    type="button"
+                    className="filter-apply-btn"
+                    onClick={handleApplyModalFilters}
+                    style={{
+                      padding: '8px 20px',
+                      borderRadius: '10px',
+                      border: '1px solid #0E7490',
+                      background: '#0E7490',
+                      color: '#FFFFFF',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
                     Apply Filters
                   </button>
                 </div>
