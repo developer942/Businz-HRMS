@@ -654,6 +654,8 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
                   const completedCount = task.assignees.filter(a => a.individualStatus === 'Completed').length;
                   const totalCount = task.assignees.length;
+                  const progressPct =
+                    totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : task.overallProgress;
                   const sStyle = getDisplayStatusBadge(task.overallStatus);
 
                   return (
@@ -721,9 +723,20 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
                         </td>
                         <td style={{ padding: '12px 12px' }}>{renderAvatarCluster(task)}</td>
                         <td style={{ padding: '12px 12px' }}>
-                          <span style={{ color: '#475569', fontWeight: 600, fontSize: '0.78rem' }}>
-                            {completedCount} of {totalCount} Completed
-                          </span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '10px',
+                              fontSize: '0.76rem'
+                            }}
+                          >
+                            <span style={{ color: '#475569', fontWeight: 600 }}>
+                              {completedCount} of {totalCount} Completed
+                            </span>
+                            <span style={{ color: '#0E7490', fontWeight: 800 }}>{progressPct}%</span>
+                          </div>
                         </td>
                         <td style={{ padding: '12px 12px' }}>
                           <div
@@ -1081,6 +1094,8 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
             const sStyle = getDisplayStatusBadge(task.overallStatus);
             const completedCount = task.assignees.filter((a: any) => a.individualStatus === 'Completed').length;
             const totalCount = task.assignees.length;
+            const progressPct =
+              totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : task.overallProgress;
 
             return (
               <div
@@ -1151,7 +1166,7 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
                   </span>
                 </div>
 
-                {/* Row 4: X of Y Completed */}
+                {/* Row 4: X of Y Completed + Percentage */}
                 <div
                   style={{
                     display: 'flex',
@@ -1164,6 +1179,7 @@ export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
                   <span style={{ fontSize: '0.76rem', fontWeight: 600, color: '#475569' }}>
                     {completedCount} of {totalCount} Completed
                   </span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0E7490' }}>{progressPct}%</span>
                 </div>
               </div>
             );
