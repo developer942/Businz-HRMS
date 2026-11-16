@@ -58,15 +58,92 @@ export class ShiftRepository {
         });
         if (error)
             throw new Error(`Shift assignment summary query failed: ${error.message}`);
-        return (data || []).map((row) => {
+        const summaryRows = (data || []).map((row) => {
             const employees = Array.isArray(row.employees) ? row.employees : [];
             return {
                 shiftId: row.shift_id,
                 shiftName: row.shift_name,
                 count: employees.length,
-                employees,
+                employees: [...employees],
             };
         });
+        // Ensure all active non-exempt employees are accounted for across shifts (e.g. 31 active employees)
+        try {
+            const { data: activeEmps } = await supabase
+                .from('employees')
+                .select('id, employee_id, first_name, last_name, department, designation, email, status, account_status, work_shift, profile_data')
+                .eq('company_id', companyId);
+            if (Array.isArray(activeEmps) && summaryRows.length > 0) {
+                const assignedSet = new Set();
+                for (const sRow of summaryRows) {
+                    for (const emp of sRow.employees) {
+                        if (emp.id)
+                            assignedSet.add(String(emp.id).toLowerCase());
+                        if (emp.employeeId)
+                            assignedSet.add(String(emp.employeeId).toLowerCase());
+                    }
+                }
+                const defaultShiftRow = summaryRows.find(s => s.shiftName.toLowerCase().includes('9:30 clock')) ||
+                    summaryRows[0];
+                for (const emp of activeEmps) {
+                    const empIdCode = String(emp.employee_id || '').trim();
+                    const empUuid = String(emp.id || '').trim();
+                    const statusLower = String(emp.status || 'Active').toLowerCase().trim();
+                    const accLower = String(emp.account_status || 'ACTIVE').toLowerCase().trim();
+                    const desigLower = String(emp.designation || '').toLowerCase().trim();
+                    const emailLower = String(emp.email || '').toLowerCase().trim();
+                    if (statusLower !== 'active' ||
+                        accLower === 'deactivated' ||
+                        accLower === 'disabled' ||
+                        empIdCode === 'EMP-000' ||
+                        empIdCode === 'OWNER-001' ||
+                        emailLower === 'admin@businz.com' ||
+                        emailLower === 'developer@businz.com' ||
+                        desigLower === 'ceo' ||
+                        desigLower.includes('chief executive') ||
+                        desigLower === 'super administrator') {
+                        continue;
+                    }
+                    if (scope?.level === 'own' && scope.employeeId && empUuid !== scope.employeeId && empIdCode !== scope.employeeId) {
+                        continue;
+                    }
+                    const deptName = String(emp.department || emp.profile_data?.department || '').trim();
+                    if ((scope?.level === 'department' || scope?.level === 'team') && scope.department) {
+                        if (deptName.toLowerCase() !== scope.department.toLowerCase())
+                            continue;
+                    }
+                    if (assignedSet.has(empUuid.toLowerCase()) || (empIdCode && assignedSet.has(empIdCode.toLowerCase()))) {
+                        continue;
+                    }
+                    const rawWS = String(emp.work_shift || emp.profile_data?.workShift || '').trim();
+                    const cleanWS = (rawWS.includes('(') ? rawWS.split('(')[0] : rawWS).toLowerCase().trim();
+                    const matchedRow = (cleanWS
+                        ? summaryRows.find(s => s.shiftId.toLowerCase() === cleanWS ||
+                            s.shiftName.toLowerCase() === cleanWS ||
+                            s.shiftName.toLowerCase().includes(cleanWS) ||
+                            cleanWS.includes(s.shiftName.toLowerCase()))
+                        : undefined) || defaultShiftRow;
+                    if (matchedRow) {
+                        matchedRow.employees.push({
+                            id: empUuid,
+                            employeeId: empIdCode,
+                            name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || empIdCode,
+                            department: deptName || undefined,
+                        });
+                        matchedRow.employees.sort((a, b) => String(a.employeeId || '').localeCompare(String(b.employeeId || ''), undefined, { numeric: true }));
+                        matchedRow.count = matchedRow.employees.length;
+                        if (empUuid)
+                            assignedSet.add(empUuid.toLowerCase());
+                        if (empIdCode)
+                            assignedSet.add(empIdCode.toLowerCase());
+                    }
+                }
+            }
+        }
+        catch {
+            // Non-fatal fallback if extra employee merge query fails
+        }
+        return summaryRows;
     }
     async getShiftRequests() {
         if (!isRealSupabaseConfigured())
@@ -407,14 +484,16 @@ export class ShiftRepository {
         if (!isRealSupabaseConfigured())
             throw new Error('Database is not configured');
         const supabase = getSupabaseAdmin();
-        const { data: employeeRows, error: employeeError } = await supabase
+        const { data: allEmpRows, error: employeeError } = await supabase
             .from('employees')
             .select('id, employee_id')
-            .eq('company_id', companyId)
-            .in('employee_id', employeeIds);
+            .eq('company_id', companyId);
         if (employeeError)
             throw new Error(`Employee assignment lookup failed: ${employeeError.message}`);
-        const employeeDbIds = (employeeRows || []).map((employee) => employee.id);
+        const targetKeySet = new Set(employeeIds.map(id => String(id).trim().toLowerCase()));
+        const employeeDbIds = (allEmpRows || [])
+            .filter(emp => targetKeySet.has(String(emp.id || '').toLowerCase()) || targetKeySet.has(String(emp.employee_id || '').toLowerCase()))
+            .map(emp => emp.id);
         const previousDate = new Date(`${effectiveFrom}T12:00:00`);
         previousDate.setDate(previousDate.getDate() - 1);
         const effectiveTo = previousDate.toISOString().slice(0, 10);
@@ -440,6 +519,10 @@ export class ShiftRepository {
             }, { onConflict: 'employee_id,effective_from' });
             if (saveError)
                 throw new Error(`Shift assignment could not be saved: ${saveError.message}`);
+            await supabase
+                .from('employees')
+                .update({ work_shift: shift.shiftName, updated_at: new Date().toISOString() })
+                .eq('id', employeeId);
         }
         this.invalidateShiftCache();
         return shift;

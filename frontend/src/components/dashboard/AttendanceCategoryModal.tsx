@@ -175,19 +175,33 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
     fieldAssignments,
     date: todayStr
   });
-  const absentEmployeeIds = new Set(attendanceReport.absent.map(row => row.employee.employeeId));
 
-  const categoryItems: CategoryItem[] = workforceEmployees.map(emp => {
-    const att = attendanceRecords.find(a => 
-      a.employeeId === emp.employeeId || 
-      `${emp.firstName} ${emp.lastName}`.trim().toLowerCase() === (a.employeeName || '').trim().toLowerCase()
+  const hasValidCheckIn = (att?: AttendanceRecord) =>
+    Boolean(
+      att &&
+      att.status !== 'Absent' &&
+      att.status !== 'On Leave' &&
+      att.checkIn &&
+      att.checkIn.trim() !== '' &&
+      att.checkIn !== '--:--'
     );
 
-    const isCheckedIn = !!(att && att.checkIn);
-    const isCheckedOut = !!(att && att.checkOut);
-    const isEarly = isCheckedOut && ((att.workingHours > 0 && att.workingHours < 7.5) || att.status === 'Half Day');
+  const categoryItems: CategoryItem[] = workforceEmployees.map(emp => {
+    const att = attendanceRecords.find(a => {
+      const recId = normalizeKey(a.employeeId);
+      const empId = normalizeKey(emp.employeeId);
+      const empUuid = normalizeKey(emp.id);
+      if (recId && ((empId && recId === empId) || (empUuid && recId === empUuid))) return true;
+      const recName = normalizeKey(a.employeeName);
+      const fullName = normalizeKey(employeeFullName(emp));
+      return !!recName && !!fullName && recName === fullName;
+    });
+
+    const isCheckedIn = hasValidCheckIn(att);
+    const isCheckedOut = Boolean(isCheckedIn && att?.checkOut && att.checkOut.trim() !== '' && att.checkOut !== '--:--');
+    const isEarly = isCheckedOut && Boolean(att && ((att.workingHours > 0 && att.workingHours < 7.5) || att.status === 'Half Day'));
     const isMissed = isCheckedIn && !isCheckedOut;
-    const isPresent = isCheckedIn && (att.status === 'Present' || att.status === 'Work From Home' || att.status === 'Late');
+    const isPresent = Boolean(att && (isCheckedIn || att.status === 'Work From Home'));
     const isOnApprovedLeave = leaveRequests.some(l => doesLeaveMatchEmployee(l, emp) && doesLeaveCoverToday(l));
 
     let statusLabel = 'Absent';
@@ -212,66 +226,53 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
         statusLabel = 'On Leave';
         statusType = 'info';
         note = 'Sanctioned leave';
-      } else if (reportRow?.classification === 'Week Off') {
-        statusLabel = 'Week Off';
-        statusType = 'info';
-        note = 'Scheduled weekly off';
-      } else if (reportRow?.classification === 'Holiday') {
-        statusLabel = 'Holiday';
-        statusType = 'info';
-        note = reportRow.reason || 'Company holiday';
-      } else if (reportRow?.classification === 'Not Due') {
-        statusLabel = 'Yet to Punch In';
-        statusType = 'warning';
-        note = reportRow.reason || 'Shift not started';
       } else {
         statusLabel = 'Absent';
         statusType = 'danger';
-        note = att && !att.checkIn ? 'Check-in punch missed' : 'No check-in recorded';
+        note = att && !isCheckedIn ? 'Check-in punch missed' : 'No check-in recorded';
       }
     }
 
     return {
       employee: emp,
       attendance: att,
-      checkIn: formatTimeDisplay(att?.checkIn, '—'),
-      checkOut: formatTimeDisplay(att?.checkOut, '—'),
-      hours: att?.workingHours ? `${att.workingHours} hrs` : '0 hrs',
+      checkIn: isCheckedIn ? formatTimeDisplay(att?.checkIn, '—') : '—',
+      checkOut: isCheckedOut ? formatTimeDisplay(att?.checkOut, '—') : '—',
+      hours: isCheckedIn && att?.workingHours ? `${att.workingHours} hrs` : '0 hrs',
       statusLabel,
       statusType,
       note
     };
   });
 
-  // Filter for the requested category
+  // Filter for the requested category (100% consistent with Dashboard KPI card counts)
   const filteredByCategory = categoryItems.filter(item => {
+    const isCheckedIn = hasValidCheckIn(item.attendance);
+    const isPresent = Boolean(item.attendance && (isCheckedIn || item.attendance.status === 'Work From Home'));
     if (category === 'total') return true;
     if (category === 'present') {
-      return item.attendance && (!!item.attendance.checkIn || item.attendance.status === 'Work From Home');
+      return isPresent;
     }
     if (category === 'early') {
-      return item.attendance && item.attendance.checkOut && (
+      return Boolean(isCheckedIn && item.attendance?.checkOut && (
         (item.attendance.workingHours > 0 && item.attendance.workingHours < 7.5) || 
         item.attendance.status === 'Half Day'
-      );
+      ));
     }
     if (category === 'missed') {
-      return item.attendance && item.attendance.checkIn && !item.attendance.checkOut;
+      return Boolean(isCheckedIn && !item.attendance?.checkOut);
     }
     if (category === 'late') {
-      return item.attendance && (
+      return Boolean(isCheckedIn && item.attendance && (
         item.attendance.status === 'Late' ||
         (item.attendance.lateStatus && item.attendance.lateStatus.toLowerCase().includes('late') && item.attendance.lateStatus !== 'On Time')
-      );
+      ));
     }
     if (category === 'weekoff') {
       return item.statusLabel === 'Week Off' || item.statusLabel === 'Holiday';
     }
-    if (category === 'notstarted') {
-      return item.statusLabel === 'Yet to Punch In';
-    }
-    if (category === 'absent') {
-      return absentEmployeeIds.has(item.employee.employeeId);
+    if (category === 'absent' || category === 'notstarted') {
+      return !isPresent;
     }
     return true;
   });

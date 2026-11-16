@@ -904,6 +904,7 @@ interface HRMSContextType {
   addShift: (shift: Omit<Shift, 'id' | 'assignedEmployeeCount'>) => void;
   updateShift: (id: string, updates: Partial<Shift>) => void;
   deleteShift: (id: string) => void;
+  bulkAssignShift: (shiftId: string, employeeIds: string[], effectiveFrom?: string) => Promise<{ success: boolean; updatedCount: number }>;
   requestShiftChange: (req: Omit<ShiftRequest, 'id' | 'status'>) => void;
   approveShiftRequest: (id: string, approvedBy: string) => void;
   rejectShiftRequest: (id: string, rejectedBy: string, reason?: string) => void;
@@ -2165,7 +2166,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       finalLateMinutes = 0;
     }
 
-    const calculatedOtHours = computedWorkingHours > 8.0 ? Math.round((computedWorkingHours - 8.0) * 10) / 10 : 0;
+    const shiftStandardHours = Number((matchedShift as any)?.workingHours) > 0 ? Number((matchedShift as any).workingHours) : 9.0;
+    const calculatedOtHours = computedWorkingHours > shiftStandardHours ? Math.round((computedWorkingHours - shiftStandardHours) * 10) / 10 : 0;
     const finalOtStatus = params.otStatus ?? existingRec.otStatus ?? 'Pending';
     const approvedOt = params.approvedOtHours !== undefined
       ? params.approvedOtHours
@@ -2462,7 +2464,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       shiftCode: (targetShift as any).shiftCode || 'SH-01',
       startTime: targetShift.startTime || '09:00 AM',
       endTime: targetShift.endTime || '06:00 PM',
-      requiredWorkingHours: ('requiredWorkingHours' in targetShift ? (targetShift as any).requiredWorkingHours : (targetShift as any).workingHours) || 8.25,
+      requiredWorkingHours: ('requiredWorkingHours' in targetShift ? (targetShift as any).requiredWorkingHours : (targetShift as any).workingHours) || 9.0,
       breakDurationMinutes: ('breakDurationMinutes' in targetShift ? (targetShift as any).breakDurationMinutes : (targetShift as any).breakDurationMins) || 45,
       gracePeriodMinutes: ('gracePeriodMinutes' in targetShift ? (targetShift as any).gracePeriodMinutes : (targetShift as any).gracePeriodMins) || 15,
       lateThresholdMinutes: 15,
@@ -2679,7 +2681,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       shiftCode: (assignedShift as any)?.shiftCode || 'SH-01',
       startTime: assignedShift?.startTime || '09:00 AM',
       endTime: assignedShift?.endTime || '06:00 PM',
-      requiredWorkingHours: assignedShift?.workingHours || 8.25,
+      requiredWorkingHours: assignedShift?.workingHours || 9.0,
       breakDurationMinutes: assignedShift?.breakDurationMins || 45,
       gracePeriodMinutes: assignedShift?.gracePeriodMins || 15,
       lateThresholdMinutes: 15,
@@ -2881,7 +2883,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       shiftCode: (assignedShift as any)?.shiftCode || 'SH-01',
       startTime: assignedShift?.startTime || '09:00 AM',
       endTime: assignedShift?.endTime || '06:00 PM',
-      requiredWorkingHours: assignedShift?.workingHours || 8.25,
+      requiredWorkingHours: assignedShift?.workingHours || 9.0,
       breakDurationMinutes: assignedShift?.breakDurationMins || 45,
       gracePeriodMinutes: assignedShift?.gracePeriodMins || 15,
       lateThresholdMinutes: 15,
@@ -8776,6 +8778,97 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const bulkAssignShift = async (
+    shiftId: string,
+    employeeIds: string[],
+    effectiveFrom: string = getTodayKolkata()
+  ): Promise<{ success: boolean; updatedCount: number }> => {
+    const targetShift = shifts.find(s => s.id === shiftId || s.shiftName === shiftId);
+    if (!targetShift) return { success: false, updatedCount: 0 };
+
+    const targetIdSet = new Set(employeeIds.map(id => String(id).trim().toLowerCase()).filter(Boolean));
+    const matchedEmps = employees.filter(
+      e =>
+        targetIdSet.has(String(e.id || '').trim().toLowerCase()) ||
+        targetIdSet.has(String(e.employeeId || '').trim().toLowerCase())
+    );
+    if (matchedEmps.length === 0) return { success: false, updatedCount: 0 };
+
+    const allMatchedKeys = new Set<string>();
+    matchedEmps.forEach(e => {
+      if (e.id) allMatchedKeys.add(String(e.id).trim().toLowerCase());
+      if (e.employeeId) allMatchedKeys.add(String(e.employeeId).trim().toLowerCase());
+    });
+
+    // 1. Update employees state immediately
+    setEmployees(prev =>
+      prev.map(emp => {
+        const isTarget =
+          allMatchedKeys.has(String(emp.id || '').trim().toLowerCase()) ||
+          allMatchedKeys.has(String(emp.employeeId || '').trim().toLowerCase());
+        if (!isTarget) return emp;
+        return {
+          ...emp,
+          workShift: targetShift.shiftName,
+        };
+      })
+    );
+
+    // 2. Update shifts state immediately (remove from other shifts, add to targetShift)
+    setShifts(prev =>
+      prev.map(s => {
+        const currentList = Array.isArray(s.assignments) ? s.assignments : [];
+        const filteredOut = currentList.filter(a => {
+          const aId = typeof a === 'string' ? a : a?.employeeId || '';
+          return !allMatchedKeys.has(String(aId).trim().toLowerCase());
+        });
+        if (s.id === targetShift.id) {
+          const newItems = matchedEmps.map(e => ({
+            employeeId: e.employeeId || e.id,
+            status: 'ACTIVE' as const,
+          }));
+          const combined = [...filteredOut, ...newItems];
+          return {
+            ...s,
+            assignments: combined as any,
+            assignedEmployeeCount: combined.length,
+          };
+        }
+        return {
+          ...s,
+          assignments: filteredOut as any,
+          assignedEmployeeCount: filteredOut.length,
+        };
+      })
+    );
+
+    // 3. Persist to Supabase shift_assignments and employee records
+    await Promise.all(
+      matchedEmps.map(async emp => {
+        try {
+          if (targetShift.id && targetShift.id.length === 36) {
+            await supabaseDirect.saveEmployeeShiftAssignment(emp.id || emp.employeeId, targetShift.id, effectiveFrom);
+          }
+          await supabaseDirect.updateEmployee(emp.id || emp.employeeId, {
+            work_shift: targetShift.shiftName,
+          } as any);
+          await persistEmployeeProfileExtension({
+            ...emp,
+            workShift: targetShift.shiftName,
+          });
+        } catch {
+          // Non-fatal fallback
+        }
+      })
+    );
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('hrms:shift-assignments-changed'));
+    }
+
+    return { success: true, updatedCount: matchedEmps.length };
+  };
+
   // Policy Management Methods
   const addLeavePolicy = (policyData: Omit<LeavePolicyItem, 'id'>) => {
     const newPolicy: LeavePolicyItem = {
@@ -9717,6 +9810,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (t.id !== taskId) return t;
 
       const progressMap: Record<TaskAssigneeStatus, number> = {
+        'Open': 0,
+        'Not Started': 0,
         'Pending': 0,
         'In Progress': 50,
         'In Process': 50,
@@ -9804,6 +9899,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (t.id !== taskId) return t;
 
       const progressMap: Record<TaskAssigneeStatus, number> = {
+        'Open': 0,
+        'Not Started': 0,
         'Pending': 0,
         'In Progress': 50,
         'In Process': 50,
@@ -13291,6 +13388,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       addShift,
       updateShift,
       deleteShift,
+      bulkAssignShift,
       requestShiftChange,
       approveShiftRequest,
       rejectShiftRequest,

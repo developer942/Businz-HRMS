@@ -1,146 +1,545 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
-import { 
-  Filter, 
-  CheckSquare, 
-  Calendar, 
-  User, 
-  Building, 
-  AlertTriangle, 
-  Clock, 
+import {
+  CheckSquare,
+  User,
+  Building,
+  Search,
+  Download,
+  FileSpreadsheet,
   FileText,
-  TrendingUp,
-  FileCheck
+  ChevronDown
 } from 'lucide-react';
 import { computeDueStatus, calculateEmployeeTaskMetrics } from '../../types/tasks';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateDayMonthYear } from '../../utils/dateUtils';
+import { exportToExcel, exportToPDF } from '../../utils/exportUtils';
+import { preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
 export const TaskReports: React.FC = () => {
-  const { enhancedTasks, departments, employees } = useHRMS();
+  const { enhancedTasks, departments, employees, currentUser } = useHRMS();
 
   const [activeReport, setActiveReport] = useState<
-    'summary' | 'employee_perf' | 'dept_breakdown' | 'overdue_analysis' | 'escalations' | 'workload_capacity'
+    'summary' | 'employee_perf' | 'overdue_analysis' | 'workload_capacity'
   >('summary');
+  const [selectedDept, setSelectedDept] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'q3_2026' | 'this_month'>('all');
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  // Tasks for reports
-  const filteredTasks = enhancedTasks;
+  const scopedTasks = useMemo(() => {
+    return enhancedTasks.filter(t => {
+      if (selectedDept !== 'ALL' && t.department !== selectedDept) return false;
+      if (searchQuery.trim() !== '') {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = t.title.toLowerCase().includes(q);
+        const matchNo = t.taskNumber.toLowerCase().includes(q);
+        const matchDept = t.department.toLowerCase().includes(q);
+        const matchResp = (t.responsiblePersonName || '').toLowerCase().includes(q);
+        if (!matchTitle && !matchNo && !matchDept && !matchResp) return false;
+      }
+      return true;
+    });
+  }, [enhancedTasks, selectedDept, searchQuery]);
+
+  // Report KPI Overview
+  const kpiOverview = useMemo(() => {
+    const total = scopedTasks.length;
+    const pending = scopedTasks.filter(t => t.overallStatus === 'OPEN' || t.overallStatus === 'REOPENED').length;
+    const inProcess = scopedTasks.filter(
+      t => t.overallStatus === 'IN PROGRESS' || t.overallStatus === 'PARTIALLY COMPLETED'
+    ).length;
+    const underReview = scopedTasks.filter(t => t.overallStatus === 'UNDER REVIEW').length;
+    const completed = scopedTasks.filter(t => t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED').length;
+    const overdue = scopedTasks.filter(
+      t => computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue' && t.overallStatus !== 'CLOSED'
+    ).length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 100;
+
+    return { total, pending, inProcess, underReview, completed, overdue, completionRate };
+  }, [scopedTasks]);
 
   // Report 1: Department Summary
   const departmentSummaryData = useMemo(() => {
-    return departments.map(d => {
-      const dTasks = enhancedTasks.filter(t => t.department === d.name);
-      const total = dTasks.length;
-      const completed = dTasks.filter(t => t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED').length;
-      const inProgress = dTasks.filter(t => t.overallStatus === 'IN PROGRESS' || t.overallStatus === 'PARTIALLY COMPLETED').length;
-      const open = dTasks.filter(t => t.overallStatus === 'OPEN').length;
-      const overdue = dTasks.filter(t => computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue').length;
-      const avgProgress = total > 0 ? Math.round(dTasks.reduce((sum, t) => sum + t.overallProgress, 0) / total) : 0;
-      const compRate = total > 0 ? Math.round((completed / total) * 100) : 100;
+    return departments
+      .filter(d => selectedDept === 'ALL' || d.name === selectedDept)
+      .map(d => {
+        const dTasks = scopedTasks.filter(t => t.department === d.name);
+        const total = dTasks.length;
+        const pending = dTasks.filter(t => t.overallStatus === 'OPEN' || t.overallStatus === 'REOPENED').length;
+        const inProcess = dTasks.filter(
+          t => t.overallStatus === 'IN PROGRESS' || t.overallStatus === 'PARTIALLY COMPLETED'
+        ).length;
+        const underReview = dTasks.filter(t => t.overallStatus === 'UNDER REVIEW').length;
+        const completed = dTasks.filter(t => t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED').length;
+        const overdue = dTasks.filter(
+          t => computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue' && t.overallStatus !== 'CLOSED'
+        ).length;
+        const avgProgress =
+          total > 0 ? Math.round(dTasks.reduce((sum, t) => sum + t.overallProgress, 0) / total) : 0;
+        const compRate = total > 0 ? Math.round((completed / total) * 100) : 100;
 
-      return {
-        department: d.name,
-        total,
-        completed,
-        inProgress,
-        open,
-        overdue,
-        avgProgress,
-        compRate
-      };
-    });
-  }, [departments, enhancedTasks]);
+        return {
+          department: d.name,
+          total,
+          pending,
+          inProcess,
+          underReview,
+          completed,
+          overdue,
+          avgProgress,
+          compRate
+        };
+      });
+  }, [departments, scopedTasks, selectedDept]);
 
   // Report 2: Employee Task Performance
   const employeePerfData = useMemo(() => {
-    return employees.map(emp => {
-      const metrics = calculateEmployeeTaskMetrics(emp.employeeId, filteredTasks);
-      return {
-        employee: emp,
-        metrics
-      };
-    });
-  }, [employees, filteredTasks]);
+    return employees
+      .filter(emp => {
+        if (selectedDept !== 'ALL' && emp.department !== selectedDept) return false;
+        if (searchQuery.trim() !== '') {
+          const q = searchQuery.toLowerCase();
+          const fullName = `${emp.firstName} ${emp.lastName}`.toLowerCase();
+          if (
+            !fullName.includes(q) &&
+            !(emp.department || '').toLowerCase().includes(q) &&
+            !(emp.designation || '').toLowerCase().includes(q)
+          ) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .map(emp => {
+        const metrics = calculateEmployeeTaskMetrics(emp.employeeId, enhancedTasks);
+        return {
+          employee: emp,
+          metrics
+        };
+      });
+  }, [employees, enhancedTasks, selectedDept, searchQuery]);
 
-  // Report 4: Overdue Task Analysis
+  // Report 3: Overdue Task Analysis
   const overdueAnalysisData = useMemo(() => {
     const today = new Date();
+    return scopedTasks
+      .filter(t => {
+        const due = computeDueStatus(t.dueDate, t.overallStatus);
+        return due === 'Overdue' && t.overallStatus !== 'CLOSED';
+      })
+      .map(t => {
+        const dueDate = new Date(t.dueDate);
+        const daysOverdue = Math.max(1, Math.round((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24)));
+        return {
+          task: t,
+          daysOverdue
+        };
+      });
+  }, [scopedTasks]);
 
-    return filteredTasks.filter(t => {
-      const due = computeDueStatus(t.dueDate, t.overallStatus);
-      return due === 'Overdue' && t.overallStatus !== 'CLOSED';
-    }).map(t => {
-      const dueDate = new Date(t.dueDate);
-      const daysOverdue = Math.max(1, Math.round((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24)));
+  const handleExportCurrentReport = (type: 'excel' | 'pdf') => {
+    setShowExportMenu(false);
+    const timestamp = new Date().toISOString().split('T')[0];
 
-      return {
-        task: t,
-        daysOverdue
-      };
-    });
-  }, [filteredTasks]);
-
+    if (activeReport === 'summary') {
+      const cols = [
+        { header: 'Department', key: 'department' },
+        { header: 'Total Tasks', key: 'total' },
+        { header: 'Pending', key: 'pending' },
+        { header: 'In Process', key: 'inProcess' },
+        { header: 'Under Review', key: 'underReview' },
+        { header: 'Completed', key: 'completed' },
+        { header: 'Overdue', key: 'overdue' },
+        { header: 'Avg Progress', key: 'avgProgressStr' },
+        { header: 'Completion Rate', key: 'compRateStr' }
+      ];
+      const rows = departmentSummaryData.map(d => ({
+        ...d,
+        avgProgressStr: `${d.avgProgress}%`,
+        compRateStr: `${d.compRate}%`
+      }));
+      if (type === 'excel') exportToExcel(rows, cols, `Task_Department_Summary_${timestamp}`);
+      else exportToPDF(rows, cols, 'Task Department Summary Report', `Task_Department_Summary_${timestamp}`);
+    } else if (activeReport === 'employee_perf' || activeReport === 'workload_capacity') {
+      const cols = [
+        { header: 'Employee ID', key: 'empId' },
+        { header: 'Employee Name', key: 'empName' },
+        { header: 'Department', key: 'dept' },
+        { header: 'Designation', key: 'desig' },
+        { header: 'Total Assigned', key: 'totalAssigned' },
+        { header: 'Completed', key: 'completedTasks' },
+        { header: 'In Process', key: 'inProgressTasks' },
+        { header: 'Overdue', key: 'overdueTasks' },
+        { header: 'Completion Rate', key: 'compRateStr' },
+        { header: 'Workload Level', key: 'workloadLevel' }
+      ];
+      const rows = employeePerfData.map(({ employee, metrics }) => ({
+        empId: employee.employeeId,
+        empName: `${employee.firstName} ${employee.lastName}`,
+        dept: employee.department,
+        desig: employee.designation,
+        totalAssigned: metrics.totalAssigned,
+        completedTasks: metrics.completedTasks,
+        inProgressTasks: metrics.inProgressTasks,
+        overdueTasks: metrics.overdueTasks,
+        compRateStr: `${metrics.completionRate}%`,
+        workloadLevel: metrics.workloadLevel
+      }));
+      if (type === 'excel') exportToExcel(rows, cols, `Employee_Task_Scorecard_${timestamp}`);
+      else exportToPDF(rows, cols, 'Employee Task Scorecard Report', `Employee_Task_Scorecard_${timestamp}`);
+    } else {
+      const cols = [
+        { header: 'Task ID', key: 'taskNo' },
+        { header: 'Task Name', key: 'title' },
+        { header: 'Department', key: 'dept' },
+        { header: 'Responsible Person', key: 'resp' },
+        { header: 'End Date', key: 'dueDateStr' },
+        { header: 'Days Overdue', key: 'daysOverdueStr' }
+      ];
+      const rows = overdueAnalysisData.map(({ task, daysOverdue }) => ({
+        taskNo: task.taskNumber,
+        title: task.title,
+        dept: task.department,
+        resp: task.responsiblePersonName,
+        dueDateStr: formatDateDDMMYYYY(task.dueDate),
+        daysOverdueStr: `+${daysOverdue} days`
+      }));
+      if (type === 'excel') exportToExcel(rows, cols, `Overdue_Tasks_Report_${timestamp}`);
+      else exportToPDF(rows, cols, 'Overdue Tasks Analysis Report', `Overdue_Tasks_Report_${timestamp}`);
+    }
+  };
 
   return (
-    <div className="task-reports-container">
-      {/* Report Selection Tabs */}
-      <div className="tab-container task-report-tabs" style={{ marginBottom: '20px', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
+      {/* ============================================================ */}
+      {/* STATUS BREAKDOWN KPI STRIP                                   */}
+      {/* ============================================================ */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+          gap: '10px'
+        }}
+      >
         {[
-          { id: 'summary', label: 'Department Summary' },
-          { id: 'employee_perf', label: 'Employee Scorecard' },
-          { id: 'overdue_analysis', label: 'Overdue Deep-Dive' },
-          { id: 'workload_capacity', label: 'Workload & Capacity' }
-        ].map(r => (
-          <button
-            key={r.id}
-            className={`tab-btn ${activeReport === r.id ? 'active' : ''}`}
-            onClick={() => setActiveReport(r.id as any)}
-            style={{ fontSize: '0.8rem' }}
+          { label: 'Total Tasks', value: kpiOverview.total, color: '#0F172A', bg: '#FFFFFF' },
+          { label: 'Pending', value: kpiOverview.pending, color: '#475569', bg: '#FFFFFF' },
+          { label: 'In Process', value: kpiOverview.inProcess, color: '#0284C7', bg: '#FFFFFF' },
+          { label: 'Under Review', value: kpiOverview.underReview, color: '#D97706', bg: '#FFFFFF' },
+          { label: 'Completed', value: kpiOverview.completed, color: '#16A34A', bg: '#FFFFFF' },
+          { label: 'Completion Rate', value: `${kpiOverview.completionRate}%`, color: '#0E7490', bg: '#ECFEFF' }
+        ].map((card, idx) => (
+          <div
+            key={idx}
+            style={{
+              background: card.bg,
+              border: '1px solid #E2E8F0',
+              borderRadius: '14px',
+              padding: '12px 14px',
+              boxShadow: '0 1px 2px rgba(15, 23, 42, 0.02)'
+            }}
           >
-            {r.label}
-          </button>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>
+              {card.label}
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: card.color, lineHeight: 1.1 }}>
+              {card.value}
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* REPORT 1: DEPARTMENT SUMMARY */}
+      {/* ============================================================ */}
+      {/* REPORT SUB-TABS & FILTER BAR                                 */}
+      {/* ============================================================ */}
+      <div
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '14px',
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '10px',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.02)'
+        }}
+      >
+        {/* Left: Segmented Report Type Tabs */}
+        <div
+          style={{
+            display: 'inline-flex',
+            background: '#F1F5F9',
+            padding: '3px',
+            borderRadius: '10px',
+            border: '1px solid #E2E8F0',
+            flexWrap: 'wrap',
+            gap: '2px'
+          }}
+        >
+          {[
+            { id: 'summary', label: 'Department Summary' },
+            { id: 'employee_perf', label: 'Employee Scorecard' },
+            { id: 'overdue_analysis', label: 'Overdue Tasks' },
+            { id: 'workload_capacity', label: 'Team Capacity' }
+          ].map(tab => {
+            const isActive = activeReport === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveReport(tab.id as any)}
+                style={{
+                  height: '32px',
+                  padding: '0 12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: isActive ? '#0E7490' : 'transparent',
+                  color: isActive ? '#FFFFFF' : '#475569',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Right: Search + Department Filter + Export */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', width: '200px' }}>
+            <Search
+              size={14}
+              style={{
+                position: 'absolute',
+                left: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#94A3B8',
+                pointerEvents: 'none'
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Search report..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={preventSpaceEnterPropagation}
+              style={{
+                width: '100%',
+                height: '36px',
+                paddingLeft: '30px',
+                paddingRight: '10px',
+                borderRadius: '9px',
+                border: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                fontSize: '0.78rem',
+                color: '#0F172A',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <select
+            value={selectedDept}
+            onChange={e => setSelectedDept(e.target.value)}
+            style={{
+              height: '36px',
+              padding: '0 10px',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              borderRadius: '9px',
+              border: '1px solid #E2E8F0',
+              background: '#FFFFFF',
+              color: '#334155',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="ALL">All Departments</option>
+            {departments.map(d => (
+              <option key={d.id} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+
+          <div ref={exportMenuRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setShowExportMenu(prev => !prev)}
+              style={{
+                height: '36px',
+                padding: '0 12px',
+                borderRadius: '9px',
+                border: '1px solid #E2E8F0',
+                background: '#FFFFFF',
+                color: '#0E7490',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              <Download size={14} />
+              <span>Export</span>
+              <ChevronDown size={13} />
+            </button>
+
+            {showExportMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 'calc(100% + 6px)',
+                  background: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12)',
+                  minWidth: '180px',
+                  zIndex: 80,
+                  padding: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleExportCurrentReport('excel')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 10px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  <FileSpreadsheet size={15} color="#16A34A" />
+                  <span>Export to Excel (.xlsx)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportCurrentReport('pdf')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 10px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  <FileText size={15} color="#DC2626" />
+                  <span>Export to PDF (.pdf)</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* REPORT 1: DEPARTMENT SUMMARY                                 */}
+      {/* ============================================================ */}
       {activeReport === 'summary' && (
-        <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="table-responsive desktop-only-block">
-            <table className="hrms-table">
+        <div
+          style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            border: '1px solid #E2E8F0',
+            overflow: 'hidden',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)'
+          }}
+        >
+          <div className="desktop-only-block" style={{ width: '100%' }}>
+            <table className="hrms-table" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>
-                  <th>Department</th>
-                  <th>Total Tasks</th>
-                  <th>Completed</th>
-                  <th>In Progress</th>
-                  <th>Open</th>
-                  <th>Overdue</th>
-                  <th>Average Progress</th>
-                  <th>Completion Rate</th>
+                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <th style={{ width: '22%', padding: '12px 14px' }}>Department</th>
+                  <th style={{ width: '10%', padding: '12px 10px' }}>Total</th>
+                  <th style={{ width: '10%', padding: '12px 10px' }}>Pending</th>
+                  <th style={{ width: '11%', padding: '12px 10px' }}>In Process</th>
+                  <th style={{ width: '12%', padding: '12px 10px' }}>Under Review</th>
+                  <th style={{ width: '11%', padding: '12px 10px' }}>Completed</th>
+                  <th style={{ width: '14%', padding: '12px 10px' }}>Avg Progress</th>
+                  <th style={{ width: '10%', padding: '12px 14px', textAlign: 'right' }}>Rate</th>
                 </tr>
               </thead>
               <tbody>
                 {departmentSummaryData.map(d => (
-                  <tr key={d.department}>
-                    <td style={{ fontWeight: 700, color: '#0f172a' }}>{d.department}</td>
-                    <td style={{ fontWeight: 600 }}>{d.total}</td>
-                    <td style={{ color: '#10b981', fontWeight: 600 }}>{d.completed}</td>
-                    <td style={{ color: '#3b82f6' }}>{d.inProgress}</td>
-                    <td style={{ color: '#64748b' }}>{d.open}</td>
-                    <td style={{ color: d.overdue > 0 ? '#dc2626' : 'inherit', fontWeight: d.overdue > 0 ? 700 : 400 }}>
-                      {d.overdue}
-                    </td>
-                    <td>
+                  <tr key={d.department} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '12px 14px', fontWeight: 800, color: '#0F172A' }}>{d.department}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#334155' }}>{d.total}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 600, color: '#64748B' }}>{d.pending}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#0284C7' }}>{d.inProcess}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#D97706' }}>{d.underReview}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#16A34A' }}>{d.completed}</td>
+                    <td style={{ padding: '12px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '60px', height: '6px', background: '#f1f5f9', borderRadius: '99px', overflow: 'hidden' }}>
-                          <div style={{ width: `${d.avgProgress}%`, height: '100%', background: '#3b82f6' }} />
+                        <div
+                          style={{
+                            flex: 1,
+                            height: '7px',
+                            background: '#E2E8F0',
+                            borderRadius: '999px',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${d.avgProgress}%`,
+                              height: '100%',
+                              background: '#0E7490',
+                              borderRadius: '999px'
+                            }}
+                          />
                         </div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{d.avgProgress}%</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A' }}>
+                          {d.avgProgress}%
+                        </span>
                       </div>
                     </td>
-                    <td>
-                      <span className={`status-pill ${d.compRate >= 80 ? 'present' : d.compRate >= 50 ? 'late' : 'rejected'}`} style={{ fontSize: '0.7rem' }}>
+                    <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                      <span
+                        style={{
+                          padding: '3px 9px',
+                          borderRadius: '999px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          background: d.compRate >= 80 ? '#DCFCE7' : d.compRate >= 50 ? '#FEF3C7' : '#FEE2E2',
+                          color: d.compRate >= 80 ? '#15803D' : d.compRate >= 50 ? '#D97706' : '#DC2626'
+                        }}
+                      >
                         {d.compRate}%
                       </span>
                     </td>
@@ -149,25 +548,44 @@ export const TaskReports: React.FC = () => {
               </tbody>
             </table>
           </div>
-          <div className="mobile-only-block task-analytics-mobile-list">
-            {departmentSummaryData.length === 0 ? (
-              <div className="task-analytics-empty">
-                <Building size={30} />
-                <strong>No department task data</strong>
-                <span>Department metrics will appear when tasks are assigned.</span>
-              </div>
-            ) : departmentSummaryData.map(d => (
-              <div className="task-analytics-card" key={d.department}>
-                <div className="task-analytics-card-head">
-                  <strong>{d.department}</strong>
-                  <span>{d.compRate}% complete</span>
+
+          <div className="mobile-only-block" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {departmentSummaryData.map(d => (
+              <div
+                key={d.department}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '14px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: '0.92rem', color: '#0F172A' }}>{d.department}</strong>
+                  <span
+                    style={{
+                      padding: '3px 9px',
+                      borderRadius: '999px',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      background: '#ECFEFF',
+                      color: '#0E7490'
+                    }}
+                  >
+                    {d.compRate}% Done
+                  </span>
                 </div>
-                <div className="task-analytics-progress"><span style={{ width: `${d.avgProgress}%` }} /></div>
-                <div className="task-analytics-metrics">
-                  <span><b>{d.total}</b>Total</span>
-                  <span><b>{d.completed}</b>Done</span>
-                  <span><b>{d.inProgress}</b>Active</span>
-                  <span className={d.overdue > 0 ? 'danger' : ''}><b>{d.overdue}</b>Overdue</span>
+                <div style={{ width: '100%', height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
+                  <div style={{ width: `${d.avgProgress}%`, height: '100%', background: '#0E7490', borderRadius: '999px' }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', fontSize: '0.73rem', color: '#64748B', paddingTop: '4px' }}>
+                  <div><strong style={{ color: '#0F172A', display: 'block' }}>{d.total}</strong>Total</div>
+                  <div><strong style={{ color: '#475569', display: 'block' }}>{d.pending}</strong>Pending</div>
+                  <div><strong style={{ color: '#0284C7', display: 'block' }}>{d.inProcess + d.underReview}</strong>Active</div>
+                  <div><strong style={{ color: '#16A34A', display: 'block' }}>{d.completed}</strong>Done</div>
                 </div>
               </div>
             ))}
@@ -175,74 +593,109 @@ export const TaskReports: React.FC = () => {
         </div>
       )}
 
-      {/* REPORT 2: EMPLOYEE TASK SCORECARD */}
-      {activeReport === 'employee_perf' && (
-        <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="table-responsive desktop-only-block">
-            <table className="hrms-table">
+      {/* ============================================================ */}
+      {/* REPORT 2 & 4: EMPLOYEE SCORECARD & TEAM CAPACITY             */}
+      {/* ============================================================ */}
+      {(activeReport === 'employee_perf' || activeReport === 'workload_capacity') && (
+        <div
+          style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            border: '1px solid #E2E8F0',
+            overflow: 'hidden',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)'
+          }}
+        >
+          <div className="desktop-only-block" style={{ width: '100%' }}>
+            <table className="hrms-table" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>
-                  <th>Employee</th>
-                  <th>Department</th>
-                  <th>Total Assigned</th>
-                  <th>Completed</th>
-                  <th>In Progress</th>
-                  <th>Overdue</th>
-                  <th>Completion Rate</th>
-                  <th>Capacity Level</th>
+                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <th style={{ width: '25%', padding: '12px 14px' }}>Employee</th>
+                  <th style={{ width: '15%', padding: '12px 10px' }}>Department</th>
+                  <th style={{ width: '10%', padding: '12px 10px' }}>Assigned</th>
+                  <th style={{ width: '10%', padding: '12px 10px' }}>In Process</th>
+                  <th style={{ width: '10%', padding: '12px 10px' }}>Completed</th>
+                  <th style={{ width: '16%', padding: '12px 10px' }}>Completion Rate</th>
+                  <th style={{ width: '14%', padding: '12px 14px', textAlign: 'right' }}>Workload</th>
                 </tr>
               </thead>
               <tbody>
                 {employeePerfData.map(({ employee, metrics }) => (
-                  <tr key={employee.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {employee.avatar ? (
-                          <img src={employee.avatar} alt={employee.firstName} style={{ width: '28px', height: '28px', borderRadius: '99px' }} />
-                        ) : (
-                          <div style={{
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '99px',
-                            backgroundColor: '#eff6ff',
-                            color: '#155DFC',
+                  <tr key={employee.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div
+                          style={{
+                            width: '30px',
+                            height: '30px',
+                            borderRadius: '50%',
+                            background: '#ECFEFF',
+                            color: '#0E7490',
+                            border: '1px solid #BAE6FD',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '0.72rem',
-                            fontWeight: 700,
-                            flexShrink: 0,
-                            border: '1px solid #dbeafe'
-                          }}>
-                            {employee.firstName?.[0] || ''}{employee.lastName?.[0] || ''}
+                            fontSize: '0.74rem',
+                            fontWeight: 800,
+                            flexShrink: 0
+                          }}
+                        >
+                          {employee.firstName?.[0] || 'U'}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.83rem', color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {employee.firstName} {employee.lastName}
                           </div>
-                        )}
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{employee.firstName} {employee.lastName}</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{employee.designation}</div>
+                          <div style={{ fontSize: '0.7rem', color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {employee.designation}
+                          </div>
                         </div>
                       </div>
                     </td>
-                    <td>{employee.department}</td>
-                    <td style={{ fontWeight: 700 }}>{metrics.totalAssigned}</td>
-                    <td style={{ color: '#10b981', fontWeight: 600 }}>{metrics.completedTasks}</td>
-                    <td style={{ color: '#3b82f6' }}>{metrics.inProgressTasks}</td>
-                    <td style={{ color: metrics.overdueTasks > 0 ? '#dc2626' : 'inherit', fontWeight: metrics.overdueTasks > 0 ? 700 : 400 }}>
-                      {metrics.overdueTasks}
+                    <td style={{ padding: '12px 10px', fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
+                      {employee.department}
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: '60px', height: '6px', background: '#f1f5f9', borderRadius: '99px', overflow: 'hidden' }}>
-                          <div style={{ width: `${metrics.completionRate}%`, height: '100%', background: metrics.completionRate >= 70 ? '#10b981' : '#f59e0b' }} />
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#0F172A' }}>{metrics.totalAssigned}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#0284C7' }}>{metrics.inProgressTasks}</td>
+                    <td style={{ padding: '12px 10px', fontWeight: 700, color: '#16A34A' }}>{metrics.completedTasks}</td>
+                    <td style={{ padding: '12px 10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ flex: 1, height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              width: `${metrics.completionRate}%`,
+                              height: '100%',
+                              background: '#0E7490',
+                              borderRadius: '999px'
+                            }}
+                          />
                         </div>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>{metrics.completionRate}%</span>
+                        <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0F172A' }}>
+                          {metrics.completionRate}%
+                        </span>
                       </div>
                     </td>
-                    <td>
-                      <span className={`status-pill ${
-                        metrics.workloadLevel === 'Overloaded' ? 'rejected' :
-                        metrics.workloadLevel === 'High' ? 'late' : 'present'
-                      }`} style={{ fontSize: '0.68rem' }}>
+                    <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                      <span
+                        style={{
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          background:
+                            metrics.workloadLevel === 'Overloaded'
+                              ? '#FEE2E2'
+                              : metrics.workloadLevel === 'High'
+                              ? '#FEF3C7'
+                              : '#DCFCE7',
+                          color:
+                            metrics.workloadLevel === 'Overloaded'
+                              ? '#DC2626'
+                              : metrics.workloadLevel === 'High'
+                              ? '#D97706'
+                              : '#15803D'
+                        }}
+                      >
                         {metrics.workloadLevel}
                       </span>
                     </td>
@@ -251,28 +704,50 @@ export const TaskReports: React.FC = () => {
               </tbody>
             </table>
           </div>
-          <div className="mobile-only-block task-analytics-mobile-list">
-            {employeePerfData.length === 0 ? (
-              <div className="task-analytics-empty">
-                <User size={30} />
-                <strong>No employee scorecards</strong>
-                <span>Scorecards will appear after task activity is recorded.</span>
-              </div>
-            ) : employeePerfData.map(({ employee, metrics }) => (
-              <div className="task-analytics-card" key={employee.id}>
-                <div className="task-analytics-card-head">
+
+          <div className="mobile-only-block" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {employeePerfData.map(({ employee, metrics }) => (
+              <div
+                key={employee.id}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '14px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <strong>{employee.firstName} {employee.lastName}</strong>
-                    <small>{employee.department} · {employee.designation}</small>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0F172A' }}>
+                      {employee.firstName} {employee.lastName}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                      {employee.department} • {employee.designation}
+                    </div>
                   </div>
-                  <span>{metrics.completionRate}%</span>
+                  <span
+                    style={{
+                      padding: '3px 9px',
+                      borderRadius: '999px',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      background: '#ECFEFF',
+                      color: '#0E7490'
+                    }}
+                  >
+                    {metrics.completionRate}%
+                  </span>
                 </div>
-                <div className="task-analytics-progress"><span style={{ width: `${metrics.completionRate}%` }} /></div>
-                <div className="task-analytics-metrics">
-                  <span><b>{metrics.totalAssigned}</b>Assigned</span>
-                  <span><b>{metrics.completedTasks}</b>Done</span>
-                  <span><b>{metrics.inProgressTasks}</b>Active</span>
-                  <span className={metrics.overdueTasks > 0 ? 'danger' : ''}><b>{metrics.overdueTasks}</b>Overdue</span>
+                <div style={{ width: '100%', height: '7px', background: '#E2E8F0', borderRadius: '999px', overflow: 'hidden' }}>
+                  <div style={{ width: `${metrics.completionRate}%`, height: '100%', background: '#0E7490', borderRadius: '999px' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: '#64748B' }}>
+                  <span>Assigned: <strong style={{ color: '#0F172A' }}>{metrics.totalAssigned}</strong></span>
+                  <span>In Process: <strong style={{ color: '#0284C7' }}>{metrics.inProgressTasks}</strong></span>
+                  <span>Done: <strong style={{ color: '#16A34A' }}>{metrics.completedTasks}</strong></span>
                 </div>
               </div>
             ))}
@@ -280,97 +755,67 @@ export const TaskReports: React.FC = () => {
         </div>
       )}
 
-      {/* REPORT 3: OVERDUE DEEP-DIVE */}
+      {/* ============================================================ */}
+      {/* REPORT 3: OVERDUE ANALYSIS                                   */}
+      {/* ============================================================ */}
       {activeReport === 'overdue_analysis' && (
-        <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="table-responsive desktop-only-block">
-            <table className="hrms-table">
-              <thead>
-                <tr>
-                  <th>Task No & Title</th>
-                  <th>Department</th>
-                  <th>Responsible Person</th>
-                  <th>Due Date</th>
-                  <th>Days Overdue</th>
-                  <th>Assignees Pending</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overdueAnalysisData.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#10b981', fontWeight: 600 }}>
-                      ✓ Zero overdue tasks found! Outstanding performance.
-                    </td>
-                  </tr>
-                ) : (
-                  overdueAnalysisData.map(({ task, daysOverdue }) => (
-                    <tr key={task.id}>
-                      <td>
-                        <div style={{ fontWeight: 700, color: '#dc2626' }}>{task.taskNumber}: {task.title}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{task.taskCategory}</div>
-                      </td>
-                      <td>{task.department}</td>
-                      <td>{task.responsiblePersonName}</td>
-                      <td style={{ color: '#dc2626', fontWeight: 600 }}>{formatDateDDMMYYYY(task.dueDate)}</td>
-                      <td>
-                        <span style={{ background: '#fee2e2', color: '#dc2626', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>
-                          +{daysOverdue} days
-                        </span>
-                      </td>
-                      <td>
-                        {task.assignees.filter(a => a.individualStatus !== 'Completed').map(a => a.employeeName).join(', ')}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="mobile-only-block task-analytics-mobile-list">
-            {overdueAnalysisData.length === 0 ? (
-              <div className="task-analytics-empty success">
-                <CheckSquare size={30} />
-                <strong>No overdue tasks</strong>
-                <span>Everything is currently on schedule.</span>
-              </div>
-            ) : overdueAnalysisData.map(({ task, daysOverdue }) => (
-              <div className="task-analytics-card" key={task.id}>
-                <div className="task-analytics-card-head">
+        <div
+          style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            border: '1px solid #E2E8F0',
+            overflow: 'hidden',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)'
+          }}
+        >
+          {overdueAnalysisData.length === 0 ? (
+            <div style={{ padding: '42px 20px', textAlign: 'center', color: '#16A34A', fontWeight: 700 }}>
+              <CheckSquare size={28} style={{ marginBottom: '6px' }} />
+              <div>No overdue tasks found — all deliverables are on schedule!</div>
+            </div>
+          ) : (
+            <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {overdueAnalysisData.map(({ task, daysOverdue }) => (
+                <div
+                  key={task.id}
+                  style={{
+                    background: '#FFFBFB',
+                    border: '1px solid #FECACA',
+                    borderRadius: '12px',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px'
+                  }}
+                >
                   <div>
-                    <strong>{task.title}</strong>
-                    <small>{task.taskNumber} · {task.department}</small>
+                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0F172A' }}>
+                      <span style={{ color: '#0E7490', marginRight: '6px' }}>{task.taskNumber}</span>
+                      {task.title}
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '3px' }}>
+                      {task.department} • Lead: <strong>{task.responsiblePersonName}</strong> • Due{' '}
+                      {formatDateDayMonthYear(task.dueDate)}
+                    </div>
                   </div>
-                  <span className="danger">+{daysOverdue}d</span>
+                  <span
+                    style={{
+                      background: '#FEE2E2',
+                      color: '#DC2626',
+                      fontWeight: 800,
+                      fontSize: '0.74rem',
+                      padding: '4px 10px',
+                      borderRadius: '999px'
+                    }}
+                  >
+                    +{daysOverdue} days overdue
+                  </span>
                 </div>
-                <div className="task-analytics-card-note">
-                  Responsible: {task.responsiblePersonName} · Due {formatDateDDMMYYYY(task.dueDate)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-
-
-      {/* REPORT 6: WORKLOAD & CAPACITY */}
-      {activeReport === 'workload_capacity' && (
-        <div className="card task-workload-card" style={{ padding: '20px' }}>
-          <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '14px' }}>Workload Distribution Spectrum</h3>
-          <div className="task-workload-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-            {['Light', 'Normal', 'High', 'Overloaded'].map(level => {
-              const matches = employeePerfData.filter(e => e.metrics.workloadLevel === level);
-              return (
-                <div key={level} className="card" style={{ padding: '16px', background: '#f8fafc' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{level} Capacity</div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800, margin: '6px 0', color: level === 'Overloaded' ? '#dc2626' : level === 'High' ? '#f59e0b' : '#10b981' }}>
-                    {matches.length}
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Employees in band</div>
-                </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

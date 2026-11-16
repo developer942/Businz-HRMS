@@ -10099,6 +10099,15 @@ textarea,
     margin-right: -6px !important;
   }
 
+  .desktop-only-inline {
+    display: none !important;
+  }
+
+  .task-unified-tab-btn {
+    padding: 8px 4px 10px 4px !important;
+    min-width: 52px !important;
+  }
+
 }
 
 @theme inline {

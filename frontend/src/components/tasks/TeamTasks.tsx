@@ -1,308 +1,451 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useHRMS } from '../../context/HRMSContext';
-import { 
-  Users, 
-  CheckCircle2, 
-  Search, 
+import {
+  Users,
   Eye,
-  AlertCircle,
-  Clock,
-  Calendar
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  X,
+  Search,
+  Filter
 } from 'lucide-react';
-import { computeDueStatus, TaskAssigneeStatus } from '../../types/tasks';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
-import { StandardTablePagination } from '../common/StandardTablePagination';
-import { MobileFilterSheet } from '../common/MobileFilterSheet';
-import { X, Filter } from 'lucide-react';
+import { computeDueStatus, EnhancedTask } from '../../types/tasks';
+import { formatDateDayMonthYear } from '../../utils/dateUtils';
+import { preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 
-interface TeamTasksProps {
-  onSelectTask: (taskId: string) => void;
+interface Props {
+  onViewTask: (taskId: string) => void;
 }
 
-export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
-  const { enhancedTasks, departments, currentUser } = useHRMS();
+const AVATAR_COLORS = ['#0E7490', '#6366F1', '#0D9488', '#7C3AED', '#2563EB'];
 
-  const isSuperAdmin = currentUser.role === 'Super Admin' || currentUser.role === 'ERP Administrator';
-  const isCEO = isSuperAdmin || currentUser.role === 'CEO' || currentUser.designation === 'CEO' || currentUser.employeeId === 'EMP-000';
-  const isHR = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || (currentUser as any).department?.toLowerCase().includes('hr');
-  const isManager = currentUser.role === 'Department Manager' || currentUser.role === 'Department Head' || currentUser.role === 'Manager';
-  const isBroadAccess = isCEO || isHR;
-  const targetDept = isManager ? currentUser.department : 'All';
-  const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
-  const currentName = (currentUser.name || '').toLowerCase().trim();
+export const TeamTasks: React.FC<Props> = ({ onViewTask }) => {
+  const { enhancedTasks, departments, deleteEnhancedTask, currentUser, employees } = useHRMS();
 
-  const [selectedDept, setSelectedDept] = useState<string>(targetDept || 'All');
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('All');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'OPEN' | 'IN_PROGRESS' | 'COMPLETED'>('ALL');
+  const [filterPriority, setFilterPriority] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedTaskIds, setExpandedTaskIds] = useState<string[]>([]);
+
+  const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false);
+  const [tempStatus, setTempStatus] = useState<'ALL' | 'OPEN' | 'IN_PROGRESS' | 'COMPLETED'>('ALL');
+  const [tempPriority, setTempPriority] = useState<string>('ALL');
+  const [tempDepartment, setTempDepartment] = useState<string>('All');
+
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(10);
-  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [jumpPageInput, setJumpPageInput] = useState<string>('');
 
-  // Scoped tasks: Only include tasks assigned to more than 1 member (> 1 assignees)
-  // Requirement: "IF A TASK IS ASSIGNED TO MORE THAN ONE PERON IT SHOULD COME UNDER TEAM TASK"
+  const isManagerOrAdmin = useMemo(() => {
+    return (
+      currentUser.role === 'Super Admin' ||
+      currentUser.role === 'CEO' ||
+      currentUser.role === 'HR' ||
+      currentUser.role === 'Manager'
+    );
+  }, [currentUser.role]);
+
   const teamTasks = useMemo(() => {
-    return enhancedTasks.filter(t => {
-      // Must have more than 1 member assigned (2 or more members)
-      const assigneeCount = t.assignees ? t.assignees.length : 0;
-      if (assigneeCount <= 1) return false;
+    const myEmpRecord = employees.find(
+      e =>
+        e.employeeId === currentUser.employeeId ||
+        e.id === currentUser.id ||
+        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
+    );
 
-      if (!isBroadAccess) {
-        const isAssignedToMe = t.assignees.some(a => {
-          const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
-          const assigneeName = (a.employeeName || '').toLowerCase().trim();
-          return (
-            (currentEmpId && assigneeEmpId === currentEmpId) ||
-            (currentName && (assigneeName === currentName || assigneeName.includes(currentName) || currentName.includes(assigneeName)))
-          );
-        });
-        if (!isAssignedToMe) return false;
+    const matchesMe = (idOrCode?: string, name?: string) => {
+      if (idOrCode) {
+        if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
+        if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
+      }
+      if (name) {
+        const target = name.trim().toLowerCase();
+        if (target === currentUser.name.trim().toLowerCase()) return true;
+        if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    return enhancedTasks.filter(t => {
+      const isTeam = t.assignmentType === 'Team' || t.assignees.length > 1;
+      if (!isTeam) return false;
+
+      if (!isManagerOrAdmin) {
+        const isInvolved =
+          t.assignees.some(a => matchesMe(a.employeeId, a.employeeName)) ||
+          matchesMe(t.responsiblePersonId, t.responsiblePersonName) ||
+          matchesMe(t.assignedById, t.assignedByName);
+        if (!isInvolved) return false;
       }
 
-      if (isBroadAccess && selectedDept !== 'All' && t.department !== selectedDept) return false;
-      if (!isBroadAccess && isManager && currentUser.department && t.department !== currentUser.department) return false;
+      if (selectedDepartment !== 'All' && t.department !== selectedDepartment) return false;
+      if (filterPriority !== 'ALL' && t.priority !== filterPriority) return false;
 
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const matchesTitle = t.title.toLowerCase().includes(q);
-        const matchesNo = t.taskNumber.toLowerCase().includes(q);
-        const matchesDept = t.department.toLowerCase().includes(q);
-        const matchesLead = t.responsiblePersonName.toLowerCase().includes(q);
-        const matchesAssignee = t.assignees.some(a => a.employeeName.toLowerCase().includes(q));
-        if (!matchesTitle && !matchesNo && !matchesDept && !matchesLead && !matchesAssignee) {
+      if (filterStatus !== 'ALL') {
+        if (filterStatus === 'OPEN' && t.overallStatus !== 'OPEN' && t.overallStatus !== 'REOPENED') return false;
+        if (
+          filterStatus === 'IN_PROGRESS' &&
+          t.overallStatus !== 'IN PROGRESS' &&
+          t.overallStatus !== 'PARTIALLY COMPLETED' &&
+          t.overallStatus !== 'UNDER REVIEW'
+        )
           return false;
-        }
+        if (filterStatus === 'COMPLETED' && t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED')
+          return false;
+      }
+
+      if (searchQuery.trim() !== '') {
+        const q = searchQuery.toLowerCase();
+        const matchesTitle = t.title.toLowerCase().includes(q);
+        const matchesNumber = t.taskNumber.toLowerCase().includes(q);
+        const matchesLead = t.responsiblePersonName.toLowerCase().includes(q);
+        const matchesMember = t.assignees.some(a => a.employeeName.toLowerCase().includes(q));
+        if (!matchesTitle && !matchesNumber && !matchesLead && !matchesMember) return false;
       }
 
       return true;
     });
-  }, [enhancedTasks, selectedDept, isManager, isBroadAccess, currentUser, currentEmpId, currentName, searchTerm]);
+  }, [enhancedTasks, selectedDepartment, filterStatus, filterPriority, searchQuery, isManagerOrAdmin, currentUser, employees]);
 
-  // Paginated tasks
-  const paginatedTasks = useMemo(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
-      return teamTasks;
-    }
-    const start = (currentPage - 1) * pageSize;
-    return teamTasks.slice(start, start + pageSize);
-  }, [teamTasks, currentPage, pageSize]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDepartment, filterStatus, filterPriority, searchQuery]);
 
-  // Assignee individual status badge styling
-  const getAssigneeStatusStyle = (status?: TaskAssigneeStatus) => {
-    switch (status) {
-      case 'Completed':
-        return { bg: '#DCFCE7', color: '#166534' };
-      case 'In Progress':
-      case 'In Process':
-        return { bg: '#ECFEFF', color: '#0E7490' };
-      case 'Under Review':
-        return { bg: '#EDE9FE', color: '#6D28D9' };
-      case 'Blocked':
-        return { bg: '#FEE2E2', color: '#991B1B' };
-      case 'Pending':
-      default:
-        return { bg: '#F1F5F9', color: '#475569' };
+  const activeMobileFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterStatus !== 'ALL') count++;
+    if (filterPriority !== 'ALL') count++;
+    if (selectedDepartment !== 'All') count++;
+    return count;
+  }, [filterStatus, filterPriority, selectedDepartment]);
+
+  const openMobileFilter = () => {
+    setTempStatus(filterStatus);
+    setTempPriority(filterPriority);
+    setTempDepartment(selectedDepartment);
+    setShowMobileFilterSheet(true);
+  };
+
+  const applyMobileFilter = () => {
+    setFilterStatus(tempStatus);
+    setFilterPriority(tempPriority);
+    setSelectedDepartment(tempDepartment);
+    setShowMobileFilterSheet(false);
+  };
+
+  const resetAllFilters = () => {
+    setFilterStatus('ALL');
+    setFilterPriority('ALL');
+    setSelectedDepartment('All');
+    setTempStatus('ALL');
+    setTempPriority('ALL');
+    setTempDepartment('All');
+    setShowMobileFilterSheet(false);
+  };
+
+  const toggleExpand = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedTaskIds(prev => (prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]));
+  };
+
+  const totalEntries = teamTasks.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * rowsPerPage;
+  const paginatedTasks = teamTasks.slice(startIndex, startIndex + rowsPerPage);
+
+  const toggleSelectAll = () => {
+    const visibleIds = paginatedTasks.map(t => t.id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedTaskIds.includes(id));
+    if (allVisibleSelected) {
+      setSelectedTaskIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedTaskIds(prev => Array.from(new Set([...prev, ...visibleIds])));
     }
   };
 
-  // Overall task status pill styling
-  const getStatusBadgeStyle = (status: string) => {
-    switch (status) {
-      case 'COMPLETED':
-      case 'CLOSED':
-        return { bg: '#DCFCE7', color: '#15803D', label: 'Completed' };
-      case 'IN PROGRESS':
-        return { bg: '#ECFEFF', color: '#0E7490', label: 'In Progress' };
-      case 'PARTIALLY COMPLETED':
-        return { bg: '#ECFEFF', color: '#0E7490', label: 'In Progress' };
-      case 'OVERDUE':
-        return { bg: '#FEE2E2', color: '#DC2626', label: 'Overdue' };
-      case 'OPEN':
-      default:
-        return { bg: '#FEF3C7', color: '#B45309', label: 'To Do' };
+  const toggleSelectRow = (id: string, e?: React.MouseEvent | React.ChangeEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedTaskIds(prev => (prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]));
+  };
+
+  const handleBulkEdit = () => {
+    if (selectedTaskIds.length > 0) {
+      onViewTask(selectedTaskIds[0]);
     }
   };
 
-  // Helper for friendly due text (e.g. "Due Tomorrow", "Due Today", "Oct 28, 2024")
-  const getFriendlyDueText = (dueDateStr: string, overallStatus: string) => {
-    if (!dueDateStr) return 'No due date';
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrowObj = new Date();
-    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-    const tomorrow = tomorrowObj.toISOString().split('T')[0];
-    const isCompleted = overallStatus === 'COMPLETED' || overallStatus === 'CLOSED';
-
-    if (dueDateStr === today) return 'Due Today';
-    if (dueDateStr === tomorrow) return 'Due Tomorrow';
-    if (dueDateStr < today && !isCompleted) return `Overdue (${formatDateDDMMYYYY(dueDateStr)})`;
-
-    try {
-      const parts = dueDateStr.split('-');
-      if (parts.length === 3) {
-        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      }
-    } catch (e) {}
-
-    return formatDateDDMMYYYY(dueDateStr);
+  const handleBulkDelete = () => {
+    if (selectedTaskIds.length === 0) return;
+    if (window.confirm(`Are you sure you want to delete ${selectedTaskIds.length} selected team task(s)?`)) {
+      selectedTaskIds.forEach(id => {
+        deleteEnhancedTask?.(id);
+      });
+      setSelectedTaskIds([]);
+    }
   };
 
-  const getPriorityConfig = (priority: string) => {
-    const p = (priority || 'Normal').toLowerCase();
-    if (p === 'urgent' || p === 'high') {
-      return { label: p === 'urgent' ? 'Urgent' : 'High Priority', bg: '#FEE2E2', text: '#EF4444' };
+  const handleJumpToPage = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pageNum = parseInt(jumpPageInput, 10);
+    if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+      setCurrentPage(pageNum);
+      setJumpPageInput('');
     }
-    if (p === 'medium') {
-      return { label: 'Medium', bg: '#FEF3C7', text: '#D97706' };
-    }
-    return { label: 'Normal', bg: '#DCFCE7', text: '#16A34A' };
   };
 
-  const getStatusConfig = (status: string) => {
-    const s = (status || 'Pending').toLowerCase();
-    if (s.includes('completed') || s.includes('closed')) {
-      return { label: 'Completed', dotColor: '#16A34A', bg: '#DCFCE7', text: '#15803D' };
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let start = Math.max(1, safeCurrentPage - Math.floor(maxButtons / 2));
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) {
+      start = Math.max(1, end - maxButtons + 1);
     }
-    if (s.includes('progress') || s.includes('process')) {
-      return { label: 'In Progress', dotColor: '#2563EB', bg: '#EFF6FF', text: '#2563EB' };
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
     }
-    if (s.includes('review')) {
-      return { label: 'Under Review', dotColor: '#7C3AED', bg: '#F5F3FF', text: '#7C3AED' };
+    return pages;
+  };
+
+  const getDisplayStatusBadge = (rawStatus: string) => {
+    if (rawStatus === 'Completed' || rawStatus === 'COMPLETED' || rawStatus === 'CLOSED') {
+      return { label: 'Completed', bg: '#DCFCE7', color: '#15803D', showDot: false };
     }
-    if (s.includes('overdue')) {
-      return { label: 'Overdue', dotColor: '#DC2626', bg: '#FEF2F2', text: '#DC2626' };
+    if (
+      rawStatus === 'In Progress' ||
+      rawStatus === 'IN PROGRESS' ||
+      rawStatus === 'PARTIALLY COMPLETED' ||
+      rawStatus === 'UNDER REVIEW' ||
+      rawStatus === 'REOPENED'
+    ) {
+      return { label: 'In Progress', bg: '#E0F2FE', color: '#0284C7', showDot: false };
     }
-    return { label: 'To Do', dotColor: '#F59E0B', bg: '#FFFBEB', text: '#D97706' };
+    return { label: 'Open', bg: '#E0F2FE', color: '#0E7490', showDot: true };
+  };
+
+  const allVisibleSelected =
+    paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTaskIds.includes(t.id));
+
+  const renderAvatarCluster = (task: EnhancedTask) => {
+    const visibleAssignees = task.assignees.slice(0, 2);
+    const extraCount = Math.max(0, task.assignees.length - 2);
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {visibleAssignees.map((assignee: any, idx: number) => {
+          const initial = (assignee.employeeName || 'U').trim().charAt(0).toUpperCase();
+          return (
+            <div
+              key={assignee.employeeId || idx}
+              title={`${assignee.employeeName} (${assignee.individualStatus})`}
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                background: AVATAR_COLORS[idx % AVATAR_COLORS.length],
+                color: '#FFFFFF',
+                fontSize: '0.74rem',
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '2px solid #FFFFFF',
+                marginLeft: idx === 0 ? '0px' : '-7px',
+                boxShadow: '0 1px 2px rgba(15, 23, 42, 0.08)',
+                zIndex: 3 - idx
+              }}
+            >
+              {initial}
+            </div>
+          );
+        })}
+        {extraCount > 0 && (
+          <div
+            style={{
+              minWidth: '28px',
+              height: '28px',
+              padding: '0 6px',
+              borderRadius: '999px',
+              background: '#F1F5F9',
+              color: '#334155',
+              fontSize: '0.7rem',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '2px solid #FFFFFF',
+              marginLeft: '-6px',
+              boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06)',
+              zIndex: 1
+            }}
+          >
+            +{extraCount}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
-    <div className="team-tasks-container" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
-      {/* Top Search & Filter Bar */}
-      <div className="team-tasks-heading-row" style={{
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        flexWrap: 'wrap', 
-        gap: '12px', 
-        marginBottom: '16px' 
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            background: '#ECFEFF',
-            color: '#0E7490',
-            width: '32px',
-            height: '32px',
-            borderRadius: '8px',
+    <div className="team-tasks-container" style={{ width: '100%' }}>
+      {/* ============================================================ */}
+      {/* DESKTOP FILTER BAR                                           */}
+      {/* ============================================================ */}
+      <div
+        className="desktop-only-block"
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '14px',
+          padding: '12px 14px',
+          marginBottom: '14px',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.02)'
+        }}
+      >
+        <div
+          style={{
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <Users size={18} />
-          </div>
-          <div>
-            <h3 style={{ fontSize: '0.98rem', fontWeight: 700, margin: 0, color: '#0F172A' }}>
-              Team Tasks ({teamTasks.length})
-            </h3>
-            <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
-              Tasks assigned to 2 or more members with independent progress tracking
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
+            <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: '340px' }}>
+              <Search
+                size={15}
+                style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#94A3B8',
+                  pointerEvents: 'none'
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Search team tasks, lead, or member..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
+                style={{
+                  width: '100%',
+                  height: '38px',
+                  paddingLeft: '36px',
+                  paddingRight: '12px',
+                  fontSize: '0.82rem',
+                  borderRadius: '10px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  color: '#0F172A',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
             </div>
-          </div>
-        </div>
 
-        <div className="task-desktop-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Search Box */}
-          <div style={{ position: 'relative', width: '220px' }}>
-            <Search 
-              size={15} 
-              style={{ 
-                position: 'absolute', 
-                left: '10px', 
-                top: '50%', 
-                transform: 'translateY(-50%)', 
-                color: '#94A3B8' 
-              }} 
-            />
-            <input
-              type="text"
-              placeholder="Search team tasks..."
-              value={searchTerm}
-              onChange={e => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="form-control"
-              style={{ 
-                paddingLeft: '32px', 
-                fontSize: '0.82rem', 
-                height: '36px',
-                borderRadius: '8px',
-                borderColor: '#E2E8F0'
-              }}
-            />
-          </div>
-
-          {/* Department Filter */}
-          {isBroadAccess && (
-            <select 
-              value={selectedDept} 
-              onChange={e => {
-                setSelectedDept(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="form-select"
-              style={{ 
-                fontSize: '0.82rem', 
+            <select
+              value={selectedDepartment}
+              onChange={e => setSelectedDepartment(e.target.value)}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                fontSize: '0.8rem',
                 fontWeight: 600,
-                color: '#0F172A',
-                height: '36px', 
-                borderRadius: '8px',
-                borderColor: '#CBD5E1',
-                paddingLeft: '12px',
-                paddingRight: '32px',
-                backgroundColor: '#FFFFFF',
-                cursor: 'pointer',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+                background: '#FFFFFF',
+                color: '#334155',
+                cursor: 'pointer'
               }}
             >
               <option value="All">All Departments</option>
               {departments.map(d => (
-                <option key={d.id} value={d.name}>{d.name}</option>
+                <option key={d.id} value={d.name}>
+                  {d.name}
+                </option>
               ))}
             </select>
-          )}
+
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value as any)}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+                background: '#FFFFFF',
+                color: '#334155',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="OPEN">Open</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="COMPLETED">Completed</option>
+            </select>
+          </div>
+
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748B' }}>
+            {teamTasks.length} Team {teamTasks.length === 1 ? 'Task' : 'Tasks'}
+          </span>
         </div>
       </div>
 
-      {/* Mobile Compact Search & Filter Toolbar (< 768px) */}
+      {/* ============================================================ */}
+      {/* MOBILE SEARCH + FILTER BAR (Matches Reference Image Screen 2)*/}
+      {/* ============================================================ */}
       <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
-        <div className="mobile-search-filter-bar">
-          <div className="mobile-search-input-wrap">
-            <Search 
-              size={15} 
-              style={{ 
-                position: 'absolute', 
-                left: '10px', 
-                top: '50%', 
-                transform: 'translateY(-50%)', 
-                color: '#94A3B8' 
-              }} 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+            <Search
+              size={15}
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#94A3B8',
+                pointerEvents: 'none'
+              }}
             />
             <input
               type="text"
-              placeholder="Search team tasks..."
-              value={searchTerm}
-              onChange={e => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
+              placeholder="Search"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={preventSpaceEnterPropagation}
+              style={{
+                width: '100%',
+                height: '40px',
+                paddingLeft: '36px',
+                paddingRight: searchQuery ? '30px' : '12px',
+                borderRadius: '12px',
+                border: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                fontSize: '0.84rem',
+                color: '#0F172A',
+                outline: 'none',
+                boxSizing: 'border-box'
               }}
-              className="mobile-search-input"
             />
-            {searchTerm && (
+            {searchQuery && (
               <button
                 type="button"
-                onClick={() => {
-                  setSearchTerm('');
-                  setCurrentPage(1);
-                }}
-                aria-label="Clear search"
+                onClick={() => setSearchQuery('')}
                 style={{
                   position: 'absolute',
                   right: '8px',
@@ -311,437 +454,868 @@ export const TeamTasks: React.FC<TeamTasksProps> = ({ onSelectTask }) => {
                   background: 'none',
                   border: 'none',
                   color: '#94A3B8',
+                  padding: '4px',
                   cursor: 'pointer',
-                  display: 'flex',
-                  padding: 0
+                  display: 'flex'
                 }}
               >
                 <X size={14} />
               </button>
             )}
           </div>
-
-          {isBroadAccess && (
-            <button
-              type="button"
-              className={`mobile-filter-trigger-btn ${selectedDept !== 'All' ? 'has-filters' : ''}`}
-              onClick={() => setIsFilterSheetOpen(true)}
-              aria-label="Open filter options"
-            >
-              <Filter size={15} />
-              <span>Dept</span>
-              {selectedDept !== 'All' && (
-                <span className="mobile-tab-badge" style={{ background: '#0E7490', color: '#FFFFFF', padding: '1px 5px', fontSize: '0.66rem' }}>
-                  1
-                </span>
-              )}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={openMobileFilter}
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '12px',
+              border: activeMobileFilterCount > 0 ? '1px solid #0E7490' : '1px solid #E2E8F0',
+              background: activeMobileFilterCount > 0 ? '#ECFEFF' : '#F1F5F9',
+              color: activeMobileFilterCount > 0 ? '#0E7490' : '#334155',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+              position: 'relative'
+            }}
+            title="Filter Team Tasks"
+          >
+            <Filter size={16} />
+            {activeMobileFilterCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  background: '#0E7490',
+                  color: '#FFFFFF',
+                  fontSize: '0.62rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                {activeMobileFilterCount}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Active Filter Chips */}
-        {selectedDept !== 'All' && (
-          <div className="mobile-active-filter-chips">
-            <span className="mobile-filter-chip">
-              <span>Dept: {selectedDept}</span>
-              <button
-                type="button"
-                className="mobile-filter-chip-clear"
-                onClick={() => {
-                  setSelectedDept('All');
-                  setCurrentPage(1);
-                }}
-                aria-label="Remove department filter"
-              >
-                <X size={12} />
-              </button>
-            </span>
+        {activeMobileFilterCount > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+            {filterStatus !== 'ALL' && (
+              <span className="mobile-ref-filter-chip">
+                {filterStatus === 'IN_PROGRESS' ? 'In Progress' : filterStatus}
+                <button type="button" className="mobile-ref-filter-chip-clear" onClick={() => setFilterStatus('ALL')}>
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {filterPriority !== 'ALL' && (
+              <span className="mobile-ref-filter-chip">
+                {filterPriority}
+                <button type="button" className="mobile-ref-filter-chip-clear" onClick={() => setFilterPriority('ALL')}>
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {selectedDepartment !== 'All' && (
+              <span className="mobile-ref-filter-chip">
+                {selectedDepartment}
+                <button
+                  type="button"
+                  className="mobile-ref-filter-chip-clear"
+                  onClick={() => setSelectedDepartment('All')}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            <button type="button" className="mobile-filter-reset-all-btn" onClick={resetAllFilters}>
+              Clear All
+            </button>
           </div>
         )}
       </div>
 
-      {/* Mobile Filter Bottom Sheet */}
-      <MobileFilterSheet
-        isOpen={isFilterSheetOpen}
-        onClose={() => setIsFilterSheetOpen(false)}
-        title="Filter by Department"
-        onReset={() => {
-          setSelectedDept('All');
-          setCurrentPage(1);
-        }}
-        onApply={() => {
-          setCurrentPage(1);
+      {/* ============================================================ */}
+      {/* DESKTOP TABLE VIEW (Compact Team Progress + Avatars)         */}
+      {/* ============================================================ */}
+      <div
+        className="desktop-only-block"
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '16px',
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)'
         }}
       >
-        <div>
-          <div className="mobile-filter-group-title">Department</div>
-          <div className="mobile-filter-chips-grid">
-            <button
-              type="button"
-              className={`mobile-filter-select-chip ${selectedDept === 'All' ? 'selected' : ''}`}
-              onClick={() => setSelectedDept('All')}
+        {teamTasks.length === 0 ? (
+          <div
+            style={{
+              padding: '48px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center'
+            }}
+          >
+            <div
+              style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                background: '#ECFEFF',
+                color: '#0E7490',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '12px'
+              }}
             >
-              All Departments
-            </button>
-            {departments.map(d => (
-              <button
-                key={d.id}
-                type="button"
-                className={`mobile-filter-select-chip ${selectedDept === d.name ? 'selected' : ''}`}
-                onClick={() => setSelectedDept(d.name)}
-              >
-                {d.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      </MobileFilterSheet>
-
-      {/* Mobile Section Header (< 768px): CURRENT TASKS (N) + Sort */}
-      <div className="mobile-only-block" style={{ marginBottom: '10px' }}>
-        <div className="mobile-task-section-header">
-          <span className="mobile-task-section-title">
-            CURRENT TASKS ({teamTasks.length})
-          </span>
-          <span className="mobile-task-section-sort">
-            Sort by Due Date
-          </span>
-        </div>
-      </div>
-
-      {/* Actionable Team Tasks Table */}
-      <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid #E7ECF3', borderRadius: '16px' }}>
-        {paginatedTasks.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '56px 20px', color: '#64748B' }}>
-            <Users size={40} style={{ opacity: 0.35, margin: '0 auto 12px', color: '#0E7490', display: 'block' }} />
-            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1E293B', marginBottom: '4px' }}>
-              No team tasks found
+              <Users size={24} />
             </div>
-            <div style={{ fontSize: '0.84rem', color: '#64748B' }}>
-              Tasks assigned to 2 or more members will appear here automatically.
+            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0F172A', marginBottom: '4px' }}>
+              No Team Tasks Found
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#64748B', maxWidth: '340px' }}>
+              Multi-employee team assignments will appear here.
             </div>
           </div>
         ) : (
-          <>
-            {/* Desktop Table View (>= 768px) */}
-            <div className="task-desktop-table">
-              <div className="table-responsive no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-            <table className="hrms-table" style={{ width: '100%', minWidth: '840px', borderCollapse: 'collapse' }}>
+          <div style={{ width: '100%', overflowX: 'auto' }}>
+            <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead>
-                <tr style={{ background: '#F8FAFC' }}>
-                  <th style={{ minWidth: '220px' }}>Task No & Title</th>
-                  <th style={{ minWidth: '240px' }}>Team Assignees (Individual Status)</th>
-                  <th style={{ minWidth: '130px' }}>Responsible Lead</th>
-                  <th style={{ minWidth: '110px' }}>Due Date</th>
-                  <th style={{ minWidth: '130px' }}>Status</th>
-                  <th style={{ textAlign: 'right', minWidth: '80px' }}>Actions</th>
+                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <th style={{ width: '40px', textAlign: 'center', padding: '12px 8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAll}
+                      style={{ accentColor: '#0E7490', width: '15px', height: '15px', cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th style={{ width: '34px', padding: '12px 4px' }} />
+                  <th style={{ width: '120px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Task ID
+                  </th>
+                  <th style={{ width: '26%', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Task &amp; Department
+                  </th>
+                  <th style={{ width: '160px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Team Members
+                  </th>
+                  <th style={{ width: '22%', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Completion Progress
+                  </th>
+                  <th style={{ width: '125px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Due Date
+                  </th>
+                  <th style={{ width: '125px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Status
+                  </th>
+                  <th style={{ width: '80px', padding: '12px 12px', textAlign: 'right', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedTasks.map(task => {
+                  const isExpanded = expandedTaskIds.includes(task.id);
+                  const isSelected = selectedTaskIds.includes(task.id);
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
-                  const isOverdue = dueStatus === 'Overdue';
-                  const statusBadge = getStatusBadgeStyle(task.overallStatus);
+                  const completedCount = task.assignees.filter(a => a.individualStatus === 'Completed').length;
+                  const totalCount = task.assignees.length;
+                  const progressPct =
+                    totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : task.overallProgress;
+                  const sStyle = getDisplayStatusBadge(task.overallStatus);
 
                   return (
-                    <tr 
-                      key={task.id}
-                      style={{ transition: 'background-color 0.15s ease', cursor: 'pointer' }}
-                      onClick={(e) => {
-                        const target = e.target as HTMLElement;
-                        if (target.closest('button')) return;
-                        onSelectTask(task.id);
-                      }}
-                    >
-                      {/* Task No & Title */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                          <span style={{ 
-                            fontSize: '0.72rem', 
-                            fontWeight: 700, 
-                            color: '#0E7490', 
-                            background: '#ECFEFF', 
-                            padding: '1px 6px', 
-                            borderRadius: '4px',
-                            border: '1px solid #CFFAFE'
-                          }}>
+                    <React.Fragment key={task.id}>
+                      <tr
+                        onClick={() => onViewTask(task.id)}
+                        style={{
+                          cursor: 'pointer',
+                          backgroundColor: isSelected ? '#ECFEFF' : '#FFFFFF',
+                          borderBottom: '1px solid #F1F5F9',
+                          transition: 'background-color 0.12s ease'
+                        }}
+                      >
+                        <td
+                          style={{
+                            textAlign: 'center',
+                            padding: '12px 8px',
+                            borderLeft: isSelected ? '4px solid #0E7490' : '4px solid transparent'
+                          }}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={e => toggleSelectRow(task.id, e)}
+                            style={{ accentColor: '#0E7490', width: '15px', height: '15px', cursor: 'pointer' }}
+                          />
+                        </td>
+                        <td style={{ padding: '12px 4px', textAlign: 'center' }} onClick={e => toggleExpand(task.id, e)}>
+                          <button
+                            type="button"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              color: '#64748B',
+                              display: 'inline-flex'
+                            }}
+                          >
+                            {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                          </button>
+                        </td>
+                        <td style={{ padding: '12px 12px' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.78rem', color: '#0E7490' }}>
                             {task.taskNumber}
                           </span>
-                          <span className={`priority-pill ${task.priority.toLowerCase()}`} style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
-                            {task.priority}
-                          </span>
-                        </div>
-                        <div 
-                          style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0F172A', cursor: 'pointer', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                          title={task.title}
-                          onClick={() => onSelectTask(task.id)}
-                        >
-                          {task.title}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px' }}>
-                          {task.taskCategory} • {task.department}
-                        </div>
-                      </td>
-
-                      {/* Team Assignees with Independent Progress & Status */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                          {task.assignees.map(a => {
-                            const isCompleted = a.individualStatus === 'Completed' || (a.progressPercentage || 0) === 100;
-                            const progress = a.progressPercentage ?? (isCompleted ? 100 : 0);
-                            const asnStyle = getAssigneeStatusStyle(a.individualStatus);
-
-                            return (
-                              <div key={a.id || a.employeeId} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <div style={{
-                                  width: '22px',
-                                  height: '22px',
-                                  borderRadius: '9999px',
-                                  background: isCompleted ? '#16A34A' : '#0E7490',
-                                  color: '#fff',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '0.65rem',
-                                  fontWeight: 700,
-                                  flexShrink: 0
-                                }}>
-                                  {a.employeeName.charAt(0).toUpperCase()}
-                                </div>
-                                <span style={{ 
-                                  fontWeight: 600, 
-                                  fontSize: '0.78rem', 
-                                  color: '#1E293B', 
-                                  maxWidth: '120px', 
-                                  overflow: 'hidden', 
-                                  textOverflow: 'ellipsis', 
-                                  whiteSpace: 'nowrap' 
-                                }} title={a.employeeName}>
-                                  {a.employeeName}
-                                </span>
-                                <span style={{
-                                  fontSize: '0.66rem',
-                                  fontWeight: 700,
-                                  padding: '1px 6px',
-                                  borderRadius: '4px',
-                                  background: asnStyle.bg,
-                                  color: asnStyle.color,
-                                  whiteSpace: 'nowrap'
-                                }}>
-                                  {a.individualStatus || 'Pending'}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </td>
-
-                      {/* Responsible Lead */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <span style={{ fontSize: '0.8rem', color: '#1e293b', fontWeight: 600 }}>
-                          {task.responsiblePersonName}
-                        </span>
-                      </td>
-
-                      {/* Due Date */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <span style={{ 
-                          fontSize: '0.78rem', 
-                          color: isOverdue ? '#dc2626' : '#1e293b', 
-                          fontWeight: isOverdue ? 700 : 500 
-                        }}>
-                          {formatDateDDMMYYYY(task.dueDate)}
-                        </span>
-                        {isOverdue && (
-                          <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#DC2626' }}>
-                            Overdue
+                        </td>
+                        <td style={{ padding: '12px 12px', minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              color: '#0F172A',
+                              fontSize: '0.85rem',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}
+                          >
+                            {task.title}
                           </div>
-                        )}
-                      </td>
+                          <div style={{ fontSize: '0.73rem', color: '#64748B', marginTop: '2px' }}>
+                            {task.department} • Lead: {task.responsiblePersonName}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 12px' }}>{renderAvatarCluster(task)}</td>
+                        <td style={{ padding: '12px 12px' }}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              fontSize: '0.73rem',
+                              marginBottom: '5px'
+                            }}
+                          >
+                            <span style={{ color: '#475569', fontWeight: 600 }}>
+                              {completedCount} of {totalCount} Completed
+                            </span>
+                            <span style={{ color: '#0F172A', fontWeight: 800 }}>{progressPct}%</span>
+                          </div>
+                          <div
+                            style={{
+                              width: '100%',
+                              height: '6px',
+                              background: '#E2E8F0',
+                              borderRadius: '999px',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${progressPct}%`,
+                                height: '100%',
+                                background: '#0E7490',
+                                borderRadius: '999px',
+                                transition: 'width 0.25s ease'
+                              }}
+                            />
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 12px' }}>
+                          <div
+                            style={{
+                              fontSize: '0.8rem',
+                              fontWeight: 700,
+                              color: dueStatus === 'Overdue' ? '#DC2626' : '#334155'
+                            }}
+                          >
+                            {formatDateDayMonthYear(task.dueDate)}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 12px' }}>
+                          <span
+                            style={{
+                              background: sStyle.bg,
+                              color: sStyle.color,
+                              fontWeight: 700,
+                              fontSize: '0.73rem',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
+                          >
+                            {sStyle.showDot && (
+                              <span
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  background: sStyle.color
+                                }}
+                              />
+                            )}
+                            {sStyle.label}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 12px', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              onViewTask(task.id);
+                            }}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid #E2E8F0',
+                              background: '#F8FAFC',
+                              color: '#0E7490',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Eye size={13} /> View
+                          </button>
+                        </td>
+                      </tr>
 
-                      {/* Overall Status */}
-                      <td style={{ verticalAlign: 'middle' }}>
-                        <span style={{ 
-                          fontSize: '0.72rem', 
-                          fontWeight: 700, 
-                          padding: '3px 8px', 
-                          borderRadius: '9999px', 
-                          background: statusBadge.bg, 
-                          color: statusBadge.color,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {task.overallStatus === 'COMPLETED' || task.overallStatus === 'CLOSED' ? (
-                            <CheckCircle2 size={12} />
-                          ) : isOverdue ? (
-                            <AlertCircle size={12} />
-                          ) : (
-                            <Clock size={12} />
-                          )}
-                          {statusBadge.label}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
-                        <button 
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => onSelectTask(task.id)}
-                          title="View Task Details"
-                          aria-label="View Task Details"
-                          style={{
-                            padding: '5px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid #CFFAFE',
-                            background: '#ECFEFF',
-                            color: '#0E7490',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease'
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = '#0E7490';
-                            e.currentTarget.style.color = '#FFFFFF';
-                            e.currentTarget.style.borderColor = '#0E7490';
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = '#ECFEFF';
-                            e.currentTarget.style.color = '#0E7490';
-                            e.currentTarget.style.borderColor = '#CFFAFE';
-                          }}
-                        >
-                          <Eye size={13} /> Details
-                        </button>
-                      </td>
-                    </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={9} style={{ background: '#F8FAFC', padding: '12px 24px', borderBottom: '1px solid #E2E8F0' }}>
+                            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
+                              Team Member Status Breakdown:
+                            </div>
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                                gap: '8px'
+                              }}
+                            >
+                              {task.assignees.map(a => (
+                                <div
+                                  key={a.employeeId}
+                                  style={{
+                                    padding: '8px 12px',
+                                    background: '#FFFFFF',
+                                    borderRadius: '10px',
+                                    border: '1px solid #E2E8F0',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A' }}>
+                                      {a.employeeName}
+                                    </div>
+                                    <div style={{ fontSize: '0.68rem', color: '#64748B' }}>
+                                      {a.designation || a.department}
+                                    </div>
+                                  </div>
+                                  <span
+                                    style={{
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      padding: '2px 8px',
+                                      borderRadius: '999px',
+                                      background:
+                                        a.individualStatus === 'Completed'
+                                          ? '#DCFCE7'
+                                          : a.individualStatus === 'In Progress'
+                                          ? '#E0F2FE'
+                                          : '#F1F5F9',
+                                      color:
+                                        a.individualStatus === 'Completed'
+                                          ? '#15803D'
+                                          : a.individualStatus === 'In Progress'
+                                          ? '#0284C7'
+                                          : '#475569'
+                                    }}
+                                  >
+                                    {a.individualStatus}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
-                })
-              }
-            </tbody>
-          </table>
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Standardized Pagination Footer */}
+        <div
+          className="standard-pagination-footer"
+          style={{
+            padding: '12px 20px',
+            borderTop: '1px solid #E7ECF3',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px',
+            background: '#FAFCFF'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.8rem', color: '#64748B' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>Rows per page:</span>
+              <select
+                value={rowsPerPage}
+                onChange={e => {
+                  setRowsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="form-control"
+                style={{ width: '62px', height: '30px', padding: '2px 6px', fontSize: '0.78rem', borderRadius: '6px' }}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+              </select>
+            </div>
+            <span>
+              Showing <strong>{totalEntries === 0 ? 0 : startIndex + 1}</strong> to{' '}
+              <strong>{Math.min(startIndex + rowsPerPage, totalEntries)}</strong> of <strong>{totalEntries}</strong>{' '}
+              entries
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={safeCurrentPage === 1}
+                onClick={() => setCurrentPage(1)}
+                style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+              >
+                &lt;&lt;
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={safeCurrentPage === 1}
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+              >
+                &lt;
+              </button>
+              {getPageNumbers().map(num => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => setCurrentPage(num)}
+                  className="btn btn-sm"
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.75rem',
+                    minWidth: '30px',
+                    backgroundColor: num === safeCurrentPage ? '#0E7490' : '#FFFFFF',
+                    color: num === safeCurrentPage ? '#FFFFFF' : '#1E293B',
+                    border: num === safeCurrentPage ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                    fontWeight: num === safeCurrentPage ? 700 : 500
+                  }}
+                >
+                  {num}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={safeCurrentPage === totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+              >
+                &gt;
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={safeCurrentPage === totalPages}
+                onClick={() => setCurrentPage(totalPages)}
+                style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+              >
+                &gt;&gt;
+              </button>
+            </div>
+
+            <form onSubmit={handleJumpToPage} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.78rem', color: '#64748B' }}>Go to page</span>
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                value={jumpPageInput}
+                onChange={e => setJumpPageInput(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
+                className="form-control"
+                style={{
+                  width: '48px',
+                  height: '30px',
+                  padding: '2px 6px',
+                  fontSize: '0.78rem',
+                  textAlign: 'center',
+                  borderRadius: '6px'
+                }}
+              />
+              <button
+                type="submit"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '4px 10px', fontSize: '0.75rem', height: '30px' }}
+              >
+                Go &rsaquo;
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 
-      {/* Mobile Cards View (< 768px): Exact Apple-Style Reference Cards */}
-      <div className="task-mobile-cards" style={{ padding: '0 2px' }}>
-        {paginatedTasks.map(task => {
-          const priorityConfig = getPriorityConfig(task.priority);
-          const statusConfig = getStatusConfig(task.overallStatus);
-          const friendlyDue = getFriendlyDueText(task.dueDate, task.overallStatus);
+      {/* ============================================================ */}
+      {/* MOBILE COMPACT TEAM TASK CARDS (Matches Screen 2 Reference)  */}
+      {/* Row 1: TSK-2026-005 | In Progress                            */}
+      {/* Row 2: Punch in issue                                        */}
+      {/* Row 3: [M][A][+8] | Due: 06 Nov 2026                         */}
+      {/* Row 4: 2 of 10 Completed | 20%                               */}
+      {/* Row 5: Horizontal Teal Progress Bar                          */}
+      {/* ============================================================ */}
+      <div
+        className="mobile-only-block"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          paddingBottom: '12px'
+        }}
+      >
+        {teamTasks.length === 0 ? (
+          <div className="mobile-empty-state">
+            <div className="mobile-empty-icon">
+              <Users size={18} />
+            </div>
+            <div className="mobile-empty-title">No Team Tasks</div>
+            <div className="mobile-empty-desc">Multi-member team tasks will appear here.</div>
+          </div>
+        ) : (
+          teamTasks.map((task: EnhancedTask) => {
+            const sStyle = getDisplayStatusBadge(task.overallStatus);
+            const completedCount = task.assignees.filter((a: any) => a.individualStatus === 'Completed').length;
+            const totalCount = task.assignees.length;
+            const progressPct =
+              totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : task.overallProgress;
 
-          return (
-            <div
-              key={task.id}
-              className="mobile-ref-task-card"
-              onClick={() => onSelectTask(task.id)}
-            >
-              {/* Header: Priority + Department | Status Pill with Dot */}
-              <div className="mobile-ref-card-header">
-                <div className="mobile-ref-card-tags">
-                  <span 
-                    className="mobile-ref-priority-tag"
+            return (
+              <div
+                key={task.id}
+                onClick={() => onViewTask(task.id)}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '16px',
+                  padding: '14px 16px',
+                  boxShadow: '0 2px 6px rgba(15, 23, 42, 0.03)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                {/* Row 1: Task ID (left) + Status Pill (right) */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0E7490' }}>
+                    {task.taskNumber}
+                  </span>
+                  <span
                     style={{
-                      backgroundColor: priorityConfig.bg,
-                      color: priorityConfig.text
+                      background: sStyle.bg,
+                      color: sStyle.color,
+                      fontSize: '0.73rem',
+                      fontWeight: 700,
+                      padding: '3.5px 10px',
+                      borderRadius: '999px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
                     }}
                   >
-                    {priorityConfig.label}
+                    {sStyle.showDot && (
+                      <span
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: sStyle.color
+                        }}
+                      />
+                    )}
+                    {sStyle.label}
                   </span>
-                  {task.department && (
-                    <span className="mobile-ref-dept-tag">
-                      {task.department}
-                    </span>
-                  )}
                 </div>
 
-                <span 
-                  className="mobile-ref-status-pill"
+                {/* Row 2: Task Title */}
+                <div style={{ fontSize: '0.96rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.3 }}>
+                  {task.title}
+                </div>
+
+                {/* Row 3: Overlapping Avatars (left) + Due: DD Mon YYYY (right) */}
+                <div
                   style={{
-                    backgroundColor: statusConfig.bg,
-                    color: statusConfig.text
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    marginTop: '2px'
                   }}
                 >
-                  <span 
-                    className="ref-status-dot"
-                    style={{ backgroundColor: statusConfig.dotColor }}
+                  {renderAvatarCluster(task)}
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748B' }}>
+                    Due: {formatDateDayMonthYear(task.dueDate)}
+                  </span>
+                </div>
+
+                {/* Row 4: X of Y Completed (left) + Percentage (right) */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    marginTop: '2px'
+                  }}
+                >
+                  <span style={{ fontSize: '0.76rem', fontWeight: 600, color: '#475569' }}>
+                    {completedCount} of {totalCount} Completed
+                  </span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0F172A' }}>{progressPct}%</span>
+                </div>
+
+                {/* Row 5: Progress Bar */}
+                <div
+                  style={{
+                    width: '100%',
+                    height: '7px',
+                    borderRadius: '999px',
+                    background: '#E2E8F0',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${progressPct}%`,
+                      height: '100%',
+                      borderRadius: '999px',
+                      background: '#0E7490',
+                      transition: 'width 0.25s ease'
+                    }}
                   />
-                  {statusConfig.label}
-                </span>
-              </div>
-
-              {/* Card Title */}
-              <div className="mobile-ref-card-title">
-                {task.title}
-              </div>
-
-              {/* Card Description */}
-              {task.description ? (
-                <div className="mobile-ref-card-desc">
-                  {task.description}
-                </div>
-              ) : (
-                <div className="mobile-ref-card-desc" style={{ color: '#64748B' }}>
-                  Team ({task.assignees.length}): {task.assignees.map(a => a.employeeName).join(', ')}
-                </div>
-              )}
-
-              {/* Card Footer: Due Date | Assignee Avatar Cluster */}
-              <div className="mobile-ref-card-footer">
-                <div className="mobile-ref-due-date">
-                  <Calendar size={14} color="#64748B" />
-                  <span>{friendlyDue}</span>
-                </div>
-
-                <div className="mobile-ref-avatars-cluster">
-                  {task.assignees.slice(0, 3).map((a, idx) => (
-                    <div 
-                      key={a.id || a.employeeId || idx}
-                      className={`mobile-ref-avatar-circle ${idx > 0 ? 'secondary' : ''}`}
-                      title={`${a.employeeName} (${a.individualStatus || 'Pending'})`}
-                    >
-                      {(a.employeeName || 'A').charAt(0).toUpperCase()}
-                    </div>
-                  ))}
-                  {task.assignees.length > 3 && (
-                    <div 
-                      className="mobile-ref-avatar-circle secondary" 
-                      style={{ fontSize: '0.62rem', fontWeight: 700 }}
-                      title={`+${task.assignees.length - 3} more`}
-                    >
-                      +{task.assignees.length - 3}
-                    </div>
-                  )}
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-    </>
-  )}
-
-        {/* Standard Pagination Footer */}
-        {teamTasks.length > 0 && (
-          <StandardTablePagination
-            currentPage={currentPage}
-            totalEntries={teamTasks.length}
-            pageSize={pageSize}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(newSize) => {
-              setPageSize(newSize);
-              setCurrentPage(1);
-            }}
-            pageSizeOptions={[5, 10]}
-          />
+            );
+          })
         )}
       </div>
+
+      {/* Mobile Bottom Sheet Filter Modal */}
+      {showMobileFilterSheet &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="mobile-bottom-sheet-backdrop" onClick={() => setShowMobileFilterSheet(false)}>
+            <div className="mobile-bottom-sheet-panel" onClick={e => e.stopPropagation()}>
+              <div className="mobile-bottom-sheet-handle" />
+              <div className="mobile-bottom-sheet-header">
+                <span className="mobile-bottom-sheet-title">Filter Team Tasks</span>
+                <button
+                  type="button"
+                  onClick={() => setShowMobileFilterSheet(false)}
+                  style={{ background: 'none', border: 'none', color: '#64748B', padding: '4px', cursor: 'pointer' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="mobile-bottom-sheet-body">
+                <div>
+                  <div className="mobile-filter-group-title">Task Status</div>
+                  <div className="mobile-filter-chips-grid">
+                    {[
+                      { id: 'ALL', label: 'All' },
+                      { id: 'OPEN', label: 'Open' },
+                      { id: 'IN_PROGRESS', label: 'In Progress' },
+                      { id: 'COMPLETED', label: 'Completed' }
+                    ].map(st => (
+                      <button
+                        key={st.id}
+                        type="button"
+                        className={`mobile-filter-select-chip ${tempStatus === st.id ? 'selected' : ''}`}
+                        onClick={() => setTempStatus(st.id as any)}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mobile-filter-group-title">Priority</div>
+                  <div className="mobile-filter-chips-grid">
+                    {['ALL', 'Urgent', 'High', 'Medium', 'Low'].map(pr => (
+                      <button
+                        key={pr}
+                        type="button"
+                        className={`mobile-filter-select-chip ${tempPriority === pr ? 'selected' : ''}`}
+                        onClick={() => setTempPriority(pr)}
+                      >
+                        {pr === 'ALL' ? 'All Priorities' : pr}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mobile-filter-group-title">Department</div>
+                  <div className="mobile-filter-chips-grid">
+                    <button
+                      type="button"
+                      className={`mobile-filter-select-chip ${tempDepartment === 'All' ? 'selected' : ''}`}
+                      onClick={() => setTempDepartment('All')}
+                    >
+                      All Departments
+                    </button>
+                    {departments.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className={`mobile-filter-select-chip ${tempDepartment === d.name ? 'selected' : ''}`}
+                        onClick={() => setTempDepartment(d.name)}
+                      >
+                        {d.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="mobile-bottom-sheet-footer">
+                <button type="button" className="mobile-sheet-btn-reset" onClick={resetAllFilters}>
+                  Reset
+                </button>
+                <button type="button" className="mobile-sheet-btn-apply" onClick={applyMobileFilter}>
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Floating Bulk Action Bar */}
+      {selectedTaskIds.length > 0 && (
+        <div
+          className="floating-action-bar"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: '#1E293B',
+            color: '#FFFFFF',
+            padding: '10px 20px',
+            borderRadius: '9999px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
+            zIndex: 1000
+          }}
+        >
+          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#CFFAFE' }}>
+            {selectedTaskIds.length} Selected
+          </span>
+          <span style={{ color: '#475569' }}>|</span>
+          <button
+            type="button"
+            onClick={handleBulkEdit}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#FFFFFF',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              fontSize: '0.82rem',
+              fontWeight: 600
+            }}
+          >
+            <span>✏️ Edit Info</span>
+          </button>
+          {isManagerOrAdmin && (
+            <>
+              <span style={{ color: '#475569' }}>|</span>
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#FCA5A5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.82rem',
+                  fontWeight: 600
+                }}
+              >
+                <Trash2 size={14} />
+                <span>🗑️ Delete</span>
+              </button>
+            </>
+          )}
+          <span style={{ color: '#475569' }}>|</span>
+          <button
+            type="button"
+            onClick={() => setSelectedTaskIds([])}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94A3B8',
+              display: 'flex',
+              alignItems: 'center',
+              cursor: 'pointer',
+              padding: '2px'
+            }}
+            title="Clear Selection"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

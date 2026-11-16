@@ -5,19 +5,27 @@ export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type TaskOverallStatus = 
   | 'OPEN' 
   | 'IN PROGRESS' 
+  | 'UNDER REVIEW'
   | 'PARTIALLY COMPLETED' 
   | 'COMPLETED' 
   | 'CLOSED' 
+  | 'REOPENED'
   | 'OVERDUE'
   | 'CANCELLED';
 
 export type TaskAssigneeStatus = 
+  | 'Open'
+  | 'Not Started'
   | 'Pending' 
   | 'In Progress' 
   | 'In Process'
   | 'Under Review' 
   | 'Completed' 
   | 'Blocked';
+
+export type OverallTaskStatus = TaskOverallStatus;
+export type IndividualTaskStatus = TaskAssigneeStatus;
+export type TaskCategory = string;
 
 export type TaskAssigneeRole = 'ASSIGNEE' | 'RESPONSIBLE' | 'ACCOUNTABLE';
 
@@ -40,12 +48,15 @@ export interface TaskAssignee {
   employeeName: string;
   employeeEmail: string;
   employeeDepartment: string;
+  department?: string;
+  designation?: string;
   employeeAvatar: string;
   role: TaskAssigneeRole;
   individualStatus: TaskAssigneeStatus;
   progressPercentage: number; // 0 - 100
   actualStartDate?: string;
   completedDate?: string;
+  completedAt?: string;
   latestRemark?: string;
   completionEvidence?: TaskCompletionEvidence;
   assignedAt: string;
@@ -99,6 +110,7 @@ export interface TaskDailyReport {
   planForTomorrow?: string;
   blockersOrIssues?: string;
   hoursSpent?: number;
+  progressPercentage?: number;
   processStatus: TaskAssigneeStatus;
   submittedAt: string;
   submittedTo: string[]; // e.g. ['CEO', 'HR Manager', 'Assigner']
@@ -245,7 +257,9 @@ export interface TaskItemEnhanced {
   createdBy: string;
   createdById?: string;
   assignedBy: string;
+  assignedByName?: string;
   assignedById?: string;
+  assignmentType?: string;
   responsiblePersonId: string;
   responsiblePersonName: string;
   department: string;
@@ -282,6 +296,8 @@ export interface TaskItemEnhanced {
   updatedAt: string;
 }
 
+export type EnhancedTask = TaskItemEnhanced;
+
 // ─────────────────────────────────────────────────────────────
 // Business Logic Functions
 // ─────────────────────────────────────────────────────────────
@@ -317,6 +333,10 @@ export function computeTaskOverallStatusAndProgress(
     a => a.individualStatus === 'Completed' || a.progressPercentage === 100
   ).length;
 
+  const underReviewCount = assignees.filter(
+    a => a.individualStatus === 'Under Review'
+  ).length;
+
   const startedCount = assignees.filter(
     a => a.individualStatus === 'In Progress' || a.individualStatus === 'In Process' || a.individualStatus === 'Under Review' || a.progressPercentage > 0
   ).length;
@@ -328,6 +348,8 @@ export function computeTaskOverallStatusAndProgress(
 
   if (completedCount === total) {
     overallStatus = 'COMPLETED';
+  } else if (underReviewCount > 0 && underReviewCount + completedCount === total) {
+    overallStatus = 'UNDER REVIEW';
   } else if (completedCount > 0 && completedCount < total) {
     overallStatus = 'IN PROGRESS';
   } else if (startedCount > 0) {

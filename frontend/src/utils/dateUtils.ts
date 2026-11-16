@@ -167,3 +167,28 @@ export const formatTimeDisplay = (timeInput?: string | Date | null, fallback = '
 
 export const formatTime = formatTimeDisplay;
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Formats a date string as "17 Nov" (day + short month) for compact mobile/web cards.
+ */
+export const formatShortDateDayMonth = (dateInput: string | Date | null | undefined): string => {
+  const iso = normalizeToYYYYMMDD(dateInput);
+  if (!iso) return formatDateDDMMYYYY(dateInput);
+  const [, mm, dd] = iso.split('-');
+  const monthIdx = Number(mm) - 1;
+  return `${dd} ${SHORT_MONTHS[monthIdx] || mm}`;
+};
+
+/**
+ * Formats a date string as "17 Nov 2026" (day + short month + year) for task details & date headers.
+ */
+export const formatDateDayMonthYear = (dateInput: string | Date | null | undefined): string => {
+  const iso = normalizeToYYYYMMDD(dateInput);
+  if (!iso) return formatDateDDMMYYYY(dateInput);
+  const [yyyy, mm, dd] = iso.split('-');
+  const monthIdx = Number(mm) - 1;
+  return `${dd} ${SHORT_MONTHS[monthIdx] || mm} ${yyyy}`;
+};
+
+

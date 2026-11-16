@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { Shift, ShiftRequest } from '../../types/hrms';
+import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import {
   Plus,
   CheckCircle2,
@@ -13,7 +14,9 @@ import {
   Check,
   UserCheck,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Search
 } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import {
@@ -26,7 +29,8 @@ import {
   validateRequestReason
 } from '../../utils/requestValidation';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
-import { getShiftAssignmentSummary, ShiftAssignmentSummary } from '../../services/shiftService';
+import { getShiftAssignmentSummary, bulkAssignEmployeesToShift, ShiftAssignmentSummary } from '../../services/shiftService';
+import { supabaseDirect } from '../../services/supabaseDirectService';
 import { DateInput } from '../common/DateInput';
 
 interface ShiftManagementProps {
@@ -43,6 +47,7 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
     addShift,
     updateShift,
     deleteShift,
+    bulkAssignShift,
     shiftRequests,
     requestShiftChange,
     approveShiftRequest,
@@ -89,22 +94,218 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [assignmentSummary, setAssignmentSummary] = useState<Record<string, ShiftAssignmentSummary>>({});
   const [assignmentLoading, setAssignmentLoading] = useState(true);
-  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [selectedAssignmentSummary, setSelectedAssignmentSummary] = useState<ShiftAssignmentSummary | null>(null);
+
+  // Bulk Shift Change Modal State
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkTargetShiftId, setBulkTargetShiftId] = useState<string>('');
+  const [bulkEffectiveDate, setBulkEffectiveDate] = useState<string>(getTodayKolkata());
+  const [bulkSearchQuery, setBulkSearchQuery] = useState<string>('');
+  const [bulkDeptFilter, setBulkDeptFilter] = useState<string>('all');
+  const [bulkCurrentShiftFilter, setBulkCurrentShiftFilter] = useState<string>('all');
+  const [bulkSelectedEmpIds, setBulkSelectedEmpIds] = useState<string[]>([]);
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
+  const backfilledEmpIdsRef = useRef<Set<string>>(new Set());
 
   const loadAssignmentSummary = useCallback(async () => {
     setAssignmentLoading(true);
-    setAssignmentError(null);
     try {
       const rows = await getShiftAssignmentSummary();
       setAssignmentSummary(Object.fromEntries(rows.map(row => [row.shiftId, { ...row, count: row.employees.length }])));
-    } catch (error) {
+    } catch {
+      // Even if backend RPC fails, resolvedAssignmentSummary will build the full roster from active employees
       setAssignmentSummary({});
-      setAssignmentError(error instanceof Error ? error.message : 'Unable to load assigned staff counts.');
     } finally {
       setAssignmentLoading(false);
     }
   }, []);
+
+  // Authoritative list of active non-exempt workforce employees (matches Dashboard Total Staff = 31 & Active Workforce = 31)
+  const activeWorkforceEmployees = useMemo(() => {
+    return employees
+      .filter(emp => {
+        if (
+          emp.employeeId === 'EMP-000' ||
+          emp.email?.toLowerCase() === 'admin@businz.com' ||
+          emp.email?.toLowerCase() === 'developer@businz.com' ||
+          emp.designation === 'Super Administrator' ||
+          isAttendanceExemptEmployee(emp)
+        ) {
+          return false;
+        }
+        const statusStr = (emp.status || 'Active').toLowerCase().trim();
+        const accStatus = ((emp as any).accountStatus || 'ACTIVE').toLowerCase().trim();
+        if (statusStr !== 'active' || accStatus === 'deactivated' || accStatus === 'disabled' || (emp as any).isActive === false) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) =>
+        String(a.employeeId || '').localeCompare(String(b.employeeId || ''), undefined, { numeric: true })
+      );
+  }, [employees]);
+
+  // Build complete shift assignment summary covering 100% of activeWorkforceEmployees (31 active staff)
+  const { resolvedAssignmentSummary, employeeShiftMap } = useMemo(() => {
+    const byShiftId: Record<string, ShiftAssignmentSummary> = {};
+    const empToShift = new Map<string, Shift>();
+
+    shifts.forEach(s => {
+      byShiftId[s.id] = {
+        shiftId: s.id,
+        shiftName: s.shiftName,
+        count: 0,
+        employees: []
+      };
+    });
+
+    if (shifts.length === 0) {
+      return { resolvedAssignmentSummary: byShiftId, employeeShiftMap: empToShift };
+    }
+
+    const defaultShift =
+      shifts.find(s => s.shiftName.toLowerCase().includes('9:30 clock')) ||
+      shifts.find(s => s.startTime?.startsWith('09:30') && s.endTime?.startsWith('18:30')) ||
+      shifts[0];
+
+    // Map backend assignmentSummary employee -> shiftId first
+    const backendShiftByEmpKey = new Map<string, string>();
+    Object.values(assignmentSummary).forEach(summary => {
+      if (!byShiftId[summary.shiftId]) return;
+      (summary.employees || []).forEach(empItem => {
+        if (empItem.id) backendShiftByEmpKey.set(String(empItem.id).trim().toLowerCase(), summary.shiftId);
+        if (empItem.employeeId) backendShiftByEmpKey.set(String(empItem.employeeId).trim().toLowerCase(), summary.shiftId);
+      });
+    });
+
+    activeWorkforceEmployees.forEach(emp => {
+      const empUuidKey = String(emp.id || '').trim().toLowerCase();
+      const empCodeKey = String(emp.employeeId || '').trim().toLowerCase();
+      const rawWorkShift = String(emp.workShift || '').trim();
+      const cleanWorkShift = (rawWorkShift.includes('(') ? rawWorkShift.split('(')[0] : rawWorkShift).toLowerCase().trim();
+
+      let matchedShift: Shift | undefined;
+
+      // 1. Check explicit workShift on employee if it matches a known shift in `shifts`
+      if (cleanWorkShift) {
+        matchedShift = shifts.find(s => {
+          const sId = (s.id || '').toLowerCase().trim();
+          const sName = (s.shiftName || '').toLowerCase().trim();
+          return sId === cleanWorkShift || sName === cleanWorkShift || sName === rawWorkShift.toLowerCase();
+        });
+      }
+
+      // 2. Check backend assignmentSummary (public.shift_assignments)
+      if (!matchedShift) {
+        const backendShiftId =
+          (empUuidKey && backendShiftByEmpKey.get(empUuidKey)) ||
+          (empCodeKey && backendShiftByEmpKey.get(empCodeKey));
+        if (backendShiftId) {
+          matchedShift = shifts.find(s => s.id === backendShiftId);
+        }
+      }
+
+      // 3. Check s.assignments array in shifts state
+      if (!matchedShift) {
+        matchedShift = shifts.find(s =>
+          s.assignments?.some(a => {
+            const aId = String(typeof a === 'string' ? a : a?.employeeId || '').trim().toLowerCase();
+            const isActive = typeof a === 'string' || a?.status !== 'INACTIVE';
+            return isActive && aId && (aId === empCodeKey || aId === empUuidKey);
+          })
+        );
+      }
+
+      // 4. Partial workShift name match
+      if (!matchedShift && cleanWorkShift && cleanWorkShift !== 'general' && !cleanWorkShift.startsWith('shift 1')) {
+        matchedShift = shifts.find(s => {
+          const sName = (s.shiftName || '').toLowerCase().trim();
+          return sName.includes(cleanWorkShift) || cleanWorkShift.includes(sName);
+        });
+      }
+
+      // 5. Fallback to default shift so every active employee is rostered in a shift
+      if (!matchedShift) {
+        matchedShift = defaultShift;
+      }
+
+      if (matchedShift && byShiftId[matchedShift.id]) {
+        byShiftId[matchedShift.id].employees.push({
+          id: emp.id || emp.employeeId,
+          employeeId: emp.employeeId,
+          name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId,
+          department: emp.department || undefined
+        });
+        byShiftId[matchedShift.id].count = byShiftId[matchedShift.id].employees.length;
+        if (empUuidKey) empToShift.set(empUuidKey, matchedShift);
+        if (empCodeKey) empToShift.set(empCodeKey, matchedShift);
+      }
+    });
+
+    return { resolvedAssignmentSummary: byShiftId, employeeShiftMap: empToShift };
+  }, [shifts, assignmentSummary, activeWorkforceEmployees]);
+
+  // Auto-backfill any active employee missing from public.shift_assignments so DB stays 100% synced with the 31 active employees
+  useEffect(() => {
+    if (assignmentLoading || shifts.length === 0 || activeWorkforceEmployees.length === 0) return;
+    const backendAssignedSet = new Set<string>();
+    Object.values(assignmentSummary).forEach(summary => {
+      (summary.employees || []).forEach(e => {
+        if (e.id) backendAssignedSet.add(String(e.id).toLowerCase());
+        if (e.employeeId) backendAssignedSet.add(String(e.employeeId).toLowerCase());
+      });
+    });
+
+    const todayIso = getTodayKolkata();
+    activeWorkforceEmployees.forEach(emp => {
+      const empUuid = String(emp.id || '').trim();
+      const empCode = String(emp.employeeId || '').trim();
+      const key = (empUuid || empCode).toLowerCase();
+      if (!key || backfilledEmpIdsRef.current.has(key)) return;
+      const inBackend =
+        (empUuid && backendAssignedSet.has(empUuid.toLowerCase())) ||
+        (empCode && backendAssignedSet.has(empCode.toLowerCase()));
+      if (!inBackend) {
+        const targetShift = employeeShiftMap.get(empCode.toLowerCase()) || employeeShiftMap.get(empUuid.toLowerCase());
+        if (targetShift && targetShift.id && targetShift.id.length === 36) {
+          backfilledEmpIdsRef.current.add(key);
+          supabaseDirect.saveEmployeeShiftAssignment(empUuid || empCode, targetShift.id, todayIso).catch(() => false);
+        }
+      }
+    });
+  }, [assignmentLoading, assignmentSummary, shifts, activeWorkforceEmployees, employeeShiftMap]);
+
+  const handleOpenBulkModal = (preselectedShiftId?: string) => {
+    const targetId = preselectedShiftId || shifts[0]?.id || '';
+    setBulkTargetShiftId(targetId);
+    setBulkEffectiveDate(getTodayKolkata());
+    setBulkSearchQuery('');
+    setBulkDeptFilter('all');
+    setBulkCurrentShiftFilter('all');
+    setBulkSelectedEmpIds([]);
+    setShowBulkModal(true);
+  };
+
+  const handleBulkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkTargetShiftId || bulkSelectedEmpIds.length === 0 || isBulkSaving) return;
+    const targetShift = shifts.find(s => s.id === bulkTargetShiftId);
+    if (!targetShift) return;
+
+    setIsBulkSaving(true);
+    try {
+      await Promise.all([
+        bulkAssignShift(targetShift.id, bulkSelectedEmpIds, bulkEffectiveDate),
+        bulkAssignEmployeesToShift(targetShift.id, bulkSelectedEmpIds, bulkEffectiveDate, targetShift.shiftName)
+      ]);
+      await loadAssignmentSummary();
+      setShowBulkModal(false);
+      setSelectedAssignmentSummary(null);
+      triggerToast(`Updated shift to "${targetShift.shiftName}" for ${bulkSelectedEmpIds.length} employee${bulkSelectedEmpIds.length === 1 ? '' : 's'}!`);
+    } finally {
+      setIsBulkSaving(false);
+    }
+  };
 
   useEffect(() => {
     loadAssignmentSummary();
@@ -389,35 +590,61 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
         <div className="page-title-group">
           <h1>{isEmployee ? 'My Shift & Schedule' : 'Shift Management'}</h1>
         </div>
-        <div className="header-actions">
+        <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {canManageShifts && (
-            <button
-              type="button"
-              onClick={() => setShowAddShiftModal(true)}
-              title="Add Shift"
-              aria-label="Add Shift"
-              style={{
-                backgroundColor: '#0E7490',
-                color: '#FFFFFF',
-                border: 'none',
-                borderRadius: '10px',
-                width: '38px',
-                height: '38px',
-                padding: 0,
-                fontWeight: 650,
-                fontSize: '0.80rem',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)',
-                transition: 'background-color 0.15s'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#0891B2')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#0E7490')}
-            >
-              <Plus size={18} strokeWidth={2.5} />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => handleOpenBulkModal()}
+                title="Bulk Change Employee Shift"
+                style={{
+                  backgroundColor: '#ECFEFF',
+                  color: '#0E7490',
+                  border: '1.5px solid #0E7490',
+                  borderRadius: '10px',
+                  height: '38px',
+                  padding: '0 14px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '7px',
+                  boxShadow: '0 1px 3px rgba(14, 116, 144, 0.12)',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <ArrowRightLeft size={15} strokeWidth={2.3} />
+                <span>Bulk Change Shift</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddShiftModal(true)}
+                title="Add Shift"
+                aria-label="Add Shift"
+                style={{
+                  backgroundColor: '#0E7490',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '10px',
+                  width: '38px',
+                  height: '38px',
+                  padding: 0,
+                  fontWeight: 650,
+                  fontSize: '0.80rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)',
+                  transition: 'background-color 0.15s'
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#0891B2')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#0E7490')}
+              >
+                <Plus size={18} strokeWidth={2.5} />
+              </button>
+            </>
           )}
           {isEmployee && (
             <button
@@ -512,9 +739,61 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
       {/* Active System Shifts Section */}
       {!isEmployee && (
         <div style={{ marginBottom: '28px' }}>
+          {/* Active Workforce Shift Coverage Summary Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '10px',
+            padding: '10px 16px',
+            marginBottom: '14px',
+            borderRadius: '12px',
+            backgroundColor: '#F8FAFC',
+            border: '1px solid #E2E8F0'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', color: '#334155', fontWeight: 600 }}>
+              <Users size={16} color="#0E7490" />
+              <span>
+                Active Workforce Rostered:{' '}
+                <strong style={{ color: '#0E7490' }}>
+                  {Object.values(resolvedAssignmentSummary).reduce((sum, s) => sum + s.employees.length, 0)} / {activeWorkforceEmployees.length} Active Employees
+                </strong>{' '}
+                across {shifts.length} Shifts
+              </span>
+            </div>
+            {canManageShifts && (
+              <button
+                type="button"
+                onClick={() => handleOpenBulkModal()}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  color: '#0E7490',
+                  fontSize: '0.80rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: 0
+                }}
+              >
+                <ArrowRightLeft size={13} /> Bulk Assign / Change Employees →
+              </button>
+            )}
+          </div>
+
           {shifts.length > 0 ? (
             <div className="shift-cards-grid">
-              {shifts.map(s => (
+              {shifts.map(s => {
+                const shiftSummary = resolvedAssignmentSummary[s.id] || {
+                  shiftId: s.id,
+                  shiftName: s.shiftName,
+                  count: 0,
+                  employees: []
+                };
+                return (
                 <div
                   key={s.id}
                   className="card"
@@ -594,27 +873,44 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
                     <div><strong>Timing:</strong> {s.startTime} - {s.endTime}</div>
                     <div><strong>Working:</strong> {s.workingHours === 8.25 ? '8h 15m' : `${s.workingHours} Hours`}</div>
                     <div><strong>Break:</strong> {s.breakDurationMins} Mins</div>
-                    <div style={{ gridColumn: 'span 2', paddingTop: '4px', borderTop: '1px dashed #E2E8F0', color: '#64748B' }}>
-                      <strong>Assigned Staff:</strong>{' '}
-                      {assignmentLoading ? (
-                        <span aria-live="polite">Loading…</span>
-                      ) : assignmentError ? (
-                        <button type="button" onClick={loadAssignmentSummary} style={{ border: 0, padding: 0, background: 'none', color: '#B91C1C', cursor: 'pointer', textDecoration: 'underline' }}>
-                          Unavailable — Retry
-                        </button>
-                      ) : (
+                    <div style={{ gridColumn: 'span 2', paddingTop: '6px', borderTop: '1px dashed #E2E8F0', color: '#64748B', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <div>
+                        <strong>Assigned Staff:</strong>{' '}
                         <button
                           type="button"
-                          onClick={() => setSelectedAssignmentSummary(assignmentSummary[s.id] || { shiftId: s.id, shiftName: s.shiftName, count: 0, employees: [] })}
+                          onClick={() => setSelectedAssignmentSummary(shiftSummary)}
                           style={{ border: 0, padding: 0, background: 'none', color: '#0E7490', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
                         >
-                          {assignmentSummary[s.id]?.employees.length || 0} {(assignmentSummary[s.id]?.employees.length || 0) === 1 ? 'Employee' : 'Employees'}
+                          {shiftSummary.employees.length} {shiftSummary.employees.length === 1 ? 'Employee' : 'Employees'}
+                        </button>
+                      </div>
+                      {canManageShifts && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenBulkModal(s.id)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.70rem',
+                            fontWeight: 700,
+                            color: '#0E7490',
+                            backgroundColor: '#F0FDFA',
+                            border: '1px solid #99F6E4',
+                            cursor: 'pointer'
+                          }}
+                          title={`Bulk assign or move employees to ${s.shiftName}`}
+                        >
+                          <UserCheck size={11} /> + Assign
                         </button>
                       )}
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="card" style={{ textAlign: 'center', padding: '40px 20px', color: '#64748B' }}>
@@ -626,34 +922,343 @@ export const ShiftManagement: React.FC<ShiftManagementProps> = ({
         </div>
       )}
 
-      {selectedAssignmentSummary && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="assigned-staff-title">
-          <div className="modal-content" style={{ maxWidth: '520px' }}>
-            <div className="modal-header">
-              <div>
-                <h2 id="assigned-staff-title">{selectedAssignmentSummary.shiftName} — Assigned Staff</h2>
-                <p style={{ margin: '4px 0 0', color: '#64748B' }}>
-                  {selectedAssignmentSummary.employees.length} {selectedAssignmentSummary.employees.length === 1 ? 'Employee' : 'Employees'}
-                </p>
-              </div>
-              <button type="button" onClick={() => setSelectedAssignmentSummary(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              {selectedAssignmentSummary.employees.length === 0 ? (
-                <p style={{ color: '#64748B' }}>No active employees are assigned to this shift today.</p>
-              ) : selectedAssignmentSummary.employees.map(employee => (
-                <div key={employee.id} style={{ padding: '10px 0', borderBottom: '1px solid #E2E8F0' }}>
-                  <strong>{employee.name}</strong>
-                  <div style={{ color: '#64748B', fontSize: '0.82rem' }}>{employee.employeeId}{employee.department ? ` • ${employee.department}` : ''}</div>
+      {selectedAssignmentSummary && (() => {
+        const liveSummary = resolvedAssignmentSummary[selectedAssignmentSummary.shiftId] || selectedAssignmentSummary;
+        return (
+          <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="assigned-staff-title">
+            <div className="modal-content" style={{ maxWidth: '520px' }}>
+              <div className="modal-header">
+                <div>
+                  <h2 id="assigned-staff-title">{liveSummary.shiftName} — Assigned Staff</h2>
+                  <p style={{ margin: '4px 0 0', color: '#64748B' }}>
+                    {liveSummary.employees.length} {liveSummary.employees.length === 1 ? 'Employee' : 'Employees'}
+                  </p>
                 </div>
-              ))}
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setSelectedAssignmentSummary(null)}>Close</button>
+                <button type="button" onClick={() => setSelectedAssignmentSummary(null)}>×</button>
+              </div>
+              <div className="modal-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                {liveSummary.employees.length === 0 ? (
+                  <p style={{ color: '#64748B' }}>No active employees are assigned to this shift today.</p>
+                ) : liveSummary.employees.map(employee => (
+                  <div key={employee.id} style={{ padding: '10px 0', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong>{employee.name}</strong>
+                      <div style={{ color: '#64748B', fontSize: '0.82rem' }}>{employee.employeeId}{employee.department ? ` • ${employee.department}` : ''}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {canManageShifts ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ backgroundColor: '#0E7490', borderColor: '#0E7490', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => {
+                      const targetId = liveSummary.shiftId;
+                      setSelectedAssignmentSummary(null);
+                      handleOpenBulkModal(targetId);
+                    }}
+                  >
+                    <ArrowRightLeft size={14} /> + Assign / Change Staff
+                  </button>
+                ) : <span />}
+                <button type="button" className="btn btn-secondary" onClick={() => setSelectedAssignmentSummary(null)}>Close</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Bulk Employee Shift Change Modal */}
+      {showBulkModal && (() => {
+        const deptOptions = Array.from(
+          new Set(activeWorkforceEmployees.map(e => (e.department || '').trim()).filter(Boolean))
+        ).sort();
+
+        const filteredBulkEmps = activeWorkforceEmployees.filter(emp => {
+          const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim().toLowerCase();
+          const code = (emp.employeeId || '').toLowerCase();
+          const dept = (emp.department || '').toLowerCase();
+          const q = bulkSearchQuery.trim().toLowerCase();
+          if (q && !fullName.includes(q) && !code.includes(q) && !dept.includes(q)) {
+            return false;
+          }
+          if (bulkDeptFilter !== 'all' && (emp.department || '').trim() !== bulkDeptFilter) {
+            return false;
+          }
+          if (bulkCurrentShiftFilter !== 'all') {
+            const curShift =
+              employeeShiftMap.get((emp.employeeId || '').toLowerCase()) ||
+              employeeShiftMap.get((emp.id || '').toLowerCase());
+            if (!curShift || curShift.id !== bulkCurrentShiftFilter) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        const visibleIds = filteredBulkEmps.map(e => e.employeeId || e.id);
+        const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => bulkSelectedEmpIds.includes(id));
+
+        const toggleSelectAllVisible = () => {
+          if (allVisibleSelected) {
+            const visibleSet = new Set(visibleIds);
+            setBulkSelectedEmpIds(prev => prev.filter(id => !visibleSet.has(id)));
+          } else {
+            setBulkSelectedEmpIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+          }
+        };
+
+        const toggleEmpSelection = (empId: string) => {
+          setBulkSelectedEmpIds(prev =>
+            prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]
+          );
+        };
+
+        const targetShiftObj = shifts.find(s => s.id === bulkTargetShiftId);
+
+        return (
+          <div className="modal-overlay" role="dialog" aria-modal="true">
+            <div className="modal-content" style={{ maxWidth: '640px', width: '95%', borderRadius: '18px', overflow: 'hidden' }}>
+              <div className="modal-header" style={{ padding: '18px 22px', borderBottom: '1px solid #E2E8F0' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ArrowRightLeft size={19} color="#0E7490" />
+                    Bulk Employee Shift Change
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#64748B' }}>
+                    Select multiple employees and move or assign them to a shift in one click.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowBulkModal(false)}>✕</button>
+              </div>
+
+              <form onSubmit={handleBulkSubmit}>
+                <div className="modal-body" style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* Row 1: Target Shift & Effective Date */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.80rem', color: '#334155', marginBottom: '5px', display: 'block' }}>
+                        Assign To Target Shift <span style={{ color: '#EF4444' }}>*</span>
+                      </label>
+                      <select
+                        className="form-control"
+                        value={bulkTargetShiftId}
+                        onChange={e => setBulkTargetShiftId(e.target.value)}
+                        required
+                        style={{ fontWeight: 700, color: '#0F172A' }}
+                      >
+                        {shifts.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.shiftName} ({s.startTime} - {s.endTime} • {s.workingHours}h)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.80rem', color: '#334155', marginBottom: '5px', display: 'block' }}>
+                        Effective From Date <span style={{ color: '#EF4444' }}>*</span>
+                      </label>
+                      <DateInput
+                        className="form-control"
+                        value={bulkEffectiveDate}
+                        onChange={e => setBulkEffectiveDate(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Search & Filters */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: '10px' }}>
+                    <div style={{ position: 'relative' }}>
+                      <Search size={15} color="#94A3B8" style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }} />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Search name, ID, dept..."
+                        value={bulkSearchQuery}
+                        onChange={e => setBulkSearchQuery(e.target.value)}
+                        style={{ paddingLeft: '34px', fontSize: '0.82rem' }}
+                      />
+                    </div>
+
+                    <select
+                      className="form-control"
+                      value={bulkDeptFilter}
+                      onChange={e => setBulkDeptFilter(e.target.value)}
+                      style={{ fontSize: '0.82rem' }}
+                    >
+                      <option value="all">All Departments ({deptOptions.length})</option>
+                      {deptOptions.map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      className="form-control"
+                      value={bulkCurrentShiftFilter}
+                      onChange={e => setBulkCurrentShiftFilter(e.target.value)}
+                      style={{ fontSize: '0.82rem' }}
+                    >
+                      <option value="all">All Current Shifts</option>
+                      {shifts.map(s => (
+                        <option key={s.id} value={s.id}>{s.shiftName}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Row 3: Select All Bar */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    backgroundColor: '#F8FAFC',
+                    borderRadius: '10px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        style={{ width: '16px', height: '16px', accentColor: '#0E7490', cursor: 'pointer' }}
+                      />
+                      <span>Select All Visible ({filteredBulkEmps.length})</span>
+                    </label>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{
+                        fontSize: '0.76rem',
+                        fontWeight: 700,
+                        padding: '3px 10px',
+                        borderRadius: '999px',
+                        backgroundColor: bulkSelectedEmpIds.length > 0 ? '#ECFEFF' : '#F1F5F9',
+                        color: bulkSelectedEmpIds.length > 0 ? '#0E7490' : '#64748B',
+                        border: bulkSelectedEmpIds.length > 0 ? '1px solid #A5F3FC' : '1px solid #E2E8F0'
+                      }}>
+                        {bulkSelectedEmpIds.length} Selected
+                      </span>
+                      {bulkSelectedEmpIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setBulkSelectedEmpIds([])}
+                          style={{ background: 'none', border: 'none', color: '#DC2626', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 4: Employee List */}
+                  <div style={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    backgroundColor: '#FFFFFF'
+                  }}>
+                    {filteredBulkEmps.length === 0 ? (
+                      <div style={{ padding: '28px', textAlign: 'center', color: '#64748B', fontSize: '0.85rem' }}>
+                        No active employees match your filter criteria.
+                      </div>
+                    ) : (
+                      filteredBulkEmps.map(emp => {
+                        const empKey = emp.employeeId || emp.id;
+                        const isChecked = bulkSelectedEmpIds.includes(empKey);
+                        const curShift =
+                          employeeShiftMap.get((emp.employeeId || '').toLowerCase()) ||
+                          employeeShiftMap.get((emp.id || '').toLowerCase());
+                        const isSameShift = curShift?.id === bulkTargetShiftId;
+
+                        return (
+                          <label
+                            key={emp.id || emp.employeeId}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '10px',
+                              padding: '10px 14px',
+                              borderBottom: '1px solid #F1F5F9',
+                              backgroundColor: isChecked ? '#ECFEFF' : '#FFFFFF',
+                              borderLeft: isChecked ? '4px solid #0E7490' : '4px solid transparent',
+                              cursor: 'pointer',
+                              margin: 0,
+                              transition: 'background-color 0.12s'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleEmpSelection(empKey)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0E7490', cursor: 'pointer', flexShrink: 0 }}
+                              />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {emp.firstName} {emp.lastName}
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                                  {emp.employeeId} {emp.department ? `• ${emp.department}` : ''}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '3px 9px',
+                                borderRadius: '999px',
+                                backgroundColor: isSameShift ? '#DCFCE7' : '#F1F5F9',
+                                color: isSameShift ? '#15803D' : '#475569',
+                                border: isSameShift ? '1px solid #86EFAC' : '1px solid #E2E8F0'
+                              }}>
+                                {curShift?.shiftName || 'Unassigned'}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{ padding: '14px 22px', borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.80rem', color: '#64748B', fontWeight: 600 }}>
+                    {bulkSelectedEmpIds.length > 0 && targetShiftObj
+                      ? `Moving ${bulkSelectedEmpIds.length} employee${bulkSelectedEmpIds.length === 1 ? '' : 's'} → ${targetShiftObj.shiftName}`
+                      : 'Select at least 1 employee to update shift'}
+                  </span>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowBulkModal(false)}>
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={bulkSelectedEmpIds.length === 0 || isBulkSaving}
+                      className="btn btn-primary btn-sm"
+                      style={{
+                        backgroundColor: '#0E7490',
+                        borderColor: '#0E7490',
+                        fontWeight: 700,
+                        padding: '8px 18px',
+                        opacity: bulkSelectedEmpIds.length === 0 ? 0.55 : 1
+                      }}
+                    >
+                      {isBulkSaving ? 'Updating...' : `Update Shift (${bulkSelectedEmpIds.length})`}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Shift Swap Requests Section */}
       <div className="card" style={{ marginTop: '28px', borderRadius: '16px', overflow: 'hidden' }}>

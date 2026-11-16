@@ -709,7 +709,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       leaveRequests,
       fromDate,
       toDate,
-      businessSettings?.businessName || companyInfo?.companyName || 'BUSINZ'
+      businessSettings?.businessName || companyInfo?.companyName || 'BUSINZ',
+      shifts,
+      holidayPolicies
     );
     setExportDropdownOpen(false);
   };

@@ -50,33 +50,19 @@ const localDate = (date: Date) => new Intl.DateTimeFormat('en-CA', {
   year: 'numeric', month: '2-digit', day: '2-digit'
 }).format(date);
 
-const localMinutes = (date: Date) => {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: BUSINESS_TIME_ZONE,
-    hour: '2-digit', minute: '2-digit', hour12: false
-  }).formatToParts(date);
-  return Number(parts.find(part => part.type === 'hour')?.value || 0) * 60 + Number(parts.find(part => part.type === 'minute')?.value || 0);
-};
-
-const parseMinutes = (value?: string, fallback = 9 * 60) => {
-  const match = String(value || '').match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
-  if (!match) return fallback;
-  let hour = Number(match[1]);
-  const minute = Number(match[2]);
-  const meridiem = match[3]?.toUpperCase();
-  if (meridiem === 'PM' && hour < 12) hour += 12;
-  if (meridiem === 'AM' && hour === 12) hour = 0;
-  return hour * 60 + minute;
-};
-
-const isActiveOn = (employee: Employee, date: string) => {
-  const joiningDate = (employee.dateOfJoining || employee.joiningDate || '').slice(0, 10);
-  return employee.status === 'Active' && (!joiningDate || joiningDate <= date);
+const isActiveOn = (employee: Employee, _date: string) => {
+  return !employee.status || employee.status.toLowerCase() === 'active';
 };
 
 const matchesEmployee = (employee: Employee, record?: AttendanceRecord) => {
   if (!record) return false;
-  return key(employee.employeeId) === key(record.employeeId);
+  const recId = key(record.employeeId);
+  const empId = key(employee.employeeId);
+  const empUuid = key(employee.id);
+  if (recId && ((empId && recId === empId) || (empUuid && recId === empUuid))) return true;
+  const recName = key(record.employeeName);
+  const fullName = key(`${employee.firstName || ''} ${employee.lastName || ''}`);
+  return !!recName && !!fullName && recName === fullName;
 };
 
 const shiftFor = (employee: Employee, shifts: Shift[]) => {
@@ -136,12 +122,6 @@ const hasFieldWork = (employee: Employee, assignments: FieldAssignment[], date: 
   key(assignment.employeeId) === key(employee.employeeId) && assignment.status !== 'Cancelled' && coversDate(assignment.startDate, assignment.endDate, date)
 );
 
-const isDue = (shift: Shift | undefined, date: string, now: Date) => {
-  if (!shift) return localMinutes(now) >= 9 * 60 + 15;
-  if (localDate(now) !== date) return localDate(now) > date;
-  return localMinutes(now) >= parseMinutes(shift.startTime) + Math.max(0, Number(shift.gracePeriodMins) || 0);
-};
-
 export const buildAttendanceReport = (scope: AttendanceScope): AttendanceReportResult => {
   const now = scope.now || new Date();
   const date = scope.date || localDate(now);
@@ -164,26 +144,31 @@ export const buildAttendanceReport = (scope: AttendanceScope): AttendanceReportR
     return true;
   });
 
-  const reportRows = workforce.map(employee => {
+  const reportRows: AttendanceReportRow[] = workforce.map(employee => {
     const shift = shiftFor(employee, shifts);
     const attendance = scope.attendanceRecords.find(record => matchesEmployee(employee, record) && ((record.shiftDate || record.date || '').slice(0, 10) === date));
-    const checkedIn = !!attendance?.checkIn;
+    const checkedIn = Boolean(
+      attendance &&
+      attendance.status !== 'Absent' &&
+      attendance.status !== 'On Leave' &&
+      attendance.checkIn &&
+      attendance.checkIn.trim() !== '' &&
+      attendance.checkIn !== '--:--'
+    );
     if (isApprovedLeave(employee, scope.leaveRequests, date) || attendance?.status === 'On Leave') return { employee, attendance, classification: 'On Leave' as const, reason: 'Approved leave' };
     if (isHoliday(employee, holidays, date)) return { employee, attendance, classification: 'Holiday' as const, reason: 'Company holiday' };
     if (isWeeklyOff(employee, schedules, date)) return { employee, attendance, classification: 'Week Off' as const, reason: 'Scheduled weekly off' };
     if (hasFieldWork(employee, assignments, date)) return { employee, attendance, classification: 'Field Work' as const, reason: 'Active field work assignment' };
     if (checkedIn && attendance?.status === 'Late') return { employee, attendance, classification: 'Late' as const, reason: 'Check-in recorded after shift grace period' };
-    // Present requires an actual check-in punch (WFH is the only exception). A record marked
-    // "Present" with a missed check-in is NOT present — it becomes Absent once the grace deadline passes.
+    // Present requires an actual check-in punch (WFH is the only exception).
     if (checkedIn || attendance?.status === 'Work From Home') return { employee, attendance, classification: 'Present' as const, reason: 'Attendance recorded' };
-    if (!isDue(shift, date, now)) {
-      const grace = Math.max(0, Number(shift?.gracePeriodMins) || 0);
-      const reason = shift?.startTime
-        ? `Shift starts ${shift.startTime}${grace ? ` · absent after ${grace} min grace` : ''}`
-        : 'Assigned shift has not started or reached grace deadline';
-      return { employee, attendance, classification: 'Not Due' as const, reason };
-    }
-    return { employee, attendance, classification: 'Absent' as const, reason: attendance && !checkedIn ? 'Check-in punch missed' : 'No check-in after assigned shift grace deadline' };
+    const shiftHint = shift?.startTime ? ` (Shift: ${shift.startTime})` : '';
+    return {
+      employee,
+      attendance,
+      classification: 'Absent' as const,
+      reason: attendance && !checkedIn ? 'Check-in punch missed' : `No check-in recorded${shiftHint}`
+    };
   });
 
   return {

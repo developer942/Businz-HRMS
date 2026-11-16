@@ -10,7 +10,6 @@ import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
-import { buildAttendanceReport } from '../../services/attendanceReportService';
 import { pettyCashService } from '../../services/pettyCashService';
 import { 
   Users, 
@@ -550,15 +549,25 @@ export const Dashboard: React.FC = () => {
 
   const totalStaff = attendanceWorkforceEmployees.length;
 
+  const hasValidCheckIn = (att?: AttendanceRecord) =>
+    Boolean(
+      att &&
+      att.status !== 'Absent' &&
+      att.status !== 'On Leave' &&
+      att.checkIn &&
+      att.checkIn.trim() !== '' &&
+      att.checkIn !== '--:--'
+    );
+
   // Present = actual check-in punch recorded (or Work From Home). A "Present" record with a missed check-in is not present.
   const presentEmployees = attendanceWorkforceEmployees.filter(emp => {
     const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
-    return att && (!!att.checkIn || att.status === 'Work From Home');
+    return att && (hasValidCheckIn(att) || att.status === 'Work From Home');
   });
 
   const earlyEmployees = attendanceWorkforceEmployees.filter(emp => {
     const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
-    return att && att.checkOut && (
+    return att && hasValidCheckIn(att) && att.checkOut && (
       (att.workingHours > 0 && att.workingHours < 7.5) || 
       att.status === 'Half Day'
     );
@@ -566,26 +575,15 @@ export const Dashboard: React.FC = () => {
 
   const missClockOutEmployees = attendanceWorkforceEmployees.filter(emp => {
     const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
-    return att && att.checkIn && !att.checkOut;
+    return att && hasValidCheckIn(att) && !att.checkOut;
   });
 
-  const attendanceReport = buildAttendanceReport({
-    currentUser,
-    role: currentUser.role,
-    employees: attendanceWorkforceEmployees,
-    attendanceRecords: filteredAttendance,
-    leaveRequests,
-    shifts,
-    weeklySchedules,
-    holidayPolicies,
-    fieldAssignments,
-    date: todayStr
-  });
-  const absentEmployees = attendanceReport.absent.map(row => row.employee);
-  // Employees whose shift start + grace has not been reached yet (neither Present nor Absent)
-  const yetToPunchInCount = (attendanceReport.notDue || []).filter(row =>
-    !presentEmployees.some(emp => emp.employeeId === row.employee.employeeId)
-  ).length;
+  const presentEmpKeySet = new Set(
+    presentEmployees.map(emp => normalizeKey(emp.employeeId || emp.id))
+  );
+  const absentEmployees = attendanceWorkforceEmployees.filter(
+    emp => !presentEmpKeySet.has(normalizeKey(emp.employeeId || emp.id))
+  );
 
   const presentToday = presentEmployees.length;
   const absentToday = absentEmployees.length;
@@ -705,19 +703,18 @@ export const Dashboard: React.FC = () => {
   const totalAttendanceCount = totalStaff;
   const lateEmployees = attendanceWorkforceEmployees.filter(emp => {
     const att = filteredAttendance.find(a => doesAttendanceMatchEmployee(a, emp));
-    return att && (
+    return att && hasValidCheckIn(att) && (
       att.status === 'Late' ||
       (att.lateStatus && typeof att.lateStatus === 'string' && att.lateStatus.toLowerCase().includes('late') && att.lateStatus !== 'On Time')
     );
   });
   const donutLate = lateEmployees.length;
   const donutPresent = Math.max(0, presentToday - donutLate);
-  const donutLeave = attendanceWorkforceEmployees.filter(emp =>
+  const donutLeave = absentEmployees.filter(emp =>
     filteredAttendance.some(a => doesAttendanceMatchEmployee(a, emp) && a.status === 'On Leave') ||
     leaveRequests.some(l => doesLeaveMatchEmployee(l, emp) && doesLeaveCoverToday(l))
   ).length;
-  const donutAbsent = absentToday;
-  const donutWeekOff = (attendanceReport.weekOff || []).length + (attendanceReport.holiday || []).length;
+  const donutAbsent = Math.max(0, absentToday - donutLeave);
 
   // Dynamic Celebrations derived from real employees
   const celebrations = useMemo(() => {
@@ -1617,18 +1614,7 @@ export const Dashboard: React.FC = () => {
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
                   <span className="kpi-trend-badge red">{absentRatePct}%</span>
-                  {yetToPunchInCount > 0 ? (
-                    <span
-                      role="button"
-                      title="Shift not started / within grace period — not yet Present or Absent"
-                      onClick={(e) => { e.stopPropagation(); setSelectedCategory('notstarted'); }}
-                      style={{ color: '#475569', fontWeight: 700, textDecoration: 'underline dotted', cursor: 'pointer' }}
-                    >
-                      +{yetToPunchInCount} Yet to Punch In
-                    </span>
-                  ) : (
-                    <span>Unplanned Leave</span>
-                  )}
+                  <span>Unplanned Leave</span>
                 </div>
               </div>
             </div>
@@ -1691,7 +1677,6 @@ export const Dashboard: React.FC = () => {
             absent={donutAbsent}
             leave={donutLeave}
             late={donutLate}
-            notStarted={yetToPunchInCount}
             onSelectCategory={(cat) => setSelectedCategory(cat)}
             onOpenLeaves={() => setActiveModule('leaves')}
           />

@@ -155,6 +155,40 @@ export function downloadExcel(
   triggerFileDownload(blob, cleanFilename);
 }
 
+export function exportToExcel(
+  data: Record<string, any>[],
+  secondArg: string | Array<{ key: string; label?: string; header?: string }>,
+  thirdArg?: string | Array<{ key: string; label?: string; header?: string }>
+): void {
+  const filename = typeof secondArg === 'string' ? secondArg : (typeof thirdArg === 'string' ? thirdArg : 'Report');
+  const rawCols = Array.isArray(secondArg) ? secondArg : (Array.isArray(thirdArg) ? thirdArg : undefined);
+  const cols = rawCols?.map(c => ({ key: c.key, label: c.label || c.header || c.key }));
+  downloadExcel(data, filename, cols);
+}
+
+export function exportToPDF(
+  data: Record<string, any>[],
+  secondArg: string | Array<{ key: string; label?: string; header?: string }>,
+  thirdArg?: string,
+  fourthArg?: string | Array<{ key: string; label?: string; header?: string }>,
+  fifthArg?: string
+): void {
+  if (Array.isArray(secondArg)) {
+    const cols = secondArg.map(c => ({ key: c.key, label: c.label || c.header || c.key }));
+    const title = thirdArg || 'Report';
+    const filename = typeof fourthArg === 'string' ? fourthArg : 'Report';
+    downloadPDF(data, title, filename, cols, fifthArg || 'Businz');
+  } else {
+    const title = secondArg || 'Report';
+    const filename = thirdArg || 'Report';
+    const rawCols = Array.isArray(fourthArg) ? fourthArg : undefined;
+    const cols = rawCols?.map(c => ({ key: c.key, label: c.label || c.header || c.key }));
+    downloadPDF(data, title, filename, cols, fifthArg || 'Businz');
+  }
+}
+
+export const exportToCSV = downloadCSV;
+
 /**
  * Generates an official, publication-quality vector PDF document (.pdf)
  * Compatible with Apple Mac Preview, Adobe Acrobat, Safari, Chrome, and mobile devices.

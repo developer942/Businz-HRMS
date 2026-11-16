@@ -475,21 +475,53 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     return { minutes: 0, text: '0 min', decimalHours: 0, isPending: false };
   };
 
-  // Helper to get employee shift details
+  // Helper to get employee shift details (checks shift assignments + workShift, defaults to 9h standard shift)
   const getEmployeeShift = (empId?: string) => {
-    const emp = employees.find(e => e.id === empId || e.employeeId === empId);
-    const shiftName = emp?.workShift || 'General';
-    const matchedShift = shifts.find(s => 
-      s.shiftName.toLowerCase() === shiftName.toLowerCase() ||
-      shiftName.toLowerCase().includes(s.shiftName.toLowerCase()) ||
-      s.shiftName.toLowerCase().includes(shiftName.toLowerCase())
+    const cleanId = (empId || '').toLowerCase().trim();
+    const emp = employees.find(
+      e => (e.id || '').toLowerCase().trim() === cleanId || (e.employeeId || '').toLowerCase().trim() === cleanId
     );
+    const empCode = (emp?.employeeId || cleanId).toLowerCase().trim();
+    const empUid = (emp?.id || cleanId).toLowerCase().trim();
+    const rawShiftName = (emp?.workShift || '').trim();
+    const cleanShiftName = (rawShiftName.includes('(') ? rawShiftName.split('(')[0] : rawShiftName).toLowerCase().trim();
+
+    const byAssignment = shifts.find(s =>
+      s.assignments?.some(a => {
+        const aId = (typeof a === 'string' ? a : a?.employeeId || '').toLowerCase().trim();
+        const isActive = typeof a === 'string' || a?.status !== 'INACTIVE';
+        return isActive && aId && (aId === empCode || (empUid && aId === empUid));
+      })
+    );
+
+    const byName = cleanShiftName
+      ? shifts.find(s => {
+          const sId = (s.id || '').toLowerCase().trim();
+          const sName = (s.shiftName || '').toLowerCase().trim();
+          return (
+            sId === cleanShiftName ||
+            sName === cleanShiftName ||
+            sName === rawShiftName.toLowerCase() ||
+            sName.includes(cleanShiftName) ||
+            cleanShiftName.includes(sName)
+          );
+        })
+      : undefined;
+
+    const matchedShift = byAssignment || byName;
+    const resolvedHours =
+      Number(matchedShift?.workingHours) > 0
+        ? Number(matchedShift?.workingHours)
+        : rawShiftName.toLowerCase().includes('9:30-6') || rawShiftName.includes('09:30 - 18:00')
+        ? 8.5
+        : 9;
+
     return {
-      name: matchedShift?.shiftName || 'General Shift',
+      name: matchedShift?.shiftName || rawShiftName || 'General Shift',
       startTime: matchedShift?.startTime || '09:00 AM',
       endTime: matchedShift?.endTime || '06:00 PM',
       gracePeriodMins: matchedShift?.gracePeriodMins ?? 15,
-      totalHours: matchedShift?.workingHours || 9
+      totalHours: resolvedHours
     };
   };
 
@@ -940,23 +972,22 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         if (r.status === 'Absent') return false;
         const dur = getRecordWorkingDuration(r);
         const shift = getEmployeeShift(r.employeeId);
-        const hours = dur.decimalHours > 0 ? dur.decimalHours : toNum(r.workingHours);
-        const otExplicit = (r as any).approvedOtHours || r.otHours || 0;
-        return otExplicit > 0 || hours > (shift.totalHours || 8) + 0.25;
+        const stdHours = shift.totalHours || 9;
+        const hours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
+        return hours > stdHours;
       }).forEach(r => {
         const shift = getEmployeeShift(r.employeeId);
+        const stdHours = shift.totalHours || 9;
         const dur = getRecordWorkingDuration(r);
-        const rawHours = dur.decimalHours > 0 ? dur.decimalHours : toNum(r.workingHours);
-        const explicitOt = (r as any).approvedOtHours || r.otHours || 0;
-        const calculatedOt = Math.max(0, rawHours - (shift.totalHours || 8));
-        const otHrs = explicitOt > 0 ? explicitOt : calculatedOt;
-        const totalHours = Math.max(rawHours, (shift.totalHours || 8) + otHrs);
+        const rawHours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
+        const otHrs = Math.max(0, Math.round((rawHours - stdHours) * 100) / 100);
+        const totalHours = rawHours;
         data.push({
           empId: r.employeeId,
           name: r.employeeName,
           dept: r.department,
           date: formatDateDisplay(r.date),
-          standardHours: `${(shift.totalHours || 8).toFixed(1)} hrs`,
+          standardHours: `${stdHours.toFixed(1)} hrs`,
           totalHours: `${totalHours.toFixed(1)} hrs`,
           otHours: `+${otHrs.toFixed(1)} hrs`,
           rate: '1.5x Rate'
@@ -1046,7 +1077,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         leaveRequests,
         fStr,
         tStr,
-        businessSettings?.businessName || companyInfo?.companyName || 'BUSINZ'
+        businessSettings?.businessName || companyInfo?.companyName || 'BUSINZ',
+        shifts,
+        holidayPolicies
       );
       return;
     }
@@ -1943,9 +1976,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                     if (r.status === 'Absent') return false;
                     const dur = getRecordWorkingDuration(r);
                     const shift = getEmployeeShift(r.employeeId);
-                    const hours = dur.decimalHours > 0 ? dur.decimalHours : toNum(r.workingHours);
-                    const otExplicit = (r as any).approvedOtHours || r.otHours || 0;
-                    return otExplicit > 0 || hours > (shift.totalHours || 8) + 0.25;
+                    const stdHours = shift.totalHours || 9;
+                    const hours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
+                    return hours > stdHours;
                   }).sort((a, b) =>
                     compareDateAndEmp(a.date || a.shiftDate, a.employeeId, b.date || b.shiftDate, b.employeeId, reportSortMode)
                   );
@@ -1962,12 +1995,11 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
                   return otList.map((r, idx) => {
                     const shift = getEmployeeShift(r.employeeId);
+                    const stdHours = shift.totalHours || 9;
                     const dur = getRecordWorkingDuration(r);
-                    const rawHours = dur.decimalHours > 0 ? dur.decimalHours : toNum(r.workingHours);
-                    const explicitOt = (r as any).approvedOtHours || r.otHours || 0;
-                    const calculatedOt = Math.max(0, rawHours - (shift.totalHours || 8));
-                    const otHrs = explicitOt > 0 ? explicitOt : calculatedOt;
-                    const totalHours = Math.max(rawHours, (shift.totalHours || 8) + otHrs);
+                    const rawHours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
+                    const otHrs = Math.max(0, Math.round((rawHours - stdHours) * 100) / 100);
+                    const totalHours = rawHours;
 
                     return (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -1977,7 +2009,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                           <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
-                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{(shift.totalHours || 8).toFixed(1)} hrs</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{stdHours.toFixed(1)} hrs</td>
                         <td style={{ padding: '10px 14px', fontWeight: 700 }}>{totalHours.toFixed(1)} hrs</td>
                         <td style={{ padding: '10px 14px', color: '#0E7490', fontWeight: 800 }}>+{otHrs.toFixed(1)} hrs</td>
                         <td style={{ padding: '10px 14px' }}>

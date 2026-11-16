@@ -1,665 +1,793 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
-import { 
-  ListTodo, 
-  UserCheck, 
-  Users,
-  User, 
-  PlusCircle, 
-  Plus,
-  BarChart3, 
+import {
   CheckSquare,
-  FileCheck
+  Plus,
+  AlertTriangle,
+  Clock,
+  CheckCircle2,
+  ListTodo,
+  BarChart2,
+  Users,
+  UserCheck,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  ChevronDown,
+  BookOpen,
+  Search,
+  Calendar
 } from 'lucide-react';
-
 import { TaskRegister } from './TaskRegister';
-import { NewTaskForm } from './NewTaskForm';
 import { MyTasks } from './MyTasks';
 import { AssignedTasks } from './AssignedTasks';
 import { TeamTasks } from './TeamTasks';
-import { DailyTaskReportManagement } from './DailyTaskReportManagement';
-import { TaskDetailModal } from './TaskDetailModal';
 import { TaskReports } from './TaskReports';
-import { ExportDropdown } from '../common/ExportDropdown';
-import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
+import { DailyTaskReportManagement } from './DailyTaskReportManagement';
+import { NewTaskForm } from './NewTaskForm';
+import { TaskDetailModal } from './TaskDetailModal';
+import { computeDueStatus } from '../../types/tasks';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
-import { computeDueStatus, isTaskAssignedByMe } from '../../types/tasks';
+import { exportToExcel, exportToPDF } from '../../utils/exportUtils';
 
-interface TaskManagementProps {
-  openAddModal?: boolean;
-  onCloseQuickAdd?: () => void;
-}
+export const TaskManagement: React.FC = () => {
+  const {
+    enhancedTasks,
+    currentUser,
+    employees
+  } = useHRMS();
+  const {
+    selectedGlobalTaskId,
+    setSelectedGlobalTaskId,
+    taskTargetTab,
+    setTaskTargetTab
+  } = useHRMS() as any;
 
-export const TaskManagement: React.FC<TaskManagementProps> = ({ openAddModal, onCloseQuickAdd }) => {
-  const { currentUser, enhancedTasks, departments } = useHRMS();
+  const currentEmpRecord = useMemo(() => {
+    return employees.find(
+      e =>
+        e.employeeId === currentUser.employeeId ||
+        e.id === currentUser.id ||
+        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
+    );
+  }, [employees, currentUser]);
 
-  const isSuperAdmin = currentUser.role === 'Super Admin' || currentUser.role === 'ERP Administrator';
-  const isCEO = isSuperAdmin || currentUser.role === 'CEO' || currentUser.designation === 'CEO' || currentUser.employeeId === 'EMP-000';
-  const isHR = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || (currentUser as any).department?.toLowerCase().includes('hr');
-  const isManager = currentUser.role === 'Department Manager' || currentUser.role === 'Department Head' || currentUser.role === 'Manager';
-  const isEmployee = currentUser.role === 'Employee' || currentUser.role === 'Assignee' || (!isCEO && !isHR && !isManager && !isSuperAdmin);
+  const isManagerOrAdmin = useMemo(() => {
+    if (
+      currentUser.role === 'Super Admin' ||
+      currentUser.role === 'CEO' ||
+      currentUser.role === 'HR' ||
+      currentUser.role === 'Manager'
+    ) {
+      return true;
+    }
+    const desig = (currentEmpRecord?.designation || currentUser.designation || '').toLowerCase();
+    return desig.includes('head') || desig.includes('manager') || desig.includes('lead') || desig.includes('director');
+  }, [currentUser, currentEmpRecord]);
 
-  // Active Tab State - defaults to 'my_tasks' for employees, 'register' for HR/CEO
   const [activeTab, setActiveTab] = useState<
-    'register' | 'my_tasks' | 'assigned_tasks' | 'team_tasks' | 'daily_reports' | 'new_task' | 'reports'
-  >(() => {
-    try {
-      const saved = sessionStorage.getItem('vrm_task_active_tab');
-      if (saved && ['register', 'my_tasks', 'assigned_tasks', 'team_tasks', 'daily_reports', 'reports'].includes(saved)) {
-        if (isEmployee && (saved === 'register' || saved === 'reports')) {
-          return 'my_tasks';
-        }
-        return saved as any;
-      }
-    } catch (e) {}
-    return isEmployee ? 'my_tasks' : 'register';
-  });
+    'register' | 'my_tasks' | 'assigned_tasks' | 'team_tasks' | 'daily_reports' | 'reports'
+  >(isManagerOrAdmin ? 'register' : 'my_tasks');
 
-  const handleTabChange = (tab: 'register' | 'my_tasks' | 'assigned_tasks' | 'team_tasks' | 'daily_reports' | 'new_task' | 'reports') => {
-    setActiveTab(tab);
-    try {
-      sessionStorage.setItem('vrm_task_active_tab', tab);
-      if (tab === 'daily_reports') {
-        localStorage.setItem('vrm_task_daily_reports_viewed_at', new Date().toISOString());
-      }
-      if (tab === 'team_tasks') {
-        localStorage.setItem('vrm_task_team_tasks_viewed_at', new Date().toISOString());
-        const teamIds = enhancedTasks.filter(t => (t.assignees?.length || 0) > 1).map(t => t.id);
-        const existingSeen: string[] = JSON.parse(localStorage.getItem('vrm_task_team_tasks_seen_ids') || '[]');
-        const merged = Array.from(new Set([...existingSeen, ...teamIds]));
-        localStorage.setItem('vrm_task_team_tasks_seen_ids', JSON.stringify(merged));
-      }
-    } catch (e) {}
-  };
-
-  // Keep seen tracking updated when viewing team tasks or daily reports
   useEffect(() => {
-    if (activeTab === 'team_tasks') {
-      try {
-        const teamIds = enhancedTasks.filter(t => (t.assignees?.length || 0) > 1).map(t => t.id);
-        const existingSeen: string[] = JSON.parse(localStorage.getItem('vrm_task_team_tasks_seen_ids') || '[]');
-        const merged = Array.from(new Set([...existingSeen, ...teamIds]));
-        localStorage.setItem('vrm_task_team_tasks_seen_ids', JSON.stringify(merged));
-        localStorage.setItem('vrm_task_team_tasks_viewed_at', new Date().toISOString());
-      } catch (e) {}
-    } else if (activeTab === 'daily_reports') {
-      try {
-        localStorage.setItem('vrm_task_daily_reports_viewed_at', new Date().toISOString());
-      } catch (e) {}
-    }
-  }, [activeTab, enhancedTasks]);
+    setActiveTab(isManagerOrAdmin ? 'register' : 'my_tasks');
+  }, [currentUser.id, currentUser.role, isManagerOrAdmin]);
 
-  // Selected Task for Detail Modal
+  useEffect(() => {
+    if (taskTargetTab) {
+      setActiveTab(taskTargetTab);
+      setTaskTargetTab(null);
+    }
+  }, [taskTargetTab, setTaskTargetTab]);
+
+  const [showNewTaskModal, setShowNewTaskModal] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [dueFilter, setDueFilter] = useState<string>('All');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  // If user opened via quick add modal trigger
   useEffect(() => {
-    if (openAddModal) {
-      handleTabChange('new_task');
+    if (selectedGlobalTaskId) {
+      setSelectedTaskId(selectedGlobalTaskId);
+      setSelectedGlobalTaskId(null);
     }
-  }, [openAddModal]);
+  }, [selectedGlobalTaskId, setSelectedGlobalTaskId]);
 
-  // Sync tab when user switches role in demo
   useEffect(() => {
-    if (!openAddModal) {
-      if (isEmployee && (activeTab === 'register' || activeTab === 'reports')) {
-        handleTabChange('my_tasks');
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
       }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const matchesCurrentUser = (idOrCode?: string, name?: string) => {
+    if (idOrCode) {
+      if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
+      if (currentEmpRecord && (idOrCode === currentEmpRecord.employeeId || idOrCode === currentEmpRecord.id)) return true;
     }
-  }, [currentUser.role, isEmployee, openAddModal]);
-
-  const handleTaskCreated = (newTaskId: string) => {
-    setSelectedTaskId(newTaskId);
-    handleTabChange('assigned_tasks');
-    if (onCloseQuickAdd) onCloseQuickAdd();
+    if (name) {
+      const target = name.trim().toLowerCase();
+      if (target === currentUser.name.trim().toLowerCase()) return true;
+      if (
+        currentEmpRecord &&
+        target === `${currentEmpRecord.firstName} ${currentEmpRecord.lastName}`.trim().toLowerCase()
+      )
+        return true;
+    }
+    return false;
   };
 
-  const handleCancelCreate = () => {
-    handleTabChange(isEmployee ? 'my_tasks' : 'register');
-    if (onCloseQuickAdd) onCloseQuickAdd();
+  const isInvolvedInTask = (t: (typeof enhancedTasks)[0]) => {
+    const isAssignee = t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName));
+    const isResponsible = matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName);
+    const isAssigner = matchesCurrentUser(t.assignedById, t.assignedByName);
+    return isAssignee || isResponsible || isAssigner;
   };
 
-  // Structured Export Data calculation based on active tab
-  const getStructuredExportData = () => {
-    if (activeTab === 'reports') {
-      const columns = [
-        { key: 'department', label: 'Department' },
-        { key: 'total', label: 'Total Tasks' },
-        { key: 'completed', label: 'Completed' },
-        { key: 'inProgress', label: 'In Progress' },
-        { key: 'open', label: 'Open' },
-        { key: 'overdue', label: 'Overdue' },
-        { key: 'avgProgress', label: 'Avg Progress %' },
-        { key: 'compRate', label: 'Completion Rate %' }
-      ];
-      const data = departments.map(d => {
-        const dTasks = enhancedTasks.filter(t => t.department === d.name);
-        const total = dTasks.length;
-        const completed = dTasks.filter(t => t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED').length;
-        const inProgress = dTasks.filter(t => t.overallStatus === 'IN PROGRESS' || t.overallStatus === 'PARTIALLY COMPLETED').length;
-        const open = dTasks.filter(t => t.overallStatus === 'OPEN').length;
-        const overdue = dTasks.filter(t => computeDueStatus(t.dueDate, t.overallStatus) === 'Overdue').length;
-        const avgProgress = total > 0 ? Math.round(dTasks.reduce((sum, t) => sum + t.overallProgress, 0) / total) : 0;
-        const compRate = total > 0 ? Math.round((completed / total) * 100) : 100;
-        return {
-          department: d.name,
-          total,
-          completed,
-          inProgress,
-          open,
-          overdue,
-          avgProgress: `${avgProgress}%`,
-          compRate: `${compRate}%`
-        };
-      });
-      return {
-        columns,
-        data,
-        filename: `Task_Analytics_Report_${new Date().toISOString().split('T')[0]}`,
-        title: 'Task Module Analytics Report'
-      };
+  const kpis = useMemo(() => {
+    const relevantTasks = isManagerOrAdmin ? enhancedTasks : enhancedTasks.filter(t => isInvolvedInTask(t));
+
+    const total = relevantTasks.length;
+    const open = relevantTasks.filter(t => t.overallStatus === 'OPEN').length;
+    const inProgress = relevantTasks.filter(
+      t =>
+        t.overallStatus === 'IN PROGRESS' ||
+        t.overallStatus === 'PARTIALLY COMPLETED' ||
+        t.overallStatus === 'UNDER REVIEW' ||
+        t.overallStatus === 'REOPENED'
+    ).length;
+    const completed = relevantTasks.filter(
+      t => t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED'
+    ).length;
+
+    let overdue = 0;
+    let dueToday = 0;
+
+    relevantTasks.forEach(t => {
+      const dStatus = computeDueStatus(t.dueDate, t.overallStatus);
+      if (dStatus === 'Overdue') overdue++;
+      if (dStatus === 'Due Today') dueToday++;
+    });
+
+    const myTasksCount = enhancedTasks.filter(
+      t =>
+        t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
+        matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName)
+    ).length;
+
+    const assignedByMeCount = enhancedTasks.filter(t => matchesCurrentUser(t.assignedById, t.assignedByName)).length;
+
+    const teamTasksCount = enhancedTasks.filter(t => {
+      const isTeamTask = t.assignmentType === 'Team' || t.assignees.length > 1;
+      if (!isTeamTask) return false;
+      if (isManagerOrAdmin) return true;
+      return isInvolvedInTask(t);
+    }).length;
+
+    let dailyReportsCount = 0;
+    enhancedTasks.forEach(t => {
+      if (isManagerOrAdmin || isInvolvedInTask(t)) {
+        dailyReportsCount += (t.dailyReports || []).length;
+      }
+    });
+
+    return {
+      total,
+      open,
+      inProgress,
+      completed,
+      overdue,
+      dueToday,
+      myTasksCount,
+      assignedByMeCount,
+      teamTasksCount,
+      dailyReportsCount
+    };
+  }, [enhancedTasks, currentUser, currentEmpRecord, isManagerOrAdmin]);
+
+  const handleKpiClick = (status: string, due: string = 'All') => {
+    setStatusFilter(status);
+    setDueFilter(due);
+    setActiveTab(isManagerOrAdmin ? 'register' : 'my_tasks');
+  };
+
+  const handleExportTasks = (type: 'excel' | 'pdf') => {
+    setShowExportMenu(false);
+
+    const exportSource = isManagerOrAdmin ? enhancedTasks : enhancedTasks.filter(t => isInvolvedInTask(t));
+
+    if (exportSource.length === 0) {
+      alert('No task records available to export.');
+      return;
     }
 
     const columns = [
-      { key: 'taskNumber', label: 'Task Number' },
-      { key: 'title', label: 'Task Title' },
-      { key: 'department', label: 'Department' },
-      { key: 'responsible', label: 'Responsible Person' },
-      { key: 'assignees', label: 'Assignees' },
-      { key: 'dueDate', label: 'Due Date' },
-      { key: 'priority', label: 'Priority' },
-      { key: 'status', label: 'Status' },
-      { key: 'progress', label: 'Progress %' },
-      { key: 'dueStatus', label: 'Due Status' }
+      { header: 'Task No', key: 'taskNumber' },
+      { header: 'Title', key: 'title' },
+      { header: 'Category', key: 'taskCategory' },
+      { header: 'Department', key: 'department' },
+      { header: 'Priority', key: 'priority' },
+      { header: 'Assign Type', key: 'assignmentType' },
+      { header: 'Assigned By', key: 'assignedByName' },
+      { header: 'Responsible Lead', key: 'responsiblePersonName' },
+      { header: 'Team Members', key: 'assigneesList' },
+      { header: 'Start Date', key: 'startDate' },
+      { header: 'Due Date', key: 'dueDate' },
+      { header: 'Progress', key: 'progressFormatted' },
+      { header: 'Status', key: 'overallStatus' }
     ];
 
-    let tasksToExport = enhancedTasks;
-    if (isEmployee) {
-      tasksToExport = enhancedTasks.filter(t => 
-        t.assignees.some(a => a.employeeId === (currentUser.employeeId || 'EMP-001')) ||
-        t.responsiblePersonId === (currentUser.employeeId || 'EMP-001')
-      );
-    } else if (currentUser.department && (currentUser.role.includes('Manager') || currentUser.role.includes('Head'))) {
-      tasksToExport = enhancedTasks.filter(t => t.department === currentUser.department);
-    }
-
-    const data = tasksToExport.map(t => ({
-      taskNumber: t.taskNumber,
-      title: t.title,
-      department: t.department,
-      responsible: t.responsiblePersonName,
-      assignees: t.assignees.map(a => a.employeeName).join(', '),
+    const data = exportSource.map(t => ({
+      ...t,
+      startDate: formatDateDDMMYYYY(t.startDate),
       dueDate: formatDateDDMMYYYY(t.dueDate),
-      priority: t.priority,
-      status: t.overallStatus,
-      progress: `${t.overallProgress}%`,
-      dueStatus: computeDueStatus(t.dueDate, t.overallStatus)
+      assigneesList: t.assignees.map(a => `${a.employeeName} (${a.individualStatus})`).join(', '),
+      progressFormatted: `${t.overallProgress}%`
     }));
 
-    return {
-      columns,
-      data,
-      filename: `Task_Register_${new Date().toISOString().split('T')[0]}`,
-      title: 'Enterprise Task Register Report'
-    };
-  };
+    const timestamp = new Date().toISOString().split('T')[0];
 
-  const handleExportCSV = () => {
-    const { columns, data, filename } = getStructuredExportData();
-    downloadCSV(data, filename, columns);
-  };
-
-  const handleExportExcel = () => {
-    const { columns, data, filename } = getStructuredExportData();
-    downloadExcel(data, filename, columns);
-  };
-
-  const handleExportPDF = () => {
-    const { columns, data, filename, title } = getStructuredExportData();
-    downloadPDF(data, title, filename, columns);
-  };
-
-  // Count my tasks
-  const myTasksCount = enhancedTasks.filter(t => 
-    t.assignees.some(a => 
-      a.employeeId === (currentUser.employeeId || 'EMP-001') ||
-      a.employeeId === currentUser.id ||
-      (currentUser.name && a.employeeName?.toLowerCase().includes(currentUser.name.toLowerCase()))
-    ) &&
-    t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED'
-  ).length;
-
-  // Count tasks assigned by current user
-  const assignedTasksCount = enhancedTasks.filter(t => 
-    isTaskAssignedByMe(t, currentUser) &&
-    t.overallStatus !== 'COMPLETED' && t.overallStatus !== 'CLOSED'
-  ).length;
-
-  // Count active team tasks requiring action (auto-closes when user opens Team Tasks tab and stays closed across tabs)
-  const teamTasksCount = (() => {
-    if (activeTab === 'team_tasks') return 0;
-    const seenIds: string[] = (() => {
-      try {
-        return JSON.parse(localStorage.getItem('vrm_task_team_tasks_seen_ids') || '[]');
-      } catch { return []; }
-    })();
-    const lastViewedAt = localStorage.getItem('vrm_task_team_tasks_viewed_at');
-
-    return enhancedTasks.filter(t => {
-      const count = t.assignees ? t.assignees.length : 0;
-      if (count <= 1) return false;
-      if (t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED' || t.overallStatus === 'CANCELLED') return false;
-
-      // If user has already visited/seen this team task, do not show persistent badge!
-      if (seenIds.includes(t.id)) return false;
-      if (lastViewedAt) {
-        const taskTime = t.createdAt || t.taskDate || t.startDate;
-        if (taskTime && new Date(taskTime).getTime() <= new Date(lastViewedAt).getTime()) {
-          return false;
-        }
-      }
-
-      const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
-      const currentName = (currentUser.name || '').toLowerCase().trim();
-
-      // Check if current user is an assignee in this team task
-      const myAssignee = t.assignees.find(a => {
-        const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
-        const assigneeName = (a.employeeName || '').toLowerCase().trim();
-        return (
-          (currentEmpId && assigneeEmpId === currentEmpId) ||
-          (currentName && (assigneeName === currentName || assigneeName.includes(currentName) || currentName.includes(assigneeName)))
-        );
-      });
-
-      // If current user is an assignee, only count if their individual status is NOT completed
-      if (myAssignee) {
-        return myAssignee.individualStatus !== 'Completed';
-      }
-
-      if (!isCEO && !isHR) {
-        return false;
-      }
-      if (isManager && currentUser.department && t.department !== currentUser.department) return false;
-
-      // For management, only count if at least one member is still not completed
-      return t.assignees.some(a => a.individualStatus !== 'Completed');
-    }).length;
-  })();
-
-  // Count unviewed/fresh daily reports (auto-closes when user opens Daily Reports tab)
-  const dailyReportsCount = activeTab === 'daily_reports' ? 0 : enhancedTasks.reduce((acc, t) => {
-    const reports = t.dailyReports || [];
-    if (reports.length === 0) return acc;
-
-    const lastViewedAt = localStorage.getItem('vrm_task_daily_reports_viewed_at');
-    const currentEmpId = (currentUser.employeeId || currentUser.id || '').toLowerCase().trim();
-    const currentName = (currentUser.name || '').toLowerCase().trim();
-
-    const unviewedReports = reports.filter(r => {
-      if (lastViewedAt && r.submittedAt && r.submittedAt <= lastViewedAt) return false;
-      if (currentEmpId && r.seenBy?.some(s => s.toLowerCase() === currentEmpId)) return false;
-      return true;
-    });
-
-    if (unviewedReports.length === 0) return acc;
-
-    if (isEmployee) {
-      const isAssignedToMe = t.assignees.some(a => {
-        const assigneeEmpId = (a.employeeId || '').toLowerCase().trim();
-        const assigneeName = (a.employeeName || '').toLowerCase().trim();
-        return (
-          (currentEmpId && assigneeEmpId === currentEmpId) ||
-          (currentName && assigneeName.includes(currentName))
-        );
-      });
-      const isReporter = unviewedReports.some(r => {
-        const reporterEmpId = (r.employeeId || '').toLowerCase().trim();
-        const reporterName = (r.employeeName || '').toLowerCase().trim();
-        return (
-          (currentEmpId && reporterEmpId === currentEmpId) ||
-          (currentName && reporterName.includes(currentName))
-        );
-      });
-      const isAssigner = isTaskAssignedByMe(t, currentUser);
-      return (isAssignedToMe || isReporter || isAssigner) ? acc + unviewedReports.length : acc;
+    if (type === 'excel') {
+      exportToExcel(data, columns, `VRM_Task_Management_${timestamp}`);
+    } else {
+      exportToPDF(
+        data,
+        columns,
+        'VRM Enterprise Task Management Register',
+        `VRM_Task_Register_${timestamp}`,
+        `Generated by ${currentUser.name} (${currentUser.role}) • Total Tasks: ${exportSource.length}`
+      );
     }
+  };
 
-    if (isManager && currentUser.department && !isCEO && !isHR && t.department !== currentUser.department) {
-      return acc;
+  const focusMobileSearch = () => {
+    const searchEl = document.querySelector<HTMLInputElement>(
+      '.task-management-module input[type="text"], .task-management-module input[type="search"]'
+    );
+    if (searchEl) {
+      searchEl.focus();
+      searchEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  };
 
-    return acc + unviewedReports.length;
-  }, 0);
+  const tabsConfig = [
+    {
+      id: 'register' as const,
+      shortLabel: 'Register',
+      desktopLabel: 'Register',
+      icon: Calendar,
+      count: kpis.total
+    },
+    {
+      id: 'my_tasks' as const,
+      shortLabel: 'My Tasks',
+      desktopLabel: 'My Tasks',
+      icon: CheckSquare,
+      count: kpis.myTasksCount
+    },
+    {
+      id: 'assigned_tasks' as const,
+      shortLabel: 'Assigned',
+      desktopLabel: 'Assigned',
+      icon: UserCheck,
+      count: kpis.assignedByMeCount
+    },
+    {
+      id: 'team_tasks' as const,
+      shortLabel: 'Team',
+      desktopLabel: 'Team',
+      icon: Users,
+      count: kpis.teamTasksCount
+    },
+    {
+      id: 'daily_reports' as const,
+      shortLabel: 'Daily',
+      desktopLabel: 'Daily',
+      icon: BookOpen,
+      count: kpis.dailyReportsCount
+    },
+    {
+      id: 'reports' as const,
+      shortLabel: 'Reports',
+      desktopLabel: 'Reports',
+      icon: BarChart2,
+      count: null
+    }
+  ];
 
   return (
-    <div className="task-management-module" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
-      {/* Standard Page Header */}
-      <div className="page-header" style={{ marginBottom: '16px' }}>
-        <div className="page-title-group">
-          <h1>
-            <span className="mobile-only-inline">Tasks</span>
-            <span className="desktop-only-inline">
-              {activeTab === 'assigned_tasks'
-                ? 'Assigned Tasks'
-                : activeTab === 'team_tasks'
-                  ? 'Team Tasks'
-                  : isEmployee 
-                    ? (activeTab === 'daily_reports' ? 'Daily Task Reports' : 'My Tasks') 
-                    : 'Task Management'}
-            </span>
+    <div
+      className="task-management-module"
+      style={{
+        width: '100%',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '14px'
+      }}
+    >
+      {/* ============================================================ */}
+      {/* CLEAN & MINIMAL HEADER (Web & Mobile)                        */}
+      {/* ============================================================ */}
+      <div
+        className="task-mgmt-header-row"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <h1
+            style={{
+              fontSize: '1.35rem',
+              fontWeight: 800,
+              color: '#0F172A',
+              margin: 0,
+              letterSpacing: '-0.02em',
+              lineHeight: 1.2
+            }}
+          >
+            Task Management
           </h1>
-          <div className="mobile-only-block" style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '2px', fontWeight: 500 }}>
-            Keep track of work items &amp; team progress
-          </div>
+          <p
+            className="desktop-only-block"
+            style={{
+              fontSize: '0.8rem',
+              color: '#64748B',
+              margin: '3px 0 0 0',
+              fontWeight: 500
+            }}
+          >
+            Assign, track, and review individual &amp; team deliverables across departments
+          </p>
         </div>
-        <div className="header-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          {!isEmployee && activeTab !== 'new_task' && (
-            <div className="desktop-only-inline">
-              <ExportDropdown 
-                onExportExcel={handleExportExcel}
-                onExportPDF={handleExportPDF}
-                onExportCSV={handleExportCSV}
-                label="Download"
-                size="sm"
-              />
-            </div>
-          )}
-          {activeTab === 'new_task' ? (
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {/* Mobile Search Icon Button (Matches Reference Image Screen 1) */}
+          <button
+            type="button"
+            onClick={focusMobileSearch}
+            className="mobile-only-block"
+            title="Search Tasks"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              border: '1px solid #E2E8F0',
+              background: '#F8FAFC',
+              color: '#334155',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              padding: 0
+            }}
+          >
+            <Search size={17} />
+          </button>
+
+          {/* Desktop Export Dropdown */}
+          <div ref={exportMenuRef} className="desktop-only-block" style={{ position: 'relative' }}>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleTabChange(isEmployee ? 'my_tasks' : 'register')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
-            >
-              <ListTodo size={16} /> <span className="desktop-only-inline">{isEmployee ? 'My Tasks' : 'Task Register'}</span><span className="mobile-only-inline">Tasks</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => handleTabChange('new_task')}
-              title="Assign Task"
-              aria-label="Assign Task"
-              style={{ 
-                display: 'inline-flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                fontWeight: 700, 
-                background: '#0E7490', 
-                borderColor: '#0E7490',
-                borderRadius: '10px',
-                width: '38px',
+              className="btn btn-secondary"
+              onClick={() => setShowExportMenu(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
                 height: '38px',
-                padding: 0
+                padding: '0 14px',
+                borderRadius: '10px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                background: '#FFFFFF',
+                border: '1px solid #E2E8F0',
+                color: '#334155'
               }}
             >
-              <Plus size={18} strokeWidth={2.5} />
+              <Download size={15} />
+              <span>Export</span>
+              <ChevronDown size={13} />
             </button>
-          )}
+
+            {showExportMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 'calc(100% + 6px)',
+                  background: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12)',
+                  minWidth: '185px',
+                  zIndex: 100,
+                  padding: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleExportTasks('excel')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    textAlign: 'left',
+                    width: '100%'
+                  }}
+                  onMouseOver={e => (e.currentTarget.style.background = '#F8FAFC')}
+                  onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <FileSpreadsheet size={16} color="#16A34A" />
+                  <span>Export to Excel (.xlsx)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportTasks('pdf')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    textAlign: 'left',
+                    width: '100%'
+                  }}
+                  onMouseOver={e => (e.currentTarget.style.background = '#F8FAFC')}
+                  onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <FileText size={16} color="#DC2626" />
+                  <span>Export to PDF (.pdf)</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Primary Assign Task Button (+ on Mobile, + Assign Task on Desktop) */}
+          <button
+            type="button"
+            onClick={() => setShowNewTaskModal(true)}
+            title="Assign Task"
+            style={{
+              height: '38px',
+              padding: '0 14px',
+              borderRadius: '10px',
+              border: 'none',
+              background: '#0E7490',
+              color: '#FFFFFF',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
+            }}
+          >
+            <Plus size={18} strokeWidth={2.5} />
+            <span className="desktop-only-inline">Assign Task</span>
+          </button>
         </div>
       </div>
 
-      {/* Top Module Navigation Bar for Managers / CEO / HR */}
-      {!isEmployee && (
-        <>
-          {/* Desktop Navigation (>= 768px) */}
-          <div className="desktop-only-block" style={{ 
-            padding: '8px 16px', 
-            marginBottom: '20px', 
-            borderRadius: '16px', 
-            background: '#ffffff',
-            border: '1px solid #E7ECF3',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-              <div className="task-module-tabs-bar">
-                {[
-                  { id: 'register', label: 'Task Register', icon: ListTodo },
-                  { id: 'my_tasks', label: 'My Tasks', icon: UserCheck, badge: myTasksCount },
-                  { id: 'assigned_tasks', label: 'Assigned Tasks', icon: CheckSquare, badge: assignedTasksCount },
-                  { id: 'team_tasks', label: 'Team Tasks', icon: Users, badge: teamTasksCount },
-                  { id: 'daily_reports', label: 'Daily Reports', icon: FileCheck, badge: dailyReportsCount },
-                  { id: 'reports', label: 'Reports', icon: BarChart3 }
-                ].map(t => {
-                  const Icon = t.icon;
-                  const isActive = activeTab === t.id;
-
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => handleTabChange(t.id as any)}
-                      style={{ 
-                        fontSize: '0.82rem', 
-                        padding: '8px 16px', 
-                        borderRadius: '10px', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '7px',
-                        fontWeight: isActive ? 700 : 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        border: isActive ? '1px solid #0E7490' : '1px solid transparent',
-                        background: isActive ? '#0E7490' : 'transparent',
-                        color: isActive ? '#ffffff' : '#475569',
-                        boxShadow: isActive ? '0 2px 6px rgba(14, 116, 144, 0.25)' : 'none'
-                      }}
-                      onMouseEnter={e => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = '#F8FAFC';
-                          e.currentTarget.style.color = '#1E293B';
-                        }
-                      }}
-                      onMouseLeave={e => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.color = '#475569';
-                        }
-                      }}
-                    >
-                      <Icon size={16} />
-                      <span>{t.label}</span>
-                      {t.badge !== undefined && t.badge > 0 && !isActive && (
-                        <span style={{ 
-                          background: '#EF4444', 
-                          color: '#ffffff', 
-                          fontSize: '0.7rem', 
-                          fontWeight: 700, 
-                          padding: '1px 7px', 
-                          borderRadius: '9999px',
-                          marginLeft: '2px'
-                        }}>
-                          {t.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Mobile Apple-Inspired Segmented Tab Bar (< 768px): My Tasks | Assigned | Team | Reports */}
-          <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
-            <div className="mobile-segmented-tab-bar manager-task-mobile-tabs">
-              {[
-                { id: 'my_tasks', label: 'My Tasks', badge: myTasksCount },
-                { id: 'assigned_tasks', label: 'Assigned', badge: assignedTasksCount },
-                { id: 'team_tasks', label: 'Team', badge: teamTasksCount },
-                { id: 'daily_reports', label: 'Reports', badge: dailyReportsCount },
-                { id: 'register', label: 'Register' },
-                { id: 'reports', label: 'Analytics' }
-              ].map(t => {
-                const isActive = activeTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`mobile-segmented-tab-btn ${isActive ? 'active' : ''}`}
-                    onClick={() => handleTabChange(t.id as any)}
-                  >
-                    <span>{t.label}</span>
-                    {t.badge !== undefined && t.badge > 0 && !isActive && (
-                      <span className="mobile-tab-badge">
-                        {t.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Top Navigation for Employees: My Tasks, Assigned Tasks, Team Tasks & Daily Reports */}
-      {isEmployee && (
-        <>
-          {/* Desktop Navigation (>= 768px) */}
-          <div className="desktop-only-block" style={{ 
-            padding: '8px 16px', 
-            marginBottom: '20px', 
-            borderRadius: '16px', 
-            background: '#ffffff',
-            border: '1px solid #E7ECF3',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)'
-          }}>
-            <div className="employee-task-tabs-row" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              {[
-                { id: 'my_tasks', label: 'My Tasks', icon: UserCheck, badge: myTasksCount },
-                { id: 'assigned_tasks', label: 'Assigned Tasks', icon: CheckSquare, badge: assignedTasksCount },
-                { id: 'team_tasks', label: 'Team Tasks', icon: Users, badge: teamTasksCount },
-                { id: 'daily_reports', label: 'Daily Reports', icon: FileCheck, badge: dailyReportsCount }
-              ].map(t => {
-                const Icon = t.icon;
-                const isActive = activeTab === t.id;
-
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => handleTabChange(t.id as any)}
-                    style={{ 
-                      fontSize: '0.82rem', 
-                      padding: '8px 16px', 
-                      borderRadius: '10px', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '7px',
-                      fontWeight: isActive ? 700 : 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      border: isActive ? '1px solid #0E7490' : '1px solid transparent',
-                      background: isActive ? '#0E7490' : 'transparent',
-                      color: isActive ? '#ffffff' : '#475569',
-                      boxShadow: isActive ? '0 2px 6px rgba(14, 116, 144, 0.25)' : 'none'
+      {/* ============================================================ */}
+      {/* DESKTOP COMPACT KPI ROW (Hidden on Mobile for Clean Look)    */}
+      {/* ============================================================ */}
+      <div
+        className="desktop-only-block"
+        style={{
+          width: '100%'
+        }}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+            gap: '12px'
+          }}
+        >
+          {[
+            {
+              label: isManagerOrAdmin ? 'Total Tasks' : 'My Total Tasks',
+              value: kpis.total,
+              sub: 'Active register',
+              icon: ListTodo,
+              iconBg: '#ECFEFF',
+              iconColor: '#0E7490',
+              active: statusFilter === 'All' && dueFilter === 'All',
+              onClick: () => handleKpiClick('All', 'All')
+            },
+            {
+              label: 'Open Tasks',
+              value: kpis.open,
+              sub: 'Awaiting start',
+              icon: Clock,
+              iconBg: '#F1F5F9',
+              iconColor: '#475569',
+              active: statusFilter === 'OPEN' && dueFilter === 'All',
+              onClick: () => handleKpiClick('OPEN', 'All')
+            },
+            {
+              label: 'In Progress',
+              value: kpis.inProgress,
+              sub: 'Active execution',
+              icon: CheckSquare,
+              iconBg: '#E0F2FE',
+              iconColor: '#0284C7',
+              active: statusFilter === 'IN PROGRESS' && dueFilter === 'All',
+              onClick: () => handleKpiClick('IN PROGRESS', 'All')
+            },
+            {
+              label: 'Completed',
+              value: kpis.completed,
+              sub: `${kpis.total > 0 ? Math.round((kpis.completed / kpis.total) * 100) : 0}% completion rate`,
+              icon: CheckCircle2,
+              iconBg: '#DCFCE7',
+              iconColor: '#16A34A',
+              active: statusFilter === 'COMPLETED' && dueFilter === 'All',
+              onClick: () => handleKpiClick('COMPLETED', 'All')
+            },
+            {
+              label: 'Overdue',
+              value: kpis.overdue,
+              sub: `${kpis.dueToday} due today`,
+              icon: AlertTriangle,
+              iconBg: '#FEE2E2',
+              iconColor: '#DC2626',
+              active: dueFilter === 'Overdue',
+              onClick: () => handleKpiClick('All', 'Overdue')
+            }
+          ].map(card => {
+            const IconComp = card.icon;
+            return (
+              <div
+                key={card.label}
+                onClick={card.onClick}
+                style={{
+                  background: card.active ? '#F0FDFA' : '#FFFFFF',
+                  border: card.active ? '1.5px solid #0E7490' : '1px solid #E2E8F0',
+                  borderRadius: '14px',
+                  padding: '12px 14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.03)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B' }}>{card.label}</span>
+                  <div
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '8px',
+                      background: card.iconBg,
+                      color: card.iconColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
                     }}
                   >
-                    <Icon size={16} />
-                    <span>{t.label}</span>
-                    {t.badge !== undefined && t.badge > 0 && !isActive && (
-                      <span style={{ 
-                        background: '#0E7490', 
-                        color: '#ffffff', 
-                        fontSize: '0.7rem', 
-                        fontWeight: 700, 
-                        padding: '1px 7px', 
-                        borderRadius: '9999px',
-                        marginLeft: '2px'
-                      }}>
-                        {t.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Mobile Segmented Tab Bar (< 768px): My Tasks | Assigned | Team | Reports */}
-          <div className="mobile-only-block" style={{ marginBottom: '12px' }}>
-            <div className="mobile-segmented-tab-bar employee-task-mobile-tabs">
-              {[
-                { id: 'my_tasks', label: 'My Tasks', icon: User, badge: myTasksCount },
-                { id: 'assigned_tasks', label: 'Assigned', icon: CheckSquare, badge: assignedTasksCount },
-                { id: 'team_tasks', label: 'Team', icon: Users, badge: teamTasksCount },
-                { id: 'daily_reports', label: 'Reports', icon: FileCheck, badge: dailyReportsCount }
-              ].map(t => {
-                const Icon = t.icon;
-                const isActive = activeTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`mobile-segmented-tab-btn ${isActive ? 'active' : ''}`}
-                    onClick={() => handleTabChange(t.id as any)}
+                    <IconComp size={15} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '6px' }}>
+                  <span
+                    style={{
+                      fontSize: '1.35rem',
+                      fontWeight: 800,
+                      color: card.label === 'Overdue' && card.value > 0 ? '#DC2626' : '#0F172A',
+                      lineHeight: 1.1
+                    }}
                   >
-                    <Icon size={14} />
-                    <span>{t.label}</span>
-                    {t.badge !== undefined && t.badge > 0 && (
-                      <span className="mobile-tab-badge">
-                        {t.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                    {card.value}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                      color: '#64748B',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
+                    {card.sub}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* ALL 6 TABS BAR (Unified Apple-Like Navigation Web & Mobile)  */}
+      {/* Matches Reference Image: Register | My Tasks | Assigned |    */}
+      {/* Team | Daily | Reports                                       */}
+      {/* ============================================================ */}
+      <div
+        className="task-unified-six-tabs"
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '14px',
+          padding: '4px 6px 0 6px',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.02)',
+          width: '100%',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div
+          className="task-six-tabs-grid"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+            gap: '2px',
+            width: '100%'
+          }}
+        >
+          {tabsConfig.map(tab => {
+            const IconComp = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`task-six-tab-item ${isActive ? 'active' : ''}`}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  padding: '8px 4px 9px 4px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: isActive ? '2.5px solid #0E7490' : '2.5px solid transparent',
+                  color: isActive ? '#0E7490' : '#64748B',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  minWidth: 0,
+                  position: 'relative'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <IconComp size={17} strokeWidth={isActive ? 2.4 : 1.9} />
+                  {tab.count !== null && tab.count > 0 && (
+                    <span
+                      className="desktop-only-inline"
+                      style={{
+                        fontSize: '0.68rem',
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        borderRadius: '999px',
+                        background: isActive ? '#ECFEFF' : '#F1F5F9',
+                        color: isActive ? '#0E7490' : '#475569',
+                        border: isActive ? '1px solid #A5F3FC' : '1px solid #E2E8F0'
+                      }}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontSize: '0.73rem',
+                    fontWeight: isActive ? 800 : 600,
+                    lineHeight: 1.15,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: '100%'
+                  }}
+                >
+                  {tab.shortLabel}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* ACTIVE TAB VIEWPORT                                          */}
+      {/* ============================================================ */}
+      {activeTab === 'register' && (
+        <TaskRegister
+          onViewTask={id => setSelectedTaskId(id)}
+          externalStatusFilter={statusFilter}
+          externalDueFilter={dueFilter}
+          onClearExternalFilters={() => {
+            setStatusFilter('All');
+            setDueFilter('All');
+          }}
+        />
+      )}
+
+      {activeTab === 'my_tasks' && <MyTasks onViewTask={id => setSelectedTaskId(id)} />}
+
+      {activeTab === 'assigned_tasks' && <AssignedTasks onViewTask={id => setSelectedTaskId(id)} />}
+
+      {activeTab === 'team_tasks' && <TeamTasks onViewTask={id => setSelectedTaskId(id)} />}
+
+      {activeTab === 'daily_reports' && <DailyTaskReportManagement onViewTask={id => setSelectedTaskId(id)} />}
+
+      {activeTab === 'reports' && <TaskReports />}
+
+      {/* Modals */}
+      {showNewTaskModal && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 1050,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            overflowY: 'auto'
+          }}
+          onClick={() => setShowNewTaskModal(false)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '820px',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              borderRadius: '18px'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <NewTaskForm
+              onTaskCreated={taskId => {
+                setShowNewTaskModal(false);
+                if (taskId) setSelectedTaskId(taskId);
+              }}
+              onCancel={() => setShowNewTaskModal(false)}
+            />
           </div>
-        </>
+        </div>
       )}
 
-      {/* Sub-View Dispatcher */}
-      {!isEmployee && activeTab === 'register' && (
-        <TaskRegister 
-          onSelectTask={(id) => setSelectedTaskId(id)}
-          onOpenNewTask={() => handleTabChange('new_task')}
-        />
-      )}
-
-      {activeTab === 'my_tasks' && (
-        <MyTasks 
-          onSelectTask={(id) => setSelectedTaskId(id)}
-          onSwitchToAssigned={() => handleTabChange('assigned_tasks')}
-        />
-      )}
-
-      {activeTab === 'assigned_tasks' && (
-        <AssignedTasks 
-          onSelectTask={(id) => setSelectedTaskId(id)}
-          onAssignNewTask={() => handleTabChange('new_task')}
-        />
-      )}
-
-      {activeTab === 'team_tasks' && (
-        <TeamTasks 
-          onSelectTask={(id) => setSelectedTaskId(id)}
-        />
-      )}
-
-      {activeTab === 'daily_reports' && (
-        <DailyTaskReportManagement 
-          onSelectTask={(id) => setSelectedTaskId(id)}
-        />
-      )}
-
-      {activeTab === 'new_task' && (
-        <NewTaskForm 
-          onTaskCreated={handleTaskCreated}
-          onCancel={handleCancelCreate}
-        />
-      )}
-
-      {!isEmployee && activeTab === 'reports' && (
-        <TaskReports />
-      )}
-
-      {/* Deep 8-Tab Task Detail Modal */}
-      {selectedTaskId && (
-        <TaskDetailModal 
-          taskId={selectedTaskId}
-          onClose={() => setSelectedTaskId(null)}
-        />
-      )}
+      {selectedTaskId && <TaskDetailModal taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />}
     </div>
   );
 };

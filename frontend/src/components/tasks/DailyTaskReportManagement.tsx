@@ -1,815 +1,1727 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useHRMS } from '../../context/HRMSContext';
-import { DateInput } from '../common/DateInput';
-import { 
-  FileText, 
-  Search, 
-  Calendar, 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle, 
-  Eye, 
-  Filter, 
-  Building,
-  RotateCcw
+import {
+  FileText,
+  Search,
+  Calendar,
+  Download,
+  FileSpreadsheet,
+  Eye,
+  RotateCcw,
+  ChevronDown,
+  SlidersHorizontal,
+  X,
+  LayoutList,
+  Table as TableIcon
 } from 'lucide-react';
-import { TaskAssigneeStatus, isTaskAssignedByMe } from '../../types/tasks';
-import { StandardTablePagination } from '../common/StandardTablePagination';
-import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
-import { MobileFilterSheet } from '../common/MobileFilterSheet';
-import { X } from 'lucide-react';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateDayMonthYear } from '../../utils/dateUtils';
+import { exportToExcel, exportToPDF } from '../../utils/exportUtils';
+import { preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
+import type { TaskAssigneeStatus } from '../../types/tasks';
 
-interface DailyTaskReportManagementProps {
-  onSelectTask: (taskId: string) => void;
+interface Props {
+  onViewTask: (taskId: string) => void;
 }
 
-interface FlatDailyReportItem {
-  id: string;
+export interface FlattenedDailyReportRow {
+  reportId: string;
   taskId: string;
   taskNumber: string;
   taskTitle: string;
   taskCategory: string;
-  taskStartDate?: string;
-  priority: string;
-  department: string;
-  assignedBy: string;
-  assignedTo: string;
-  isAssignedByMe: boolean;
-  isAssignedToMe: boolean;
-  reportDate: string;
+  taskDepartment: string;
+  assignedByName: string;
+  responsiblePersonName: string;
   employeeId: string;
   employeeName: string;
-  employeeAvatar?: string;
+  employeeDepartment: string;
+  reportDate: string;
   workDoneToday: string;
-  planForTomorrow?: string;
-  blockersOrIssues?: string;
-  hoursSpent?: number;
   processStatus: TaskAssigneeStatus;
+  progressPercentage: number;
   submittedAt: string;
 }
 
-export const DailyTaskReportManagement: React.FC<DailyTaskReportManagementProps> = ({ onSelectTask }) => {
-  const { currentUser, enhancedTasks, departments } = useHRMS();
+export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
+  const { enhancedTasks, employees, departments, currentUser, addTaskDailyReport, updateAssigneeProgress } = useHRMS();
 
-  const isSuperAdmin = currentUser.role === 'Super Admin' || currentUser.role === 'ERP Administrator';
-  const isCEO = isSuperAdmin || currentUser.role === 'CEO' || currentUser.designation === 'CEO' || currentUser.employeeId === 'EMP-000';
-  const isHR = currentUser.role === 'HR Manager' || currentUser.role === 'HR Admin' || (currentUser as any).department?.toLowerCase().includes('hr');
-  const isManager = currentUser.role === 'Department Manager' || currentUser.role === 'Department Head' || currentUser.role === 'Manager';
-  const isEmployee = currentUser.role === 'Employee' || currentUser.role === 'Assignee' || (!isCEO && !isHR && !isManager && !isSuperAdmin);
-  const isBroadAccess = isCEO || isHR;
+  const [showAddReportModal, setShowAddReportModal] = useState(false);
+  const [newReportTaskId, setNewReportTaskId] = useState<string>('');
+  const [newReportDate, setNewReportDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [newReportStatus, setNewReportStatus] = useState<'Pending' | 'In Process' | 'Under Review' | 'Completed'>('In Process');
+  const [newReportWorkDone, setNewReportWorkDone] = useState<string>('');
 
-  const currentEmpId = currentUser.employeeId || currentUser.id || 'EMP-001';
-  const currentEmpName = (currentUser.name || '').trim().toLowerCase();
+  const currentEmpRecord = useMemo(() => {
+    return employees.find(
+      e =>
+        e.employeeId === currentUser.employeeId ||
+        e.id === currentUser.id ||
+        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
+    );
+  }, [employees, currentUser]);
 
-  // Filters State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDept, setSelectedDept] = useState('All');
+  const isManagerOrAdmin = useMemo(() => {
+    if (
+      currentUser.role === 'Super Admin' ||
+      currentUser.role === 'CEO' ||
+      currentUser.role === 'HR' ||
+      currentUser.role === 'Manager'
+    ) {
+      return true;
+    }
+    const desig = (currentEmpRecord?.designation || currentUser.designation || '').toLowerCase();
+    return desig.includes('head') || desig.includes('manager') || desig.includes('lead') || desig.includes('director');
+  }, [currentUser, currentEmpRecord]);
+
+  const [reportScope, setReportScope] = useState<'all' | 'my_reports' | 'team_reports'>(
+    isManagerOrAdmin ? 'all' : 'my_reports'
+  );
+  const [desktopViewMode, setDesktopViewMode] = useState<'timeline' | 'table'>('timeline');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('All');
+  const [selectedEmployee, setSelectedEmployee] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
-  const [selectedDate, setSelectedDate] = useState<string>('');
-  const [reportScope, setReportScope] = useState<'assigned_to_me' | 'assigned_by_me' | 'all'>(isBroadAccess ? 'all' : 'assigned_to_me');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
 
-  // Pagination & Selection
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(10);
-  const [selectedReportIds, setSelectedReportIds] = useState<string[]>([]);
-  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
+  const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false);
+  const [tempStatus, setTempStatus] = useState<string>('All');
+  const [tempDepartment, setTempDepartment] = useState<string>('All');
+  const [tempDateFrom, setTempDateFrom] = useState<string>('');
+  const [tempDateTo, setTempDateTo] = useState<string>('');
 
-  // Flatten reports from enhanced tasks
-  const allReports: FlatDailyReportItem[] = useMemo(() => {
-    const list: FlatDailyReportItem[] = [];
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [jumpPageInput, setJumpPageInput] = useState<string>('');
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setReportScope(isManagerOrAdmin ? 'all' : 'my_reports');
+  }, [currentUser.id, currentUser.role, isManagerOrAdmin]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const matchesCurrentUser = (idOrCode?: string, name?: string) => {
+    if (idOrCode) {
+      if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
+      if (currentEmpRecord && (idOrCode === currentEmpRecord.employeeId || idOrCode === currentEmpRecord.id)) return true;
+    }
+    if (name) {
+      const target = name.trim().toLowerCase();
+      if (target === currentUser.name.trim().toLowerCase()) return true;
+      if (
+        currentEmpRecord &&
+        target === `${currentEmpRecord.firstName} ${currentEmpRecord.lastName}`.trim().toLowerCase()
+      )
+        return true;
+    }
+    return false;
+  };
+
+  const allReportRows = useMemo<FlattenedDailyReportRow[]>(() => {
+    const rows: FlattenedDailyReportRow[] = [];
 
     enhancedTasks.forEach(task => {
-      if (task.dailyReports && task.dailyReports.length > 0) {
-        task.dailyReports.forEach(r => {
-          const isAssigned = task.assignees.some(a => 
-            a.employeeId === currentEmpId || 
-            a.employeeId === currentUser.id || 
-            (currentEmpName && a.employeeName.toLowerCase().includes(currentEmpName))
-          );
-          const isAssigner = isTaskAssignedByMe(task, currentUser);
+      if (!task.dailyReports || task.dailyReports.length === 0) return;
 
-          // Employee visibility check:
-          // If employee, see reports on tasks assigned to them, submitted by them, or assigned by them
-          if (isEmployee) {
-            const isReporter = r.employeeId === currentEmpId || (currentEmpName && r.employeeName.toLowerCase().includes(currentEmpName));
-            if (!isAssigned && !isReporter && !isAssigner) return;
-          } else if (isManager && currentUser.department && !isCEO && !isHR) {
-            if (task.department !== currentUser.department) return;
-          }
+      const isUserInvolvedInTask =
+        task.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
+        matchesCurrentUser(task.responsiblePersonId, task.responsiblePersonName) ||
+        matchesCurrentUser(task.assignedById, task.assignedByName);
 
-          list.push({
-            id: r.id,
-            taskId: task.id,
-            taskNumber: task.taskNumber,
-            taskTitle: task.title,
-            taskCategory: task.taskCategory,
-            taskStartDate: task.startDate || task.taskDate,
-            priority: task.priority,
-            department: task.department,
-            assignedBy: task.assignedBy || task.createdBy || 'Not specified',
-            assignedTo: task.assignees?.map(a => a.employeeName).filter(Boolean).join(', ') || task.responsiblePersonName || 'Not assigned',
-            isAssignedByMe: isAssigner,
-            isAssignedToMe: isAssigned,
-            reportDate: r.reportDate,
-            employeeId: r.employeeId,
-            employeeName: r.employeeName,
-            employeeAvatar: r.employeeAvatar,
-            workDoneToday: r.workDoneToday,
-            planForTomorrow: r.planForTomorrow,
-            blockersOrIssues: r.blockersOrIssues,
-            hoursSpent: r.hoursSpent,
-            processStatus: r.processStatus,
-            submittedAt: r.submittedAt
-          });
+      if (!isManagerOrAdmin && !isUserInvolvedInTask) return;
+
+      task.dailyReports.forEach(dlr => {
+        rows.push({
+          reportId: dlr.id,
+          taskId: task.id,
+          taskNumber: task.taskNumber,
+          taskTitle: task.title,
+          taskCategory: task.taskCategory || 'General Administration',
+          taskDepartment: task.department,
+          assignedByName: task.assignedByName || 'Manager',
+          responsiblePersonName: task.responsiblePersonName || 'Unassigned',
+          employeeId: dlr.employeeId,
+          employeeName: dlr.employeeName,
+          employeeDepartment: dlr.employeeDepartment || task.department,
+          reportDate: dlr.reportDate,
+          workDoneToday: dlr.workDoneToday,
+          processStatus: dlr.processStatus,
+          progressPercentage: dlr.progressPercentage ?? 0,
+          submittedAt: dlr.submittedAt || ''
         });
-      }
+      });
     });
 
-    return list.sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime());
-  }, [enhancedTasks, isEmployee, isManager, isCEO, isHR, currentEmpId, currentEmpName, currentUser]);
+    return rows.sort((a, b) => {
+      if (b.reportDate !== a.reportDate) return b.reportDate.localeCompare(a.reportDate);
+      return (b.submittedAt || '').localeCompare(a.submittedAt || '');
+    });
+  }, [enhancedTasks, currentUser, currentEmpRecord, isManagerOrAdmin]);
 
-  const scopeCounts = useMemo(() => ({
-    all: allReports.length,
-    assigned_to_me: allReports.filter(r => r.isAssignedToMe).length,
-    assigned_by_me: allReports.filter(r => r.isAssignedByMe).length
-  }), [allReports]);
-
-  // Filtered reports
   const filteredReports = useMemo(() => {
-    return allReports.filter(r => {
-      if (reportScope === 'assigned_to_me' && !r.isAssignedToMe) return false;
-      if (reportScope === 'assigned_by_me' && !r.isAssignedByMe) return false;
-
-      // Search
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const matchesSearch = 
-          r.taskNumber.toLowerCase().includes(q) ||
-          r.taskTitle.toLowerCase().includes(q) ||
-          r.employeeName.toLowerCase().includes(q) ||
-          r.assignedBy.toLowerCase().includes(q) ||
-          r.assignedTo.toLowerCase().includes(q) ||
-          r.department.toLowerCase().includes(q) ||
-          r.workDoneToday.toLowerCase().includes(q);
-        if (!matchesSearch) return false;
+    return allReportRows.filter(row => {
+      if (reportScope === 'my_reports') {
+        if (!matchesCurrentUser(row.employeeId, row.employeeName)) return false;
+      } else if (reportScope === 'team_reports') {
+        const isMyOwn = matchesCurrentUser(row.employeeId, row.employeeName);
+        if (!isManagerOrAdmin && isMyOwn) return false;
       }
 
-      // Department
-      if (selectedDept !== 'All' && r.department !== selectedDept) {
+      if (searchQuery.trim() !== '') {
+        const q = searchQuery.toLowerCase();
+        const matchesTaskNo = row.taskNumber.toLowerCase().includes(q);
+        const matchesTaskTitle = row.taskTitle.toLowerCase().includes(q);
+        const matchesEmp = row.employeeName.toLowerCase().includes(q);
+        const matchesWork = row.workDoneToday.toLowerCase().includes(q);
+        const matchesDept = row.employeeDepartment.toLowerCase().includes(q);
+        if (!matchesTaskNo && !matchesTaskTitle && !matchesEmp && !matchesWork && !matchesDept) return false;
+      }
+
+      if (selectedDepartment !== 'All' && row.employeeDepartment !== selectedDepartment && row.taskDepartment !== selectedDepartment) {
         return false;
       }
 
-      // Status
-      if (selectedStatus !== 'All' && r.processStatus !== selectedStatus) {
+      if (selectedEmployee !== 'All') {
+        const empObj = employees.find(e => e.employeeId === selectedEmployee || e.id === selectedEmployee);
+        const empFullName = empObj ? `${empObj.firstName} ${empObj.lastName}`.trim().toLowerCase() : '';
+        const matchesEmpFilter =
+          row.employeeId === selectedEmployee ||
+          (empObj && row.employeeId === empObj.id) ||
+          (empFullName && row.employeeName.trim().toLowerCase() === empFullName);
+        if (!matchesEmpFilter) return false;
+      }
+
+      if (selectedStatus !== 'All' && row.processStatus !== selectedStatus) {
         return false;
       }
 
-      // Date
-      if (selectedDate && r.reportDate !== selectedDate) {
-        return false;
-      }
+      if (dateFrom && row.reportDate < dateFrom) return false;
+      if (dateTo && row.reportDate > dateTo) return false;
 
       return true;
     });
-  }, [allReports, reportScope, searchTerm, selectedDept, selectedStatus, selectedDate]);
+  }, [
+    allReportRows,
+    reportScope,
+    searchQuery,
+    selectedDepartment,
+    selectedEmployee,
+    selectedStatus,
+    dateFrom,
+    dateTo,
+    employees,
+    isManagerOrAdmin
+  ]);
 
-  // Pagination Slice
-  const totalPages = Math.ceil(filteredReports.length / pageSize) || 1;
-  const validCurrentPage = Math.min(currentPage, totalPages);
-  const paginatedReports = useMemo(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
-      return filteredReports;
-    }
-    const startIndex = (validCurrentPage - 1) * pageSize;
-    return filteredReports.slice(startIndex, startIndex + pageSize);
-  }, [filteredReports, validCurrentPage, pageSize]);
+  // Group filtered reports by reportDate for Screen 3 layout ("10 Nov 2026", "09 Nov 2026")
+  const groupedByDate = useMemo(() => {
+    const groups: { dateStr: string; formattedDate: string; items: FlattenedDailyReportRow[] }[] = [];
+    const map = new Map<string, FlattenedDailyReportRow[]>();
 
-  // Selection handlers
-  const handleToggleSelect = (id: string) => {
-    setSelectedReportIds(prev => 
-      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
-    );
+    filteredReports.forEach(item => {
+      const key = item.reportDate || 'Unknown';
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)!.push(item);
+    });
+
+    map.forEach((items, dateStr) => {
+      groups.push({
+        dateStr,
+        formattedDate: formatDateDayMonthYear(dateStr),
+        items
+      });
+    });
+
+    return groups;
+  }, [filteredReports]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [reportScope, searchQuery, selectedDepartment, selectedEmployee, selectedStatus, dateFrom, dateTo]);
+
+  const activeMobileFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedStatus !== 'All') count++;
+    if (selectedDepartment !== 'All') count++;
+    if (dateFrom || dateTo) count++;
+    return count;
+  }, [selectedStatus, selectedDepartment, dateFrom, dateTo]);
+
+  const openMobileFilter = () => {
+    setTempStatus(selectedStatus);
+    setTempDepartment(selectedDepartment);
+    setTempDateFrom(dateFrom);
+    setTempDateTo(dateTo);
+    setShowMobileFilterSheet(true);
   };
 
-  const handleSelectAllOnPage = () => {
-    const pageIds = paginatedReports.map(r => r.id);
-    const allSelected = pageIds.every(id => selectedReportIds.includes(id));
-    if (allSelected) {
-      setSelectedReportIds(prev => prev.filter(id => !pageIds.includes(id)));
-    } else {
-      setSelectedReportIds(prev => Array.from(new Set([...prev, ...pageIds])));
-    }
+  const applyMobileFilter = () => {
+    setSelectedStatus(tempStatus);
+    setSelectedDepartment(tempDepartment);
+    setDateFrom(tempDateFrom);
+    setDateTo(tempDateTo);
+    setShowMobileFilterSheet(false);
   };
 
   const handleResetFilters = () => {
-    setSearchTerm('');
-    setSelectedDept('All');
+    setSearchQuery('');
+    setSelectedDepartment('All');
+    setSelectedEmployee('All');
     setSelectedStatus('All');
-    setSelectedDate('');
-    setReportScope(isBroadAccess ? 'all' : 'assigned_to_me');
-    setCurrentPage(1);
+    setDateFrom('');
+    setDateTo('');
+    setTempStatus('All');
+    setTempDepartment('All');
+    setTempDateFrom('');
+    setTempDateTo('');
+    setShowMobileFilterSheet(false);
   };
 
-  const showAssignedByColumn = reportScope !== 'assigned_by_me';
-  const showAssignedToColumn = reportScope !== 'assigned_to_me';
-  const columnCount = 9 + (showAssignedByColumn ? 1 : 0) + (showAssignedToColumn ? 1 : 0);
+  const totalEntries = filteredReports.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * rowsPerPage;
+  const paginatedReports = filteredReports.slice(startIndex, startIndex + rowsPerPage);
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', animation: 'fadeIn 0.2s ease-in-out' }}>
-      {/* 2. Filter Bar */}
-      <div className="daily-report-filter-card" style={{
-        background: '#FFFFFF', 
-        borderRadius: '14px', 
-        padding: '14px 18px', 
-        border: '1px solid #E7ECF3', 
-        boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-        display: 'flex',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '12px',
-        justifyContent: 'space-between'
-      }}>
-        <div className="daily-report-filter-controls" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1 }}>
-          <div className="daily-report-scope-tabs" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px' }}>
-            {[
-              { id: 'assigned_to_me', label: 'Assigned to Me', count: scopeCounts.assigned_to_me },
-              { id: 'assigned_by_me', label: 'Assigned by Me', count: scopeCounts.assigned_by_me },
-              { id: 'all', label: 'All', count: scopeCounts.all }
-            ].map(scope => {
-              const active = reportScope === scope.id;
-              return (
-                <button
-                  key={scope.id}
-                  type="button"
-                  onClick={() => { setReportScope(scope.id as typeof reportScope); setCurrentPage(1); }}
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let start = Math.max(1, safeCurrentPage - Math.floor(maxButtons / 2));
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) {
+      start = Math.max(1, end - maxButtons + 1);
+    }
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  const handleJumpToPage = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pageNum = parseInt(jumpPageInput, 10);
+    if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+      setCurrentPage(pageNum);
+      setJumpPageInput('');
+    }
+  };
+
+  const handleExportReports = (type: 'excel' | 'pdf') => {
+    setShowExportMenu(false);
+
+    if (filteredReports.length === 0) {
+      alert('No daily task reports available to export for the current filters.');
+      return;
+    }
+
+    const columns = [
+      { header: 'Report Date', key: 'reportDateFormatted' },
+      { header: 'Employee Name', key: 'employeeName' },
+      { header: 'Department', key: 'employeeDepartment' },
+      { header: 'Task No', key: 'taskNumber' },
+      { header: 'Task Title', key: 'taskTitle' },
+      { header: 'Assigned By', key: 'assignedByName' },
+      { header: 'Work Done / Daily Update', key: 'workDoneToday' },
+      { header: 'Stage Status', key: 'processStatus' },
+      { header: 'Progress', key: 'progressFormatted' }
+    ];
+
+    const data = filteredReports.map(r => ({
+      ...r,
+      reportDateFormatted: formatDateDDMMYYYY(r.reportDate),
+      progressFormatted: `${r.progressPercentage}%`
+    }));
+
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    if (type === 'excel') {
+      exportToExcel(data, columns, `VRM_Daily_Task_Reports_${timestamp}`);
+    } else {
+      exportToPDF(
+        data,
+        columns,
+        'VRM Daily Task Report Register',
+        `VRM_Daily_Task_Reports_${timestamp}`,
+        `Generated by ${currentUser.name} (${currentUser.role}) • Total Reports: ${filteredReports.length}`
+      );
+    }
+  };
+
+  const getEmployeeAvatar = (empId: string, empName: string) => {
+    const emp = employees.find(
+      e =>
+        e.employeeId === empId ||
+        e.id === empId ||
+        `${e.firstName} ${e.lastName}`.trim().toLowerCase() === empName.trim().toLowerCase()
+    );
+    if (emp?.avatar) {
+      return (
+        <img
+          src={emp.avatar}
+          alt={empName}
+          style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+        />
+      );
+    }
+    const initials = empName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(part => part[0]?.toUpperCase() || '')
+      .join('');
+    return (
+      <div
+        style={{
+          width: '22px',
+          height: '22px',
+          borderRadius: '50%',
+          background: '#0F172A',
+          color: '#FFFFFF',
+          fontSize: '0.62rem',
+          fontWeight: 800,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}
+      >
+        {initials || 'U'}
+      </div>
+    );
+  };
+
+  const renderDateGroupedFeed = () => {
+    if (groupedByDate.length === 0) {
+      return (
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #E2E8F0',
+            borderRadius: '16px',
+            padding: '42px 20px',
+            textAlign: 'center'
+          }}
+        >
+          <div
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '50%',
+              background: '#ECFEFF',
+              color: '#0E7490',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 10px auto'
+            }}
+          >
+            <FileText size={20} />
+          </div>
+          <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#0F172A', marginBottom: '4px' }}>
+            No Daily Reports Found
+          </div>
+          <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+            Submit daily updates inside any task or adjust your filters.
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '12px' }}>
+        {groupedByDate.map(group => (
+          <div key={group.dateStr} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Date Pill Header (Matches Reference Image Screen 3: "10 Nov 2026", "09 Nov 2026") */}
+            <div>
+              <span
+                style={{
+                  display: 'inline-block',
+                  background: '#E2E8F0',
+                  color: '#0F172A',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  padding: '5px 14px',
+                  borderRadius: '999px',
+                  letterSpacing: '-0.01em'
+                }}
+              >
+                {group.formattedDate}
+              </span>
+            </div>
+
+            {/* Cards under this date */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {group.items.map(row => (
+                <div
+                  key={row.reportId}
+                  onClick={() => onViewTask(row.taskId)}
                   style={{
-                    height: '30px',
-                    border: active ? '1px solid #0E7490' : '1px solid transparent',
-                    background: active ? '#0E7490' : 'transparent',
-                    color: active ? '#FFFFFF' : '#334155',
-                    borderRadius: '8px',
-                    padding: '0 10px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '0.76rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
+                    background: '#FFFFFF',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '16px',
+                    padding: '14px 16px',
+                    boxShadow: '0 2px 6px rgba(15, 23, 42, 0.03)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease'
                   }}
                 >
-                  <span>{scope.label}</span>
-                  <span style={{
-                    minWidth: '20px',
-                    height: '18px',
-                    padding: '0 6px',
-                    borderRadius: '99px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: active ? 'rgba(255,255,255,0.22)' : '#E2E8F0',
-                    color: active ? '#FFFFFF' : '#475569',
-                    fontSize: '0.68rem',
-                    lineHeight: 1
-                  }}>
-                    {scope.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  {/* Line 1: TSK-2026-011 • HRMS Corrections */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      flexWrap: 'wrap'
+                    }}
+                  >
+                    <div style={{ fontSize: '0.88rem', lineHeight: 1.3 }}>
+                      <span style={{ color: '#0E7490', fontWeight: 800 }}>{row.taskNumber}</span>
+                      <span style={{ color: '#94A3B8', margin: '0 6px' }}>•</span>
+                      <span style={{ color: '#0F172A', fontWeight: 800 }}>{row.taskTitle}</span>
+                    </div>
 
-          {/* Search Box */}
-          <div className="daily-report-search" style={{ position: 'relative', minWidth: '240px', maxWidth: '340px', flex: 1 }}>
-            <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-            <input 
-              type="text"
-              placeholder="Search by task, reporter, or notes..."
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              className="form-control"
-              style={{ fontSize: '0.8rem', paddingLeft: '32px', height: '36px', borderRadius: '8px' }}
-            />
-          </div>
-
-          <button
-            type="button"
-            className={`mobile-only-inline mobile-filter-trigger-btn ${(selectedDept !== 'All' || selectedStatus !== 'All' || selectedDate) ? 'has-filters' : ''}`}
-            onClick={() => setIsFilterSheetOpen(true)}
-            aria-label="Open report filters"
-          >
-            <Filter size={15} />
-            <span>Filters</span>
-            {(selectedDept !== 'All' || selectedStatus !== 'All' || selectedDate) && (
-              <span className="mobile-tab-badge">
-                {(selectedDept !== 'All' ? 1 : 0) + (selectedStatus !== 'All' ? 1 : 0) + (selectedDate ? 1 : 0)}
-              </span>
-            )}
-          </button>
-
-          {/* Department Filter */}
-          {!isEmployee && (
-            <div className="daily-report-desktop-only-filter" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
-                Dept:
-              </label>
-              <select
-                value={selectedDept}
-                onChange={e => { setSelectedDept(e.target.value); setCurrentPage(1); }}
-                className="form-select"
-                style={{ fontSize: '0.8rem', height: '36px', borderRadius: '8px', minWidth: '130px' }}
-              >
-                <option value="All">All Depts</option>
-                {departments.map(d => (
-                  <option key={d.id} value={d.name}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Workflow Stage Filter */}
-          <div className="daily-report-desktop-only-filter" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
-              Stage:
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={e => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
-              className="form-select"
-              style={{ fontSize: '0.8rem', height: '36px', borderRadius: '8px', minWidth: '130px' }}
-            >
-              <option value="All">All Stages</option>
-              <option value="Pending">Pending</option>
-              <option value="In Process">In Process</option>
-              <option value="Under Review">Under Review</option>
-              <option value="Completed">Completed</option>
-            </select>
-          </div>
-
-          {/* Date Filter */}
-          <div className="daily-report-desktop-only-filter" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>
-              Date:
-            </label>
-            <DateInput
-              value={selectedDate}
-              onChange={e => { setSelectedDate(e.target.value); setCurrentPage(1); }}
-              className="form-control"
-              style={{ fontSize: '0.8rem', height: '36px', borderRadius: '8px', width: '145px' }}
-            />
-          </div>
-
-          {(searchTerm || selectedDept !== 'All' || selectedStatus !== 'All' || selectedDate || reportScope !== (isBroadAccess ? 'all' : 'assigned_to_me')) && (
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="btn btn-secondary btn-sm daily-report-desktop-reset"
-              style={{ fontSize: '0.76rem', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '4px', borderRadius: '8px' }}
-            >
-              <RotateCcw size={13} /> Reset
-            </button>
-          )}
-        </div>
-
-        <div className="daily-report-result-count" style={{ fontSize: '0.76rem', color: '#64748B', fontWeight: 600 }}>
-          Showing <strong>{filteredReports.length}</strong> reports
-        </div>
-      </div>
-
-      <MobileFilterSheet
-        isOpen={isFilterSheetOpen}
-        onClose={() => setIsFilterSheetOpen(false)}
-        title="Filter Daily Reports"
-        onReset={() => {
-          setSelectedDept('All');
-          setSelectedStatus('All');
-          setSelectedDate('');
-          setCurrentPage(1);
-        }}
-        onApply={() => setCurrentPage(1)}
-      >
-        {!isEmployee && (
-          <div>
-            <div className="mobile-filter-group-title">Department</div>
-            <div className="mobile-filter-chips-grid">
-              {['All', ...departments.map(d => d.name)].map(dept => (
-                <button
-                  key={dept}
-                  type="button"
-                  className={`mobile-filter-select-chip ${selectedDept === dept ? 'selected' : ''}`}
-                  onClick={() => setSelectedDept(dept)}
-                >
-                  {dept === 'All' ? 'All Departments' : dept}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div>
-          <div className="mobile-filter-group-title">Workflow Stage</div>
-          <div className="mobile-filter-chips-grid">
-            {['All', 'Pending', 'In Process', 'Under Review', 'Completed'].map(stage => (
-              <button
-                key={stage}
-                type="button"
-                className={`mobile-filter-select-chip ${selectedStatus === stage ? 'selected' : ''}`}
-                onClick={() => setSelectedStatus(stage)}
-              >
-                {stage === 'All' ? 'All Stages' : stage}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="mobile-filter-group-title">Report Date</div>
-          <DateInput
-            value={selectedDate}
-            onChange={e => setSelectedDate(e.target.value)}
-            className="form-control"
-            style={{ width: '100%', height: '42px', borderRadius: '10px' }}
-          />
-        </div>
-      </MobileFilterSheet>
-
-      {/* 4. Data Table Container per AGENTS.md */}
-      <div style={{ 
-        background: '#FFFFFF', 
-        borderRadius: '16px', 
-        border: '1px solid #E7ECF3', 
-        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        overflow: 'hidden'
-      }}>
-        {paginatedReports.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '56px 20px', color: '#94A3B8' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-              <FileText size={40} color="#0E7490" style={{ opacity: 0.35 }} />
-              <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1E293B' }}>No daily reports match your filters</span>
-              <span style={{ fontSize: '0.82rem', color: '#64748B' }}>Reports submitted by assigned persons will appear here</span>
-            </div>
-          </div>
-        ) : (
-          <div className="desktop-only-block" style={{ overflowX: 'auto' }}>
-            <table className="table" style={{ width: '100%', borderCollapse: 'collapse', margin: 0, fontSize: '0.84rem' }}>
-              <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', textAlign: 'left' }}>
-                  <th style={{ width: '40px', padding: '12px 14px', textAlign: 'center' }}>
-                    <input 
-                      type="checkbox"
-                      checked={paginatedReports.length > 0 && paginatedReports.every(r => selectedReportIds.includes(r.id))}
-                      onChange={handleSelectAllOnPage}
-                      style={{ accentColor: '#0E7490', cursor: 'pointer' }}
-                    />
-                  </th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Report Date</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Task Number</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B' }}>Task Title</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Reporter / Employee</th>
-                  {showAssignedByColumn && (
-                    <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Assigned By</th>
-                  )}
-                  {showAssignedToColumn && (
-                    <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Assigned To</th>
-                  )}
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Department</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', minWidth: '220px' }}>Work Completed Today</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', whiteSpace: 'nowrap' }}>Workflow Stage</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 700, fontSize: '0.78rem', color: '#1E293B', textAlign: 'right', whiteSpace: 'nowrap' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedReports.map(item => {
-                  const isSelected = selectedReportIds.includes(item.id);
-                  return (
-                    <tr 
-                      key={item.id}
+                    <span
+                      className="desktop-only-inline"
                       style={{
-                        borderBottom: '1px solid #F1F5F9',
-                        backgroundColor: isSelected ? '#ECFEFF' : undefined,
-                        borderLeft: isSelected ? '4px solid #0E7490' : undefined,
-                        transition: 'background-color 0.12s ease'
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        padding: '2.5px 9px',
+                        borderRadius: '999px',
+                        background:
+                          row.processStatus === 'Completed'
+                            ? '#DCFCE7'
+                            : row.processStatus === 'In Process'
+                              ? '#E0F2FE'
+                              : '#F1F5F9',
+                        color:
+                          row.processStatus === 'Completed'
+                            ? '#15803D'
+                            : row.processStatus === 'In Process'
+                              ? '#0284C7'
+                              : '#475569'
                       }}
                     >
-                      <td style={{ textAlign: 'center', padding: '12px 14px', verticalAlign: 'middle' }}>
-                        <input 
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleSelect(item.id)}
-                          style={{ accentColor: '#0E7490', cursor: 'pointer' }}
-                        />
-                      </td>
-
-                      {/* Date */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1E293B', background: '#F8FAFC', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
-                          {formatDateDDMMYYYY(item.reportDate)}
-                        </span>
-                      </td>
-
-                      {/* Task Number */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span 
-                          onClick={() => onSelectTask(item.taskId)}
-                          style={{ 
-                            fontFamily: 'monospace',
-                            fontSize: '0.8rem', 
-                            fontWeight: 700, 
-                            color: '#0E7490', 
-                            background: '#ECFEFF', 
-                            padding: '3px 8px', 
-                            borderRadius: '6px', 
-                            border: '1px solid #CFFAFE',
-                            cursor: 'pointer'
-                          }}
-                          title="Click to view full task details"
-                        >
-                          {item.taskNumber}
-                        </span>
-                      </td>
-
-                      {/* Task Title */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
-                        <div 
-                          onClick={() => onSelectTask(item.taskId)}
-                          style={{ fontWeight: 600, color: '#0F172A', cursor: 'pointer', fontSize: '0.84rem' }}
-                          title="Click to view full task details"
-                        >
-                          {item.taskTitle}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
-                          <span style={{ fontSize: '0.68rem', color: '#64748B' }}>
-                            {item.taskCategory}
-                          </span>
-                          {item.taskStartDate && (
-                            <span style={{ fontSize: '0.68rem', color: '#0E7490', fontWeight: 600, background: '#ECFEFF', padding: '1px 6px', borderRadius: '4px', border: '1px solid #CFFAFE' }}>
-                              Start: {formatDateDDMMYYYY(item.taskStartDate)}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Reporter / Employee */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {item.employeeAvatar ? (
-                            <img 
-                              src={item.employeeAvatar} 
-                              alt={item.employeeName} 
-                              style={{ width: '26px', height: '26px', borderRadius: '50%', objectFit: 'cover' }}
-                            />
-                          ) : (
-                            <div style={{ 
-                              width: '26px', 
-                              height: '26px', 
-                              borderRadius: '50%', 
-                              background: '#0E7490', 
-                              color: '#fff', 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              justifyContent: 'center',
-                              fontSize: '0.7rem',
-                              fontWeight: 700
-                            }}>
-                              {item.employeeName.charAt(0)}
-                            </div>
-                          )}
-                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1E293B' }}>
-                            {item.employeeName}
-                          </span>
-                        </div>
-                      </td>
-
-                      {showAssignedByColumn && (
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1E293B' }}>
-                            {item.assignedBy}
-                          </span>
-                        </td>
-                      )}
-
-                      {showAssignedToColumn && (
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', maxWidth: '220px' }}>
-                          <span
-                            title={item.assignedTo}
-                            style={{
-                              display: 'inline-block',
-                              maxWidth: '220px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              verticalAlign: 'middle',
-                              fontSize: '0.8rem',
-                              fontWeight: 600,
-                              color: '#1E293B'
-                            }}
-                          >
-                            {item.assignedTo}
-                          </span>
-                        </td>
-                      )}
-
-                      {/* Department */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontSize: '0.78rem', color: '#475569' }}>
-                          {item.department}
-                        </span>
-                      </td>
-
-                      {/* Work Completed Today */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
-                        <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: 1.45 }}>
-                          {item.workDoneToday}
-                        </div>
-                        {item.planForTomorrow && (
-                          <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '3px' }}>
-                            <strong>Tomorrow:</strong> {item.planForTomorrow}
-                          </div>
-                        )}
-                        {item.blockersOrIssues && (
-                          <div style={{ fontSize: '0.72rem', color: '#DC2626', marginTop: '3px' }}>
-                            <strong>Blocker:</strong> {item.blockersOrIssues}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Workflow Stage */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span style={{
-                          fontSize: '0.72rem',
-                          fontWeight: 700,
-                          padding: '3px 9px',
-                          borderRadius: '6px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          background: 
-                            item.processStatus === 'Completed' ? '#DCFCE7' :
-                            item.processStatus === 'In Process' || item.processStatus === 'In Progress' ? '#ECFEFF' :
-                            item.processStatus === 'Under Review' ? '#FEF3C7' : '#F1F5F9',
-                          color: 
-                            item.processStatus === 'Completed' ? '#166534' :
-                            item.processStatus === 'In Process' || item.processStatus === 'In Progress' ? '#0E7490' :
-                            item.processStatus === 'Under Review' ? '#92400E' : '#475569',
-                          border: 
-                            item.processStatus === 'Completed' ? '1px solid #BBF7D0' :
-                            item.processStatus === 'In Process' || item.processStatus === 'In Progress' ? '1px solid #CFFAFE' :
-                            item.processStatus === 'Under Review' ? '1px solid #FDE68A' : '1px solid #E2E8F0'
-                        }}>
-                          <span style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '50%',
-                            backgroundColor:
-                              item.processStatus === 'Completed' ? '#22C55E' :
-                              item.processStatus === 'In Process' || item.processStatus === 'In Progress' ? '#0E7490' :
-                              item.processStatus === 'Under Review' ? '#F59E0B' : '#94A3B8'
-                          }} />
-                          {item.processStatus}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button
-                          type="button"
-                          onClick={() => onSelectTask(item.taskId)}
-                          title="View Task"
-                          aria-label="View Task"
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            padding: 0,
-                            background: '#0E7490',
-                            border: '1px solid #0E7490',
-                            borderRadius: '8px',
-                            color: '#FFFFFF',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            boxShadow: '0 1px 2px rgba(14, 116, 144, 0.2)',
-                            transition: 'all 0.15s ease'
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = '#0891B2';
-                            e.currentTarget.style.borderColor = '#0891B2';
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = '#0E7490';
-                            e.currentTarget.style.borderColor = '#0E7490';
-                          }}
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              }
-            </tbody>
-          </table>
-        </div>
-      )}
-
-        {/* Mobile Reports Cards List (< 768px): Exact Apple-Style Reference Cards */}
-        <div className="mobile-only-block" style={{ padding: '0 2px' }}>
-          {paginatedReports.map(item => {
-            const isCompleted = item.processStatus === 'Completed';
-            const isInProgress = item.processStatus === 'In Process' || item.processStatus === 'In Progress';
-            const isReview = item.processStatus === 'Under Review';
-            const statusConfig = isCompleted
-              ? { label: 'Completed', dotColor: '#16A34A', bg: '#DCFCE7', text: '#15803D' }
-              : isInProgress
-              ? { label: 'In Progress', dotColor: '#0E7490', bg: '#ECFEFF', text: '#0E7490' }
-              : isReview
-              ? { label: 'Under Review', dotColor: '#7C3AED', bg: '#F5F3FF', text: '#7C3AED' }
-              : { label: item.processStatus || 'Pending', dotColor: '#F59E0B', bg: '#FFFBEB', text: '#D97706' };
-
-            const initialLetter = (item.employeeName || 'U').charAt(0).toUpperCase();
-
-            return (
-              <div 
-                key={item.id} 
-                className="mobile-ref-task-card"
-                style={{ cursor: 'pointer' }}
-                onClick={() => onSelectTask(item.taskId)}
-              >
-                <div className="mobile-ref-card-header">
-                  <div className="mobile-ref-card-tags">
-                    <span 
-                      className="mobile-ref-priority-tag"
-                      style={{
-                        backgroundColor: '#ECFEFF',
-                        color: '#0E7490'
-                      }}
-                    >
-                      {item.taskNumber}
+                      {row.processStatus}
                     </span>
-                    {item.department && (
-                      <span className="mobile-ref-dept-tag">
-                        {item.department}
+                  </div>
+
+                  {/* Line 2: Avatar + Employee Name */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {getEmployeeAvatar(row.employeeId, row.employeeName)}
+                    <span style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0F172A' }}>
+                      {row.employeeName}
+                    </span>
+                    {row.employeeDepartment && (
+                      <span style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 500 }}>
+                        • {row.employeeDepartment}
                       </span>
                     )}
                   </div>
 
-                  <span 
-                    className="mobile-ref-status-pill"
+                  {/* Line 3: Work Done Body */}
+                  <div
                     style={{
-                      backgroundColor: statusConfig.bg,
-                      color: statusConfig.text
+                      fontSize: '0.84rem',
+                      color: '#334155',
+                      lineHeight: 1.5,
+                      whiteSpace: 'pre-line',
+                      paddingTop: '2px'
                     }}
                   >
-                    <span 
-                      className="ref-status-dot"
-                      style={{ backgroundColor: statusConfig.dotColor }}
-                    />
-                    {statusConfig.label}
-                  </span>
-                </div>
-
-                <div className="mobile-ref-card-title">
-                  {item.taskTitle}
-                </div>
-
-                <div className="mobile-ref-card-desc">
-                  {item.workDoneToday}
-                </div>
-
-                <div className="mobile-ref-card-footer">
-                  <div className="mobile-ref-due-date">
-                    <Calendar size={14} color="#64748B" />
-                    <span>{formatDateDDMMYYYY(item.reportDate)}</span>
+                    {row.workDoneToday}
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
-                  <div className="mobile-ref-avatars-cluster">
-                    <div className="mobile-ref-avatar-circle" title={item.employeeName}>
-                      {initialLetter}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
+      {/* ============================================================ */}
+      {/* DESKTOP FILTER & CONTROLS BAR                                */}
+      {/* ============================================================ */}
+      <div
+        className="desktop-only-block"
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '14px',
+          padding: '12px 14px',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.02)'
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}
+        >
+          {/* Left: Scope Pill Tabs + Search + Dropdowns */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                background: '#F1F5F9',
+                padding: '3px',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0'
+              }}
+            >
+              {[
+                ...(isManagerOrAdmin ? [{ id: 'all', label: 'All' }] : []),
+                { id: 'my_reports', label: 'My Reports' },
+                { id: 'team_reports', label: 'Team' }
+              ].map(tab => {
+                const isActive = reportScope === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setReportScope(tab.id as any)}
+                    style={{
+                      height: '30px',
+                      padding: '0 12px',
+                      borderRadius: '7px',
+                      border: 'none',
+                      background: isActive ? '#0E7490' : 'transparent',
+                      color: isActive ? '#FFFFFF' : '#475569',
+                      fontSize: '0.76rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: '280px' }}>
+              <Search
+                size={14}
+                style={{
+                  position: 'absolute',
+                  left: '11px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#94A3B8',
+                  pointerEvents: 'none'
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Search task, employee, work..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={preventSpaceEnterPropagation}
+                style={{
+                  width: '100%',
+                  height: '36px',
+                  paddingLeft: '32px',
+                  paddingRight: '10px',
+                  borderRadius: '9px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  fontSize: '0.8rem',
+                  color: '#0F172A',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <select
+              value={selectedDepartment}
+              onChange={e => setSelectedDepartment(e.target.value)}
+              style={{
+                height: '36px',
+                padding: '0 10px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                borderRadius: '9px',
+                border: '1px solid #E2E8F0',
+                background: '#FFFFFF',
+                color: '#334155',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="All">All Departments</option>
+              {departments.map(d => (
+                <option key={d.id} value={d.name}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+
+            {isManagerOrAdmin && (
+              <select
+                value={selectedEmployee}
+                onChange={e => setSelectedEmployee(e.target.value)}
+                style={{
+                  height: '36px',
+                  padding: '0 10px',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  borderRadius: '9px',
+                  border: '1px solid #E2E8F0',
+                  background: '#FFFFFF',
+                  color: '#334155',
+                  cursor: 'pointer',
+                  maxWidth: '170px'
+                }}
+              >
+                <option value="All">All Employees</option>
+                {employees.map(emp => (
+                  <option key={emp.id} value={emp.employeeId}>
+                    {emp.firstName} {emp.lastName}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              title="From Date"
+              style={{
+                height: '36px',
+                padding: '0 8px',
+                fontSize: '0.76rem',
+                borderRadius: '9px',
+                border: '1px solid #E2E8F0',
+                background: '#FFFFFF',
+                color: '#334155'
+              }}
+            />
+
+            {(searchQuery || selectedDepartment !== 'All' || selectedEmployee !== 'All' || dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                style={{
+                  height: '36px',
+                  padding: '0 10px',
+                  borderRadius: '9px',
+                  border: '1px solid #E2E8F0',
+                  background: '#FFFFFF',
+                  color: '#64748B',
+                  fontSize: '0.76rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                <RotateCcw size={12} /> Reset
+              </button>
+            )}
+          </div>
+
+          {/* Right: Add Daily Report + View Switcher (Timeline vs Table) + Export */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (!newReportTaskId && enhancedTasks.length > 0) {
+                  setNewReportTaskId(enhancedTasks[0].id);
+                }
+                setShowAddReportModal(true);
+              }}
+              style={{
+                height: '36px',
+                padding: '0 14px',
+                borderRadius: '9px',
+                border: 'none',
+                background: '#0E7490',
+                color: '#FFFFFF',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)'
+              }}
+            >
+              <span>+ Add Daily Report</span>
+            </button>
+            <div
+              style={{
+                display: 'inline-flex',
+                background: '#F1F5F9',
+                padding: '3px',
+                borderRadius: '9px',
+                border: '1px solid #E2E8F0'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setDesktopViewMode('timeline')}
+                title="Grouped Timeline View"
+                style={{
+                  height: '30px',
+                  padding: '0 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: desktopViewMode === 'timeline' ? '#FFFFFF' : 'transparent',
+                  color: desktopViewMode === 'timeline' ? '#0E7490' : '#64748B',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  cursor: 'pointer',
+                  boxShadow: desktopViewMode === 'timeline' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
+                }}
+              >
+                <LayoutList size={14} /> Cards
+              </button>
+              <button
+                type="button"
+                onClick={() => setDesktopViewMode('table')}
+                title="Table View"
+                style={{
+                  height: '30px',
+                  padding: '0 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: desktopViewMode === 'table' ? '#FFFFFF' : 'transparent',
+                  color: desktopViewMode === 'table' ? '#0E7490' : '#64748B',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  cursor: 'pointer',
+                  boxShadow: desktopViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
+                }}
+              >
+                <TableIcon size={14} /> Table
+              </button>
+            </div>
+
+            <div ref={exportMenuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setShowExportMenu(prev => !prev)}
+                style={{
+                  height: '36px',
+                  padding: '0 12px',
+                  borderRadius: '9px',
+                  border: '1px solid #E2E8F0',
+                  background: '#FFFFFF',
+                  color: '#0E7490',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Download size={14} />
+                <span>Export</span>
+                <ChevronDown size={13} />
+              </button>
+
+              {showExportMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 6px)',
+                    background: '#FFFFFF',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12)',
+                    minWidth: '185px',
+                    zIndex: 100,
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px'
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleExportReports('excel')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '9px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      textAlign: 'left',
+                      width: '100%'
+                    }}
+                  >
+                    <FileSpreadsheet size={16} color="#16A34A" />
+                    <span>Export to Excel (.xlsx)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportReports('pdf')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '9px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      textAlign: 'left',
+                      width: '100%'
+                    }}
+                  >
+                    <FileText size={16} color="#DC2626" />
+                    <span>Export to PDF (.pdf)</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* MOBILE SEARCH + FILTER BAR                                   */}
+      {/* ============================================================ */}
+      <div className="mobile-only-block">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+            <Search
+              size={15}
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#94A3B8',
+                pointerEvents: 'none'
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Search daily reports..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={preventSpaceEnterPropagation}
+              style={{
+                width: '100%',
+                height: '40px',
+                paddingLeft: '36px',
+                paddingRight: searchQuery ? '30px' : '12px',
+                borderRadius: '12px',
+                border: '1px solid #E2E8F0',
+                background: '#FFFFFF',
+                fontSize: '0.84rem',
+                color: '#0F172A',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#94A3B8',
+                  padding: '4px',
+                  cursor: 'pointer',
+                  display: 'flex'
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!newReportTaskId && enhancedTasks.length > 0) {
+                setNewReportTaskId(enhancedTasks[0].id);
+              }
+              setShowAddReportModal(true);
+            }}
+            style={{
+              height: '40px',
+              padding: '0 12px',
+              borderRadius: '12px',
+              border: 'none',
+              background: '#0E7490',
+              color: '#FFFFFF',
+              fontSize: '0.76rem',
+              fontWeight: 800,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+              whiteSpace: 'nowrap'
+            }}
+          >
+            + Report
+          </button>
+          <button
+            type="button"
+            onClick={openMobileFilter}
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '12px',
+              border: activeMobileFilterCount > 0 ? '1px solid #0E7490' : '1px solid #E2E8F0',
+              background: activeMobileFilterCount > 0 ? '#ECFEFF' : '#FFFFFF',
+              color: activeMobileFilterCount > 0 ? '#0E7490' : '#475569',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+              position: 'relative'
+            }}
+            title="Filter Daily Reports"
+          >
+            <SlidersHorizontal size={16} />
+            {activeMobileFilterCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  background: '#0E7490',
+                  color: '#FFFFFF',
+                  fontSize: '0.62rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                {activeMobileFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* MOBILE VIEW: DATE-GROUPED DAILY REPORTS (Matches Screen 3)   */}
+      {/* ============================================================ */}
+      <div className="mobile-only-block">{renderDateGroupedFeed()}</div>
+
+      {/* ============================================================ */}
+      {/* DESKTOP VIEW: TIMELINE CARDS OR FITTED TABLE                 */}
+      {/* ============================================================ */}
+      <div className="desktop-only-block">
+        {desktopViewMode === 'timeline' ? (
+          renderDateGroupedFeed()
+        ) : (
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid #E2E8F0',
+              borderRadius: '16px',
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)'
+            }}
+          >
+            <div style={{ width: '100%', overflowX: 'auto' }}>
+              <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                    <th style={{ width: '115px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                      Report Date
+                    </th>
+                    <th style={{ width: '190px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                      Employee
+                    </th>
+                    <th style={{ width: '24%', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                      Task ID &amp; Title
+                    </th>
+                    <th style={{ padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                      Work Done / Daily Update
+                    </th>
+                    <th style={{ width: '120px', padding: '12px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                      Status
+                    </th>
+                    <th style={{ width: '80px', padding: '12px 12px', textAlign: 'right', fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedReports.map(row => (
+                    <tr
+                      key={row.reportId}
+                      onClick={() => onViewTask(row.taskId)}
+                      style={{
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #F1F5F9',
+                        backgroundColor: '#FFFFFF'
+                      }}
+                    >
+                      <td style={{ padding: '12px 12px', fontWeight: 700, color: '#0F172A', fontSize: '0.8rem' }}>
+                        {formatDateDayMonthYear(row.reportDate)}
+                      </td>
+                      <td style={{ padding: '12px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {getEmployeeAvatar(row.employeeId, row.employeeName)}
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                color: '#0F172A',
+                                fontSize: '0.8rem',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}
+                            >
+                              {row.employeeName}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748B' }}>{row.employeeDepartment}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px 12px', minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.76rem' }}>{row.taskNumber}</div>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            color: '#0F172A',
+                            fontSize: '0.82rem',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}
+                        >
+                          {row.taskTitle}
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px 12px' }}>
+                        <div
+                          style={{
+                            fontSize: '0.8rem',
+                            color: '#334155',
+                            lineHeight: 1.45,
+                            whiteSpace: 'pre-line'
+                          }}
+                        >
+                          {row.workDoneToday}
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px 12px' }}>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '3.5px 9px',
+                            borderRadius: '999px',
+                            background:
+                              row.processStatus === 'Completed'
+                                ? '#DCFCE7'
+                                : row.processStatus === 'In Process'
+                                  ? '#E0F2FE'
+                                  : '#F1F5F9',
+                            color:
+                              row.processStatus === 'Completed'
+                                ? '#15803D'
+                                : row.processStatus === 'In Process'
+                                  ? '#0284C7'
+                                  : '#475569'
+                          }}
+                        >
+                          {row.processStatus}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 12px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            onViewTask(row.taskId);
+                          }}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: '8px',
+                            border: '1px solid #E2E8F0',
+                            background: '#F8FAFC',
+                            color: '#0E7490',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <Eye size={13} /> View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Standardized Pagination Footer */}
+            <div
+              className="standard-pagination-footer"
+              style={{
+                padding: '12px 20px',
+                borderTop: '1px solid #E7ECF3',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+                background: '#FAFCFF'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.8rem', color: '#64748B' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Rows per page:</span>
+                  <select
+                    value={rowsPerPage}
+                    onChange={e => {
+                      setRowsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="form-control"
+                    style={{
+                      width: '62px',
+                      height: '30px',
+                      padding: '2px 6px',
+                      fontSize: '0.78rem',
+                      borderRadius: '6px'
+                    }}
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                  </select>
+                </div>
+                <span>
+                  Showing <strong>{totalEntries === 0 ? 0 : startIndex + 1}</strong> to{' '}
+                  <strong>{Math.min(startIndex + rowsPerPage, totalEntries)}</strong> of <strong>{totalEntries}</strong>{' '}
+                  entries
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={safeCurrentPage === 1}
+                    onClick={() => setCurrentPage(1)}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+                  >
+                    &lt;&lt;
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={safeCurrentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+                  >
+                    &lt;
+                  </button>
+                  {getPageNumbers().map(num => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setCurrentPage(num)}
+                      className="btn btn-sm"
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.75rem',
+                        minWidth: '30px',
+                        backgroundColor: num === safeCurrentPage ? '#0E7490' : '#FFFFFF',
+                        color: num === safeCurrentPage ? '#FFFFFF' : '#1E293B',
+                        border: num === safeCurrentPage ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                        fontWeight: num === safeCurrentPage ? 700 : 500
+                      }}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={safeCurrentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+                  >
+                    &gt;
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={safeCurrentPage === totalPages}
+                    onClick={() => setCurrentPage(totalPages)}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', minWidth: '28px' }}
+                  >
+                    &gt;&gt;
+                  </button>
+                </div>
+
+                <form onSubmit={handleJumpToPage} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#64748B' }}>Go to page</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={jumpPageInput}
+                    onChange={e => setJumpPageInput(e.target.value)}
+                    onKeyDown={preventSpaceEnterPropagation}
+                    className="form-control"
+                    style={{
+                      width: '48px',
+                      height: '30px',
+                      padding: '2px 6px',
+                      fontSize: '0.78rem',
+                      textAlign: 'center',
+                      borderRadius: '6px'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '4px 10px', fontSize: '0.75rem', height: '30px' }}
+                  >
+                    Go &rsaquo;
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Mobile Bottom Sheet Filter Modal */}
+      {showMobileFilterSheet &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="mobile-bottom-sheet-backdrop" onClick={() => setShowMobileFilterSheet(false)}>
+            <div className="mobile-bottom-sheet-panel" onClick={e => e.stopPropagation()}>
+              <div className="mobile-bottom-sheet-handle" />
+              <div className="mobile-bottom-sheet-header">
+                <span className="mobile-bottom-sheet-title">Filter Daily Reports</span>
+                <button
+                  type="button"
+                  onClick={() => setShowMobileFilterSheet(false)}
+                  style={{ background: 'none', border: 'none', color: '#64748B', padding: '4px', cursor: 'pointer' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="mobile-bottom-sheet-body">
+                <div>
+                  <div className="mobile-filter-group-title">Report Scope</div>
+                  <div className="mobile-filter-chips-grid">
+                    {[
+                      ...(isManagerOrAdmin ? [{ id: 'all', label: 'All Reports' }] : []),
+                      { id: 'my_reports', label: 'My Reports' },
+                      { id: 'team_reports', label: 'Team Reports' }
+                    ].map(sc => (
+                      <button
+                        key={sc.id}
+                        type="button"
+                        className={`mobile-filter-select-chip ${reportScope === sc.id ? 'selected' : ''}`}
+                        onClick={() => setReportScope(sc.id as any)}
+                      >
+                        {sc.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mobile-filter-group-title">Stage Status</div>
+                  <div className="mobile-filter-chips-grid">
+                    {['All', 'Not Started', 'In Process', 'Under Review', 'Completed'].map(st => (
+                      <button
+                        key={st}
+                        type="button"
+                        className={`mobile-filter-select-chip ${tempStatus === st ? 'selected' : ''}`}
+                        onClick={() => setTempStatus(st)}
+                      >
+                        {st === 'All' ? 'All Statuses' : st}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mobile-filter-group-title">Department</div>
+                  <div className="mobile-filter-chips-grid">
+                    <button
+                      type="button"
+                      className={`mobile-filter-select-chip ${tempDepartment === 'All' ? 'selected' : ''}`}
+                      onClick={() => setTempDepartment('All')}
+                    >
+                      All Departments
+                    </button>
+                    {departments.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className={`mobile-filter-select-chip ${tempDepartment === d.name ? 'selected' : ''}`}
+                        onClick={() => setTempDepartment(d.name)}
+                      >
+                        {d.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mobile-filter-group-title">Date Range</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <span style={{ fontSize: '0.7rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>
+                        From
+                      </span>
+                      <input
+                        type="date"
+                        value={tempDateFrom}
+                        onChange={e => setTempDateFrom(e.target.value)}
+                        style={{
+                          width: '100%',
+                          height: '36px',
+                          padding: '0 8px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.78rem'
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.7rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>
+                        To
+                      </span>
+                      <input
+                        type="date"
+                        value={tempDateTo}
+                        onChange={e => setTempDateTo(e.target.value)}
+                        style={{
+                          width: '100%',
+                          height: '36px',
+                          padding: '0 8px',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.78rem'
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-
-        {/* Standardized AGENTS.md Pagination Footer */}
-        {filteredReports.length > 0 && (
-          <StandardTablePagination
-            currentPage={validCurrentPage}
-            totalEntries={filteredReports.length}
-            pageSize={pageSize}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={setPageSize}
-            pageSizeOptions={[5, 10]}
-          />
+              <div className="mobile-bottom-sheet-footer">
+                <button type="button" className="mobile-sheet-btn-reset" onClick={handleResetFilters}>
+                  Reset
+                </button>
+                <button type="button" className="mobile-sheet-btn-apply" onClick={applyMobileFilter}>
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
-      </div>
 
-      {/* Floating Action Bar per AGENTS.md */}
-      <StandardFloatingActionBar
-        selectedCount={selectedReportIds.length}
-        onClearSelection={() => setSelectedReportIds([])}
-      />
+      {/* ============================================================ */}
+      {/* ADD DAILY REPORT MODAL                                       */}
+      {/* ============================================================ */}
+      {showAddReportModal && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 1060,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px'
+          }}
+          onClick={() => setShowAddReportModal(false)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '500px',
+              background: '#FFFFFF',
+              borderRadius: '18px',
+              border: '1px solid #E2E8F0',
+              boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.14)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <h3 style={{ fontSize: '1.02rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                  Add Task Daily Report
+                </h3>
+                <p style={{ fontSize: '0.74rem', color: '#64748B', margin: '2px 0 0 0' }}>
+                  Submit your daily work progress and update task status
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddReportModal(false)}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  color: '#64748B',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                if (!newReportTaskId || !newReportWorkDone.trim()) return;
+                addTaskDailyReport(newReportTaskId, {
+                  reportDate: newReportDate,
+                  workDoneToday: newReportWorkDone.trim(),
+                  processStatus: newReportStatus,
+                  hoursSpent: 8
+                });
+                const targetTask = enhancedTasks.find(t => t.id === newReportTaskId);
+                if (targetTask) {
+                  const progress =
+                    newReportStatus === 'Completed'
+                      ? 100
+                      : newReportStatus === 'Under Review'
+                      ? 85
+                      : newReportStatus === 'In Process'
+                      ? 50
+                      : 0;
+                  const myAsg =
+                    targetTask.assignees.find(a => matchesCurrentUser(a.employeeId, a.employeeName)) ||
+                    targetTask.assignees[0];
+                  if (myAsg) {
+                    updateAssigneeProgress(targetTask.id, myAsg.id || myAsg.employeeId, progress, newReportStatus);
+                  }
+                }
+                setNewReportWorkDone('');
+                setShowAddReportModal(false);
+              }}
+              style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}
+            >
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', marginBottom: '5px' }}>
+                  Select Task <span style={{ color: '#EF4444' }}>*</span>
+                </label>
+                <select
+                  value={newReportTaskId}
+                  onChange={e => setNewReportTaskId(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    height: '40px',
+                    padding: '0 10px',
+                    borderRadius: '10px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    color: '#0F172A'
+                  }}
+                >
+                  {enhancedTasks.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.taskNumber} — {t.title} ({t.department})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', marginBottom: '5px' }}>
+                    Report Date <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newReportDate}
+                    onChange={e => setNewReportDate(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      padding: '0 10px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: '#0F172A',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', marginBottom: '5px' }}>
+                    Update Status <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <select
+                    value={newReportStatus}
+                    onChange={e => setNewReportStatus(e.target.value as any)}
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      padding: '0 10px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: '#0E7490'
+                    }}
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="In Process">In Process</option>
+                    <option value="Under Review">Under Review</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#1E293B', marginBottom: '5px' }}>
+                  Work Done Today <span style={{ color: '#EF4444' }}>*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="1. Describe completed items and progress..."
+                  value={newReportWorkDone}
+                  onChange={e => setNewReportWorkDone(e.target.value)}
+                  onKeyDown={preventSpaceEnterPropagation}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.82rem',
+                    color: '#0F172A',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddReportModal(false)}
+                  style={{
+                    height: '38px',
+                    padding: '0 16px',
+                    borderRadius: '10px',
+                    border: '1px solid #CBD5E1',
+                    background: '#FFFFFF',
+                    color: '#475569',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    height: '38px',
+                    padding: '0 18px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: '#0E7490',
+                    color: '#FFFFFF',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Save Daily Report
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
