@@ -10,10 +10,6 @@ import {
   BarChart2,
   Users,
   UserCheck,
-  Download,
-  FileSpreadsheet,
-  FileText,
-  ChevronDown,
   BookOpen,
   Search,
   Calendar
@@ -28,7 +24,8 @@ import { NewTaskForm } from './NewTaskForm';
 import { TaskDetailModal } from './TaskDetailModal';
 import { computeDueStatus } from '../../types/tasks';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
-import { exportToExcel, exportToPDF } from '../../utils/exportUtils';
+import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
+import { ExportDropdown } from '../common/ExportDropdown';
 
 export const TaskManagement: React.FC = () => {
   const {
@@ -282,8 +279,61 @@ export const TaskManagement: React.FC = () => {
     setActiveTab(isManagerOrAdmin ? 'register' : 'my_tasks');
   };
 
-  const handleExportTasks = (type: 'excel' | 'pdf') => {
+  const handleExportTasks = (type: 'excel' | 'pdf' | 'csv') => {
     setShowExportMenu(false);
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    if (activeTab === 'daily_reports') {
+      const reportRows: any[] = [];
+      enhancedTasks.forEach(task => {
+        if (!task.dailyReports || task.dailyReports.length === 0) return;
+        if (!isManagerOrAdmin && !isInvolvedInTask(task)) return;
+        task.dailyReports.forEach(dlr => {
+          reportRows.push({
+            reportDateFormatted: formatDateDDMMYYYY(dlr.reportDate),
+            employeeName: dlr.employeeName,
+            employeeDepartment: dlr.employeeDepartment || task.department,
+            taskNumber: task.taskNumber,
+            taskTitle: task.title,
+            assignedByName: task.assignedByName || 'Manager',
+            workDoneToday: dlr.workDoneToday,
+            processStatus: dlr.processStatus,
+            progressFormatted: `${dlr.progressPercentage ?? 0}%`
+          });
+        });
+      });
+
+      if (reportRows.length === 0) {
+        alert('No daily report records available to export.');
+        return;
+      }
+
+      const dlrColumns = [
+        { label: 'Report Date', key: 'reportDateFormatted' },
+        { label: 'Employee Name', key: 'employeeName' },
+        { label: 'Department', key: 'employeeDepartment' },
+        { label: 'Task No', key: 'taskNumber' },
+        { label: 'Task Title', key: 'taskTitle' },
+        { label: 'Assigned By', key: 'assignedByName' },
+        { label: 'Work Done / Daily Update', key: 'workDoneToday' },
+        { label: 'Stage Status', key: 'processStatus' },
+        { label: 'Progress', key: 'progressFormatted' }
+      ];
+
+      if (type === 'excel') {
+        downloadExcel(reportRows, `VRM_Daily_Task_Reports_${timestamp}`, dlrColumns);
+      } else if (type === 'csv') {
+        downloadCSV(reportRows, `VRM_Daily_Task_Reports_${timestamp}`, dlrColumns);
+      } else {
+        downloadPDF(
+          reportRows,
+          'VRM Daily Task Report Register',
+          `VRM_Daily_Task_Reports_${timestamp}`,
+          dlrColumns
+        );
+      }
+      return;
+    }
 
     const exportSource = isManagerOrAdmin ? enhancedTasks : enhancedTasks.filter(t => isInvolvedInTask(t));
 
@@ -293,19 +343,19 @@ export const TaskManagement: React.FC = () => {
     }
 
     const columns = [
-      { header: 'Task No', key: 'taskNumber' },
-      { header: 'Title', key: 'title' },
-      { header: 'Category', key: 'taskCategory' },
-      { header: 'Department', key: 'department' },
-      { header: 'Priority', key: 'priority' },
-      { header: 'Assign Type', key: 'assignmentType' },
-      { header: 'Assigned By', key: 'assignedByName' },
-      { header: 'Responsible Lead', key: 'responsiblePersonName' },
-      { header: 'Team Members', key: 'assigneesList' },
-      { header: 'Start Date', key: 'startDate' },
-      { header: 'Due Date', key: 'dueDate' },
-      { header: 'Progress', key: 'progressFormatted' },
-      { header: 'Status', key: 'overallStatus' }
+      { label: 'Task No', key: 'taskNumber' },
+      { label: 'Title', key: 'title' },
+      { label: 'Category', key: 'taskCategory' },
+      { label: 'Department', key: 'department' },
+      { label: 'Priority', key: 'priority' },
+      { label: 'Assign Type', key: 'assignmentType' },
+      { label: 'Assigned By', key: 'assignedByName' },
+      { label: 'Responsible Lead', key: 'responsiblePersonName' },
+      { label: 'Team Members', key: 'assigneesList' },
+      { label: 'Start Date', key: 'startDate' },
+      { label: 'Due Date', key: 'dueDate' },
+      { label: 'Progress', key: 'progressFormatted' },
+      { label: 'Status', key: 'overallStatus' }
     ];
 
     const data = exportSource.map(t => ({
@@ -316,17 +366,16 @@ export const TaskManagement: React.FC = () => {
       progressFormatted: `${t.overallProgress}%`
     }));
 
-    const timestamp = new Date().toISOString().split('T')[0];
-
     if (type === 'excel') {
-      exportToExcel(data, columns, `VRM_Task_Management_${timestamp}`);
+      downloadExcel(data, `VRM_Task_Management_${timestamp}`, columns);
+    } else if (type === 'csv') {
+      downloadCSV(data, `VRM_Task_Management_${timestamp}`, columns);
     } else {
-      exportToPDF(
+      downloadPDF(
         data,
-        columns,
         'VRM Enterprise Task Management Register',
         `VRM_Task_Register_${timestamp}`,
-        `Generated by ${currentUser.name} (${currentUser.role}) • Total Tasks: ${exportSource.length}`
+        columns
       );
     }
   };
@@ -470,125 +519,38 @@ export const TaskManagement: React.FC = () => {
             <Search size={17} />
           </button>
 
-          {/* Desktop Export Dropdown */}
-          <div ref={exportMenuRef} className="desktop-only-block" style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setShowExportMenu(prev => !prev)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                height: '38px',
-                padding: '0 14px',
-                borderRadius: '10px',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                background: '#FFFFFF',
-                border: '1px solid #E2E8F0',
-                color: '#334155'
-              }}
-            >
-              <Download size={15} />
-              <span>Export</span>
-              <ChevronDown size={13} />
-            </button>
+          {/* Standardized Download Symbol Dropdown (Excel, PDF, CSV) */}
+          <ExportDropdown
+            onExportExcel={() => handleExportTasks('excel')}
+            onExportPDF={() => handleExportTasks('pdf')}
+            onExportCSV={() => handleExportTasks('csv')}
+            label="Download"
+          />
 
-            {showExportMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 'calc(100% + 6px)',
-                  background: '#FFFFFF',
-                  border: '1px solid #E2E8F0',
-                  borderRadius: '12px',
-                  boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12)',
-                  minWidth: '185px',
-                  zIndex: 100,
-                  padding: '6px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '2px'
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleExportTasks('excel')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '9px 12px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: '#1E293B',
-                    textAlign: 'left',
-                    width: '100%'
-                  }}
-                  onMouseOver={e => (e.currentTarget.style.background = '#F8FAFC')}
-                  onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <FileSpreadsheet size={16} color="#16A34A" />
-                  <span>Export to Excel (.xlsx)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportTasks('pdf')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '9px 12px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: '#1E293B',
-                    textAlign: 'left',
-                    width: '100%'
-                  }}
-                  onMouseOver={e => (e.currentTarget.style.background = '#F8FAFC')}
-                  onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <FileText size={16} color="#DC2626" />
-                  <span>Export to PDF (.pdf)</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Primary Assign Task Button (+ on Mobile, + Assign Task on Desktop) */}
+          {/* Primary Assign Task Button (+ Icon Button) */}
           <button
             type="button"
             onClick={() => setShowNewTaskModal(true)}
             title="Assign Task"
+            aria-label="Assign Task"
             style={{
-              height: '38px',
-              padding: '0 14px',
+              width: '36px',
+              height: '36px',
+              padding: 0,
               borderRadius: '10px',
               border: 'none',
               background: '#0E7490',
               color: '#FFFFFF',
-              fontSize: '0.82rem',
-              fontWeight: 700,
+              fontSize: '0.84rem',
+              fontWeight: 600,
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px',
               cursor: 'pointer',
               boxShadow: '0 2px 6px rgba(14, 116, 144, 0.25)'
             }}
           >
             <Plus size={18} strokeWidth={2.5} />
-            <span className="desktop-only-inline">Assign Task</span>
           </button>
         </div>
       </div>

@@ -5,11 +5,9 @@ import {
   FileText,
   Search,
   Calendar,
-  Download,
-  FileSpreadsheet,
+  Plus,
   Eye,
   RotateCcw,
-  ChevronDown,
   SlidersHorizontal,
   X,
   LayoutList,
@@ -771,23 +769,26 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
                 }
                 setShowAddReportModal(true);
               }}
+              title="Add Daily Report"
+              aria-label="Add Daily Report"
               style={{
+                width: '36px',
                 height: '36px',
-                padding: '0 14px',
-                borderRadius: '9px',
+                padding: 0,
+                borderRadius: '10px',
                 border: 'none',
                 background: '#0E7490',
                 color: '#FFFFFF',
-                fontSize: '0.78rem',
+                fontSize: '0.84rem',
                 fontWeight: 700,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
+                justifyContent: 'center',
                 cursor: 'pointer',
                 boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)'
               }}
             >
-              <span>+ Add Daily Report</span>
+              <Plus size={18} strokeWidth={2.5} />
             </button>
             <div
               style={{
@@ -842,96 +843,6 @@ export const DailyTaskReportManagement: React.FC<Props> = ({ onViewTask }) => {
               >
                 <TableIcon size={14} /> Table
               </button>
-            </div>
-
-            <div ref={exportMenuRef} style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setShowExportMenu(prev => !prev)}
-                style={{
-                  height: '36px',
-                  padding: '0 12px',
-                  borderRadius: '9px',
-                  border: '1px solid #E2E8F0',
-                  background: '#FFFFFF',
-                  color: '#0E7490',
-                  fontSize: '0.78rem',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer'
-                }}
-              >
-                <Download size={14} />
-                <span>Export</span>
-                <ChevronDown size={13} />
-              </button>
-
-              {showExportMenu && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    right: 0,
-                    top: 'calc(100% + 6px)',
-                    background: '#FFFFFF',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12)',
-                    minWidth: '185px',
-                    zIndex: 100,
-                    padding: '6px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '2px'
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleExportReports('excel')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '9px 12px',
-                      background: 'transparent',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      color: '#1E293B',
-                      textAlign: 'left',
-                      width: '100%'
-                    }}
-                  >
-                    <FileSpreadsheet size={16} color="#16A34A" />
-                    <span>Export to Excel (.xlsx)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportReports('pdf')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '9px 12px',
-                      background: 'transparent',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      color: '#1E293B',
-                      textAlign: 'left',
-                      width: '100%'
-                    }}
-                  >
-                    <FileText size={16} color="#DC2626" />
-                    <span>Export to PDF (.pdf)</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </div>

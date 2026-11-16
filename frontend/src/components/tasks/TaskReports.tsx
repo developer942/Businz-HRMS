@@ -4,11 +4,7 @@ import {
   CheckSquare,
   User,
   Building,
-  Search,
-  Download,
-  FileSpreadsheet,
-  FileText,
-  ChevronDown
+  Search
 } from 'lucide-react';
 import { computeDueStatus, calculateEmployeeTaskMetrics } from '../../types/tasks';
 import { formatDateDDMMYYYY, formatDateDayMonthYear } from '../../utils/dateUtils';
@@ -377,94 +373,6 @@ export const TaskReports: React.FC = () => {
               </option>
             ))}
           </select>
-
-          <div ref={exportMenuRef} style={{ position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => setShowExportMenu(prev => !prev)}
-              style={{
-                height: '36px',
-                padding: '0 12px',
-                borderRadius: '9px',
-                border: '1px solid #E2E8F0',
-                background: '#FFFFFF',
-                color: '#0E7490',
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              <Download size={14} />
-              <span>Export</span>
-              <ChevronDown size={13} />
-            </button>
-
-            {showExportMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 'calc(100% + 6px)',
-                  background: '#FFFFFF',
-                  border: '1px solid #E2E8F0',
-                  borderRadius: '12px',
-                  boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12)',
-                  minWidth: '180px',
-                  zIndex: 80,
-                  padding: '6px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '2px'
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleExportCurrentReport('excel')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 10px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    color: '#1E293B',
-                    cursor: 'pointer',
-                    textAlign: 'left'
-                  }}
-                >
-                  <FileSpreadsheet size={15} color="#16A34A" />
-                  <span>Export to Excel (.xlsx)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportCurrentReport('pdf')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 10px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    color: '#1E293B',
-                    cursor: 'pointer',
-                    textAlign: 'left'
-                  }}
-                >
-                  <FileText size={15} color="#DC2626" />
-                  <span>Export to PDF (.pdf)</span>
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
