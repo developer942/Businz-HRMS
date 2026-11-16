@@ -31,10 +31,19 @@ export const payrollPreviewSchema = z.object({
   incentive: z.number().min(0).max(10000000).default(0),
   commission: z.number().min(0).max(10000000).default(0),
   other_earnings: z.number().min(0).max(10000000).default(0),
-  lop_days: z.number().min(0).max(31).default(0),
+  lop_days: z.number().min(0).max(31).optional(),
+  paid_leave_days: z.number().min(0).max(31).optional(),
   advance_recovery: z.number().min(0).max(10000000).default(0),
   loan_recovery: z.number().min(0).max(10000000).default(0),
   other_deductions: z.number().min(0).max(10000000).default(0),
+  joining_date: z.string().max(30).optional().nullable(),
+  exit_date: z.string().max(30).optional().nullable(),
+  weekly_off: z.union([z.string(), z.array(z.string())]).optional().nullable(),
+  holidays: z.array(z.any()).optional(),
+  weekly_schedules: z.array(z.any()).optional(),
+  attendance_records: z.array(z.any()).optional(),
+  leave_requests: z.array(z.any()).optional(),
+  sandwich_policies: z.array(z.any()).optional(),
 });
 
 export const payrollRunCreateSchema = z.object({

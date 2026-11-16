@@ -6,6 +6,7 @@ import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { DateInput } from '../common/DateInput';
+import { getCalendarDaysInMonth } from '../../services/policyEngine';
 
 export const ReportsAnalytics: React.FC = () => {
   const { 
@@ -95,16 +96,43 @@ export const ReportsAnalytics: React.FC = () => {
         { key: 'month', label: 'Month' },
         { key: 'employee', label: 'Employee' },
         { key: 'department', label: 'Department' },
+        { key: 'calendarDays', label: 'Calendar Days' },
+        { key: 'workingDays', label: 'Working Days' },
+        { key: 'presentDays', label: 'Present Days' },
+        { key: 'paidWeekOff', label: 'Paid Week Off' },
+        { key: 'paidHoliday', label: 'Paid Holiday' },
+        { key: 'paidLeave', label: 'Paid Leave' },
+        { key: 'lopDays', label: 'LOP Days' },
+        { key: 'totalPaidDays', label: 'Total Paid Days' },
         { key: 'basic', label: 'Basic Salary' },
-        { key: 'net', label: 'Net Payout' }
+        { key: 'gross', label: 'Gross Salary' },
+        { key: 'deductions', label: 'Deductions' },
+        { key: 'net', label: 'Net Pay' }
       ];
-      data = filteredPayroll.map(p => ({
-        month: `${p.month} ${p.year}`,
-        employee: p.employeeName,
-        department: p.department,
-        basic: toNum(p.basicSalary),
-        net: toNum(p.netSalary)
-      }));
+      data = filteredPayroll.map(p => {
+        const calDays = toNum(p.calendarDays || p.calendarDaysInMonth) || getCalendarDaysInMonth(p.month || 'November', Number(p.year || 2026));
+        const lop = toNum(p.lopDays ?? p.unpaidLeaves);
+        const paid = toNum(p.totalPaidDays ?? p.paidDays ?? Math.max(0, calDays - lop));
+        const gross = toNum(p.grossSalary) || (toNum(p.basicSalary) + toNum(p.allowances) + toNum(p.overtimeAmount || 0));
+        const ded = toNum(p.totalDeductions) || (toNum(p.taxDeduction) + toNum(p.advanceDeduction || 0));
+        return {
+          month: `${p.month} ${p.year}`,
+          employee: p.employeeName,
+          department: p.department,
+          calendarDays: calDays,
+          workingDays: toNum(p.workingDays),
+          presentDays: toNum(p.presentDays),
+          paidWeekOff: toNum(p.paidWeekOffDays),
+          paidHoliday: toNum(p.paidHolidayDays),
+          paidLeave: toNum(p.paidLeaveDays ?? p.paidLeaves),
+          lopDays: lop,
+          totalPaidDays: paid,
+          basic: toNum(p.basicSalary),
+          gross,
+          deductions: ded,
+          net: toNum(p.netSalary)
+        };
+      });
     } else if (activeReportTab === 'sandwich') {
       columns = [
         { key: 'employee', label: 'Employee Name' },
@@ -123,7 +151,9 @@ export const ReportsAnalytics: React.FC = () => {
       ];
       data = filteredSandwichLeaves.map(l => {
         const emp = employees.find(e => e.employeeId === l.employeeId);
-        const dailySalary = toNum(emp?.basicSalary || 30000) / 26;
+        const parts = String(l.startDate || '').split('-');
+        const calDays = parts.length >= 2 ? getCalendarDaysInMonth(Number(parts[1]) || 11, Number(parts[0]) || 2026) : 30;
+        const dailySalary = toNum(emp?.basicSalary || 30000) / calDays;
         const unpaidDays = l.unpaidSandwichDays || (l.unpaidDaysCount ?? 0);
         const deduct = Math.round(unpaidDays * dailySalary);
 

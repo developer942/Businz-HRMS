@@ -10,7 +10,10 @@ import {
   PayrollRecord,
   LoanRecord,
   LoanRepaymentInstallment,
-  Shift
+  Shift,
+  HolidayItem,
+  WeeklyScheduleItem,
+  SandwichLeavePolicy
 } from '../types/hrms';
 import { SalaryComponentConfig, EmployeeSalaryEligibilityContext } from '../types/settings';
 import {
@@ -41,7 +44,13 @@ import {
   resolveEmployeeOtEligibility,
   calculateEnterpriseOvertimeRateAndAmount,
   identifyEligibleOvertimeFromAttendance,
-  buildEmployeeMonthlyAttendanceOtReport
+  buildEmployeeMonthlyAttendanceOtReport,
+  normalizeDateToISO,
+  isDateEmployeeWeeklyOff,
+  isDateCompanyPaidHoliday,
+  calculateCalendarDayPayrollAttendance,
+  CalendarDayPayrollBreakdown,
+  CalendarDayPayrollParams
 } from './attendanceCalculationEngine';
 
 export {
@@ -60,9 +69,13 @@ export {
   resolveEmployeeOtEligibility,
   calculateEnterpriseOvertimeRateAndAmount,
   identifyEligibleOvertimeFromAttendance,
-  buildEmployeeMonthlyAttendanceOtReport
+  buildEmployeeMonthlyAttendanceOtReport,
+  normalizeDateToISO,
+  isDateEmployeeWeeklyOff,
+  isDateCompanyPaidHoliday,
+  calculateCalendarDayPayrollAttendance
 };
-export type { EmployeeSalaryEligibilityContext };
+export type { EmployeeSalaryEligibilityContext, CalendarDayPayrollBreakdown, CalendarDayPayrollParams };
 
 // ========================================================
 // 1. SAFE MATHEMATICAL FORMULA EVALUATOR (No eval)
@@ -781,11 +794,12 @@ export const evaluateLeaveDeductions = (
   leaveRequests: LeaveRequest[],
   policy: MasterLeavePolicy | undefined,
   dailySalary: number,
-  basicSalary: number
+  basicSalary: number,
+  monthYear?: { month: number; year: number }
 ): LeaveDeductionResult => {
   const defaultResult: LeaveDeductionResult = {
     totalUnpaidDays: 0,
-    allowedFreeDays: 1,
+    allowedFreeDays: 0,
     excessUnpaidDays: 0,
     deductionAmount: 0,
     ruleApplied: 'None',
@@ -796,10 +810,18 @@ export const evaluateLeaveDeductions = (
     sandwichDeduction: 0
   };
 
-  // Find all approved leaves for this employee
-  const approvedLeaves = leaveRequests.filter(
-    l => l.employeeId === employee.employeeId && l.status === 'Approved'
-  );
+  // Find all approved leaves for this employee (filtered to target month/year when provided)
+  const approvedLeaves = leaveRequests.filter(l => {
+    if (l.employeeId !== employee.employeeId || l.status !== 'Approved') return false;
+    if (!monthYear) return true;
+    const startIso = normalizeDateToISO(l.startDate);
+    const endIso = normalizeDateToISO(l.endDate) || startIso;
+    if (!startIso) return false;
+    const monthStart = `${monthYear.year}-${String(monthYear.month).padStart(2, '0')}-01`;
+    const totalDays = getCalendarDaysInMonth(monthYear.month, monthYear.year);
+    const monthEnd = `${monthYear.year}-${String(monthYear.month).padStart(2, '0')}-${String(totalDays).padStart(2, '0')}`;
+    return startIso <= monthEnd && (endIso || startIso) >= monthStart;
+  });
 
   const isProv = policy?.applicableEmploymentType === 'Provisional' || 
     policy?.id === 'LP-MASTER-PROVISIONAL' || 
@@ -817,8 +839,12 @@ export const evaluateLeaveDeductions = (
       leaveName.includes('loss of pay') || 
       leaveName.includes('lwp') || 
       leaveName.includes('without pay');
+    const explicitUnpaidCount = toNum((l as any).unpaidDaysCount);
     if (isExplicitUnpaid) {
       regularUnpaidDays += toNum(l.daysCount);
+    } else if (explicitUnpaidCount > 0) {
+      regularUnpaidDays += explicitUnpaidCount;
+      paidLeavesTaken += Math.max(0, toNum(l.daysCount) - explicitUnpaidCount);
     } else {
       paidLeavesTaken += toNum(l.daysCount);
     }
@@ -831,19 +857,10 @@ export const evaluateLeaveDeductions = (
     }
   });
 
-  // Calculate excess paid leave days beyond allowed policy quota:
-  // - Confirmed: 1 day paid casual leave allowed per month. Excess incurs salary deduction.
-  // - Provisional: 1 day paid leave allowed during the first 3 months of probation. Excess incurs salary deduction.
-  const allowedPaidQuota = 1;
-  const excessPaidLeaves = Math.max(0, paidLeavesTaken - allowedPaidQuota);
-
-  // For provisional employees, free unpaid days is strictly 0 (any leave past 1 paid day incurs deduction)
-  // For confirmed employees, monthly free unpaid leaves comes from policy (default 1)
-  const freeDays = isProv ? 0 : (policy ? toNum(policy.monthlyFreeUnpaidLeaves ?? 1) : 1);
-  const totalUnpaidDays = regularUnpaidDays + sandwichUnpaidDays + excessPaidLeaves;
-  const excessUnpaidDays = isProv 
-    ? (regularUnpaidDays + sandwichUnpaidDays + excessPaidLeaves)
-    : Math.max(0, (regularUnpaidDays + sandwichUnpaidDays) - (paidLeavesTaken === 0 ? freeDays : 0) + excessPaidLeaves);
+  // Approved paid leaves remain paid; only explicit unpaid leaves and unpaid sandwich days count as LOP
+  const freeDays = isProv ? 0 : (policy ? toNum(policy.monthlyFreeUnpaidLeaves ?? 0) : 0);
+  const totalUnpaidDays = regularUnpaidDays + sandwichUnpaidDays;
+  const excessUnpaidDays = Math.max(0, totalUnpaidDays - freeDays);
 
   const sandwichDeduction = Math.round(sandwichUnpaidDays * dailySalary);
 
@@ -854,14 +871,12 @@ export const evaluateLeaveDeductions = (
       allowedFreeDays: freeDays,
       excessUnpaidDays: 0,
       deductionAmount: 0,
-      ruleApplied: isProv 
-        ? 'Within Provisional 1 Paid Leave allowance' 
-        : `Within ${freeDays} paid/free leave allowance`,
+      ruleApplied: 'No Unpaid Leave / LOP',
       isConfidential: policy?.deductionVisibility === 'GENERIC',
       genericCategoryLabel: policy?.genericCategoryLabel || 'OTHERS',
-      details: isProv 
-        ? 'Provisional leave covered by 1-day probation allowance.' 
-        : `Covered by 1 day/month paid leave allowance.`
+      details: paidLeavesTaken > 0
+        ? `${paidLeavesTaken} approved paid leave day(s) included in paid days.`
+        : 'No unpaid leave deduction'
     };
   }
 
@@ -874,21 +889,21 @@ export const evaluateLeaveDeductions = (
     case 'DAILY_SALARY': {
       const multiplier = toNum(policy?.dailySalaryMultiplier || 1);
       deductionAmount = excessUnpaidDays * (dailySalary * multiplier);
-      ruleApplied = `${excessUnpaidDays} excess day(s) × Daily Salary (${formatCurrency(dailySalary * multiplier)})`;
+      ruleApplied = `${excessUnpaidDays} LOP day(s) × Daily Salary (${formatCurrency(dailySalary * multiplier)})`;
       break;
     }
 
     case 'FIXED_AMOUNT': {
       const perDay = toNum(policy?.fixedDeductionAmount || 1000);
       deductionAmount = excessUnpaidDays * perDay;
-      ruleApplied = `Fixed ${formatCurrency(perDay)} per excess day (${excessUnpaidDays} days)`;
+      ruleApplied = `Fixed ${formatCurrency(perDay)} per LOP day (${excessUnpaidDays} days)`;
       break;
     }
 
     case 'PERCENTAGE': {
       const pct = toNum(policy?.percentageOfDailySalary || 100);
       deductionAmount = excessUnpaidDays * ((dailySalary * pct) / 100);
-      ruleApplied = `${pct}% of Daily Salary for ${excessUnpaidDays} excess day(s)`;
+      ruleApplied = `${pct}% of Daily Salary for ${excessUnpaidDays} LOP day(s)`;
       break;
     }
 
@@ -1153,7 +1168,9 @@ export const evaluateStatutoryContributions = (
   overtime: number = 0,
   customContext?: Record<string, number>
 ): StatutoryDeductionsResult => {
-  const ptActive = !payrollConfig || payrollConfig.enableProfessionalTax !== false;
+  const ptActive = !payrollConfig
+    ? true
+    : (payrollConfig.enableProfessionalTax !== false && (payrollConfig as any)?.ptPolicy?.enabled !== false);
   let professionalTax = 0;
   if (ptActive) {
     professionalTax = payrollConfig?.standardPtAmount || 200;
@@ -1484,6 +1501,18 @@ export interface PayrollOvertimeOptions {
   directOvertimeRate?: number;
   directOvertimeAmount?: number;
   includePaidRequests?: boolean;
+  salaryDivisorMode?: string;
+  holidays?: HolidayItem[];
+  weeklySchedules?: WeeklyScheduleItem[];
+  sandwichPolicies?: SandwichLeavePolicy[];
+  weekOffEligibilityPolicy?: {
+    requireAdjacentPresenceForWeekOff?: boolean;
+    requireAdjacentPresenceForHoliday?: boolean;
+  };
+  autoConvertPendingToLop?: boolean;
+  explicitLopDays?: number;
+  explicitPaidLeaveDays?: number;
+  attendanceBonusEnabled?: boolean;
 }
 
 export interface PayrollOvertimeBreakdown {
@@ -1543,10 +1572,20 @@ export interface FullPayrollCalculationResult {
 
   netSalary: number;
 
-  // Days
+  // Days (Calendar Day Based Payroll Breakdown)
+  calendarDays: number;
+  eligibleDays: number;
   workingDays: number;
+  scheduledWorkingDays: number;
   presentDays: number;
+  paidWeekOffDays: number;
+  paidHolidayDays: number;
+  overlappingHolidayDays: number;
+  paidLeaveDays: number;
+  lopDays: number;
   paidDays: number;
+  totalPaidDays: number;
+  pendingAttendanceDays: number;
   paidLeaves: number;
   unpaidLeaves: number;
 
@@ -1685,11 +1724,15 @@ export const calculateEmployeePayroll = (
   const conveyance = dynamicConveyance;
   const hra = dynamicHra;
   const allowances = calculatedAllowances;
+  const configuredFixedGross = basic + allowances;
+
+  const targetMonthNum = resolveMonthNumber(month);
+  const targetYearNum = Number(year) || 2026;
 
   // Resolve dynamic calendar days (28/29/30/31) and configured payroll salary divisor
   const divisorInfo = resolvePayrollSalaryDivisor({
     month,
-    year,
+    year: targetYearNum,
     payrollConfig,
     overtimePolicy: overtimeOptions?.overtimePolicy,
   });
@@ -1697,38 +1740,73 @@ export const calculateEmployeePayroll = (
   const calendarDaysInMonth = divisorInfo.calendarDaysInMonth;
   const salaryDivisorMode = divisorInfo.modeUsed;
 
-  const dailySalary = standardDays > 0 ? basic / standardDays : basic / 26;
   const isCeoEmployee = isOwnerOrCEO(employee);
 
-  // 1. Attendance & Present Days (CEO is exempt from attendance tracking)
-  const empAtt = isCeoEmployee ? [] : attendanceRecords.filter(a => a.employeeId === employee.employeeId);
-  const presentCount = empAtt.filter(
-    a => a.status === 'Present' || a.status === 'Late' || a.status === 'Work From Home'
-  ).length;
-  const presentDays = isCeoEmployee
-    ? standardDays
-    : (presentCount > 0 ? Math.min(standardDays, presentCount) : (employee.status === 'Active' ? standardDays : 0));
+  // 1. Calendar Day Based Attendance & Leave Evaluation
+  const calendarBreakdown = calculateCalendarDayPayrollAttendance({
+    month: targetMonthNum,
+    year: targetYearNum,
+    joiningDate: employee.joiningDate || employee.dateOfJoining,
+    exitDate: employee.exitDate || employee.relievingDate || employee.lastWorkingDate || employee.terminationDate,
+    weeklyOff: employee.shiftDetails?.weeklyOff,
+    weeklySchedules: overtimeOptions?.weeklySchedules || [],
+    employeeId: employee.employeeId,
+    department: employee.department,
+    holidays: overtimeOptions?.holidays || [],
+    attendanceRecords: isCeoEmployee ? [] : attendanceRecords,
+    leaveRequests: isCeoEmployee ? [] : leaveRequests,
+    sandwichPolicies: overtimeOptions?.sandwichPolicies || [],
+    weekOffEligibilityPolicy: overtimeOptions?.weekOffEligibilityPolicy,
+    autoConvertPendingToLop: overtimeOptions?.autoConvertPendingToLop ?? false,
+    explicitLopDays: isCeoEmployee ? 0 : overtimeOptions?.explicitLopDays,
+    explicitPaidLeaveDays: isCeoEmployee ? 0 : overtimeOptions?.explicitPaidLeaveDays,
+  });
 
-  // 2. Late Attendance Policy Evaluation (with multi-shift support)
+  const calendarDays = calendarBreakdown.calendarDays;
+  const eligibleDays = isCeoEmployee ? calendarDays : calendarBreakdown.eligibleDays;
+  const scheduledWorkingDays = calendarBreakdown.scheduledWorkingDays;
+  const workingDays = isCeoEmployee ? scheduledWorkingDays : calendarBreakdown.workingDays;
+  const paidWeekOffDays = calendarBreakdown.paidWeekOffDays;
+  const paidHolidayDays = calendarBreakdown.paidHolidayDays;
+  const overlappingHolidayDays = calendarBreakdown.overlappingHolidayDays;
+  const presentDays = isCeoEmployee
+    ? Math.max(0, scheduledWorkingDays - paidHolidayDays)
+    : calendarBreakdown.presentDays;
+  const paidLeaveDays = isCeoEmployee ? 0 : calendarBreakdown.paidLeaveDays;
+  const lopDays = isCeoEmployee ? 0 : calendarBreakdown.lopDays;
+  const paidDays = isCeoEmployee ? calendarDays : calendarBreakdown.paidDays;
+  const totalPaidDays = isCeoEmployee ? calendarDays : calendarBreakdown.totalPaidDays;
+  const pendingAttendanceDays = isCeoEmployee ? 0 : calendarBreakdown.pendingAttendanceDays;
+
+  const dailySalary = calendarDays > 0 ? basic / calendarDays : basic / 30;
+  const empAtt = isCeoEmployee
+    ? []
+    : attendanceRecords.filter(
+        a => a.employeeId === employee.employeeId && isDateMatchingPayrollPeriod(a.date, targetMonthNum, targetYearNum)
+      );
+
+  // 2. Late Attendance Policy Evaluation (with multi-shift support and month/year filtering)
   const lateDetails = evaluateAttendanceLateDeduction(
     employee,
     isCeoEmployee ? [] : attendanceRecords,
     attendancePolicy,
     dailySalary,
     basic,
-    allShifts
+    allShifts,
+    { month: targetMonthNum, year: targetYearNum }
   );
   if (isCeoEmployee) {
     lateDetails.deductionAmount = 0;
   }
 
-  // 3. Leave Policy Evaluation
+  // 3. Leave Policy Evaluation (informational details & policy rules, filtered to month/year)
   const leaveDetails = evaluateLeaveDeductions(
     employee,
     isCeoEmployee ? [] : leaveRequests,
     leavePolicy,
     dailySalary,
-    basic
+    basic,
+    { month: targetMonthNum, year: targetYearNum }
   );
   if (isCeoEmployee) {
     leaveDetails.deductionAmount = 0;
@@ -1736,36 +1814,74 @@ export const calculateEmployeePayroll = (
     leaveDetails.excessUnpaidDays = 0;
     leaveDetails.sandwichUnpaidDays = 0;
     leaveDetails.sandwichDeduction = 0;
+  } else {
+    leaveDetails.totalUnpaidDays = lopDays;
+    leaveDetails.excessUnpaidDays = lopDays;
+    leaveDetails.deductionAmount = Math.round(((configuredFixedGross * lopDays) / (calendarDays || 30)));
   }
 
   // 4. Rewards Evaluation
   const rewardDetails = evaluateEmployeeRewards(employee.employeeId, rewardRecords);
 
-  const approvedPaidLeaveDays = isCeoEmployee
-    ? 0
-    : leaveRequests
-        .filter(l => l.employeeId === employee.employeeId && l.status === 'Approved')
-        .filter(l => {
-          const leaveName = (l.leaveType || '').toLowerCase();
-          return !leaveName.includes('unpaid') && !leaveName.includes('lop') && !leaveName.includes('loss of pay');
-        })
-        .reduce((sum, l) => sum + toNum(l.daysCount), 0);
-  const paidDays = isCeoEmployee ? standardDays : Math.min(standardDays, Math.max(0, presentDays + approvedPaidLeaveDays));
-  const salaryProrationFactor = isCeoEmployee ? 1 : (standardDays > 0 ? paidDays / standardDays : 1);
-  const prorateSalary = (value: number) => Math.round(toNum(value) * salaryProrationFactor);
-  const payableBasic = prorateSalary(basic);
+  // 5. Calendar Day Proration: Gross Pay = Monthly Gross Salary × Paid Days / Total Calendar Days
+  // Full-month eligible employee with 0 LOP receives 100% of configured monthly gross salary.
+  const isFullCalendarPay = isCeoEmployee || (paidDays >= calendarDays && calendarDays > 0);
+  const prorateSalary = (value: number): number => {
+    const numVal = toNum(value);
+    if (isFullCalendarPay) return Math.round(numVal);
+    if (calendarDays <= 0 || paidDays <= 0) return 0;
+    return Math.round((numVal * paidDays) / calendarDays);
+  };
+
+  const targetProratedFixedGross = isFullCalendarPay
+    ? Math.round(configuredFixedGross)
+    : (calendarDays > 0 && paidDays > 0 ? Math.round((configuredFixedGross * paidDays) / calendarDays) : 0);
+
+  let payableBasic = prorateSalary(basic);
   const payableDa = prorateSalary(da);
   const payableConveyance = prorateSalary(conveyance);
-  const payableHra = prorateSalary(hra);
-  const payableAllowances = prorateSalary(allowances);
+  let payableHra = prorateSalary(hra);
+  const otherAllowancesRaw = Math.max(0, allowances - (da + conveyance + hra));
+  const payableOtherAllowances = prorateSalary(otherAllowancesRaw);
+
+  // Reconcile 1-rupee rounding differences across components so sum equals Monthly Gross × Paid Days / Calendar Days
+  const componentSum = payableBasic + payableDa + payableConveyance + payableHra + payableOtherAllowances;
+  const componentResidual = targetProratedFixedGross - componentSum;
+  if (componentResidual !== 0 && targetProratedFixedGross > 0) {
+    if (payableHra > 0 && payableHra + componentResidual >= 0) {
+      payableHra += componentResidual;
+    } else if (payableBasic > 0 && payableBasic + componentResidual >= 0) {
+      payableBasic += componentResidual;
+    }
+  }
+  const payableAllowances = payableDa + payableConveyance + payableHra + payableOtherAllowances;
 
   earningsBreakdown.forEach(item => {
     item.amount = prorateSalary(item.amount);
-    item.description = [item.description, `Paid ${paidDays}/${standardDays} days`].filter(Boolean).join(' | ');
+    item.description = [item.description, `Paid ${paidDays}/${calendarDays} days`].filter(Boolean).join(' | ');
   });
+  if (earningsBreakdown.length > 0 && targetProratedFixedGross > 0) {
+    const breakdownSum = earningsBreakdown.reduce((sum, item) => sum + item.amount, 0);
+    const breakdownDiff = targetProratedFixedGross - breakdownSum;
+    if (breakdownDiff !== 0) {
+      const targetIdx = earningsBreakdown.findIndex(i => i.name.toLowerCase().includes('house rent') || i.name.toUpperCase() === 'HRA');
+      const idx = targetIdx >= 0 ? targetIdx : earningsBreakdown.length - 1;
+      if (earningsBreakdown[idx].amount + breakdownDiff >= 0) {
+        earningsBreakdown[idx].amount += breakdownDiff;
+      }
+    }
+  }
 
-  // Attendance bonus: granted dynamically ONLY when attendance-tracked employee achieves 100% attendance
-  const isFullAttendance = !isCeoEmployee && presentDays >= standardDays && standardDays > 0 && (leaveDetails.totalUnpaidDays || 0) === 0;
+  // Attendance bonus: granted only when explicitly enabled in payrollConfig/options and employee achieves full paid eligibility with 0 LOP
+  const attendanceBonusEnabled = Boolean(
+    (payrollConfig as any)?.attendanceBonusEnabled || overtimeOptions?.attendanceBonusEnabled
+  );
+  const isFullAttendance =
+    !isCeoEmployee &&
+    attendanceBonusEnabled &&
+    eligibleDays >= calendarDays &&
+    lopDays === 0 &&
+    paidLeaveDays === 0;
   const attendanceBonus = isFullAttendance ? 1000 : 0;
 
   const bonus = 0;
@@ -1778,9 +1894,8 @@ export const calculateEmployeePayroll = (
     }
   });
 
-  // 5. Enterprise Overtime Calculation & Aggregation (Attendance → Identify → Dept Policy → Approval → Payroll)
-  const targetMonthNum = resolveMonthNumber(month);
-  const periodRefDate = `${year}-${String(targetMonthNum).padStart(2, '0')}-15`;
+  // 6. Enterprise Overtime Calculation & Aggregation (Attendance → Identify → Dept Policy → Approval → Payroll)
+  const periodRefDate = `${targetYearNum}-${String(targetMonthNum).padStart(2, '0')}-15`;
   const baseEligibility = resolveEmployeeOtEligibility(
     employee,
     overtimeOptions?.departmentOtPolicies,
@@ -1803,7 +1918,7 @@ export const calculateEmployeePayroll = (
         employee,
         approvedOtHours,
         month,
-        year,
+        year: targetYearNum,
         payrollConfig,
         overtimePolicy: overtimeOptions.overtimePolicy,
         departmentOtPolicies: overtimeOptions.departmentOtPolicies,
@@ -1830,11 +1945,11 @@ export const calculateEmployeePayroll = (
       if (req.isBackdatedArrear && req.targetPayrollMonth && req.targetPayrollYear) {
         return (
           resolveMonthNumber(req.targetPayrollMonth) === targetMonthNum &&
-          Number(req.targetPayrollYear) === Number(year)
+          Number(req.targetPayrollYear) === targetYearNum
         );
       }
 
-      return isDateMatchingPayrollPeriod(req.date, targetMonthNum, Number(year));
+      return isDateMatchingPayrollPeriod(req.date, targetMonthNum, targetYearNum);
     });
 
     empOtRequests.forEach(req => {
@@ -1864,7 +1979,7 @@ export const calculateEmployeePayroll = (
         employee,
         approvedOtHours: hrs,
         month,
-        year,
+        year: targetYearNum,
         payrollConfig,
         overtimePolicy: overtimeOptions?.overtimePolicy,
         departmentOtPolicies: overtimeOptions?.departmentOtPolicies,
@@ -1884,7 +1999,7 @@ export const calculateEmployeePayroll = (
 
     // Also include approved overtime directly from attendance records for this month if not already in overtimeRequests
     empAtt.forEach(att => {
-      if (!isDateMatchingPayrollPeriod(att.date, targetMonthNum, Number(year))) return;
+      if (!isDateMatchingPayrollPeriod(att.date, targetMonthNum, targetYearNum)) return;
       const dateKey = `${employee.employeeId}::${String(att.date).trim()}`;
       if (seenOtDates.has(dateKey)) return;
 
@@ -1906,7 +2021,7 @@ export const calculateEmployeePayroll = (
         employee,
         approvedOtHours: hrs,
         month,
-        year,
+        year: targetYearNum,
         payrollConfig,
         overtimePolicy: overtimeOptions?.overtimePolicy,
         departmentOtPolicies: overtimeOptions?.departmentOtPolicies,
@@ -1924,7 +2039,7 @@ export const calculateEmployeePayroll = (
     employee,
     approvedOtHours,
     month,
-    year,
+    year: targetYearNum,
     payrollConfig,
     overtimePolicy: overtimeOptions?.overtimePolicy,
     departmentOtPolicies: overtimeOptions?.departmentOtPolicies,
@@ -2050,7 +2165,7 @@ export const calculateEmployeePayroll = (
       : Boolean(fallbackStatutory?.isEsicExempt)
   };
 
-  // 6. Advance Salary / Loan EMI deduction ("Others" deduction)
+  // 7. Advance Salary / Loan EMI deduction ("Others" deduction)
   let scheduledLoanDeduction = 0;
   if (Array.isArray(advanceSalaryRecords)) {
     advanceSalaryRecords.forEach(adv => {
@@ -2072,33 +2187,9 @@ export const calculateEmployeePayroll = (
     });
   }
 
-  // Unpaid Leave / Loss of Pay (LOP) & Absent Deductions:
-  const perDaySalary = standardDays > 0 ? (grossSalary / standardDays) : (grossSalary / 26);
-
-  // 1. Unpaid leaves approved for this employee
-  const approvedUnpaidDays = leaveRequests
-    .filter(l => l.employeeId === employee.employeeId && l.status === 'Approved')
-    .filter(l => {
-      const lt = (l.leaveType || '').toLowerCase();
-      return lt.includes('unpaid') || lt.includes('lwp') || lt.includes('loss of pay');
-    })
-    .reduce((sum, l) => sum + toNum(l.daysCount), 0);
-
-  // 2. Unexcused Absent days from attendance records
-  const absentDaysCount = empAtt.filter(a => a.status === 'Absent').length;
-
-  // 3. Excess days beyond policy quota evaluated by policy rule
-  const policyExcessDays = leaveDetails?.excessUnpaidDays || 0;
-
-  // Total LOP days
-  const totalLopDays = Math.max(approvedUnpaidDays + absentDaysCount, policyExcessDays, leaveDetails?.totalUnpaidDays || 0);
-
-  // Calculated Loss of Pay deduction amount
-  const leaveDeductionAmount = (leaveDetails?.deductionAmount && leaveDetails.deductionAmount > 0)
-    ? leaveDetails.deductionAmount
-    : Math.round(totalLopDays * perDaySalary);
-
-  const preLoanDeductions = configuredDeductionTotal + lateDetails.deductionAmount + leaveDeductionAmount;
+  // Note: LOP is already deducted via Calendar Day proration of Gross Salary (Paid Days / Calendar Days).
+  // Therefore we do NOT subtract LOP a second time from Gross Salary in totalDeductions.
+  const preLoanDeductions = configuredDeductionTotal + lateDetails.deductionAmount;
   const availableSalary = Math.max(0, grossSalary - preLoanDeductions);
   const advanceDeduction = Math.min(scheduledLoanDeduction, availableSalary);
 
@@ -2140,14 +2231,6 @@ export const calculateEmployeePayroll = (
   if (lateDetails.deductionAmount > 0) {
     deductionsBreakdown.push({ name: 'Late Attendance Deduction', category: 'DEDUCTION', amount: lateDetails.deductionAmount, description: lateDetails.ruleApplied });
   }
-  if (leaveDeductionAmount > 0) {
-    deductionsBreakdown.push({ 
-      name: 'Loss of Pay (Unpaid Leave / Absent Deduction)', 
-      category: 'DEDUCTION', 
-      amount: leaveDeductionAmount, 
-      description: `${totalLopDays} day(s) deducted @ ${formatCurrency(perDaySalary)}/day` 
-    });
-  }
   if (advanceDeduction > 0) {
     deductionsBreakdown.push({ name: 'Advance Salary / Loan Recovery', category: 'DEDUCTION', amount: advanceDeduction });
   }
@@ -2158,7 +2241,7 @@ export const calculateEmployeePayroll = (
     department: employee.department,
     designation: employee.designation,
     month,
-    year,
+    year: targetYearNum,
     basicSalary: payableBasic,
     allowances: payableAllowances,
     da: payableDa,
@@ -2172,7 +2255,7 @@ export const calculateEmployeePayroll = (
     overtimeAmount,
     overtimeRate,
     otVariableAmount: overtimeAmount,
-    calendarDaysInMonth,
+    calendarDaysInMonth: calendarDays,
     salaryDivisorUsed: standardDays,
     salaryDivisorMode,
     grossSalary,
@@ -2185,18 +2268,28 @@ export const calculateEmployeePayroll = (
     statutoryDeductions: configuredDeductionTotal,
     advanceDeduction,
     lateAttendanceDeduction: lateDetails.deductionAmount,
-    unpaidLeaveDeduction: leaveDeductionAmount,
-    sandwichUnpaidDays: leaveDetails.sandwichUnpaidDays || 0,
+    unpaidLeaveDeduction: isCeoEmployee ? 0 : Math.round((configuredFixedGross * lopDays) / (calendarDays || 30)),
+    sandwichUnpaidDays: calendarBreakdown.sandwichLopDays || calendarBreakdown.sandwichUnpaidDays || 0,
     sandwichDeduction: leaveDetails.sandwichDeduction || 0,
     totalDeductions,
 
     netSalary,
 
-    workingDays: standardDays,
+    calendarDays,
+    eligibleDays,
+    workingDays,
+    scheduledWorkingDays,
     presentDays,
+    paidWeekOffDays,
+    paidHolidayDays,
+    overlappingHolidayDays,
+    paidLeaveDays,
+    lopDays,
     paidDays,
-    paidLeaves: approvedPaidLeaveDays,
-    unpaidLeaves: leaveDetails.totalUnpaidDays,
+    totalPaidDays,
+    pendingAttendanceDays,
+    paidLeaves: paidLeaveDays,
+    unpaidLeaves: lopDays,
 
     lateDetails,
     leaveDetails,

@@ -151,6 +151,45 @@ export interface AttendanceInputData {
   halfDays: number;
   lopDays: number;
   overtimeHours: number;
+  calendarDays?: number;
+  eligibleDays?: number;
+  scheduledWorkingDays?: number;
+  paidWeekOffDays?: number;
+  paidHolidayDays?: number;
+  overlappingHolidayDays?: number;
+  paidDays?: number;
+  pendingAttendanceDays?: number;
+  joiningDate?: string | null;
+  exitDate?: string | null;
+  weeklyOff?: string | string[] | null;
+  weeklySchedules?: any[];
+  holidays?: any[];
+  attendanceRecords?: any[];
+  leaveRequests?: any[];
+  sandwichPolicies?: any[];
+}
+
+export interface CalendarDayPayrollBreakdown {
+  calendarDays: 28 | 29 | 30 | 31;
+  eligibleDays: number;
+  unemployedDays: number;
+  scheduledWorkingDays: number;
+  workingDays: number;
+  presentDays: number;
+  actualPunchedDays: number;
+  pendingAttendanceDays: number;
+  paidWeekOffDays: number;
+  paidHolidayDays: number;
+  overlappingHolidayDays: number;
+  paidLeaveDays: number;
+  lopDays: number;
+  sandwichLopDays: number;
+  paidDays: number;
+  totalPaidDays: number;
+  activeStartDate: string;
+  activeEndDate: string;
+  prorationFactor: number;
+  isFullMonthEligible: boolean;
 }
 
 export type OtWageBaseMode = 'FIXED_HOURLY' | 'BASIC' | 'GROSS' | 'CTC';
@@ -204,6 +243,20 @@ export interface PayrollCalculationInput {
   salaryDivisorMode?: OtSalaryDivisorMode;
   customSalaryDivisor?: number;
   payslipOvertimeVisibility?: PayslipOvertimeVisibilityConfig;
+  // Calendar Day Payroll Context
+  joiningDate?: string;
+  exitDate?: string;
+  weeklyOff?: string | string[];
+  weeklySchedules?: any[];
+  holidays?: any[];
+  attendanceRecords?: any[];
+  leaveRequests?: any[];
+  sandwichPolicies?: any[];
+  weekOffEligibilityPolicy?: {
+    requireAdjacentPresenceForWeekOff?: boolean;
+    requireAdjacentPresenceForHoliday?: boolean;
+  };
+  autoConvertPendingToLop?: boolean;
 }
 
 export interface CalculationBreakdownItem {
@@ -256,13 +309,23 @@ export interface FullPayrollCalculationResult {
 
   professionalTax: number;
 
-  // Attendance & LOP
-  workingDays: number;
+  // Calendar Day Attendance & Payable Days Breakdown
+  calendarDays?: number;
   calendarDaysInMonth?: number;
+  eligibleDays?: number;
+  workingDays: number;
+  scheduledWorkingDays?: number;
   salaryDivisorUsed?: number;
   salaryDivisorMode?: string;
   presentDays: number;
+  paidWeekOffDays?: number;
+  paidHolidayDays?: number;
+  overlappingHolidayDays?: number;
+  paidLeaveDays?: number;
   lopDays: number;
+  paidDays?: number;
+  totalPaidDays?: number;
+  pendingAttendanceDays?: number;
   dailySalary: number;
   lopAmount: number;
 
@@ -328,6 +391,10 @@ export interface PayslipResponseData {
     email: string;
     department: string;
     designation: string;
+    joiningDate?: string;
+    monthlyCtc?: number;
+    panNumber?: string;
+    uanNumber?: string;
     bankName?: string;
     accountNumber?: string;
     ifscCode?: string;
@@ -336,9 +403,16 @@ export interface PayslipResponseData {
     month: number;
     year: number;
     monthName: string;
+    calendarDays?: number;
+    eligibleDays?: number;
     workingDays: number;
     presentDays: number;
+    paidWeekOffDays?: number;
+    paidHolidayDays?: number;
+    paidLeaveDays?: number;
     lopDays: number;
+    paidDays?: number;
+    totalPaidDays?: number;
     status: string;
   };
   earnings: {

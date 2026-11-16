@@ -198,7 +198,8 @@ import {
   identifyEligibleOvertimeFromAttendance,
   resolveMonthNumber,
   getCalendarDaysInMonth,
-  resolvePayrollSalaryDivisor
+  resolvePayrollSalaryDivisor,
+  calculateCalendarDayPayrollAttendance
 } from '../services/attendanceCalculationEngine';
 import {
   evaluateShiftAttendance,
@@ -993,6 +994,7 @@ interface HRMSContextType {
 
   payrollRecords: PayrollRecord[];
   processPayrollBatch: () => void | Promise<void>;
+  recalculatePayrollBatch: (targetMonth?: string, targetYear?: number, forceApproved?: boolean) => void | Promise<void>;
   updateEmployeeSalaryScheme: (employeeId: string, withPf: boolean) => void;
   updatePayrollRecordAdvanceDeduction: (recordId: string, amount: number) => void;
   markPayrollRecordsPaid: (recordIds: string[]) => void;
@@ -10817,6 +10819,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           departmentOtPolicies,
           employeeOtPolicies,
           overtimePolicy,
+          holidays: holidayPolicies,
+          weeklySchedules,
+          sandwichPolicies,
         }
       );
 
@@ -10847,7 +10852,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           overtimeHours: calc.overtimeHours,
           overtimeAmount: calc.overtimeAmount,
           overtimeRate: calc.overtimeRate,
+          calendarDays: calc.calendarDays,
           calendarDaysInMonth: calc.calendarDaysInMonth,
+          eligibleDays: calc.eligibleDays,
           salaryDivisorUsed: calc.salaryDivisorUsed,
           salaryDivisorMode: calc.salaryDivisorMode,
           grossSalary: calc.grossSalary,
@@ -10858,11 +10865,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           epfDeduction: resolvedPfAmount,
           esiDeduction: resolvedEsiAmount,
           professionalTax: resolvedProfessionalTax,
-          workingDays: calc.workingDays || backendRec.workingDays || 26,
-          presentDays: calc.presentDays || backendRec.presentDays || 26,
+          workingDays: calc.workingDays,
+          scheduledWorkingDays: calc.scheduledWorkingDays,
+          presentDays: calc.presentDays,
+          paidWeekOffDays: calc.paidWeekOffDays,
+          paidHolidayDays: calc.paidHolidayDays,
+          overlappingHolidayDays: calc.overlappingHolidayDays,
+          paidLeaveDays: calc.paidLeaveDays,
+          lopDays: calc.lopDays,
           paidDays: calc.paidDays,
+          totalPaidDays: calc.totalPaidDays,
+          pendingAttendanceDays: calc.pendingAttendanceDays,
           paidLeaves: calc.paidLeaves,
-          unpaidLeaves: backendRec.lopDays || 0,
+          unpaidLeaves: calc.unpaidLeaves,
           totalDeductions: resolvedTotalDeductions,
           earningsBreakdown: (calc.earningsBreakdown || []).map((e: any) => ({
             name: e.name,
@@ -10919,7 +10934,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         overtimeHours: calc.overtimeHours,
         overtimeAmount: calc.overtimeAmount,
         overtimeRate: calc.overtimeRate,
+        calendarDays: calc.calendarDays,
         calendarDaysInMonth: calc.calendarDaysInMonth,
+        eligibleDays: calc.eligibleDays,
         salaryDivisorUsed: calc.salaryDivisorUsed,
         salaryDivisorMode: calc.salaryDivisorMode,
         grossSalary: calc.grossSalary,
@@ -10931,8 +10948,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         esiDeduction: calc.esiDeduction,
         professionalTax: calc.professionalTax,
         workingDays: calc.workingDays,
+        scheduledWorkingDays: calc.scheduledWorkingDays,
         presentDays: calc.presentDays,
+        paidWeekOffDays: calc.paidWeekOffDays,
+        paidHolidayDays: calc.paidHolidayDays,
+        overlappingHolidayDays: calc.overlappingHolidayDays,
+        paidLeaveDays: calc.paidLeaveDays,
+        lopDays: calc.lopDays,
         paidDays: calc.paidDays,
+        totalPaidDays: calc.totalPaidDays,
+        pendingAttendanceDays: calc.pendingAttendanceDays,
         paidLeaves: calc.paidLeaves,
         unpaidLeaves: calc.unpaidLeaves,
         totalDeductions: calc.totalDeductions,
@@ -11055,6 +11080,197 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       message: `${batchMonthName} ${batchYear} payroll successfully processed for ${employees.length} employees with automated loan recoveries.`,
       priority: 'Important',
       category: 'Payroll'
+    });
+  };
+
+  const recalculatePayrollBatch = async (
+    targetMonth?: string,
+    targetYear?: number,
+    forceApproved = false
+  ) => {
+    const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
+    const currentMonthInfo = getMonthInfo();
+    const batchMonthName = targetMonth || currentMonthInfo.monthLong;
+    const batchMonthNum = resolveMonthNumber(batchMonthName);
+    const batchYear = Number(targetYear || currentMonthInfo.year);
+    const batchMonthPad = String(batchMonthNum).padStart(2, '0');
+
+    try {
+      const runs = await payrollApi.getPayrollRuns().catch(() => []);
+      const run = runs.find(r => r.payrollMonth === batchMonthNum && r.payrollYear === batchYear);
+      if (run && run.status !== 'PAID') {
+        await payrollApi.recalculatePayrollRun(run.id, forceApproved).catch(() => null);
+      }
+    } catch {}
+
+    const recalculatedForPeriod: PayrollRecord[] = employees
+      .filter(emp => !isOwnerOrCEO(emp))
+      .map(emp => {
+        const existingPayrollRec = payrollRecords.find(
+          p =>
+            p.employeeId === emp.employeeId &&
+            String(p.month || '').toLowerCase() === batchMonthName.toLowerCase() &&
+            Number(p.year) === batchYear
+        );
+        // Never overwrite Paid records; preserve locked/approved records unless forceApproved is true
+        if (existingPayrollRec && (existingPayrollRec.status === 'Paid' || (existingPayrollRec.isLocked && !forceApproved))) {
+          return existingPayrollRec;
+        }
+
+        const isEmpProvisional =
+          (emp.employmentType as string) === 'Provisional' ||
+          (emp.employmentType as string) === 'Probation' ||
+          (emp as any).status === 'Probation';
+        const empLeavePolicy =
+          masterLeavePolicies.find(p => {
+            if (p.status !== 'Active') return false;
+            if (isEmpProvisional) {
+              return (
+                p.applicableEmploymentType === 'Provisional' ||
+                p.id === 'LP-MASTER-PROVISIONAL' ||
+                p.policyName.toLowerCase().includes('provisional') ||
+                p.policyName.toLowerCase().includes('probation')
+              );
+            }
+            return (
+              p.applicableEmploymentType === 'Confirmed' ||
+              p.id === 'LP-MASTER-CONFIRMED' ||
+              (!p.policyName.toLowerCase().includes('provisional') &&
+                !p.policyName.toLowerCase().includes('probation'))
+            );
+          }) || masterLeavePolicies.find(p => p.status === 'Active');
+
+        const resolvedAttPolicy =
+          resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
+
+        const calc = calculateEmployeePayroll(
+          emp,
+          attendanceRecords,
+          leaveRequests,
+          loanRecords,
+          employeeRewardRecords,
+          resolvedAttPolicy,
+          empLeavePolicy,
+          payrollSettingsConfig,
+          batchMonthName,
+          batchYear,
+          shifts,
+          {
+            overtimeRequests,
+            departmentOtPolicies,
+            employeeOtPolicies,
+            overtimePolicy,
+            holidays: holidayPolicies,
+            weeklySchedules,
+            sandwichPolicies,
+            includePaidRequests: true,
+          }
+        );
+
+        const resolvedEmpDept = resolveEmployeeDepartmentName(emp, departments);
+        return {
+          id: existingPayrollRec?.id || `PAY-${batchYear}-${batchMonthPad}-${emp.employeeId}`,
+          company_id: existingPayrollRec?.company_id || emp.company_id || emp.companyId || activeCompanyId,
+          companyId: existingPayrollRec?.companyId || emp.companyId || emp.company_id || activeCompanyId,
+          employeeId: emp.employeeId,
+          employeeName: `${emp.firstName} ${emp.lastName}`,
+          department: resolvedEmpDept,
+          designation: emp.designation,
+          month: batchMonthName,
+          year: batchYear,
+          basicSalary: calc.basicSalary,
+          allowances: calc.allowances,
+          da: calc.da,
+          conveyance: calc.conveyance,
+          hra: calc.hra,
+          withPf: calc.withPf,
+          bonus: calc.bonus,
+          attendanceBonus: calc.attendanceBonus || 0,
+          rewardEarnings: calc.rewardEarnings,
+          overtimeHours: calc.overtimeHours,
+          overtimeAmount: calc.overtimeAmount,
+          overtimeRate: calc.overtimeRate,
+          calendarDays: calc.calendarDays,
+          calendarDaysInMonth: calc.calendarDaysInMonth,
+          eligibleDays: calc.eligibleDays,
+          salaryDivisorUsed: calc.salaryDivisorUsed,
+          salaryDivisorMode: calc.salaryDivisorMode,
+          grossSalary: calc.grossSalary,
+          taxDeduction: calc.statutoryDeductions,
+          leaveDeduction: calc.unpaidLeaveDeduction,
+          advanceDeduction: calc.advanceDeduction,
+          lateAttendanceDeduction: calc.lateAttendanceDeduction,
+          epfDeduction: calc.epfDeduction,
+          esiDeduction: calc.esiDeduction,
+          professionalTax: calc.professionalTax,
+          workingDays: calc.workingDays,
+          scheduledWorkingDays: calc.scheduledWorkingDays,
+          presentDays: calc.presentDays,
+          paidWeekOffDays: calc.paidWeekOffDays,
+          paidHolidayDays: calc.paidHolidayDays,
+          overlappingHolidayDays: calc.overlappingHolidayDays,
+          paidLeaveDays: calc.paidLeaveDays,
+          lopDays: calc.lopDays,
+          paidDays: calc.paidDays,
+          totalPaidDays: calc.totalPaidDays,
+          pendingAttendanceDays: calc.pendingAttendanceDays,
+          paidLeaves: calc.paidLeaves,
+          unpaidLeaves: calc.unpaidLeaves,
+          totalDeductions: calc.totalDeductions,
+          earningsBreakdown: calc.earningsBreakdown,
+          deductionsBreakdown: calc.deductionsBreakdown,
+          netSalary: calc.netSalary,
+          internalDetails: {
+            lateDetails: calc.lateDetails,
+            leaveDetails: calc.leaveDetails,
+            statutoryDetails: calc.statutoryDetails,
+            rewardDetails: calc.rewardDetails,
+          },
+          status: existingPayrollRec?.status === 'Paid' ? 'Paid' : 'Processed',
+        };
+      });
+
+    setPayrollRecords(prev => {
+      const otherPeriods = prev.filter(
+        p =>
+          !(
+            String(p.month || '').toLowerCase() === batchMonthName.toLowerCase() &&
+            Number(p.year) === batchYear
+          )
+      );
+      const merged = [...otherPeriods, ...recalculatedForPeriod];
+      supabaseDirect.saveCompanySetting('payroll_records_data', merged).catch(() => {});
+      return merged;
+    });
+
+    recalculatedForPeriod.forEach(rec => {
+      if (rec.status === 'Paid') return;
+      const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
+      const targetEmpId = emp?.id || emp?.employeeId || rec.employeeId;
+      if (targetEmpId) {
+        supabaseDirect.insertPayrollRecord({
+          employee_id: targetEmpId,
+          payroll_month: `${batchYear}-${batchMonthPad}-01`,
+          basic_salary: rec.basicSalary,
+          allowances: rec.allowances,
+          bonus: rec.bonus,
+          tax_deduction: rec.taxDeduction,
+          leave_deduction: rec.leaveDeduction,
+          working_days: rec.workingDays,
+          present_days: rec.presentDays,
+          paid_leaves: rec.paidLeaves,
+          unpaid_leaves: rec.unpaidLeaves,
+          net_salary: rec.netSalary,
+          status: rec.status,
+        });
+      }
+    });
+
+    addNotification({
+      title: 'Payroll Batch Recalculated',
+      message: `${batchMonthName} ${batchYear} payroll recalculated using Calendar Day Based Payroll rules. Paid/Locked records were preserved.`,
+      priority: 'Important',
+      category: 'Payroll',
     });
   };
 
@@ -11832,244 +12048,6 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         dbPayload.assigned_employee_id = null;
         dbPayload.assigned_date = null;
       }
-
-      persistAssetPatch(assetId, dbPayload, editSnapshot, 'Asset update');
-    }
-  };
-
-  const deleteAsset = (assetId: string) => {
-    setAssets(prev => prev.filter(a => a.id !== assetId));
-    if (assetId.length === 36) {
-      supabaseDirect.deleteAsset(assetId);
-    }
-  };
-
-  // ============================================================================
-  // Field Duty & GPS Live Tracking
-  // ============================================================================
-  const [fieldAssignments, setFieldAssignments] = useState<FieldAssignment[]>(INITIAL_FIELD_ASSIGNMENTS);
-  const [tripSessions, setTripSessions] = useState<FieldTripSession[]>(INITIAL_TRIP_SESSIONS);
-  const [trackingAlerts, setTrackingAlerts] = useState<TrackingAlert[]>(INITIAL_TRACKING_ALERTS);
-
-  useEffect(() => {
-    try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-        supabaseDirect.saveCompanySetting('field_assignments_data', fieldAssignments);
-      }
-    } catch (e) {
-      console.warn('Failed to save field assignments', e);
-    }
-  }, [fieldAssignments]);
-
-  useEffect(() => {
-    try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-        supabaseDirect.saveCompanySetting('trip_sessions_data', tripSessions);
-      }
-    } catch (e) {
-      console.warn('Failed to save trip sessions', e);
-    }
-  }, [tripSessions]);
-
-  useEffect(() => {
-    try {
-      if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-        supabaseDirect.saveCompanySetting('tracking_alerts_data', trackingAlerts);
-      }
-    } catch (e) {
-      console.warn('Failed to save tracking alerts', e);
-    }
-  }, [trackingAlerts]);
-
-  const createFieldAssignment = (data: Omit<FieldAssignment, 'id' | 'createdAt' | 'updatedAt'>): FieldAssignment => {
-    const effectiveEndDate = data.scheduleType === 'One Day' ? data.startDate : (data.endDate || data.startDate);
-    const rangeVal = validateDateRange(data.startDate, effectiveEndDate);
-    if (!rangeVal.valid) {
-      alert(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
-      throw new Error(rangeVal.error || PAST_DATE_ERROR_MESSAGE);
-    }
-    const dupCheck = checkDuplicateFieldAssignment(
-      fieldAssignments,
-      data.employeeId,
-      data.startDate,
-      effectiveEndDate
-    );
-    if (dupCheck.hasDuplicate) {
-      alert(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
-      throw new Error(dupCheck.error || DUPLICATE_REQUEST_ERROR_MESSAGE);
-    }
-
-    const now = new Date().toISOString();
-    const newAssignment: FieldAssignment = {
-      ...data,
-      id: `FA-${new Date().getFullYear()}-${String(fieldAssignments.length + 1).padStart(3, '0')}`,
-      createdAt: now,
-      updatedAt: now
-    };
-    setFieldAssignments(prev => [newAssignment, ...prev]);
-    // Persist assignment to PostgreSQL
-    trackingApiService.createAssignment(newAssignment).then(serverAssignment => {
-      if (serverAssignment?.id) {
-        setFieldAssignments(prev => prev.map(a => a.id === newAssignment.id ? serverAssignment : a));
-      }
-    }).catch(() => {});
-
-    addNotification({
-      title: 'New Field Duty Assigned',
-      message: `Field duty assigned to ${data.employeeName}: ${data.dutyType} at ${data.customerSiteName}`,
-      priority: 'Normal',
-      category: 'Task'
-    });
-    return newAssignment;
-  };
-
-  const updateFieldAssignment = (id: string, updates: Partial<FieldAssignment>) => {
-    setFieldAssignments(prev => prev.map(a => a.id === id ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a));
-    trackingApiService.updateAssignment(id, updates).catch(() => {});
-  };
-
-  const doesAssignmentBelongToEmployee = (assignment: FieldAssignment, employeeIdOrName: string): boolean => {
-    const key = (employeeIdOrName || '').trim().toLowerCase();
-    if (!key) return false;
-    return (
-      assignment.employeeId.trim().toLowerCase() === key ||
-      assignment.employeeName.trim().toLowerCase() === key
-    );
-  };
-
-  const cancelFieldAssignment = (id: string) => {
-    const now = new Date().toISOString();
-    setFieldAssignments(prev => prev.map(a => a.id === id ? { ...a, status: 'Cancelled', updatedAt: now } : a));
-    setTripSessions(prev => prev.map(t => t.assignmentId === id && t.status === 'Active' ? {
-      ...t,
-      status: 'Cancelled',
-      trackingStatus: 'Completed',
-      tripEndTime: now,
-      updatedAt: now
-    } : t));
-    trackingApiService.updateAssignment(id, { status: 'Cancelled' }).catch(() => {});
-  };
-
-  const startTrip = (assignmentId: string, startLat: number, startLng: number, startAddress: string = 'Starting Point'): FieldTripSession => {
-    const now = new Date().toISOString();
-    const assignment = fieldAssignments.find(a => a.id === assignmentId);
-    if (assignment && (assignment.status === 'Cancelled' || assignment.status === 'Completed')) {
-      throw new Error('Cannot start trip for cancelled or completed field assignment.');
-    }
-
-    const existingActiveTrip = tripSessions.find(t => t.assignmentId === assignmentId && t.status === 'Active');
-    if (existingActiveTrip) {
-      return existingActiveTrip;
-    }
-
-    const initialPoint: LocationPoint = {
-      id: `pt-${Date.now()}-1`,
-      tripId: `TRIP-${Date.now()}`,
-      assignmentId,
-      employeeId: assignment?.employeeId || currentUser.employeeId || currentUser.id,
-      recordedAt: now,
-      latitude: startLat,
-      longitude: startLng,
-      accuracy: 15,
-      speed: 0
-    };
-    const newTrip: FieldTripSession = {
-      id: initialPoint.tripId,
-      assignmentId,
-      employeeId: assignment?.employeeId || currentUser.employeeId || currentUser.id,
-      employeeName: assignment?.employeeName || currentUser.name,
-      department: assignment?.department || currentUser.department || 'Operations',
-      dutyType: assignment?.dutyType || 'Travel',
-      customerSiteName: assignment?.customerSiteName || 'Assigned Site',
-      tripStartTime: now,
-      startLat,
-      startLng,
-      startAddress,
-      totalKm: 0,
-      recordedDistanceMeters: 0,
-      roadMatchedDistanceMeters: 0,
-      unverifiedDistanceMeters: 0,
-      status: 'Active',
-      locationPoints: [initialPoint],
-      gpsStatus: 'GPS Active',
-      trackingStatus: 'Travelling',
-      lastGpsUpdate: now,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    setTripSessions(prev => [newTrip, ...prev.filter(t => !(t.assignmentId === assignmentId && t.status === 'Active'))]);
-    setFieldAssignments(prev => prev.map(a => a.id === assignmentId && a.status === 'Scheduled' ? { ...a, status: 'Active', updatedAt: now } : a));
-
-    // Persist trip to PostgreSQL backend
-    trackingApiService.startTrip({
-      assignmentId,
-      employeeId: newTrip.employeeId,
-      startLat,
-      startLng,
-      startAddress
-    }).then(serverTrip => {
-      if (serverTrip?.id) {
-        setTripSessions(prev => prev.map(t => t.id === newTrip.id ? { ...t, id: serverTrip.id } : t));
-      }
-    }).catch(err => {
-      console.warn('[HRMSContext] trackingApiService.startTrip async error:', err);
-    });
-
-    return newTrip;
-  };
-
-  const recordLocationPoint = (tripId: string, point: Omit<LocationPoint, 'id' | 'tripId'>) => {
-    // Send point to PostgreSQL backend for persistence & validation
-    trackingApiService.recordLocationPoints({
-      ...point,
-      tripId,
-    } as LocationPoint).then(res => {
-      if (res?.totalKm !== undefined) {
-        setTripSessions(prev => prev.map(t => t.id === tripId ? {
-          ...t,
-          totalKm: res.totalKm,
-          recordedDistanceMeters: res.recordedKm * 1000,
-          roadMatchedDistanceMeters: res.roadMatchedKm * 1000
-        } : t));
-      }
-    }).catch(() => {});
-
-    setTripSessions(prev => prev.map(trip => {
-      if (trip.id !== tripId || trip.status !== 'Active') return trip;
-
-      const prevPoint = trip.locationPoints[trip.locationPoints.length - 1] || null;
-      const recordedAtMs = point.recordedAt ? new Date(point.recordedAt).getTime() : Date.now();
-      const validation = isValidMovementPoint(
-        prevPoint,
-        point.latitude,
-        point.longitude,
-        point.accuracy,
-        Number.isFinite(recordedAtMs) ? recordedAtMs : Date.now()
-      );
-
-      if (!validation.valid && prevPoint) {
-        return {
-          ...trip,
-          lastGpsUpdate: point.recordedAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-      }
-
-      const newPt: LocationPoint = {
-        ...point,
-        id: `pt-${Date.now()}-${trip.locationPoints.length + 1}`,
-        tripId,
-        distanceFromPrevMeters: validation.distanceMeters,
-        isRejected: false
-      };
-      const updatedPoints = [...trip.locationPoints, newPt];
-      const metrics = calculateSequentialRouteMetrics(updatedPoints);
-
-      return {
-        ...trip,
-        locationPoints: updatedPoints,
-        totalKm: metrics.totalKm,
         recordedDistanceMeters: metrics.recordedDistanceMeters,
         roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
         unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
@@ -13388,14 +13366,185 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [employees, activeCompanyId]);
 
   const visiblePayrollRecords = useMemo(() => {
-    return payrollRecords.filter(rec => {
-      const recCId = rec.company_id || rec.companyId;
-      if (activeCompanyId === 'company-b') {
-        return recCId === 'company-b';
-      }
-      return recCId === 'company-a' || !recCId;
-    });
-  }, [payrollRecords, activeCompanyId]);
+    const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
+    return payrollRecords
+      .filter(rec => {
+        const recCId = rec.company_id || rec.companyId;
+        if (activeCompanyId === 'company-b') {
+          return recCId === 'company-b';
+        }
+        return recCId === 'company-a' || !recCId;
+      })
+      .map(rec => {
+        const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
+        const recMonthNum = resolveMonthNumber(rec.month);
+        const recYearNum = Number(rec.year) || 2026;
+
+        // Preserve Paid and Locked payroll records without modifying their financial amounts
+        if (rec.status === 'Paid' || rec.isLocked) {
+          if (rec.calendarDays !== undefined && rec.paidWeekOffDays !== undefined) {
+            return rec;
+          }
+          const calInfo = calculateCalendarDayPayrollAttendance({
+            month: recMonthNum,
+            year: recYearNum,
+            joiningDate: emp?.joiningDate || emp?.dateOfJoining,
+            exitDate: emp?.exitDate || emp?.relievingDate || emp?.lastWorkingDate || emp?.terminationDate,
+            weeklyOff: emp?.shiftDetails?.weeklyOff,
+            weeklySchedules,
+            employeeId: rec.employeeId,
+            department: emp?.department || rec.department,
+            holidays: holidayPolicies,
+            attendanceRecords,
+            leaveRequests,
+            sandwichPolicies,
+            explicitLopDays: rec.lopDays ?? rec.unpaidLeaves,
+            explicitPaidLeaveDays: rec.paidLeaveDays ?? rec.paidLeaves,
+          });
+          return {
+            ...rec,
+            calendarDays: rec.calendarDays ?? calInfo.calendarDays,
+            calendarDaysInMonth: rec.calendarDaysInMonth ?? calInfo.calendarDays,
+            eligibleDays: rec.eligibleDays ?? calInfo.eligibleDays,
+            scheduledWorkingDays: rec.scheduledWorkingDays ?? calInfo.scheduledWorkingDays,
+            paidWeekOffDays: rec.paidWeekOffDays ?? calInfo.paidWeekOffDays,
+            paidHolidayDays: rec.paidHolidayDays ?? calInfo.paidHolidayDays,
+            overlappingHolidayDays: rec.overlappingHolidayDays ?? calInfo.overlappingHolidayDays,
+            paidLeaveDays: rec.paidLeaveDays ?? calInfo.paidLeaveDays,
+            lopDays: rec.lopDays ?? calInfo.lopDays,
+            paidDays: rec.paidDays ?? calInfo.paidDays,
+            totalPaidDays: rec.totalPaidDays ?? (rec.paidDays ?? calInfo.totalPaidDays),
+          };
+        }
+
+        // For non-Paid, non-Locked records that were previously saved with the legacy /26 working-days bug
+        // or are missing Calendar Day Payroll breakdown fields, normalize with Calendar Day calculation
+        const hasLegacyDivisorBug =
+          rec.calendarDays === undefined ||
+          rec.paidWeekOffDays === undefined ||
+          rec.workingDays === 26 ||
+          (rec.earningsBreakdown || []).some(e => String(e.description || '').includes('/26 days'));
+
+        if (!hasLegacyDivisorBug || !emp) {
+          return rec;
+        }
+
+        const isEmpProvisional =
+          (emp.employmentType as string) === 'Provisional' ||
+          (emp.employmentType as string) === 'Probation' ||
+          (emp as any).status === 'Probation';
+        const empLeavePolicy =
+          masterLeavePolicies.find(p => {
+            if (p.status !== 'Active') return false;
+            if (isEmpProvisional) {
+              return (
+                p.applicableEmploymentType === 'Provisional' ||
+                p.id === 'LP-MASTER-PROVISIONAL' ||
+                p.policyName.toLowerCase().includes('provisional') ||
+                p.policyName.toLowerCase().includes('probation')
+              );
+            }
+            return (
+              p.applicableEmploymentType === 'Confirmed' ||
+              p.id === 'LP-MASTER-CONFIRMED' ||
+              (!p.policyName.toLowerCase().includes('provisional') &&
+                !p.policyName.toLowerCase().includes('probation'))
+            );
+          }) || masterLeavePolicies.find(p => p.status === 'Active');
+
+        const resolvedAttPolicy =
+          resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
+
+        const calc = calculateEmployeePayroll(
+          emp,
+          attendanceRecords,
+          leaveRequests,
+          loanRecords,
+          employeeRewardRecords,
+          resolvedAttPolicy,
+          empLeavePolicy,
+          payrollSettingsConfig,
+          rec.month || 'November',
+          recYearNum,
+          shifts,
+          {
+            overtimeRequests,
+            departmentOtPolicies,
+            employeeOtPolicies,
+            overtimePolicy,
+            holidays: holidayPolicies,
+            weeklySchedules,
+            sandwichPolicies,
+            includePaidRequests: true,
+          }
+        );
+
+        return {
+          ...rec,
+          basicSalary: calc.basicSalary,
+          allowances: calc.allowances,
+          da: calc.da,
+          conveyance: calc.conveyance,
+          hra: calc.hra,
+          withPf: calc.withPf,
+          bonus: calc.bonus,
+          attendanceBonus: calc.attendanceBonus || 0,
+          rewardEarnings: calc.rewardEarnings,
+          overtimeHours: calc.overtimeHours,
+          overtimeAmount: calc.overtimeAmount,
+          overtimeRate: calc.overtimeRate,
+          calendarDays: calc.calendarDays,
+          calendarDaysInMonth: calc.calendarDaysInMonth,
+          eligibleDays: calc.eligibleDays,
+          salaryDivisorUsed: calc.salaryDivisorUsed,
+          salaryDivisorMode: calc.salaryDivisorMode,
+          grossSalary: calc.grossSalary,
+          taxDeduction: calc.statutoryDeductions,
+          leaveDeduction: calc.unpaidLeaveDeduction,
+          advanceDeduction: calc.advanceDeduction,
+          lateAttendanceDeduction: calc.lateAttendanceDeduction,
+          epfDeduction: calc.epfDeduction,
+          esiDeduction: calc.esiDeduction,
+          professionalTax: calc.professionalTax,
+          workingDays: calc.workingDays,
+          scheduledWorkingDays: calc.scheduledWorkingDays,
+          presentDays: calc.presentDays,
+          paidWeekOffDays: calc.paidWeekOffDays,
+          paidHolidayDays: calc.paidHolidayDays,
+          overlappingHolidayDays: calc.overlappingHolidayDays,
+          paidLeaveDays: calc.paidLeaveDays,
+          lopDays: calc.lopDays,
+          paidDays: calc.paidDays,
+          totalPaidDays: calc.totalPaidDays,
+          pendingAttendanceDays: calc.pendingAttendanceDays,
+          paidLeaves: calc.paidLeaves,
+          unpaidLeaves: calc.unpaidLeaves,
+          totalDeductions: calc.totalDeductions,
+          earningsBreakdown: calc.earningsBreakdown,
+          deductionsBreakdown: calc.deductionsBreakdown,
+          netSalary: calc.netSalary,
+        };
+      });
+  }, [
+    payrollRecords,
+    activeCompanyId,
+    employees,
+    attendanceRecords,
+    leaveRequests,
+    loanRecords,
+    employeeRewardRecords,
+    masterAttendancePolicies,
+    masterLeavePolicies,
+    payrollSettingsConfig,
+    shifts,
+    overtimeRequests,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    overtimePolicy,
+    holidayPolicies,
+    weeklySchedules,
+    sandwichPolicies,
+  ]);
 
   // Bell feed: shared notifications addressed to this user + this session's local notifications
   const combinedNotifications = useMemo(() => {
@@ -13542,6 +13691,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       payrollRecords: visiblePayrollRecords,
       allPayrollRecords: payrollRecords,
       processPayrollBatch,
+      recalculatePayrollBatch,
       updateEmployeeSalaryScheme,
       updatePayrollRecordAdvanceDeduction,
       markPayrollRecordsPaid,

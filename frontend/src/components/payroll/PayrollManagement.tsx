@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
-import { CreditCard, IndianRupee, CheckCircle2, FileText, Download, X, Edit3, ShieldAlert, ShieldCheck, Printer } from 'lucide-react';
+import { CreditCard, IndianRupee, CheckCircle2, FileText, Download, X, Edit3, ShieldAlert, ShieldCheck, Printer, RefreshCw, Eye } from 'lucide-react';
 import { PayrollRecord, Employee } from '../../types/hrms';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import { SalaryComponentConfig } from '../../types/settings';
@@ -28,7 +28,8 @@ import {
   getCalendarDaysInMonth,
   resolvePayrollSalaryDivisor,
   formatPayslipOvertimeForViewer,
-  resolveMonthNumber
+  resolveMonthNumber,
+  calculateCalendarDayPayrollAttendance
 } from '../../services/policyEngine';
 import { EmployeeSalaryEligibilityContext } from '../../types/settings';
 import { Clock } from 'lucide-react';
@@ -37,6 +38,7 @@ export const PayrollManagement: React.FC = () => {
   const { 
     payrollRecords, 
     processPayrollBatch, 
+    recalculatePayrollBatch,
     updatePayrollRecordAdvanceDeduction,
     markPayrollRecordsPaid,
     employees, 
@@ -53,10 +55,16 @@ export const PayrollManagement: React.FC = () => {
     companyBranches,
     departments,
     overtimeRequests,
-    overtimePolicy
+    overtimePolicy,
+    attendanceRecords,
+    leaveRequests,
+    holidayPolicies,
+    weeklySchedules,
+    sandwichPolicies
   } = useHRMS();
 
   const [selectedPayslip, setSelectedPayslip] = useState<PayrollRecord | null>(null);
+  const [previewRecord, setPreviewRecord] = useState<PayrollRecord | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
 
   // Multi-row selection state
@@ -459,8 +467,79 @@ export const PayrollManagement: React.FC = () => {
     return `${rawMonth || 'Payroll'} ${p.year || ''}`.trim();
   };
 
+  const getRecordCalendarSummary = (p: PayrollRecord) => {
+    const emp = getEmployeeForPayroll(p);
+    const mNum = resolveMonthNumber(p.month || activeMonthName);
+    const yNum = Number(p.year || activeYear);
+    const fallbackCalDays = getCalendarDaysInMonth(mNum, yNum);
+
+    if (
+      p.calendarDays !== undefined &&
+      p.paidWeekOffDays !== undefined &&
+      p.paidHolidayDays !== undefined
+    ) {
+      const calendarDays = toNum(p.calendarDays || p.calendarDaysInMonth) || fallbackCalDays;
+      const eligibleDays = toNum(p.eligibleDays ?? calendarDays);
+      const workingDays = toNum(p.workingDays ?? p.scheduledWorkingDays);
+      const presentDays = toNum(p.presentDays);
+      const paidWeekOffDays = toNum(p.paidWeekOffDays);
+      const paidHolidayDays = toNum(p.paidHolidayDays);
+      const paidLeaveDays = toNum(p.paidLeaveDays ?? p.paidLeaves);
+      const lopDays = toNum(p.lopDays ?? p.unpaidLeaves);
+      const totalPaidDays = toNum(p.totalPaidDays ?? p.paidDays ?? Math.max(0, eligibleDays - lopDays));
+      return {
+        calendarDays,
+        eligibleDays,
+        workingDays,
+        presentDays,
+        paidWeekOffDays,
+        paidHolidayDays,
+        paidLeaveDays,
+        lopDays,
+        totalPaidDays,
+      };
+    }
+
+    const calc = calculateCalendarDayPayrollAttendance({
+      month: mNum,
+      year: yNum,
+      joiningDate: emp?.joiningDate || emp?.dateOfJoining,
+      exitDate: emp?.exitDate || emp?.relievingDate || emp?.lastWorkingDate || emp?.terminationDate,
+      weeklyOff: emp?.shiftDetails?.weeklyOff,
+      weeklySchedules,
+      employeeId: p.employeeId,
+      department: emp?.department || p.department,
+      holidays: holidayPolicies,
+      attendanceRecords,
+      leaveRequests,
+      sandwichPolicies,
+      explicitLopDays: p.lopDays ?? p.unpaidLeaves,
+      explicitPaidLeaveDays: p.paidLeaveDays ?? p.paidLeaves,
+    });
+
+    return {
+      calendarDays: calc.calendarDays,
+      eligibleDays: calc.eligibleDays,
+      workingDays: calc.workingDays,
+      presentDays: calc.presentDays,
+      paidWeekOffDays: calc.paidWeekOffDays,
+      paidHolidayDays: calc.paidHolidayDays,
+      paidLeaveDays: calc.paidLeaveDays,
+      lopDays: calc.lopDays,
+      totalPaidDays: calc.totalPaidDays,
+    };
+  };
+
   const getPayslipRows = (p: PayrollRecord) => {
-    const earnings = mapPayrollLines(p.earningsBreakdown);
+    const calSummary = getRecordCalendarSummary(p);
+    const calendarDays = calSummary.calendarDays;
+    const paidDays = calSummary.totalPaidDays;
+    const earnings: AmountLine[] = mapPayrollLines(p.earningsBreakdown).map(line => ({
+      ...line,
+      description: line.description
+        ? line.description.replace(/Paid\s+[\d.]+\/[\d.]+\s+days/i, `Paid ${paidDays}/${calendarDays} days`)
+        : line.description,
+    }));
     const deductions = mapPayrollLines(p.deductionsBreakdown);
     const emp = getEmployeeForPayroll(p);
     const withPf = p.withPf ?? resolveEmployeeWithPf(emp);
@@ -471,9 +550,7 @@ export const PayrollManagement: React.FC = () => {
       const basicComp = activeEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
       const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
       const totalCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc) || (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 15000);
-      const standardDays = toNum(p.workingDays) || 26;
-      const paidDays = toNum(p.paidDays) || 26;
-      const factor = standardDays > 0 ? paidDays / standardDays : 1;
+      const factor = calendarDays > 0 ? paidDays / calendarDays : 1;
 
       activeEarnings.forEach(comp => {
         const compCode = (comp.code || '').trim().toUpperCase();
@@ -503,8 +580,8 @@ export const PayrollManagement: React.FC = () => {
               label: comp.name.trim(),
               amount: compAmt,
               description: comp.calculationMethod === 'PERCENTAGE'
-                ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'} | Paid ${paidDays}/${standardDays} days`
-                : `Paid ${paidDays}/${standardDays} days`
+                ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'} | Paid ${paidDays}/${calendarDays} days`
+                : `Paid ${paidDays}/${calendarDays} days`
             });
           }
         }
@@ -514,11 +591,11 @@ export const PayrollManagement: React.FC = () => {
     if (earnings.length === 0) {
       const basic = toNum(p.basicSalary);
       const allowances = toNum(p.allowances);
-      if (basic > 0) earnings.push({ label: 'Basic Salary', amount: basic });
-      if (toNum(p.da) > 0) earnings.push({ label: 'Dearness Allowance', amount: toNum(p.da) });
-      if (toNum(p.hra) > 0) earnings.push({ label: 'House Rent Allowance', amount: toNum(p.hra) });
-      if (toNum(p.conveyance) > 0) earnings.push({ label: 'Conveyance Allowance', amount: toNum(p.conveyance) });
-      if (allowances > 0 && !p.da && !p.hra && !p.conveyance) earnings.push({ label: 'Allowances', amount: allowances });
+      if (basic > 0) earnings.push({ label: 'Basic Salary', amount: basic, description: `Paid ${paidDays}/${calendarDays} days` });
+      if (toNum(p.da) > 0) earnings.push({ label: 'Dearness Allowance', amount: toNum(p.da), description: `Paid ${paidDays}/${calendarDays} days` });
+      if (toNum(p.hra) > 0) earnings.push({ label: 'House Rent Allowance', amount: toNum(p.hra), description: `Paid ${paidDays}/${calendarDays} days` });
+      if (toNum(p.conveyance) > 0) earnings.push({ label: 'Conveyance Allowance', amount: toNum(p.conveyance), description: `Paid ${paidDays}/${calendarDays} days` });
+      if (allowances > 0 && !p.da && !p.hra && !p.conveyance) earnings.push({ label: 'Allowances', amount: allowances, description: `Paid ${paidDays}/${calendarDays} days` });
       if (toNum(p.attendanceBonus) > 0) earnings.push({ label: 'Attendance Bonus', amount: toNum(p.attendanceBonus) });
       if (toNum(p.overtimeAmount) > 0) earnings.push({ label: 'Overtime Earnings', amount: toNum(p.overtimeAmount) });
       if (toNum(p.bonus) > 0) earnings.push({ label: 'Bonus', amount: toNum(p.bonus) });
@@ -556,7 +633,6 @@ export const PayrollManagement: React.FC = () => {
       if (toNum(p.esiDeduction) > 0) deductions.push({ label: 'ESIC Employee Contribution', amount: toNum(p.esiDeduction), description: 'As per Payroll Settings ESIC formula' });
       if (toNum(p.professionalTax) > 0) deductions.push({ label: 'Professional Tax', amount: toNum(p.professionalTax) });
       if (toNum(p.taxDeduction) > 0 && deductions.length === 0) deductions.push({ label: 'Statutory / Tax Deductions', amount: toNum(p.taxDeduction) });
-      if (toNum(p.leaveDeduction) > 0) deductions.push({ label: 'Loss of Pay Deduction', amount: toNum(p.leaveDeduction) });
       if (toNum(p.lateAttendanceDeduction) > 0) deductions.push({ label: 'Late Attendance Deduction', amount: toNum(p.lateAttendanceDeduction) });
       if (toNum(p.advanceDeduction) > 0) deductions.push({ label: 'Advance Salary / Loan Recovery', amount: toNum(p.advanceDeduction) });
     }
@@ -608,7 +684,8 @@ export const PayrollManagement: React.FC = () => {
       deductions: uniqueDeductions,
       grossEarnings,
       totalDeductions,
-      netPay
+      netPay,
+      calSummary
     };
   };
 
@@ -629,32 +706,53 @@ export const PayrollManagement: React.FC = () => {
       { key: 'employeeId', label: 'Employee ID' },
       { key: 'employeeName', label: 'Employee Name' },
       { key: 'department', label: 'Department' },
+      { key: 'calendarDays', label: 'Calendar Days' },
+      { key: 'workingDays', label: 'Working Days' },
+      { key: 'presentDays', label: 'Present Days' },
+      { key: 'paidWeekOffDays', label: 'Paid Week Off' },
+      { key: 'paidHolidayDays', label: 'Paid Holiday' },
+      { key: 'paidLeaveDays', label: 'Paid Leave' },
+      { key: 'lopDays', label: 'LOP Days' },
+      { key: 'totalPaidDays', label: 'Total Paid Days' },
       ...dynamicColumns.map(d => ({ key: d.key, label: d.label })),
       { key: 'overtimeHours', label: 'Approved OT Hours' },
       { key: 'overtimeAmount', label: 'Approved OT Amount' },
-      { key: 'advanceDeduction', label: 'Advance / Loan EMI' },
+      { key: 'grossSalary', label: 'Gross Salary' },
       { key: 'epfDeduction', label: 'EPF (12%)' },
       { key: 'esiDeduction', label: 'ESIC (0.75%)' },
       { key: 'professionalTax', label: 'PT' },
-      { key: 'workingDays', label: 'Working Days' },
-      { key: 'netSalary', label: 'Net Payout' },
+      { key: 'advanceDeduction', label: 'Advance / Loan EMI' },
+      { key: 'totalDeductions', label: 'Deductions' },
+      { key: 'netSalary', label: 'Net Pay' },
       { key: 'status', label: 'Status' }
     ];
 
     const data = visibleRecords.map(p => {
       const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
       const ot = getEmployeeApprovedOt(p);
+      const cal = getRecordCalendarSummary(p);
+      const grossVal = toNum(p.grossSalary) || (toNum(p.basicSalary) + toNum(p.allowances) + ot.amount);
+      const dedVal = toNum(p.totalDeductions) || (toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0) + toNum(p.advanceDeduction || 0));
       const rowData: Record<string, any> = {
         employeeId: p.employeeId,
         employeeName: p.employeeName,
         department: resolveDepartmentName(p.department, emp),
+        calendarDays: cal.calendarDays,
+        workingDays: cal.workingDays,
+        presentDays: cal.presentDays,
+        paidWeekOffDays: cal.paidWeekOffDays,
+        paidHolidayDays: cal.paidHolidayDays,
+        paidLeaveDays: cal.paidLeaveDays,
+        lopDays: cal.lopDays,
+        totalPaidDays: cal.totalPaidDays,
         overtimeHours: ot.hours,
         overtimeAmount: ot.amount,
+        grossSalary: grossVal,
         advanceDeduction: toNum(p.advanceDeduction || 0),
         epfDeduction: toNum(p.epfDeduction || 0),
         esiDeduction: toNum(p.esiDeduction || 0),
         professionalTax: toNum(p.professionalTax || 0),
-        workingDays: `${p.presentDays || 0} / ${p.workingDays || 0}`,
+        totalDeductions: dedVal,
         netSalary: toNum(p.netSalary),
         status: p.status
       };
@@ -703,9 +801,20 @@ export const PayrollManagement: React.FC = () => {
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {canProcessPayroll && (
-            <button className="btn btn-primary" onClick={processPayrollBatch}>
-              <CreditCard size={16} /> Process {currentMonthInfo.monthLong} Payroll Batch
-            </button>
+            <>
+              <button className="btn btn-primary" onClick={processPayrollBatch}>
+                <CreditCard size={16} /> Process {currentMonthInfo.monthLong} Payroll Batch
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => recalculatePayrollBatch(activeMonthName, activeYear, false)}
+                title={`Recalculate ${activeMonthName} ${activeYear} processed records using Calendar Day Payroll (Paid/Locked records are preserved)`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', borderColor: '#0E7490', color: '#0E7490', fontWeight: 700 }}
+              >
+                <RefreshCw size={15} /> Recalculate {activeMonthName} Batch
+              </button>
+            </>
           )}
           {canMarkPaid && (
             <>
@@ -808,7 +917,7 @@ export const PayrollManagement: React.FC = () => {
               padding: '4px 10px',
               borderRadius: '999px'
             }}>
-              Calendar Month: {batchCalendarDays} Days • Salary Divisor: {batchSalaryDivisor.divisorDays} Days ({batchSalaryDivisor.modeUsed})
+              Calendar Month: {batchCalendarDays} Days • Calendar Day Proration (Paid Days / {batchCalendarDays})
             </span>
             {canViewAllPayroll && availableBatches.length > 1 && (
               <select
@@ -877,7 +986,7 @@ export const PayrollManagement: React.FC = () => {
                 )}
                 <th>Approved Overtime</th>
                 <th>Statutory & Tax</th>
-                <th>Working Days</th>
+                <th>Payable Days</th>
                 <th>Net Salary</th>
                 <th>Status</th>
                 <th>Action</th>
@@ -900,6 +1009,7 @@ export const PayrollManagement: React.FC = () => {
                   const basic = toNum(p.basicSalary);
                   const statutoryTax = toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0);
                   const ot = getEmployeeApprovedOt(p);
+                  const cal = getRecordCalendarSummary(p);
 
                   return (
                     <tr 
@@ -969,11 +1079,38 @@ export const PayrollManagement: React.FC = () => {
                     <td style={{ color: 'var(--accent-rose)' }}>
                       -{formatCurrency(statutoryTax)}
                     </td>
-                    <td>{p.presentDays} / {p.workingDays} days</td>
+                    <td>
+                      <div style={{ fontWeight: 700, color: '#0F172A' }}>
+                        {cal.totalPaidDays} / {cal.calendarDays} days
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                        Work: {cal.workingDays} • Pres: {cal.presentDays} • WO: {cal.paidWeekOffDays}
+                        {cal.paidHolidayDays > 0 ? ` • Hol: ${cal.paidHolidayDays}` : ''}
+                        {cal.paidLeaveDays > 0 ? ` • PL: ${cal.paidLeaveDays}` : ''}
+                        {cal.lopDays > 0 ? ` • LOP: ${cal.lopDays}` : ''}
+                      </div>
+                    </td>
                     <td><strong style={{ color: 'var(--accent-emerald)', fontSize: '0.95rem' }}>{formatCurrency(p.netSalary)}</strong></td>
                     <td><span className={`status-pill ${p.status === 'Paid' ? 'approved' : 'cyan'}`}>{p.status}</span></td>
                     <td>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setPreviewRecord(p)}
+                          title="Payroll Preview"
+                          aria-label="Payroll Preview"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            color: '#0E7490'
+                          }}
+                        >
+                          <Eye size={16} />
+                        </button>
                         <button 
                           className="btn btn-secondary btn-sm" 
                           onClick={() => setSelectedPayslip(p)}
@@ -1036,6 +1173,7 @@ export const PayrollManagement: React.FC = () => {
               const basic = toNum(p.basicSalary);
               const advance = toNum(p.advanceDeduction || 0);
               const statutoryTax = toNum(p.epfDeduction || 0) + toNum(p.esiDeduction || 0) + toNum(p.professionalTax || 0);
+              const cal = getRecordCalendarSummary(p);
 
               return (
                 <div key={p.id} className="mobile-payroll-card">
@@ -1062,7 +1200,9 @@ export const PayrollManagement: React.FC = () => {
                   }}>
                     <div>
                       <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: '#0E7490' }}>Net Salary Payout</div>
-                      <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{p.presentDays} / {p.workingDays} working days</div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                        Paid {cal.totalPaidDays} / {cal.calendarDays} days (Work: {cal.workingDays}, WO: {cal.paidWeekOffDays}, LOP: {cal.lopDays})
+                      </div>
                     </div>
                     <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0E7490' }}>
                       {formatCurrency(p.netSalary)}
@@ -1094,6 +1234,15 @@ export const PayrollManagement: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setPreviewRecord(p)}
+                      style={{ borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    >
+                      <Eye size={14} />
+                      <span>Preview</span>
+                    </button>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
@@ -1222,11 +1371,134 @@ export const PayrollManagement: React.FC = () => {
         </div>
       )}
 
+      {/* Payroll Preview Modal (Requirement 11) */}
+      {previewRecord && (() => {
+        const emp = getEmployeeForPayroll(previewRecord);
+        const rows = getPayslipRows(previewRecord);
+        const cal = rows.calSummary;
+        const monthLabel = formatPayrollMonth(previewRecord);
+
+        return (
+          <div className="modal-overlay" style={{ zIndex: 19000 }}>
+            <div className="modal-content" style={{ maxWidth: '680px', width: '100%', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+              <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.12rem', fontWeight: 800, color: '#0F172A' }}>
+                    Payroll Preview — {previewRecord.employeeName}
+                  </h2>
+                  <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '2px' }}>
+                    {previewRecord.employeeId} • {resolveDepartmentName(previewRecord.department, emp)} • {monthLabel}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="close-btn"
+                  onClick={() => setPreviewRecord(null)}
+                  aria-label="Close Preview"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="modal-body" style={{ padding: '18px 20px' }}>
+                {/* 8-Item Attendance & Calendar Day Breakdown Grid */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+                  gap: '10px',
+                  marginBottom: '16px'
+                }}>
+                  {[
+                    { label: 'Calendar Days', value: cal.calendarDays, color: '#0F172A', bg: '#F8FAFC' },
+                    { label: 'Working Days', value: cal.workingDays, color: '#0F172A', bg: '#F8FAFC' },
+                    { label: 'Present Days', value: cal.presentDays, color: '#0369A1', bg: '#F0F9FF' },
+                    { label: 'Paid Week Off', value: cal.paidWeekOffDays, color: '#0E7490', bg: '#ECFEFF' },
+                    { label: 'Paid Holiday', value: cal.paidHolidayDays, color: '#0E7490', bg: '#ECFEFF' },
+                    { label: 'Paid Leave', value: cal.paidLeaveDays, color: '#15803D', bg: '#F0FDF4' },
+                    { label: 'LOP Days', value: cal.lopDays, color: cal.lopDays > 0 ? '#DC2626' : '#64748B', bg: cal.lopDays > 0 ? '#FEF2F2' : '#F8FAFC' },
+                    { label: 'Total Paid Days', value: `${cal.totalPaidDays} / ${cal.calendarDays}`, color: '#0E7490', bg: '#ECFEFF' }
+                  ].map(item => (
+                    <div
+                      key={item.label}
+                      style={{
+                        backgroundColor: item.bg,
+                        border: '1px solid #E2E8F0',
+                        borderRadius: '10px',
+                        padding: '10px 12px'
+                      }}
+                    >
+                      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                        {item.label}
+                      </div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: item.color, marginTop: '4px' }}>
+                        {item.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Financial Summary Cards: Gross Salary | Deductions | Net Pay */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                  gap: '10px',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '12px' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Gross Salary</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0E7490', marginTop: '4px' }}>{formatCurrency(rows.grossEarnings)}</div>
+                  </div>
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '12px' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#991B1B', textTransform: 'uppercase' }}>Deductions</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#E11D48', marginTop: '4px' }}>{formatCurrency(rows.totalDeductions)}</div>
+                  </div>
+                  <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '10px', padding: '12px' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#065F46', textTransform: 'uppercase' }}>Net Pay</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#059669', marginTop: '4px' }}>{formatCurrency(rows.netPay)}</div>
+                  </div>
+                </div>
+
+                <DynamicAmountTable
+                  earnings={rows.earnings}
+                  deductions={rows.deductions}
+                  grossEarnings={rows.grossEarnings}
+                  totalDeductions={rows.totalDeductions}
+                  showDescription={true}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setPreviewRecord(null)}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ backgroundColor: '#0E7490', borderColor: '#0E7490', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => {
+                      const target = previewRecord;
+                      setPreviewRecord(null);
+                      setSelectedPayslip(target);
+                    }}
+                  >
+                    <FileText size={14} /> Open Official Payslip
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Printable Payslip Modal */}
       {selectedPayslip && (() => {
         const emp = getEmployeeForPayroll(selectedPayslip);
         const rows = getPayslipRows(selectedPayslip);
-        const paidDays = selectedPayslip.paidDays ?? selectedPayslip.presentDays;
+        const cal = rows.calSummary;
+        const paidDays = cal.totalPaidDays;
         const monthLabel = formatPayrollMonth(selectedPayslip);
         const fileMonth = monthLabel.replace(/\s+/g, '_');
 
@@ -1288,30 +1560,82 @@ export const PayrollManagement: React.FC = () => {
                     const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
                     const computedCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc || emp?.grossSalary) ||
                       (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 0) ||
-                      (paidDays > 0 && toNum(selectedPayslip.workingDays) > 0 ? Math.round((toNum(rows.grossEarnings) / paidDays) * toNum(selectedPayslip.workingDays)) : 0);
+                      (paidDays > 0 && cal.calendarDays > 0 ? Math.round((toNum(rows.grossEarnings) / paidDays) * cal.calendarDays) : 0);
                     const payslipOt = getEmployeeApprovedOt(selectedPayslip);
                     const otVis = payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility;
                     const showOtHours = (otVis?.showOtHoursOnPayslip ?? true) && payslipOt.hours > 0;
 
                     return (
-                      <EmployeeDetailsGrid
-                        rows={[
-                          { label: 'Employee Name', value: selectedPayslip.employeeName },
-                          { label: 'Employee ID', value: selectedPayslip.employeeId },
-                          { label: 'Department', value: resolveDepartmentName(selectedPayslip.department, emp) },
-                          { label: 'Designation', value: selectedPayslip.designation },
-                          { label: 'Date of Joining', value: formatDateDDMMYYYY(emp?.joiningDate || emp?.dateOfJoining) || '—' },
-                          { label: 'Employee CTC', value: computedCtc > 0 ? formatCurrency(computedCtc) : '—' },
-                          { label: 'Bank Account', value: emp?.bankDetails?.accountNumber },
-                          { label: 'PAN', value: emp?.salaryDetails?.panNumber },
-                          { label: 'UAN', value: emp?.salaryDetails?.uanNumber },
-                          { label: 'Working Days', value: selectedPayslip.workingDays },
-                          { label: 'Paid Days', value: paidDays },
-                          ...(showOtHours ? [{ label: 'Approved OT Hours', value: `${payslipOt.hours} hrs` }] : []),
-                          { label: 'Payroll Month', value: monthLabel },
-                          { label: 'Payment Status', value: selectedPayslip.status }
-                        ]}
-                      />
+                      <>
+                        <EmployeeDetailsGrid
+                          rows={[
+                            { label: 'Employee Name', value: selectedPayslip.employeeName },
+                            { label: 'Employee ID', value: selectedPayslip.employeeId },
+                            { label: 'Department', value: resolveDepartmentName(selectedPayslip.department, emp) },
+                            { label: 'Designation', value: selectedPayslip.designation },
+                            { label: 'Date of Joining', value: formatDateDDMMYYYY(emp?.joiningDate || emp?.dateOfJoining) || '—' },
+                            { label: 'Employee CTC', value: computedCtc > 0 ? formatCurrency(computedCtc) : '—' },
+                            { label: 'Bank Account', value: emp?.bankDetails?.accountNumber },
+                            { label: 'PAN', value: emp?.salaryDetails?.panNumber },
+                            { label: 'UAN', value: emp?.salaryDetails?.uanNumber },
+                            { label: 'Working Days', value: cal.workingDays },
+                            { label: 'Paid Days', value: `${cal.totalPaidDays} / ${cal.calendarDays}` },
+                            ...(showOtHours ? [{ label: 'Approved OT Hours', value: `${payslipOt.hours} hrs` }] : []),
+                            { label: 'Payroll Month', value: monthLabel },
+                            { label: 'Payment Status', value: selectedPayslip.status }
+                          ]}
+                        />
+
+                        {/* Attendance & Calendar Day Breakdown Strip (Printed on Payslip & PDF) */}
+                        <div
+                          className="employee-details-grid-doc"
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                            gap: '6px 12px',
+                            backgroundColor: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            padding: '8px 12px',
+                            fontSize: '0.74rem',
+                            marginBottom: '12px',
+                            pageBreakInside: 'avoid'
+                          }}
+                        >
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Calendar Days: </span>
+                            <span style={{ color: '#0f172a', fontWeight: 700 }}>{cal.calendarDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Working Days: </span>
+                            <span style={{ color: '#0f172a', fontWeight: 700 }}>{cal.workingDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Present Days: </span>
+                            <span style={{ color: '#0f172a', fontWeight: 700 }}>{cal.presentDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Paid Week Off: </span>
+                            <span style={{ color: '#0E7490', fontWeight: 700 }}>{cal.paidWeekOffDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Paid Holiday: </span>
+                            <span style={{ color: '#0E7490', fontWeight: 700 }}>{cal.paidHolidayDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Paid Leave: </span>
+                            <span style={{ color: '#15803d', fontWeight: 700 }}>{cal.paidLeaveDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>LOP Days: </span>
+                            <span style={{ color: cal.lopDays > 0 ? '#dc2626' : '#0f172a', fontWeight: 700 }}>{cal.lopDays}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748b', fontWeight: 700 }}>Total Paid Days: </span>
+                            <span style={{ color: '#0E7490', fontWeight: 800 }}>{cal.totalPaidDays}</span>
+                          </div>
+                        </div>
+                      </>
                     );
                   })()}
 

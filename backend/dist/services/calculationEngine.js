@@ -50,6 +50,659 @@ export function countWeeklyOffDaysInMonth(month, year, weeklyOffDayIndex = 0) {
     }
     return count;
 }
+const DAYS_OF_WEEK_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_NAME_ALIASES = {
+    sun: 'Sunday',
+    sunday: 'Sunday',
+    mon: 'Monday',
+    monday: 'Monday',
+    tue: 'Tuesday',
+    tues: 'Tuesday',
+    tuesday: 'Tuesday',
+    wed: 'Wednesday',
+    wednesday: 'Wednesday',
+    thu: 'Thursday',
+    thur: 'Thursday',
+    thurs: 'Thursday',
+    thursday: 'Thursday',
+    fri: 'Friday',
+    friday: 'Friday',
+    sat: 'Saturday',
+    saturday: 'Saturday',
+};
+const ORDINAL_MAP = {
+    first: 1,
+    second: 2,
+    third: 3,
+    fourth: 4,
+    fifth: 5,
+    last: -1,
+};
+/**
+ * Normalizes any date string ('YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', ISO timestamp) into 'YYYY-MM-DD'.
+ */
+export function normalizeDateToISO(dateInput) {
+    if (!dateInput)
+        return null;
+    if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+        const y = dateInput.getFullYear();
+        const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+        const d = String(dateInput.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    const clean = String(dateInput).trim();
+    if (!clean || clean === '—' || clean === '-' || clean === 'N/A')
+        return null;
+    // YYYY-MM-DD or ISO datetime
+    const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+        const y = isoMatch[1];
+        const m = String(Number(isoMatch[2])).padStart(2, '0');
+        const d = String(Number(isoMatch[3])).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    // DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = clean.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+    if (dmyMatch) {
+        const d = String(Number(dmyMatch[1])).padStart(2, '0');
+        const m = String(Number(dmyMatch[2])).padStart(2, '0');
+        const y = dmyMatch[3];
+        return `${y}-${m}-${d}`;
+    }
+    return null;
+}
+function parseFixedWeeklyOffNames(offDaysInput, includeOrdinal = true) {
+    if (!offDaysInput)
+        return [];
+    if (Array.isArray(offDaysInput)) {
+        return offDaysInput
+            .map(v => DAY_NAME_ALIASES[String(v || '').trim().toLowerCase()] || String(v || '').trim())
+            .filter(Boolean);
+    }
+    const source = String(offDaysInput)
+        .replace(/\bonly\b/gi, ' ')
+        .replace(/\boff\b/gi, ' ')
+        .replace(/\bweekly\b/gi, ' ');
+    const parts = source
+        .split(/[,;+&]|\band\b|\+/i)
+        .map(p => p.trim())
+        .filter(Boolean);
+    const matched = [];
+    for (const part of parts) {
+        const lower = part.toLowerCase();
+        const hasOrdinal = /\b(1st|2nd|3rd|4th|5th|first|second|third|fourth|fifth|last|alternate)\b/.test(lower);
+        if (hasOrdinal && !includeOrdinal)
+            continue;
+        if (DAY_NAME_ALIASES[lower]) {
+            matched.push(DAY_NAME_ALIASES[lower]);
+            continue;
+        }
+        const fullDay = DAYS_OF_WEEK_NAMES.find(day => new RegExp(`\\b${day.toLowerCase()}\\b`).test(lower));
+        if (fullDay) {
+            matched.push(fullDay);
+            continue;
+        }
+        const shortAlias = Object.keys(DAY_NAME_ALIASES).find(alias => new RegExp(`\\b${alias}\\b`).test(lower));
+        if (shortAlias) {
+            matched.push(DAY_NAME_ALIASES[shortAlias]);
+        }
+    }
+    return Array.from(new Set(matched));
+}
+function checkDateWeeklyOffByRuleString(date, offRule) {
+    const dayName = DAYS_OF_WEEK_NAMES[date.getDay()];
+    if (Array.isArray(offRule)) {
+        const normList = parseFixedWeeklyOffNames(offRule, true);
+        return normList.includes(dayName);
+    }
+    const ruleStr = String(offRule || '').trim();
+    if (!ruleStr)
+        return false;
+    const fixedDays = parseFixedWeeklyOffNames(ruleStr, false);
+    if (fixedDays.includes(dayName))
+        return true;
+    const lower = ruleStr.toLowerCase();
+    const mentionsDay = new RegExp(`\\b${dayName.toLowerCase()}\\b|\\b${dayName.slice(0, 3).toLowerCase()}\\b`).test(lower);
+    if (!mentionsDay)
+        return false;
+    const occurrence = Math.floor((date.getDate() - 1) / 7) + 1;
+    const nextWeek = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 7);
+    const isLast = nextWeek.getMonth() !== date.getMonth();
+    const ordinalNums = [...lower.matchAll(/\b([1-5])(?:st|nd|rd|th)\b/g)].map(m => Number(m[1]));
+    const wordNums = Object.entries(ORDINAL_MAP)
+        .filter(([w]) => new RegExp(`\\b${w}\\b`).test(lower))
+        .map(([, v]) => v);
+    const ordinals = [...ordinalNums, ...wordNums];
+    if (/\balternate\b/.test(lower)) {
+        ordinals.push(2, 4);
+    }
+    return ordinals.some(v => v === occurrence || (v === -1 && isLast));
+}
+/**
+ * Determines whether a given calendar date is an employee-specific weekly off.
+ * Hierarchy:
+ * 1. Employee-specific weeklyOff rule (string or string[])
+ * 2. Company Week-Off Calendar schedule (weeklySchedules)
+ * 3. Default fallback: Sunday
+ */
+export function isDateEmployeeWeeklyOff(date, weeklyOffRule, weeklySchedules) {
+    const dayName = DAYS_OF_WEEK_NAMES[date.getDay()];
+    if (weeklyOffRule && (Array.isArray(weeklyOffRule) ? weeklyOffRule.length > 0 : String(weeklyOffRule).trim().length > 0)) {
+        return {
+            isWeeklyOff: checkDateWeeklyOffByRuleString(date, weeklyOffRule),
+            dayName,
+        };
+    }
+    if (Array.isArray(weeklySchedules) && weeklySchedules.length > 0) {
+        const activeSchedule = weeklySchedules.find(s => s?.isDefault) || weeklySchedules[0];
+        if (activeSchedule?.offDays) {
+            return {
+                isWeeklyOff: checkDateWeeklyOffByRuleString(date, activeSchedule.offDays),
+                dayName,
+            };
+        }
+    }
+    return { isWeeklyOff: dayName === 'Sunday', dayName };
+}
+/**
+ * Checks if a date string ('YYYY-MM-DD') is a company-declared paid holiday for the employee.
+ */
+export function isDateCompanyPaidHoliday(dateStr, holidays, employeeLocation) {
+    if (!Array.isArray(holidays) || holidays.length === 0) {
+        return { isHoliday: false };
+    }
+    const empLoc = String(employeeLocation || '').trim().toLowerCase();
+    const match = holidays.find(h => {
+        if (!h)
+            return false;
+        const hDate = normalizeDateToISO(h.date || h.holidayDate || h.holiday_date);
+        if (hDate !== dateStr)
+            return false;
+        if (h.isPaid === false || String(h.type || '').toLowerCase() === 'unpaid')
+            return false;
+        const loc = String(h.applicableLocation || h.location || 'All Sites').trim().toLowerCase();
+        if (!loc || loc === 'all sites' || loc === 'all locations' || loc === 'company wide' || loc === 'all') {
+            return true;
+        }
+        if (empLoc && (loc.includes(empLoc) || empLoc.includes(loc))) {
+            return true;
+        }
+        return false;
+    });
+    return {
+        isHoliday: Boolean(match),
+        holidayName: match ? String(match.name || match.holidayName || 'Holiday') : undefined,
+    };
+}
+function isLeaveTypeUnpaidCheck(leaveType) {
+    if (!leaveType)
+        return false;
+    const lt = String(leaveType).toLowerCase();
+    return (lt.includes('unpaid') ||
+        lt.includes('lop') ||
+        lt.includes('loss of pay') ||
+        lt.includes('lwp') ||
+        lt.includes('without pay'));
+}
+function isLeaveTypeWfhOrOnDuty(leaveType) {
+    if (!leaveType)
+        return false;
+    const lt = String(leaveType).toLowerCase();
+    return lt.includes('work from home') || lt === 'wfh' || lt.includes('on duty') || lt.includes('official duty');
+}
+/**
+ * Authoritative Calendar Day Based Payroll Attendance & Payable Days Engine.
+ * Requirements 1-9:
+ * - Automatically identifies total calendar days (28/29/30/31), employee scheduled working days,
+ *   employee-specific weekly offs, company-declared paid holidays, present days, approved paid leave,
+ *   unpaid leave / LOP, and final payable days.
+ * - Weekly offs and paid holidays count as paid days for eligible employees even without attendance punches.
+ * - Never double-counts a holiday falling on a weekly off.
+ * - Applies joining date, exit date, unpaid absence, sandwich & leave policies accurately.
+ * - Does not automatically convert pending attendance or missing punches to LOP without policy authorization.
+ */
+export function calculateCalendarDayPayrollAttendance(params) {
+    const monthNum = Math.max(1, Math.min(12, Math.floor(Number(params.month) || 1)));
+    const yearNum = Number(params.year) || new Date().getFullYear();
+    const calendarDays = getCalendarDaysInMonth(monthNum, yearNum);
+    const monthPad = String(monthNum).padStart(2, '0');
+    const monthStartStr = `${yearNum}-${monthPad}-01`;
+    const monthEndStr = `${yearNum}-${monthPad}-${String(calendarDays).padStart(2, '0')}`;
+    const lopEnabled = params.lopEnabled !== false;
+    if (params.isCeo) {
+        let ceoWeekOffs = 0;
+        let ceoHolidays = 0;
+        let ceoOverlapping = 0;
+        for (let d = 1; d <= calendarDays; d++) {
+            const dateStr = `${yearNum}-${monthPad}-${String(d).padStart(2, '0')}`;
+            const localDate = new Date(yearNum, monthNum - 1, d);
+            const isOff = isDateEmployeeWeeklyOff(localDate, params.weeklyOff, params.weeklySchedules).isWeeklyOff;
+            const isHol = isDateCompanyPaidHoliday(dateStr, params.holidays, params.employeeLocation).isHoliday;
+            if (isOff && isHol)
+                ceoOverlapping++;
+            if (isOff)
+                ceoWeekOffs++;
+            else if (isHol)
+                ceoHolidays++;
+        }
+        const ceoWorkingDays = Math.max(0, calendarDays - ceoWeekOffs - ceoHolidays);
+        return {
+            calendarDays,
+            eligibleDays: calendarDays,
+            unemployedDays: 0,
+            scheduledWorkingDays: ceoWorkingDays,
+            workingDays: ceoWorkingDays,
+            presentDays: ceoWorkingDays,
+            actualPunchedDays: ceoWorkingDays,
+            pendingAttendanceDays: 0,
+            paidWeekOffDays: ceoWeekOffs,
+            paidHolidayDays: ceoHolidays,
+            overlappingHolidayDays: ceoOverlapping,
+            paidLeaveDays: 0,
+            lopDays: 0,
+            sandwichLopDays: 0,
+            paidDays: calendarDays,
+            totalPaidDays: calendarDays,
+            activeStartDate: monthStartStr,
+            activeEndDate: monthEndStr,
+            prorationFactor: 1,
+            isFullMonthEligible: true,
+        };
+    }
+    // Resolve active employment window from joiningDate and exitDate
+    const joiningIso = normalizeDateToISO(params.joiningDate);
+    const exitIso = normalizeDateToISO(params.exitDate);
+    const activeStartDate = joiningIso && joiningIso > monthStartStr ? joiningIso : monthStartStr;
+    const activeEndDate = exitIso && exitIso < monthEndStr ? exitIso : monthEndStr;
+    const isCompletelyOutsideEmployment = (joiningIso !== null && joiningIso > monthEndStr) ||
+        (exitIso !== null && exitIso < monthStartStr) ||
+        activeStartDate > activeEndDate;
+    if (isCompletelyOutsideEmployment) {
+        return {
+            calendarDays,
+            eligibleDays: 0,
+            unemployedDays: calendarDays,
+            scheduledWorkingDays: 0,
+            workingDays: 0,
+            presentDays: 0,
+            actualPunchedDays: 0,
+            pendingAttendanceDays: 0,
+            paidWeekOffDays: 0,
+            paidHolidayDays: 0,
+            overlappingHolidayDays: 0,
+            paidLeaveDays: 0,
+            lopDays: 0,
+            sandwichLopDays: 0,
+            paidDays: 0,
+            totalPaidDays: 0,
+            activeStartDate,
+            activeEndDate,
+            prorationFactor: 0,
+            isFullMonthEligible: false,
+        };
+    }
+    const dayList = [];
+    let eligibleDays = 0;
+    let overlappingHolidayDays = 0;
+    for (let d = 1; d <= calendarDays; d++) {
+        const dateStr = `${yearNum}-${monthPad}-${String(d).padStart(2, '0')}`;
+        const localDate = new Date(yearNum, monthNum - 1, d);
+        const isEligible = dateStr >= activeStartDate && dateStr <= activeEndDate;
+        if (isEligible)
+            eligibleDays++;
+        const isWeeklyOff = isDateEmployeeWeeklyOff(localDate, params.weeklyOff, params.weeklySchedules).isWeeklyOff;
+        const isRawHoliday = isDateCompanyPaidHoliday(dateStr, params.holidays, params.employeeLocation).isHoliday;
+        const isOverlappingHoliday = isWeeklyOff && isRawHoliday;
+        // Requirement 4: Never double-count a holiday falling on a weekly off
+        const isEffectiveHoliday = isRawHoliday && !isWeeklyOff;
+        const isScheduledWorkingDay = !isWeeklyOff && !isEffectiveHoliday;
+        if (isEligible && isOverlappingHoliday) {
+            overlappingHolidayDays++;
+        }
+        dayList.push({
+            dayNum: d,
+            dateStr,
+            isEligible,
+            isWeeklyOff,
+            isRawHoliday,
+            isEffectiveHoliday,
+            isOverlappingHoliday,
+            isScheduledWorkingDay,
+            dayPresent: 0,
+            dayPaidLeave: 0,
+            dayLop: 0,
+            hasLeaveOrAbsence: false,
+            isUnpaidLeaveOrAbsence: false,
+            isExplicitSandwichUnpaid: false,
+        });
+    }
+    const empIdNorm = String(params.employeeId || '').trim().toLowerCase();
+    // Filter attendance records strictly to this employee and target month/year
+    const monthAttMap = new Map();
+    if (Array.isArray(params.attendanceRecords)) {
+        for (const rec of params.attendanceRecords) {
+            if (!rec)
+                continue;
+            if (empIdNorm) {
+                const recEmp = String(rec.employeeId || rec.employee_id || '').trim().toLowerCase();
+                if (recEmp && recEmp !== empIdNorm)
+                    continue;
+            }
+            const dIso = normalizeDateToISO(rec.date || rec.shiftDate || rec.shift_date);
+            if (!dIso || dIso < monthStartStr || dIso > monthEndStr)
+                continue;
+            monthAttMap.set(dIso, rec);
+        }
+    }
+    // Filter approved leave requests covering dates in this month
+    const approvedLeavesInMonth = [];
+    const explicitSandwichUnpaidDates = new Set();
+    const leaveDatesInRequestRange = new Map();
+    if (Array.isArray(params.leaveRequests)) {
+        for (const lr of params.leaveRequests) {
+            if (!lr)
+                continue;
+            const statusNorm = String(lr.status || '').trim().toLowerCase();
+            if (statusNorm !== 'approved')
+                continue;
+            if (empIdNorm) {
+                const lrEmp = String(lr.employeeId || lr.employee_id || '').trim().toLowerCase();
+                if (lrEmp && lrEmp !== empIdNorm)
+                    continue;
+            }
+            const sIso = normalizeDateToISO(lr.startDate || lr.start_date);
+            const eIso = normalizeDateToISO(lr.endDate || lr.end_date || sIso);
+            if (!sIso || !eIso)
+                continue;
+            if (eIso < monthStartStr || sIso > monthEndStr)
+                continue;
+            approvedLeavesInMonth.push({ ...lr, sIso, eIso });
+            // Check pre-computed sandwich breakdown if present
+            if (Array.isArray(lr.sandwichDetails?.breakdown)) {
+                for (const b of lr.sandwichDetails.breakdown) {
+                    const bIso = normalizeDateToISO(b?.date);
+                    if (bIso && b?.isSandwich && b?.isPaid === false) {
+                        explicitSandwichUnpaidDates.add(bIso);
+                    }
+                }
+            }
+            const isUnpaid = isLeaveTypeUnpaidCheck(lr.leaveType || lr.leave_type);
+            const isWfh = isLeaveTypeWfhOrOnDuty(lr.leaveType || lr.leave_type);
+            const isHalfDay = Boolean(lr.isHalfDay) || (sIso === eIso && Number(lr.daysCount || lr.days_count) === 0.5);
+            for (const dayObj of dayList) {
+                if (dayObj.dateStr >= sIso && dayObj.dateStr <= eIso) {
+                    leaveDatesInRequestRange.set(dayObj.dateStr, { isUnpaid, isHalfDay, isWfh });
+                    if (explicitSandwichUnpaidDates.has(dayObj.dateStr)) {
+                        dayObj.isExplicitSandwichUnpaid = true;
+                    }
+                }
+            }
+        }
+    }
+    const hasDailyRecords = monthAttMap.size > 0 || approvedLeavesInMonth.length > 0;
+    let actualPunchedDays = 0;
+    let pendingAttendanceDays = 0;
+    // Step 1: Evaluate all eligible Scheduled Working Days
+    for (const dayObj of dayList) {
+        if (!dayObj.isEligible || !dayObj.isScheduledWorkingDay)
+            continue;
+        const leaveInfo = leaveDatesInRequestRange.get(dayObj.dateStr);
+        const att = monthAttMap.get(dayObj.dateStr);
+        if (leaveInfo) {
+            if (leaveInfo.isWfh) {
+                dayObj.dayPresent = 1;
+            }
+            else if (leaveInfo.isHalfDay) {
+                if (leaveInfo.isUnpaid && lopEnabled) {
+                    dayObj.dayLop = 0.5;
+                    dayObj.hasLeaveOrAbsence = true;
+                    dayObj.isUnpaidLeaveOrAbsence = true;
+                }
+                else {
+                    dayObj.dayPaidLeave = 0.5;
+                    dayObj.hasLeaveOrAbsence = true;
+                }
+                // Remaining 0.5 day
+                const attStatus = String(att?.status || '').trim().toLowerCase();
+                if (attStatus === 'absent' && lopEnabled) {
+                    dayObj.dayLop += 0.5;
+                    dayObj.isUnpaidLeaveOrAbsence = true;
+                }
+                else {
+                    dayObj.dayPresent = 0.5;
+                    if (att)
+                        actualPunchedDays += 0.5;
+                }
+            }
+            else {
+                if (leaveInfo.isUnpaid && lopEnabled) {
+                    dayObj.dayLop = 1;
+                    dayObj.hasLeaveOrAbsence = true;
+                    dayObj.isUnpaidLeaveOrAbsence = true;
+                }
+                else {
+                    dayObj.dayPaidLeave = 1;
+                    dayObj.hasLeaveOrAbsence = true;
+                    dayObj.isUnpaidLeaveOrAbsence = false;
+                }
+            }
+            continue;
+        }
+        if (att) {
+            const statusNorm = String(att.status || '').trim().toLowerCase();
+            if (statusNorm === 'present' ||
+                statusNorm === 'late' ||
+                statusNorm === 'work from home' ||
+                statusNorm === 'wfh' ||
+                statusNorm === 'on duty') {
+                dayObj.dayPresent = 1;
+                actualPunchedDays += 1;
+            }
+            else if (statusNorm === 'half day' || statusNorm === 'half-day') {
+                dayObj.dayPresent = 0.5;
+                actualPunchedDays += 0.5;
+                if (lopEnabled) {
+                    dayObj.dayLop = 0.5;
+                }
+                else {
+                    dayObj.dayPresent = 1;
+                }
+            }
+            else if (statusNorm === 'on leave' || statusNorm === 'leave') {
+                const unpaid = isLeaveTypeUnpaidCheck(att.leaveType || att.reason);
+                if (unpaid && lopEnabled) {
+                    dayObj.dayLop = 1;
+                    dayObj.hasLeaveOrAbsence = true;
+                    dayObj.isUnpaidLeaveOrAbsence = true;
+                }
+                else {
+                    dayObj.dayPaidLeave = 1;
+                    dayObj.hasLeaveOrAbsence = true;
+                }
+            }
+            else if (statusNorm === 'absent') {
+                if (lopEnabled) {
+                    dayObj.dayLop = 1;
+                    dayObj.hasLeaveOrAbsence = true;
+                    dayObj.isUnpaidLeaveOrAbsence = true;
+                }
+                else {
+                    dayObj.dayPresent = 1;
+                }
+            }
+            else if (statusNorm === 'missing punch' || statusNorm === 'pending') {
+                // Requirement 7: Do not automatically convert pending attendance or missing punches to LOP
+                // without following the configured approval policy.
+                pendingAttendanceDays += 1;
+                if (params.autoConvertPendingToLop === true && lopEnabled) {
+                    dayObj.dayLop = 1;
+                    dayObj.hasLeaveOrAbsence = true;
+                    dayObj.isUnpaidLeaveOrAbsence = true;
+                }
+                else {
+                    dayObj.dayPresent = 1;
+                }
+            }
+            else {
+                dayObj.dayPresent = 1;
+            }
+        }
+        else {
+            // No attendance punch recorded on this scheduled working day:
+            // Requirement 7 & 9: Do NOT automatically convert unpunched days to LOP.
+            dayObj.dayPresent = 1;
+        }
+    }
+    // Step 2: Evaluate Sandwich Policy & Holiday/Week-Off Eligibility on eligible Weekly Offs and Paid Holidays
+    const activeSandwichPolicy = Array.isArray(params.sandwichPolicies)
+        ? params.sandwichPolicies.find(p => p && p.status === 'Active' && p.sandwichRuleEnabled === true)
+        : null;
+    const findAdjacentWorkingDay = (startIndex, direction) => {
+        let idx = startIndex + direction;
+        while (idx >= 0 && idx < dayList.length) {
+            const candidate = dayList[idx];
+            if (!candidate.isEligible)
+                return null;
+            if (candidate.isScheduledWorkingDay)
+                return candidate;
+            idx += direction;
+        }
+        return null;
+    };
+    let paidWeekOffDays = 0;
+    let paidHolidayDays = 0;
+    let sandwichLopDays = 0;
+    for (let i = 0; i < dayList.length; i++) {
+        const dayObj = dayList[i];
+        if (!dayObj.isEligible || dayObj.isScheduledWorkingDay)
+            continue;
+        let convertToLop = false;
+        if (dayObj.isExplicitSandwichUnpaid && lopEnabled) {
+            convertToLop = true;
+        }
+        else if (lopEnabled && (activeSandwichPolicy || params.weekOffEligibilityPolicy)) {
+            const prevWork = findAdjacentWorkingDay(i, -1);
+            const nextWork = findAdjacentWorkingDay(i, 1);
+            if (activeSandwichPolicy) {
+                const appliesToDayType = (dayObj.isWeeklyOff && activeSandwichPolicy.countWeeklyOffAsLeave !== false) ||
+                    (dayObj.isEffectiveHoliday && activeSandwichPolicy.countPublicHolidayAsLeave !== false);
+                if (appliesToDayType) {
+                    const cond = String(activeSandwichPolicy.sandwichCondition || 'BOTH_SIDES_MANDATORY');
+                    const beforeHasLeave = Boolean(prevWork?.hasLeaveOrAbsence);
+                    const afterHasLeave = Boolean(nextWork?.hasLeaveOrAbsence);
+                    let condMet = false;
+                    if (cond === 'LEAVE_ONLY_BEFORE')
+                        condMet = beforeHasLeave;
+                    else if (cond === 'LEAVE_ONLY_AFTER')
+                        condMet = afterHasLeave;
+                    else if (cond === 'EITHER_SIDE' || cond === 'LEAVE_BEFORE_OR_AFTER')
+                        condMet = beforeHasLeave || afterHasLeave;
+                    else
+                        condMet = beforeHasLeave && afterHasLeave;
+                    if (condMet) {
+                        const payType = String(activeSandwichPolicy.payType || 'SAME_AS_APPLIED_LEAVE');
+                        if (payType === 'UNPAID_LEAVE') {
+                            convertToLop = true;
+                        }
+                        else if (payType !== 'PAID_LEAVE') {
+                            const flankingUnpaid = Boolean(prevWork?.isUnpaidLeaveOrAbsence) || Boolean(nextWork?.isUnpaidLeaveOrAbsence);
+                            if (flankingUnpaid) {
+                                convertToLop = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!convertToLop && params.weekOffEligibilityPolicy) {
+                const checkWeekOffElig = dayObj.isWeeklyOff && params.weekOffEligibilityPolicy.requireAdjacentPresenceForWeekOff;
+                const checkHolidayElig = dayObj.isEffectiveHoliday && params.weekOffEligibilityPolicy.requireAdjacentPresenceForHoliday;
+                if (checkWeekOffElig || checkHolidayElig) {
+                    if (prevWork && nextWork && prevWork.isUnpaidLeaveOrAbsence && nextWork.isUnpaidLeaveOrAbsence) {
+                        convertToLop = true;
+                    }
+                }
+            }
+        }
+        if (convertToLop) {
+            dayObj.dayLop = 1;
+            sandwichLopDays += 1;
+        }
+        else {
+            if (dayObj.isWeeklyOff) {
+                paidWeekOffDays += 1;
+            }
+            else if (dayObj.isEffectiveHoliday) {
+                paidHolidayDays += 1;
+            }
+        }
+    }
+    const scheduledWorkingDays = dayList.filter(d => d.isEligible && d.isScheduledWorkingDay).length;
+    let presentDays = dayList.reduce((sum, d) => sum + d.dayPresent, 0);
+    let paidLeaveDays = dayList.reduce((sum, d) => sum + d.dayPaidLeave, 0);
+    let lopDays = dayList.reduce((sum, d) => sum + d.dayLop, 0);
+    // Step 3: Apply explicit summary overrides when daily records were not provided or when explicit LOP / Paid Leave is higher
+    const explicitPaidLeave = Math.max(0, Number(params.explicitPaidLeaveDays) || 0);
+    if (!hasDailyRecords && explicitPaidLeave > 0) {
+        paidLeaveDays = Math.min(scheduledWorkingDays, explicitPaidLeave);
+        presentDays = Math.max(0, scheduledWorkingDays - paidLeaveDays - lopDays);
+    }
+    const rawExplicitLop = params.explicitLopDays !== undefined && Number(params.explicitLopDays) > 0
+        ? Number(params.explicitLopDays)
+        : Number(params.explicitUnpaidLeaveDays || 0) +
+            Number(params.explicitAbsentDays || 0) +
+            Number(params.explicitHalfDays || 0) * 0.5;
+    if (lopEnabled && rawExplicitLop > lopDays) {
+        const targetLop = Math.min(eligibleDays, rawExplicitLop);
+        const additionalLop = targetLop - lopDays;
+        lopDays = targetLop;
+        // Deduct additional LOP from presentDays first, then paidWeekOffDays/paidHolidayDays if needed
+        const deductFromPresent = Math.min(presentDays, additionalLop);
+        presentDays = Math.max(0, presentDays - deductFromPresent);
+        let remainingToDeduct = additionalLop - deductFromPresent;
+        if (remainingToDeduct > 0) {
+            const deductFromWeekOff = Math.min(paidWeekOffDays, remainingToDeduct);
+            paidWeekOffDays -= deductFromWeekOff;
+            remainingToDeduct -= deductFromWeekOff;
+        }
+        if (remainingToDeduct > 0) {
+            const deductFromHoliday = Math.min(paidHolidayDays, remainingToDeduct);
+            paidHolidayDays -= deductFromHoliday;
+        }
+    }
+    // Round to 2 decimal places (supports 0.5 half days cleanly)
+    presentDays = Math.round(presentDays * 100) / 100;
+    paidLeaveDays = Math.round(paidLeaveDays * 100) / 100;
+    lopDays = lopEnabled ? Math.round(lopDays * 100) / 100 : 0;
+    paidWeekOffDays = Math.round(paidWeekOffDays * 100) / 100;
+    paidHolidayDays = Math.round(paidHolidayDays * 100) / 100;
+    // Requirement 5:
+    // Eligible Days = Calendar Days within the employee's active employment period.
+    // Paid Days = Eligible Days - Approved LOP Days.
+    const paidDays = Math.max(0, Math.round((eligibleDays - lopDays) * 100) / 100);
+    const prorationFactor = calendarDays > 0 ? paidDays / calendarDays : 1;
+    return {
+        calendarDays,
+        eligibleDays,
+        unemployedDays: Math.max(0, calendarDays - eligibleDays),
+        scheduledWorkingDays,
+        workingDays: scheduledWorkingDays,
+        presentDays,
+        actualPunchedDays: Math.round(actualPunchedDays * 100) / 100,
+        pendingAttendanceDays,
+        paidWeekOffDays,
+        paidHolidayDays,
+        overlappingHolidayDays,
+        paidLeaveDays,
+        lopDays,
+        sandwichLopDays,
+        paidDays,
+        totalPaidDays: paidDays,
+        activeStartDate,
+        activeEndDate,
+        prorationFactor,
+        isFullMonthEligible: eligibleDays === calendarDays,
+    };
+}
 /**
  * Resolves the configured salary divisor for a payroll month without assuming every company uses calendar days.
  */
@@ -636,11 +1289,11 @@ export const calculateLOP = (monthlySalary, workingDays, lopDays) => {
     };
 };
 /**
- * Main calculation engine: orchestrates authoritative payroll calculation.
+ * Main calculation engine: orchestrates authoritative Calendar Day Based Payroll calculation.
  * All computations use Decimal for full financial accuracy.
  */
 export const computeFullPayroll = (input) => {
-    // 1. Fixed Salary Structure
+    // 1. Full Monthly Configured Salary Structure
     const structure = computeSalaryStructure({
         monthlySalary: input.monthlySalary,
         basicPercentage: input.basicPercentage,
@@ -648,19 +1301,11 @@ export const computeFullPayroll = (input) => {
         conveyancePercentage: input.conveyancePercentage,
         hraPercentage: input.hraPercentage,
     });
-    const basic = new Decimal(structure.basicSalary);
-    const da = new Decimal(structure.da);
-    const conveyance = new Decimal(structure.conveyance);
-    const hra = new Decimal(structure.hra);
-    const fixedGross = new Decimal(structure.fixedGross);
-    // Resolve Calendar Days (28/29/30/31) and Configured Salary Divisor
-    const resolvedDivisor = resolvePayrollSalaryDivisor({
-        month: input.payrollMonth,
-        year: input.payrollYear,
-        divisorMode: input.salaryDivisorMode || 'FIXED_DAYS',
-        fixedDivisorDays: input.customSalaryDivisor || input.attendance.workingDays || input.settings.standardWorkingDays || 26,
-    });
-    // 2. Additional Earnings & Enterprise Overtime Calculation
+    const fullBasic = new Decimal(structure.basicSalary);
+    const fullDa = new Decimal(structure.da);
+    const fullConveyance = new Decimal(structure.conveyance);
+    const fullHra = new Decimal(structure.hra);
+    const fullFixedGross = new Decimal(structure.fixedGross);
     const isCeo = isCeoOrOwnerEmployee({
         employeeId: input.employeeId,
         id: input.employeeContext?.id,
@@ -668,6 +1313,88 @@ export const computeFullPayroll = (input) => {
         department: input.employeeContext?.department,
         designation: input.employeeContext?.designation,
     });
+    // 2. Calendar Day Based Attendance & Payable Days Breakdown (Requirements 1-9)
+    const calBreakdown = calculateCalendarDayPayrollAttendance({
+        month: input.payrollMonth,
+        year: input.payrollYear,
+        employeeId: input.employeeId,
+        joiningDate: input.joiningDate ?? input.attendance?.joiningDate ?? input.employeeContext?.joiningDate,
+        exitDate: input.exitDate ?? input.attendance?.exitDate,
+        weeklyOff: input.weeklyOff ?? input.attendance?.weeklyOff,
+        weeklySchedules: input.weeklySchedules ?? input.attendance?.weeklySchedules,
+        holidays: input.holidays ?? input.attendance?.holidays,
+        employeeLocation: input.employeeContext?.branchId,
+        attendanceRecords: input.attendanceRecords ?? input.attendance?.attendanceRecords,
+        leaveRequests: input.leaveRequests ?? input.attendance?.leaveRequests,
+        sandwichPolicies: input.sandwichPolicies ?? input.attendance?.sandwichPolicies,
+        weekOffEligibilityPolicy: input.weekOffEligibilityPolicy,
+        autoConvertPendingToLop: input.autoConvertPendingToLop,
+        lopEnabled: input.settings?.lopEnabled !== false,
+        isCeo,
+        explicitLopDays: input.attendance?.lopDays,
+        explicitPaidLeaveDays: input.attendance?.paidLeaveDays,
+        explicitUnpaidLeaveDays: input.attendance?.unpaidLeaveDays,
+        explicitAbsentDays: input.attendance?.absentDays,
+        explicitHalfDays: input.attendance?.halfDays,
+        explicitPresentDays: input.attendance?.presentDays,
+    });
+    const calendarDays = calBreakdown.calendarDays;
+    const eligibleDays = calBreakdown.eligibleDays;
+    const paidDays = calBreakdown.paidDays;
+    const lopDays = calBreakdown.lopDays;
+    const scheduledWorkingDays = calBreakdown.scheduledWorkingDays;
+    const presentDays = calBreakdown.presentDays;
+    const paidWeekOffDays = calBreakdown.paidWeekOffDays;
+    const paidHolidayDays = calBreakdown.paidHolidayDays;
+    const paidLeaveDays = calBreakdown.paidLeaveDays;
+    // Resolve Configured Salary Divisor for Overtime hourly rate calculation
+    const resolvedDivisor = resolvePayrollSalaryDivisor({
+        month: input.payrollMonth,
+        year: input.payrollYear,
+        divisorMode: input.salaryDivisorMode || 'FIXED_DAYS',
+        fixedDivisorDays: input.customSalaryDivisor || input.attendance.workingDays || input.settings.standardWorkingDays || 26,
+    });
+    // 3. Prorate Salary Components by Paid Days / Total Calendar Days (Requirements 5, 9, 10)
+    // Requirement 9: If an employee is eligible for the full month and has zero LOP,
+    // pay the full configured monthly gross salary regardless of the number of Sundays or holidays.
+    let basic = fullBasic;
+    let da = fullDa;
+    let conveyance = fullConveyance;
+    let hra = fullHra;
+    let fixedGross = fullFixedGross;
+    if (!isCeo && paidDays < calendarDays) {
+        if (paidDays <= 0 || calendarDays <= 0) {
+            basic = new Decimal(0);
+            da = new Decimal(0);
+            conveyance = new Decimal(0);
+            hra = new Decimal(0);
+            fixedGross = new Decimal(0);
+        }
+        else {
+            const paidDec = new Decimal(paidDays);
+            const calDec = new Decimal(calendarDays);
+            fixedGross = fullFixedGross.times(paidDec).dividedBy(calDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+            basic = fullBasic.times(paidDec).dividedBy(calDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+            da = fullDa.times(paidDec).dividedBy(calDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+            conveyance = fullConveyance.times(paidDec).dividedBy(calDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+            hra = fullHra.times(paidDec).dividedBy(calDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+            // Reconcile minor 1-paisa rounding delta so component sum matches Monthly Gross * Paid Days / Calendar Days
+            const componentSum = basic.plus(da).plus(conveyance).plus(hra);
+            const diff = fixedGross.minus(componentSum);
+            if (!diff.isZero() && diff.abs().lessThanOrEqualTo(0.05)) {
+                if (hra.greaterThan(0)) {
+                    hra = hra.plus(diff).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+                }
+                else if (basic.greaterThan(0)) {
+                    basic = basic.plus(diff).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+                }
+            }
+        }
+    }
+    const prorationRatio = isCeo || paidDays >= calendarDays || calendarDays <= 0
+        ? new Decimal(1)
+        : new Decimal(paidDays).dividedBy(calendarDays);
+    // 4. Additional Earnings & Enterprise Overtime Calculation
     const attBonus = isCeo ? new Decimal(0) : new Decimal(input.earnings?.attendanceBonus ?? 0);
     const otHours = isCeo ? new Decimal(0) : new Decimal(input.earnings?.overtimeHours ?? 0);
     let otRate = isCeo ? new Decimal(0) : new Decimal(input.earnings?.overtimeRate ?? 0);
@@ -677,8 +1404,8 @@ export const computeFullPayroll = (input) => {
             const enterpriseOt = calculateEnterpriseOvertimeRateAndAmount({
                 approvedHours: otHours.toNumber(),
                 wageBaseMode: input.earnings?.overtimeWageBase || (otRate.greaterThan(0) ? 'FIXED_HOURLY' : 'GROSS'),
-                basicSalary: basic.toNumber(),
-                grossSalary: fixedGross.toNumber(),
+                basicSalary: fullBasic.toNumber(),
+                grossSalary: fullFixedGross.toNumber(),
                 monthlyCtc: input.monthlySalary,
                 fixedHourlyRate: otRate.toNumber() || 100,
                 divisorDays: resolvedDivisor.divisorDays,
@@ -696,13 +1423,13 @@ export const computeFullPayroll = (input) => {
     const incentive = new Decimal(input.earnings?.incentive ?? 0);
     const commission = new Decimal(input.earnings?.commission ?? 0);
     const otherEarnings = new Decimal(input.earnings?.otherEarnings ?? 0);
-    // Dynamic component eligibility evaluation
+    // Dynamic component eligibility evaluation (evaluated against employee's configured salary structure)
     const eligibilityCtx = {
         id: input.employeeContext?.id || input.employeeId,
         employeeId: input.employeeId,
         monthlyCtc: input.monthlySalary,
-        basicSalary: basic.toNumber(),
-        grossSalary: fixedGross.toNumber(),
+        basicSalary: fullBasic.toNumber(),
+        grossSalary: fullFixedGross.toNumber(),
         withPf: input.withPf !== undefined ? input.withPf : true,
         payrollMonth: input.payrollMonth,
         payrollYear: input.payrollYear,
@@ -725,6 +1452,9 @@ export const computeFullPayroll = (input) => {
         ATTENDANCE_BONUS: attBonus.toNumber(),
         GROSS: fixedGross.plus(otAmount).toNumber(),
         CTC: input.monthlySalary,
+        WORKING_DAYS: scheduledWorkingDays,
+        PAID_DAYS: paidDays,
+        UNPAID_DAYS: lopDays,
     };
     // Evaluate custom earnings
     for (const comp of configured) {
@@ -739,12 +1469,12 @@ export const computeFullPayroll = (input) => {
         if (isComponentEligible(comp, eligibilityCtx)) {
             let amount = new Decimal(0);
             if (comp.calculationMethod === 'FIXED_AMOUNT') {
-                amount = new Decimal(comp.defaultValue || 0);
+                amount = new Decimal(comp.defaultValue || 0).times(prorationRatio).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
             }
             else if (comp.calculationMethod === 'PERCENTAGE') {
                 const baseVal = comp.percentageBase === 'BASIC'
                     ? basic
-                    : (comp.percentageBase === 'GROSS' ? fixedGross : new Decimal(input.monthlySalary));
+                    : (comp.percentageBase === 'GROSS' ? fixedGross : new Decimal(input.monthlySalary).times(prorationRatio));
                 amount = baseVal.times(comp.defaultValue || 0).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
             }
             else if (comp.calculationMethod === 'ATTENDANCE_OT') {
@@ -763,17 +1493,17 @@ export const computeFullPayroll = (input) => {
                     category: 'EARNING',
                     amount: amount.toNumber(),
                     description: comp.calculationMethod === 'PERCENTAGE'
-                        ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'}`
+                        ? `${comp.defaultValue}% of ${comp.percentageBase || 'CTC'} | Paid ${paidDays}/${calendarDays} days`
                         : comp.calculationMethod === 'FORMULA'
                             ? `Formula: ${comp.formula}`
                             : comp.calculationMethod === 'ATTENDANCE_OT'
                                 ? 'Attendance-Based Overtime (OT)'
-                                : `Fixed ₹${comp.defaultValue}`
+                                : `Fixed ₹${comp.defaultValue} | Paid ${paidDays}/${calendarDays} days`
                 });
             }
         }
     }
-    // Gross Earnings = Fixed Gross + Attendance Bonus + OT + Bonus + Incentive + Commission + Other + Custom Earnings
+    // Gross Earnings = Prorated Fixed Gross + Attendance Bonus + OT + Bonus + Incentive + Commission + Other + Custom Earnings
     const grossSalary = fixedGross
         .plus(attBonus)
         .plus(otAmount)
@@ -785,9 +1515,7 @@ export const computeFullPayroll = (input) => {
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     eligibilityCtx.grossSalary = grossSalary.toNumber();
     formulaCtx.GROSS = grossSalary.toNumber();
-    // 3. Statutory Deductions (PF & ESIC)
-    // New employees under 6 months have no PF/ESIC deductions (withPf: false).
-    // Confirmed employees (withPf: true) have active PF (12%) and ESIC (0.75%).
+    // 5. Statutory Deductions (PF & ESIC) on prorated components according to configured policies
     const isPfEligible = input.withPf !== undefined ? input.withPf : true;
     const pfEnabled = isPfEligible && input.settings.pfEnabled;
     const esicEnabled = isPfEligible && input.settings.esicEnabled;
@@ -796,28 +1524,27 @@ export const computeFullPayroll = (input) => {
     const employerPfAmount = pfEnabled
         ? pfResult.pfBase.times(employerPfRate).dividedBy(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
         : new Decimal(0);
-    // 4. Statutory Deductions (ESIC)
+    // 6. Statutory Deductions (ESIC)
     const esicResult = calculateESIC(basic, da, conveyance, hra, attBonus, otAmount, otherEarnings, grossSalary, esicEnabled, input.settings.esicRate, input.settings.esicSalaryThreshold, input.settings.esicWageComponents, input.employeeContext?.isContributionPeriodContinuation, {
         excludeOtFromEligibility: input.employeeContext?.excludeOtFromEsicEligibility,
         esicCovered: input.employeeContext?.esicCovered,
         employerEsicRate: 3.25,
     });
-    // 5. Professional Tax (PT)
+    // 7. Professional Tax (PT)
     let ptAmount = new Decimal(0);
-    if (input.settings.professionalTaxEnabled) {
+    if (input.settings.professionalTaxEnabled && grossSalary.greaterThan(0)) {
         ptAmount = new Decimal(input.settings.professionalTaxAmount ?? 200).toDecimalPlaces(2);
     }
-    // 6. LOP / Attendance Deductions (using configured salary divisor when specified)
-    const workingDays = input.salaryDivisorMode
-        ? resolvedDivisor.divisorDays
-        : (input.attendance.workingDays || input.settings.standardWorkingDays || 26);
-    const lopDays = isCeo
-        ? 0
-        : (input.attendance.lopDays || (input.attendance.unpaidLeaveDays + input.attendance.absentDays) || 0);
-    const lopResult = isCeo
-        ? { dailySalary: new Decimal(0), lopAmount: new Decimal(0) }
-        : calculateLOP(new Decimal(input.monthlySalary), workingDays, lopDays);
-    // 7. Advance Loan Recovery & Other Deductions
+    // 8. Calendar-Day Daily Salary & Informational LOP Amount
+    // Note: Because fixedGross is already prorated by Paid Days / Calendar Days,
+    // LOP is already reflected in Gross Pay and is NOT deducted a second time from Gross Pay!
+    const dailySalaryDec = calendarDays > 0
+        ? new Decimal(input.monthlySalary).dividedBy(calendarDays).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        : new Decimal(0);
+    const lopAmountDec = isCeo || lopDays <= 0 || calendarDays <= 0
+        ? new Decimal(0)
+        : new Decimal(input.monthlySalary).times(lopDays).dividedBy(calendarDays).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    // 9. Advance Loan Recovery & Other Deductions
     const advanceRecovery = new Decimal(input.deductions?.advanceRecovery ?? 0);
     const loanRecovery = new Decimal(input.deductions?.loanRecovery ?? 0);
     const otherDeductions = new Decimal(input.deductions?.otherDeductions ?? 0);
@@ -866,24 +1593,25 @@ export const computeFullPayroll = (input) => {
             }
         }
     }
-    // Total Deductions = PF + ESIC + PT + LOP + Advance + Loan + Other + Custom Deductions
+    // Total Deductions = PF + ESIC + PT + Advance + Loan + Other + Custom Deductions
+    // (LOP is already reflected via Calendar Day proration of Gross Salary: Gross = Monthly Gross * Paid Days / Calendar Days)
     const totalDeductions = pfResult.pfAmount
         .plus(esicResult.esicAmount)
         .plus(ptAmount)
-        .plus(lopResult.lopAmount)
         .plus(advanceRecovery)
         .plus(loanRecovery)
         .plus(otherDeductions)
         .plus(customDeductionsSum)
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     // Final Net Salary = Gross Earnings - Total Deductions
-    const netSalary = grossSalary.minus(totalDeductions).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const netSalary = Decimal.max(0, grossSalary.minus(totalDeductions)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     // Breakdown items for transparency & UI
+    const paidDescSuffix = `Paid ${paidDays}/${calendarDays} days`;
     const earningsBreakdown = [
-        { name: 'Basic Salary', category: 'EARNING', amount: basic.toNumber(), description: `${input.basicPercentage}% of Monthly Salary` },
-        { name: 'Dearness Allowance (DA)', category: 'EARNING', amount: da.toNumber(), description: `${input.daPercentage}% of Monthly Salary` },
-        { name: 'Conveyance Allowance', category: 'EARNING', amount: conveyance.toNumber(), description: `${input.conveyancePercentage}% of Monthly Salary` },
-        { name: 'House Rent Allowance (HRA)', category: 'EARNING', amount: hra.toNumber(), description: `${input.hraPercentage}% of Monthly Salary` },
+        { name: 'Basic Salary', category: 'EARNING', amount: basic.toNumber(), description: `${input.basicPercentage}% of CTC | ${paidDescSuffix}` },
+        { name: 'Dearness Allowance (DA)', category: 'EARNING', amount: da.toNumber(), description: `${input.daPercentage}% of CTC | ${paidDescSuffix}` },
+        { name: 'Conveyance Allowance', category: 'EARNING', amount: conveyance.toNumber(), description: `${input.conveyancePercentage}% of CTC | ${paidDescSuffix}` },
+        { name: 'House Rent Allowance (HRA)', category: 'EARNING', amount: hra.toNumber(), description: `${input.hraPercentage}% of CTC | ${paidDescSuffix}` },
     ];
     if (attBonus.greaterThan(0)) {
         earningsBreakdown.push({ name: 'Attendance Bonus', category: 'EARNING', amount: attBonus.toNumber() });
@@ -924,14 +1652,6 @@ export const computeFullPayroll = (input) => {
     }
     if (ptAmount.greaterThan(0)) {
         deductionsBreakdown.push({ name: 'Professional Tax (PT)', category: 'DEDUCTION', amount: ptAmount.toNumber() });
-    }
-    if (lopResult.lopAmount.greaterThan(0)) {
-        deductionsBreakdown.push({
-            name: 'Loss of Pay (LOP)',
-            category: 'DEDUCTION',
-            amount: lopResult.lopAmount.toNumber(),
-            description: `${lopDays} days @ ₹${lopResult.dailySalary.toString()}/day`,
-        });
     }
     if (advanceRecovery.greaterThan(0)) {
         deductionsBreakdown.push({ name: 'Advance Salary Recovery', category: 'DEDUCTION', amount: advanceRecovery.toNumber() });
@@ -977,14 +1697,24 @@ export const computeFullPayroll = (input) => {
         esicCovered: esicResult.esicCovered,
         otVariableAmount: otAmount.toNumber(),
         professionalTax: ptAmount.toNumber(),
-        workingDays,
-        calendarDaysInMonth: resolvedDivisor.calendarDays,
+        calendarDays,
+        calendarDaysInMonth: calendarDays,
+        eligibleDays,
+        workingDays: scheduledWorkingDays,
+        scheduledWorkingDays,
         salaryDivisorUsed: resolvedDivisor.divisorDays,
         salaryDivisorMode: resolvedDivisor.modeUsed,
-        presentDays: input.attendance.presentDays,
+        presentDays,
+        paidWeekOffDays,
+        paidHolidayDays,
+        overlappingHolidayDays: calBreakdown.overlappingHolidayDays,
+        paidLeaveDays,
         lopDays,
-        dailySalary: lopResult.dailySalary.toNumber(),
-        lopAmount: lopResult.lopAmount.toNumber(),
+        paidDays,
+        totalPaidDays: paidDays,
+        pendingAttendanceDays: calBreakdown.pendingAttendanceDays,
+        dailySalary: dailySalaryDec.toNumber(),
+        lopAmount: lopAmountDec.toNumber(),
         advanceRecovery: advanceRecovery.toNumber(),
         loanRecovery: loanRecovery.toNumber(),
         otherDeductions: otherDeductions.toNumber(),

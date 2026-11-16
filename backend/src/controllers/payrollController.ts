@@ -115,11 +115,38 @@ export class PayrollController {
           payroll_month: result.payrollMonth,
           payroll_year: result.payrollYear,
 
+          calendar_days: result.calendarDays ?? result.calendarDaysInMonth,
+          eligible_days: result.eligibleDays,
+          working_days: result.workingDays,
+          present_days: result.presentDays,
+          paid_week_off: result.paidWeekOffDays ?? 0,
+          paid_holiday: result.paidHolidayDays ?? 0,
+          paid_leave: result.paidLeaveDays ?? 0,
+          lop_days: result.lopDays,
+          total_paid_days: result.paidDays ?? result.totalPaidDays,
+          gross_salary: result.grossSalary,
+          total_deductions: result.totalDeductions,
+          net_pay: result.netSalary,
+
+          attendance_summary: {
+            calendarDays: result.calendarDays ?? result.calendarDaysInMonth,
+            eligibleDays: result.eligibleDays,
+            workingDays: result.workingDays,
+            presentDays: result.presentDays,
+            paidWeekOff: result.paidWeekOffDays ?? 0,
+            paidHoliday: result.paidHolidayDays ?? 0,
+            paidLeave: result.paidLeaveDays ?? 0,
+            lopDays: result.lopDays,
+            totalPaidDays: result.paidDays ?? result.totalPaidDays,
+          },
+
           salary: {
+            monthly_gross: result.monthlySalary,
             basic: result.basicSalary,
             da: result.da,
             conveyance: result.conveyance,
             hra: result.hra,
+            fixed_gross: result.fixedGross,
           },
 
           earnings: {
@@ -201,6 +228,17 @@ export class PayrollController {
     try {
       const processor = req.user?.name || 'Finance Admin';
       const run = await payrollService.processPayrollRun(req.params.id as string, processor);
+      res.json({ success: true, data: run });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async recalculateRun(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const processor = req.user?.name || 'HR / Payroll Admin';
+      const forceApproved = Boolean(req.body?.forceApproved);
+      const run = await payrollService.recalculatePayrollRun(req.params.id as string, processor, forceApproved);
       res.json({ success: true, data: run });
     } catch (err) {
       next(err);

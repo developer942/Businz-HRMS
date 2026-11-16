@@ -1,4 +1,5 @@
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
+import { getCalendarDaysInMonth, countWeeklyOffDaysInMonth } from '../services/calculationEngine.js';
 import { employeeRepository } from './employeeRepository.js';
 import { settingsRepository } from './settingsRepository.js';
 import { randomUUID } from 'crypto';
@@ -6,25 +7,70 @@ import { query, withTransaction } from '../config/database.js';
 // In-memory data store for payroll runs & processed records during active session
 const inMemoryRuns = [];
 const inMemoryRecords = new Map();
-const mapPayrollRecord = (row) => ({
-    employeeId: row.employee_code,
-    status: row.status,
-    payrollMonth: Number(row.payroll_month), payrollYear: Number(row.payroll_year),
-    monthlySalary: Number(row.monthly_salary ?? row.gross_salary),
-    basicSalary: Number(row.basic_salary), da: Number(row.da), conveyance: Number(row.conveyance), hra: Number(row.hra),
-    fixedGross: Number(row.basic_salary) + Number(row.da) + Number(row.conveyance) + Number(row.hra),
-    attendanceBonus: Number(row.attendance_bonus), overtimeHours: Number(row.overtime_hours || 0),
-    overtimeRate: 0, overtimeAmount: Number(row.overtime_amount), bonus: Number(row.bonus),
-    incentive: Number(row.incentive), commission: Number(row.commission), otherEarnings: Number(row.other_earnings),
-    grossSalary: Number(row.gross_salary), pfBase: Number(row.pf_base), pfRate: Number(row.pf_rate),
-    pfAmount: Number(row.pf_amount), esicBase: Number(row.esic_base), esicRate: Number(row.esic_rate),
-    esicAmount: Number(row.esic_amount), professionalTax: Number(row.professional_tax),
-    workingDays: Number(row.working_days || 0), presentDays: Number(row.present_days || 0),
-    lopDays: Number(row.lop_days), dailySalary: Number(row.working_days) > 0 ? Number(row.gross_salary) / Number(row.working_days) : 0,
-    lopAmount: Number(row.lop_amount), advanceRecovery: Number(row.advance_recovery), loanRecovery: Number(row.loan_recovery),
-    otherDeductions: Number(row.other_deductions), totalDeductions: Number(row.total_deductions), netSalary: Number(row.net_salary),
-    earningsBreakdown: [], deductionsBreakdown: [],
-});
+const mapPayrollRecord = (row) => {
+    const payrollMonth = Number(row.payroll_month) || 8;
+    const payrollYear = Number(row.payroll_year) || 2026;
+    const calendarDays = getCalendarDaysInMonth(payrollMonth, payrollYear);
+    const lopDays = Number(row.lop_days) || 0;
+    const defaultWeekOffs = countWeeklyOffDaysInMonth(payrollMonth, payrollYear, 0);
+    const scheduledWorkingDays = Number(row.working_days) > 0 && Number(row.working_days) <= calendarDays
+        ? Number(row.working_days)
+        : Math.max(0, calendarDays - defaultWeekOffs);
+    const paidLeaveDays = Number(row.paid_leave_days) || 0;
+    const paidHolidayDays = Number(row.paid_holiday_days) || 0;
+    const paidWeekOffDays = Number(row.paid_week_off_days ?? defaultWeekOffs);
+    const paidDays = Math.max(0, calendarDays - lopDays);
+    const presentDays = Math.max(0, scheduledWorkingDays - paidLeaveDays - lopDays);
+    return {
+        employeeId: row.employee_code,
+        status: row.status,
+        payrollMonth,
+        payrollYear,
+        monthlySalary: Number(row.monthly_salary ?? row.gross_salary),
+        basicSalary: Number(row.basic_salary),
+        da: Number(row.da),
+        conveyance: Number(row.conveyance),
+        hra: Number(row.hra),
+        fixedGross: Number(row.basic_salary) + Number(row.da) + Number(row.conveyance) + Number(row.hra),
+        attendanceBonus: Number(row.attendance_bonus),
+        overtimeHours: Number(row.overtime_hours || 0),
+        overtimeRate: 0,
+        overtimeAmount: Number(row.overtime_amount),
+        bonus: Number(row.bonus),
+        incentive: Number(row.incentive),
+        commission: Number(row.commission),
+        otherEarnings: Number(row.other_earnings),
+        grossSalary: Number(row.gross_salary),
+        pfBase: Number(row.pf_base),
+        pfRate: Number(row.pf_rate),
+        pfAmount: Number(row.pf_amount),
+        esicBase: Number(row.esic_base),
+        esicRate: Number(row.esic_rate),
+        esicAmount: Number(row.esic_amount),
+        professionalTax: Number(row.professional_tax),
+        calendarDays,
+        calendarDaysInMonth: calendarDays,
+        eligibleDays: calendarDays,
+        workingDays: scheduledWorkingDays,
+        scheduledWorkingDays,
+        presentDays,
+        paidWeekOffDays,
+        paidHolidayDays,
+        paidLeaveDays,
+        lopDays,
+        paidDays,
+        totalPaidDays: paidDays,
+        dailySalary: calendarDays > 0 ? Number((Number(row.monthly_salary ?? row.gross_salary) / calendarDays).toFixed(2)) : 0,
+        lopAmount: Number(row.lop_amount),
+        advanceRecovery: Number(row.advance_recovery),
+        loanRecovery: Number(row.loan_recovery),
+        otherDeductions: Number(row.other_deductions),
+        totalDeductions: Number(row.total_deductions),
+        netSalary: Number(row.net_salary),
+        earningsBreakdown: [],
+        deductionsBreakdown: [],
+    };
+};
 export class PayrollRepository {
     async getRunByMonth(month, year) {
         const found = inMemoryRuns.find(r => r.payrollMonth === month && r.payrollYear === year);
@@ -162,7 +208,7 @@ export class PayrollRepository {
         }
         return newRun;
     }
-    async saveProcessedRun(runId, records, processorName) {
+    async saveProcessedRun(runId, records, processorName, options) {
         let run = inMemoryRuns.find(r => r.id === runId) || null;
         if (!run) {
             run = await this.getRunById(runId);
@@ -172,6 +218,9 @@ export class PayrollRepository {
         }
         if (run.status === 'PAID') {
             throw new Error('Cannot re-process an already PAID payroll run');
+        }
+        if (run.status === 'APPROVED' && !options?.forceApproved) {
+            throw new Error('Approved payroll run is locked and cannot be reprocessed without explicit authorization');
         }
         const previousRun = { ...run };
         const totalGross = records.reduce((acc, r) => acc + r.grossSalary, 0);
@@ -192,8 +241,15 @@ export class PayrollRepository {
                     const locked = await client.query(`SELECT status FROM public.payroll_runs WHERE id=$1 FOR UPDATE`, [runId]);
                     if (!locked.rows[0])
                         throw new Error(`Payroll run ${runId} not found in PostgreSQL`);
-                    if (['APPROVED', 'PAID'].includes(locked.rows[0].status))
-                        throw new Error(`Finalized payroll run ${runId} cannot be reprocessed`);
+                    const dbStatus = locked.rows[0].status;
+                    if (dbStatus === 'PAID' || (dbStatus === 'APPROVED' && !options?.forceApproved)) {
+                        throw new Error(`Finalized payroll run ${runId} (${dbStatus}) cannot be reprocessed`);
+                    }
+                    const allowedUpdateStatuses = options?.forceApproved
+                        ? `('DRAFT', 'PROCESSED', 'APPROVED')`
+                        : options?.allowRecalculateProcessed !== false
+                            ? `('DRAFT', 'PROCESSED')`
+                            : `('DRAFT')`;
                     for (const record of records) {
                         const employee = await client.query(`SELECT id FROM public.employees WHERE employee_id=$1 LIMIT 1`, [record.employeeId]);
                         if (!employee.rows[0])
@@ -217,7 +273,7 @@ export class PayrollRepository {
                  advance_recovery=EXCLUDED.advance_recovery,loan_recovery=EXCLUDED.loan_recovery,
                  other_deductions=EXCLUDED.other_deductions,total_deductions=EXCLUDED.total_deductions,
                  net_salary=EXCLUDED.net_salary,status='PROCESSED',needs_recalculation=FALSE,updated_at=NOW()
-               WHERE public.payroll_records.status='DRAFT'`, [runId, employee.rows[0].id, structure.rows[0]?.id || null, record.payrollMonth, record.payrollYear,
+               WHERE public.payroll_records.status IN ${allowedUpdateStatuses}`, [runId, employee.rows[0].id, structure.rows[0]?.id || null, record.payrollMonth, record.payrollYear,
                             record.basicSalary, record.da, record.conveyance, record.hra, record.attendanceBonus, record.overtimeAmount,
                             record.bonus, record.incentive, record.commission, record.otherEarnings, record.grossSalary,
                             record.pfBase, record.pfRate, record.pfAmount, record.esicBase, record.esicRate, record.esicAmount,
@@ -228,14 +284,21 @@ export class PayrollRepository {
                total_deductions=$4,total_net=$5,processed_by_name=$6,processed_at=$7,updated_at=NOW() WHERE id=$1`, [runId, run.totalEmployees, run.totalGross, run.totalDeductions, run.totalNet, processorName, run.processedAt]);
                 });
                 const supabase = getSupabaseAdmin();
-                // Also save to company_settings payroll_records_data for frontend synchronization
+                // Also save to company_settings payroll_records_data for frontend synchronization (preserving Paid/Locked records)
                 const { data: csData } = await supabase
                     .from('company_settings')
                     .select('id, setting_val')
                     .eq('setting_key', 'payroll_records_data')
                     .maybeSingle();
                 const currentRecords = Array.isArray(csData?.setting_val) ? csData.setting_val : [];
-                const mergedRecords = [...records, ...currentRecords.filter(cr => !records.some(r => r.employeeId === cr.employeeId && r.payrollMonth === cr.payrollMonth && r.payrollYear === cr.payrollYear))];
+                const lockedCurrent = currentRecords.filter(cr => cr && (cr.status === 'Paid' || cr.status === 'PAID' || cr.status === 'APPROVED' || cr.isLocked) && !options?.forceApproved);
+                const nonLockedUpdated = records.filter(r => !lockedCurrent.some(lc => lc.employeeId === r.employeeId && (lc.payrollMonth === r.payrollMonth || lc.month) && Number(lc.payrollYear ?? lc.year) === r.payrollYear));
+                const mergedRecords = [
+                    ...lockedCurrent,
+                    ...nonLockedUpdated,
+                    ...currentRecords.filter(cr => !lockedCurrent.includes(cr) &&
+                        !nonLockedUpdated.some(r => r.employeeId === cr.employeeId && r.payrollMonth === Number(cr.payrollMonth) && r.payrollYear === Number(cr.payrollYear ?? cr.year))),
+                ];
                 if (csData?.id) {
                     await supabase
                         .from('company_settings')
@@ -400,6 +463,10 @@ export class PayrollRepository {
                 email: emp.email,
                 department: emp.department,
                 designation: emp.designation,
+                joiningDate: emp.joiningDate,
+                monthlyCtc: record.monthlySalary,
+                panNumber: emp.panNumber || emp.salaryDetails?.panNumber,
+                uanNumber: emp.uanNumber || emp.salaryDetails?.uanNumber,
                 bankName: emp.bankName,
                 accountNumber: emp.accountNumber,
                 ifscCode: emp.ifscCode,
@@ -408,9 +475,16 @@ export class PayrollRepository {
                 month: record.payrollMonth,
                 year: record.payrollYear,
                 monthName: months[record.payrollMonth - 1] || 'August',
+                calendarDays: record.calendarDays ?? record.calendarDaysInMonth,
+                eligibleDays: record.eligibleDays,
                 workingDays: record.workingDays,
                 presentDays: record.presentDays,
+                paidWeekOffDays: record.paidWeekOffDays ?? 0,
+                paidHolidayDays: record.paidHolidayDays ?? 0,
+                paidLeaveDays: record.paidLeaveDays ?? 0,
                 lopDays: record.lopDays,
+                paidDays: record.paidDays ?? record.totalPaidDays,
+                totalPaidDays: record.totalPaidDays ?? record.paidDays,
                 status: record.status || 'PROCESSED',
             },
             earnings: {

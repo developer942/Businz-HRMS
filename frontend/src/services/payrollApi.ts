@@ -28,6 +28,10 @@ export interface ApiPayrollPreviewRequest {
   commission?: number;
   other_earnings?: number;
   lop_days?: number;
+  paid_leave_days?: number;
+  joining_date?: string;
+  exit_date?: string;
+  weekly_off?: string;
   advance_recovery?: number;
   loan_recovery?: number;
   other_deductions?: number;
@@ -37,6 +41,36 @@ export interface ApiPayrollPreviewResponse {
   employee_id: string;
   payroll_month: number;
   payroll_year: number;
+  calendar_days?: number;
+  eligible_days?: number;
+  working_days?: number;
+  scheduled_working_days?: number;
+  present_days?: number;
+  paid_week_off?: number;
+  paid_holiday?: number;
+  overlapping_holidays?: number;
+  paid_leave?: number;
+  lop_days?: number;
+  total_paid_days?: number;
+  pending_attendance_days?: number;
+  gross_salary?: number;
+  total_deductions?: number;
+  net_pay?: number;
+  attendance_summary?: {
+    calendarDays: number;
+    eligibleDays: number;
+    workingDays: number;
+    scheduledWorkingDays: number;
+    presentDays: number;
+    paidWeekOffDays: number;
+    paidHolidayDays: number;
+    overlappingHolidayDays: number;
+    paidLeaveDays: number;
+    lopDays: number;
+    paidDays: number;
+    totalPaidDays: number;
+    pendingAttendanceDays: number;
+  };
   salary: {
     basic: number;
     da: number;
@@ -112,9 +146,19 @@ export interface ApiPayslip {
     month: number;
     year: number;
     monthName: string;
+    calendarDays?: number;
+    eligibleDays?: number;
     workingDays: number;
+    scheduledWorkingDays?: number;
     presentDays: number;
+    paidWeekOffDays?: number;
+    paidHolidayDays?: number;
+    overlappingHolidayDays?: number;
+    paidLeaveDays?: number;
     lopDays: number;
+    paidDays?: number;
+    totalPaidDays?: number;
+    pendingAttendanceDays?: number;
     status: string;
   };
   earnings: {
@@ -257,6 +301,13 @@ export const payrollApi = {
   async processPayrollRun(id: string): Promise<ApiPayrollRun> {
     return request<ApiPayrollRun>(`/payroll/runs/${id}/process`, {
       method: 'POST',
+    });
+  },
+
+  async recalculatePayrollRun(id: string, forceApproved = false): Promise<ApiPayrollRun> {
+    return request<ApiPayrollRun>(`/payroll/runs/${id}/recalculate`, {
+      method: 'POST',
+      body: JSON.stringify({ force_approved: forceApproved }),
     });
   },
 

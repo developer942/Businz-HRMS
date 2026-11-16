@@ -17,8 +17,9 @@ payrollRouter.post('/preview', requirePermission('payroll', 'view'), (req, res, 
 payrollRouter.post('/runs', requirePermission('payroll', 'create'), (req, res, next) => payrollController.createRun(req, res, next));
 payrollRouter.get('/runs', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getAllRuns(req, res, next));
 payrollRouter.get('/runs/:id', requirePermission('payroll', 'view'), (req, res, next) => payrollController.getRunById(req, res, next));
-// Workflow actions: Process -> Approve -> Pay
+// Workflow actions: Process -> Recalculate -> Approve -> Pay
 payrollRouter.post('/runs/:id/process', requireSpecialPermission('process_payroll'), (req, res, next) => payrollController.processRun(req, res, next));
+payrollRouter.post('/runs/:id/recalculate', requireSpecialPermission('process_payroll'), (req, res, next) => payrollController.recalculateRun(req, res, next));
 payrollRouter.post('/runs/:id/approve', requireSpecialPermission('approve_payroll'), (req, res, next) => payrollController.approveRun(req, res, next));
 payrollRouter.post('/runs/:id/pay', requireRoles(['Super Admin', 'CEO', 'Finance Manager', 'Finance', 'Accountant', 'Admin']), (req, res, next) => payrollController.payRun(req, res, next));
 // Processed Records & Payslips

@@ -143,6 +143,10 @@ export interface Employee {
   isActive?: boolean;
   dateOfBirth?: string;   // 'YYYY-MM-DD' (alias of dob)
   dateOfJoining?: string; // 'YYYY-MM-DD' (alias of joiningDate)
+  exitDate?: string;      // 'YYYY-MM-DD'
+  relievingDate?: string; // 'YYYY-MM-DD'
+  lastWorkingDate?: string; // 'YYYY-MM-DD'
+  terminationDate?: string; // 'YYYY-MM-DD'
 
   // Extended Comprehensive Onboarding Fields
   personalEmail?: string;
@@ -533,15 +537,24 @@ export interface PayrollRecord {
   esiDeduction?: number;
   professionalTax?: number;
   workingDays: number;
+  scheduledWorkingDays?: number;
   presentDays: number;
+  paidWeekOffDays?: number;
+  paidHolidayDays?: number;
+  overlappingHolidayDays?: number;
+  paidLeaveDays?: number;
   paidLeaves: number;
   unpaidLeaves: number;
   paidDays?: number;
+  totalPaidDays?: number;
   lopDays?: number;
+  eligibleDays?: number;
+  calendarDays?: number;
+  calendarDaysInMonth?: number;
+  pendingAttendanceDays?: number;
   overtimeHours?: number;
   overtimeAmount?: number;
   overtimeRate?: number;
-  calendarDaysInMonth?: number;
   salaryDivisorUsed?: number;
   salaryDivisorMode?: 'FIXED_DAYS' | 'CALENDAR_DAYS' | 'WORKING_DAYS' | string;
   isLocked?: boolean;

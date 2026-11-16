@@ -7,11 +7,14 @@ import {
   PayslipResponseData,
 } from '../types/payroll.js';
 import { validateComponentEligibility } from './componentEligibilityEngine.js';
-import { computeFullPayroll, computeSalaryStructure, isCeoOrOwnerEmployee } from './calculationEngine.js';
+import { computeFullPayroll, computeSalaryStructure, isCeoOrOwnerEmployee, getCalendarDaysInMonth } from './calculationEngine.js';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import { settingsRepository } from '../repositories/settingsRepository.js';
 import { payrollRepository } from '../repositories/payrollRepository.js';
 import { overtimeRepository } from '../repositories/overtimeRepository.js';
+import { attendanceRepository } from '../repositories/attendanceRepository.js';
+import { leaveRepository } from '../repositories/leaveRepository.js';
+import { query } from '../config/database.js';
 
 export interface PayrollPreviewInput {
   employee_id: string;
@@ -25,12 +28,52 @@ export interface PayrollPreviewInput {
   commission?: number;
   other_earnings?: number;
   lop_days?: number;
+  paid_leave_days?: number;
   advance_recovery?: number;
   loan_recovery?: number;
   other_deductions?: number;
+  joining_date?: string | null;
+  exit_date?: string | null;
+  weekly_off?: string | string[] | null;
+  holidays?: any[];
+  weekly_schedules?: any[];
+  attendance_records?: any[];
+  leave_requests?: any[];
+  sandwich_policies?: any[];
 }
 
 export class PayrollService {
+  private async loadCalendarSettingsFromDb(): Promise<{
+    holidays: any[];
+    weeklySchedules: any[];
+    sandwichPolicies: any[];
+  }> {
+    let holidays: any[] = [];
+    let weeklySchedules: any[] = [];
+    let sandwichPolicies: any[] = [];
+    try {
+      const res = await query<{ setting_key: string; setting_val: any }>(
+        `SELECT setting_key, setting_val
+           FROM public.company_settings
+          WHERE setting_key IN ('holidays_data', 'holidays', 'weekly_schedules_data', 'weekly_schedules', 'sandwich_policies_data', 'sandwich_policies')`
+      );
+      for (const row of res.rows || []) {
+        if ((row.setting_key === 'holidays_data' || row.setting_key === 'holidays') && Array.isArray(row.setting_val) && holidays.length === 0) {
+          holidays = row.setting_val;
+        }
+        if ((row.setting_key === 'weekly_schedules_data' || row.setting_key === 'weekly_schedules') && Array.isArray(row.setting_val) && weeklySchedules.length === 0) {
+          weeklySchedules = row.setting_val;
+        }
+        if ((row.setting_key === 'sandwich_policies_data' || row.setting_key === 'sandwich_policies') && Array.isArray(row.setting_val) && sandwichPolicies.length === 0) {
+          sandwichPolicies = row.setting_val;
+        }
+      }
+    } catch {
+      // Ignore if DB not connected during unit tests
+    }
+    return { holidays, weeklySchedules, sandwichPolicies };
+  }
+
   async getSettings(): Promise<PayrollSettingsModel> {
     return settingsRepository.getSettings();
   }
@@ -65,7 +108,7 @@ export class PayrollService {
 
   /**
    * Preview calculation for an employee without persisting records.
-   * Authoritative backend calculation using decimal.js and dynamic DB settings.
+   * Authoritative backend Calendar Day Based Payroll calculation using decimal.js and dynamic DB settings.
    */
   async previewPayroll(input: PayrollPreviewInput): Promise<FullPayrollCalculationResult> {
     const employee = await employeeRepository.getEmployeeById(input.employee_id);
@@ -102,9 +145,24 @@ export class PayrollService {
       }
     }
 
-    const workingDays = settings.standardWorkingDays || 26;
+    const calendarCtx = await this.loadCalendarSettingsFromDb();
+    const empAtt = input.attendance_records ?? (isCeo ? [] : await attendanceRepository.getAll({ employeeId: employee.employeeId }).catch(() => []));
+    const empLeaves = input.leave_requests ?? (isCeo ? [] : await leaveRepository.getLeaves({ employeeId: employee.employeeId, status: 'Approved' }).catch(() => []));
+
+    const profileData = (employee as any).profile_data || {};
+    const joiningDate = input.joining_date !== undefined
+      ? input.joining_date
+      : (employee.joiningDate || profileData.joiningDate || profileData.dateOfJoining);
+    const exitDate = input.exit_date !== undefined
+      ? input.exit_date
+      : (profileData.exitDate || profileData.relievingDate || profileData.lastWorkingDate || profileData.terminationDate);
+    const weeklyOff = input.weekly_off !== undefined
+      ? input.weekly_off
+      : (employee.shiftDetails?.weeklyOff || profileData.shiftDetails?.weeklyOff || profileData.weeklyOff);
+
+    const calendarDays = getCalendarDaysInMonth(input.payroll_month, input.payroll_year);
     const lopDays = isCeo ? 0 : (input.lop_days ?? 0);
-    const presentDays = isCeo ? workingDays : Math.max(0, workingDays - lopDays);
+    const paidLeaveDays = isCeo ? 0 : (input.paid_leave_days ?? 0);
 
     return computeFullPayroll({
       employeeId: employee.employeeId,
@@ -117,10 +175,18 @@ export class PayrollService {
       payrollYear: input.payroll_year,
       withPf: structure.withPf !== undefined ? structure.withPf : (employee.withPf !== undefined ? employee.withPf : true),
       settings,
+      joiningDate: joiningDate || undefined,
+      exitDate: exitDate || undefined,
+      weeklyOff: weeklyOff || undefined,
+      weeklySchedules: input.weekly_schedules ?? calendarCtx.weeklySchedules,
+      holidays: input.holidays ?? calendarCtx.holidays,
+      attendanceRecords: empAtt,
+      leaveRequests: empLeaves,
+      sandwichPolicies: input.sandwich_policies ?? calendarCtx.sandwichPolicies,
       attendance: {
-        workingDays,
-        presentDays,
-        paidLeaveDays: 0,
+        workingDays: calendarDays,
+        presentDays: Math.max(0, calendarDays - lopDays),
+        paidLeaveDays,
         unpaidLeaveDays: lopDays,
         absentDays: 0,
         halfDays: 0,
@@ -149,6 +215,8 @@ export class PayrollService {
         role: (employee as any).role,
         department: employee.department,
         designation: employee.designation,
+        branchId: employee.workLocation || employee.branch,
+        joiningDate: joiningDate || undefined,
         monthlyCtc: structure.monthlySalary,
         basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
         withPf: structure.withPf !== undefined ? structure.withPf : (employee.withPf !== undefined ? employee.withPf : true),
@@ -171,17 +239,32 @@ export class PayrollService {
   }
 
   /**
-   * Processes a monthly payroll batch for all active employees.
+   * Processes a monthly payroll batch for all active employees using Calendar Day Based Payroll.
    */
-  async processPayrollRun(runId: string, processorName = 'Finance Admin'): Promise<PayrollRunModel> {
+  async processPayrollRun(
+    runId: string,
+    processorName = 'Finance Admin',
+    options?: { allowRecalculateProcessed?: boolean; forceApproved?: boolean }
+  ): Promise<PayrollRunModel> {
     const run = await payrollRepository.getRunById(runId);
     if (!run) {
       throw new Error(`Payroll run ${runId} not found`);
     }
 
+    if (run.status === 'PAID') {
+      throw new Error('Cannot re-process an already PAID payroll run');
+    }
+    if (run.status === 'APPROVED' && !options?.forceApproved) {
+      throw new Error('Approved payroll run is locked. Controlled recalculation requires explicit authorization.');
+    }
+
     const employees = await employeeRepository.getAllEmployees();
     const settings = await settingsRepository.getSettings();
     const payrollConfig = await settingsRepository.getPayrollSettingsConfig();
+    const calendarCtx = await this.loadCalendarSettingsFromDb();
+    const allAttendance = await attendanceRepository.getAll().catch(() => []);
+    const allApprovedLeaves = await leaveRepository.getLeaves({ status: 'Approved' }).catch(() => []);
+    const calendarDays = getCalendarDaysInMonth(run.payrollMonth, run.payrollYear);
     const processedRecords: FullPayrollCalculationResult[] = [];
 
     for (const emp of employees) {
@@ -203,8 +286,13 @@ export class PayrollService {
       const otHours = approvedOt.reduce((sum, r) => sum + r.hours, 0);
       const otAmount = approvedOt.reduce((sum, r) => sum + r.amount, 0);
 
-      const workingDays = settings.standardWorkingDays || 26;
-      const lopDays = 0; // Standard month or from attendance
+      const profileData = (emp as any).profile_data || {};
+      const joiningDate = emp.joiningDate || profileData.joiningDate || profileData.dateOfJoining;
+      const exitDate = profileData.exitDate || profileData.relievingDate || profileData.lastWorkingDate || profileData.terminationDate;
+      const weeklyOff = emp.shiftDetails?.weeklyOff || profileData.shiftDetails?.weeklyOff || profileData.weeklyOff;
+
+      const empAtt = allAttendance.filter(a => String(a.employeeId || '').toLowerCase() === String(emp.employeeId || '').toLowerCase());
+      const empLeaves = allApprovedLeaves.filter(l => String(l.employeeId || '').toLowerCase() === String(emp.employeeId || '').toLowerCase());
 
       const calculated = computeFullPayroll({
         employeeId: emp.employeeId,
@@ -217,14 +305,22 @@ export class PayrollService {
         payrollYear: run.payrollYear,
         withPf: structure.withPf !== undefined ? structure.withPf : (emp.withPf !== undefined ? emp.withPf : true),
         settings,
+        joiningDate: joiningDate || undefined,
+        exitDate: exitDate || undefined,
+        weeklyOff: weeklyOff || undefined,
+        weeklySchedules: calendarCtx.weeklySchedules,
+        holidays: calendarCtx.holidays,
+        attendanceRecords: empAtt,
+        leaveRequests: empLeaves,
+        sandwichPolicies: calendarCtx.sandwichPolicies,
         attendance: {
-          workingDays,
-          presentDays: workingDays,
+          workingDays: calendarDays,
+          presentDays: calendarDays,
           paidLeaveDays: 0,
           unpaidLeaveDays: 0,
           absentDays: 0,
           halfDays: 0,
-          lopDays,
+          lopDays: 0,
           overtimeHours: otHours,
         },
         earnings: {
@@ -235,6 +331,8 @@ export class PayrollService {
         employeeContext: {
           id: emp.id,
           employeeId: emp.employeeId,
+          branchId: emp.workLocation || emp.branch,
+          joiningDate: joiningDate || undefined,
           monthlyCtc: structure.monthlySalary,
           basicSalary: structure.monthlySalary * (structure.basicPercentage / 100),
           withPf: structure.withPf !== undefined ? structure.withPf : (emp.withPf !== undefined ? emp.withPf : true),
@@ -246,7 +344,22 @@ export class PayrollService {
       processedRecords.push(calculated);
     }
 
-    return payrollRepository.saveProcessedRun(runId, processedRecords, processorName);
+    return payrollRepository.saveProcessedRun(runId, processedRecords, processorName, options);
+  }
+
+  /**
+   * Controlled recalculation for previously processed payroll (Requirement 15).
+   * Preserves PAID records and requires explicit authorization if run is APPROVED.
+   */
+  async recalculatePayrollRun(
+    runId: string,
+    processorName = 'HR / Payroll Admin',
+    forceApproved = false
+  ): Promise<PayrollRunModel> {
+    return this.processPayrollRun(runId, processorName, {
+      allowRecalculateProcessed: true,
+      forceApproved,
+    });
   }
 
   async approvePayrollRun(runId: string, approverName = 'Authorized Signatory'): Promise<PayrollRunModel> {
@@ -278,7 +391,7 @@ export class PayrollService {
       });
 
       const emp = await employeeRepository.getEmployeeById(employeeId);
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
       const targetCompanyId = companyId || emp?.branch || 'company-a';
       const compSettings = await settingsRepository.getCompanySettings(targetCompanyId);
 
@@ -312,6 +425,10 @@ export class PayrollService {
           email: emp?.email || 'staff@businz.com',
           department: emp?.department || 'Operations',
           designation: emp?.designation || 'Engineer',
+          joiningDate: emp?.joiningDate,
+          monthlyCtc: preview.monthlySalary,
+          panNumber: emp?.panNumber || emp?.salaryDetails?.panNumber,
+          uanNumber: emp?.uanNumber || emp?.salaryDetails?.uanNumber,
           bankName: emp?.bankName,
           accountNumber: emp?.accountNumber,
           ifscCode: emp?.ifscCode,
@@ -320,9 +437,16 @@ export class PayrollService {
           month: preview.payrollMonth,
           year: preview.payrollYear,
           monthName: months[preview.payrollMonth - 1] || 'August',
+          calendarDays: preview.calendarDays ?? preview.calendarDaysInMonth,
+          eligibleDays: preview.eligibleDays,
           workingDays: preview.workingDays,
           presentDays: preview.presentDays,
+          paidWeekOffDays: preview.paidWeekOffDays ?? 0,
+          paidHolidayDays: preview.paidHolidayDays ?? 0,
+          paidLeaveDays: preview.paidLeaveDays ?? 0,
           lopDays: preview.lopDays,
+          paidDays: preview.paidDays ?? preview.totalPaidDays,
+          totalPaidDays: preview.totalPaidDays ?? preview.paidDays,
           status: 'Processed',
         },
         earnings: {
