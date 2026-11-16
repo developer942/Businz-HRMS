@@ -30,16 +30,26 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
     );
   }, [employees, currentUser]);
 
-  const matchesMe = (idOrCode?: string, name?: string) => {
+  const matchesMe = (idOrCode?: string, name?: string, email?: string) => {
     if (idOrCode) {
-      if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
-      if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
+      const codeLower = String(idOrCode).trim().toLowerCase();
+      if (currentUser.employeeId && codeLower === String(currentUser.employeeId).trim().toLowerCase()) return true;
+      if (currentUser.id && codeLower === String(currentUser.id).trim().toLowerCase()) return true;
+      if (myEmpRecord) {
+        if (myEmpRecord.employeeId && codeLower === String(myEmpRecord.employeeId).trim().toLowerCase()) return true;
+        if (myEmpRecord.id && codeLower === String(myEmpRecord.id).trim().toLowerCase()) return true;
+      }
+    }
+    if (email && currentUser.email) {
+      if (String(email).trim().toLowerCase() === String(currentUser.email).trim().toLowerCase()) return true;
     }
     if (name) {
-      const target = name.trim().toLowerCase();
-      if (target === currentUser.name.trim().toLowerCase()) return true;
-      if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
-        return true;
+      const target = String(name).replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+      const myName = String(currentUser.name || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+      if (target && myName && target === myName) return true;
+      if (myEmpRecord) {
+        const empFullName = `${myEmpRecord.firstName || ''} ${myEmpRecord.lastName || ''}`.trim().toLowerCase();
+        if (target && empFullName && target === empFullName) return true;
       }
     }
     return false;
@@ -58,7 +68,7 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
         ? 50
         : 0;
     // Strictly ONLY the logged-in assigned employee can change their own status!
-    const targetAssignee = task.assignees.find(a => matchesMe(a.employeeId, a.employeeName));
+    const targetAssignee = task.assignees.find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
     if (targetAssignee) {
       updateAssigneeProgress(task.id, targetAssignee.id || targetAssignee.employeeId, progress, newStatus);
     }
@@ -84,92 +94,19 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
     );
   }, [currentUser.role]);
 
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(() => {
-    if (isManagerOrAdmin) return 'ALL';
-    if (currentUser.employeeId) return currentUser.employeeId;
-    const match = employees.find(
-      e =>
-        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-        `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
-    );
-    return match ? match.employeeId : 'ALL';
-  });
-
-  useEffect(() => {
-    if (isManagerOrAdmin) {
-      setSelectedEmployeeId('ALL');
-    } else if (currentUser.employeeId) {
-      setSelectedEmployeeId(currentUser.employeeId);
-    } else {
-      const match = employees.find(
-        e =>
-          (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-          `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
-      );
-      setSelectedEmployeeId(match ? match.employeeId : 'ALL');
-    }
-  }, [currentUser.id, currentUser.employeeId, currentUser.email, currentUser.name, isManagerOrAdmin, employees]);
-
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(10);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
 
+  // My Tasks strictly shows ONLY tasks assigned FOR the logged-in user (currentUser)
   const myTasks = useMemo(() => {
-    if (!isManagerOrAdmin) {
-      const myEmpRecord = employees.find(
-        e =>
-          e.employeeId === currentUser.employeeId ||
-          e.id === currentUser.id ||
-          (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-          `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
-      );
-
-      const matchesMe = (idOrCode?: string, name?: string) => {
-        if (idOrCode) {
-          if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
-          if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
-        }
-        if (name) {
-          const target = name.trim().toLowerCase();
-          if (target === currentUser.name.trim().toLowerCase()) return true;
-          if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-      return enhancedTasks.filter(
-        t =>
-          t.assignees.some(a => matchesMe(a.employeeId, a.employeeName)) ||
-          matchesMe(t.responsiblePersonId, t.responsiblePersonName)
-      );
-    }
-
-    if (selectedEmployeeId === 'ALL') {
-      return enhancedTasks;
-    }
-
-    const selectedEmpObj = employees.find(e => e.employeeId === selectedEmployeeId || e.id === selectedEmployeeId);
-    const fullName = selectedEmpObj
-      ? `${selectedEmpObj.firstName} ${selectedEmpObj.lastName}`.trim().toLowerCase()
-      : '';
-
-    return enhancedTasks.filter(t => {
-      const isAssignee = t.assignees.some(
-        a =>
-          a.employeeId === selectedEmployeeId ||
-          (selectedEmpObj && a.employeeId === selectedEmpObj.id) ||
-          (fullName && a.employeeName.trim().toLowerCase() === fullName)
-      );
-      const isResponsible =
-        t.responsiblePersonId === selectedEmployeeId ||
-        (selectedEmpObj && t.responsiblePersonId === selectedEmpObj.id) ||
-        (fullName && t.responsiblePersonName.trim().toLowerCase() === fullName);
-      return isAssignee || isResponsible;
-    });
-  }, [enhancedTasks, selectedEmployeeId, employees, isManagerOrAdmin, currentUser]);
+    return enhancedTasks.filter(
+      t =>
+        (t.assignees || []).some(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail)) ||
+        matchesMe(t.responsiblePersonId, t.responsiblePersonName)
+    );
+  }, [enhancedTasks, currentUser, myEmpRecord]);
 
   const filteredMyTasks = useMemo(() => {
     return myTasks.filter(t => {
@@ -187,18 +124,16 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
       if (filterStatus === 'ALL') return true;
 
       let myStatus: string = t.overallStatus;
-      if (selectedEmployeeId !== 'ALL') {
-        const myAssignee = t.assignees.find(a => a.employeeId === selectedEmployeeId);
-        if (myAssignee) {
-          if (myAssignee.individualStatus === 'Open' || myAssignee.individualStatus === 'Pending' || myAssignee.individualStatus === 'Not Started')
-            myStatus = 'OPEN';
-          else if (myAssignee.individualStatus === 'Under Review')
-            myStatus = 'UNDER REVIEW';
-          else if (myAssignee.individualStatus === 'In Progress' || myAssignee.individualStatus === 'In Process')
-            myStatus = 'IN PROGRESS';
-          else if (myAssignee.individualStatus === 'Completed')
-            myStatus = 'COMPLETED';
-        }
+      const myAssignee = (t.assignees || []).find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
+      if (myAssignee) {
+        if (myAssignee.individualStatus === 'Open' || myAssignee.individualStatus === 'Pending' || myAssignee.individualStatus === 'Not Started')
+          myStatus = 'OPEN';
+        else if (myAssignee.individualStatus === 'Under Review')
+          myStatus = 'UNDER REVIEW';
+        else if (myAssignee.individualStatus === 'In Progress' || myAssignee.individualStatus === 'In Process')
+          myStatus = 'IN PROGRESS';
+        else if (myAssignee.individualStatus === 'Completed')
+          myStatus = 'COMPLETED';
       }
 
       if (filterStatus === 'OPEN') return myStatus === 'OPEN' || myStatus === 'REOPENED';
@@ -209,11 +144,11 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
       if (filterStatus === 'COMPLETED') return myStatus === 'COMPLETED' || myStatus === 'CLOSED';
       return true;
     });
-  }, [myTasks, filterStatus, filterPriority, filterDepartment, selectedEmployeeId, searchQuery]);
+  }, [myTasks, filterStatus, filterPriority, filterDepartment, searchQuery, currentUser, myEmpRecord]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterStatus, filterPriority, filterDepartment, selectedEmployeeId, searchQuery]);
+  }, [filterStatus, filterPriority, filterDepartment, searchQuery]);
 
   const activeMobileFilterCount = useMemo(() => {
     let count = 0;
@@ -368,31 +303,6 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {isManagerOrAdmin && (
-              <select
-                value={selectedEmployeeId}
-                onChange={e => setSelectedEmployeeId(e.target.value)}
-                style={{
-                  height: '38px',
-                  padding: '0 12px',
-                  fontSize: '0.8rem',
-                  fontWeight: 600,
-                  borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
-                  background: '#F8FAFC',
-                  color: '#0F172A',
-                  cursor: 'pointer'
-                }}
-              >
-                <option value="ALL">All Employees ({enhancedTasks.length})</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.employeeId}>
-                    {emp.firstName} {emp.lastName} ({emp.department})
-                  </option>
-                ))}
-              </select>
-            )}
-
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {[
                 { key: 'ALL', label: 'All', count: myTasks.length },
@@ -400,7 +310,7 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                   key: 'OPEN',
                   label: 'Pending',
                   count: myTasks.filter(t => {
-                    const m = t.assignees.find(a => a.employeeId === selectedEmployeeId);
+                    const m = (t.assignees || []).find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
                     return m
                       ? m.individualStatus === 'Open' || m.individualStatus === 'Pending' || m.individualStatus === 'Not Started'
                       : t.overallStatus === 'OPEN';
@@ -410,7 +320,7 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                   key: 'IN_PROGRESS',
                   label: 'In Process',
                   count: myTasks.filter(t => {
-                    const m = t.assignees.find(a => a.employeeId === selectedEmployeeId);
+                    const m = (t.assignees || []).find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
                     return m
                       ? m.individualStatus === 'In Progress' || m.individualStatus === 'In Process'
                       : t.overallStatus === 'IN PROGRESS' || t.overallStatus === 'PARTIALLY COMPLETED';
@@ -420,7 +330,7 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                   key: 'UNDER_REVIEW',
                   label: 'Under Review',
                   count: myTasks.filter(t => {
-                    const m = t.assignees.find(a => a.employeeId === selectedEmployeeId);
+                    const m = (t.assignees || []).find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
                     return m
                       ? m.individualStatus === 'Under Review'
                       : t.overallStatus === 'UNDER REVIEW';
@@ -430,7 +340,7 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                   key: 'COMPLETED',
                   label: 'Completed',
                   count: myTasks.filter(t => {
-                    const m = t.assignees.find(a => a.employeeId === selectedEmployeeId);
+                    const m = (t.assignees || []).find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
                     return m
                       ? m.individualStatus === 'Completed'
                       : t.overallStatus === 'COMPLETED' || t.overallStatus === 'CLOSED';
@@ -735,9 +645,8 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
               </thead>
               <tbody>
                 {paginatedTasks.map(task => {
-                  const myOwnAssignee = task.assignees.find(a => matchesMe(a.employeeId, a.employeeName));
-                  const viewedAssignee =
-                    myOwnAssignee || task.assignees.find(a => a.employeeId === selectedEmployeeId);
+                  const myOwnAssignee = (task.assignees || []).find(a => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
+                  const viewedAssignee = myOwnAssignee;
                   const canChangeMyStatus = task.overallStatus !== 'CLOSED' && Boolean(myOwnAssignee);
                   const currentStatus = viewedAssignee ? viewedAssignee.individualStatus : task.overallStatus;
                   const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);
@@ -813,7 +722,7 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
                             textOverflow: 'ellipsis'
                           }}
                         >
-                          {task.assignedByName}
+                          {(task.assignedByName || task.assignedBy || task.createdBy || 'Management').replace(/\s*\([^)]*\)/g, '').trim()}
                         </div>
                         <div style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '2px' }}>
                           Lead: {task.responsiblePersonName}
@@ -1085,9 +994,8 @@ export const MyTasks: React.FC<Props> = ({ onViewTask }) => {
           </div>
         ) : (
           filteredMyTasks.map((task: EnhancedTask) => {
-            const myOwnAssignee = task.assignees.find((a: any) => matchesMe(a.employeeId, a.employeeName));
-            const viewedAssignee =
-              myOwnAssignee || task.assignees.find((a: any) => a.employeeId === selectedEmployeeId);
+            const myOwnAssignee = (task.assignees || []).find((a: any) => matchesMe(a.employeeId, a.employeeName, a.employeeEmail));
+            const viewedAssignee = myOwnAssignee;
             const canChangeMyStatus = task.overallStatus !== 'CLOSED' && Boolean(myOwnAssignee);
             const currentStatus = viewedAssignee ? viewedAssignee.individualStatus : task.overallStatus;
             const dueStatus = computeDueStatus(task.dueDate, task.overallStatus);

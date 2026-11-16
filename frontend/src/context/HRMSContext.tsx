@@ -4130,12 +4130,15 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...task,
         overallStatus,
         overallProgress,
-        assignedBy: 'Velmurugan (CEO)',
-        createdBy: 'Velmurugan (CEO)'
+        assignedBy: 'Velmurugan M (CEO)',
+        assignedByName: 'Velmurugan M',
+        createdBy: 'Velmurugan M (CEO)'
       };
     }
+    const cleanName = (task.assignedByName || task.assignedBy || task.createdBy || '').replace(/\s*\([^)]*\)/g, '').trim();
     return {
       ...task,
+      assignedByName: cleanName || task.assignedByName,
       overallStatus,
       overallProgress
     };
@@ -9444,6 +9447,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
 
     const currentEmpId = currentUser.employeeId || currentUser.id || 'EMP-001';
+    const cleanAssignedByName = (taskData.assignedByName || finalAssignedBy || currentUser.name || '')
+      .replace(/\s*\([^)]*\)/g, '')
+      .trim();
     const newTask: TaskItemEnhanced = {
       ...taskData,
       id: taskId,
@@ -9451,6 +9457,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       responsiblePersonId: finalResponsiblePersonId,
       responsiblePersonName: finalResponsiblePersonName,
       assignedBy: finalAssignedBy,
+      assignedByName: cleanAssignedByName,
       assignedById: (taskData as any).assignedById || currentEmpId,
       createdBy: taskData.createdBy || currentUser.name,
       createdById: (taskData as any).createdById || currentEmpId,

@@ -828,14 +828,22 @@ export const supabaseDirect = {
       if (!res.ok) return [];
       const rows = await res.json();
       if (!Array.isArray(rows)) return [];
-      return rows.map((r: any) => ({
-        ...r.task_data,
-        id: r.id || r.task_data?.id,
-        taskNumber: r.task_number || r.task_data?.taskNumber,
-        title: r.title || r.task_data?.title,
-        overallStatus: r.overall_status || r.task_data?.overallStatus || 'OPEN',
-        overallProgress: r.overall_progress ?? r.task_data?.overallProgress ?? 0,
-      }));
+      return rows.map((r: any) => {
+        const rawAssignedBy = r.task_data?.assignedBy || r.assigned_by || r.task_data?.createdBy || '';
+        const cleanAssignedByName =
+          r.task_data?.assignedByName ||
+          String(rawAssignedBy).replace(/\s*\([^)]*\)/g, '').trim();
+        return {
+          ...r.task_data,
+          id: r.id || r.task_data?.id,
+          taskNumber: r.task_number || r.task_data?.taskNumber,
+          title: r.title || r.task_data?.title,
+          assignedBy: rawAssignedBy,
+          assignedByName: cleanAssignedByName,
+          overallStatus: r.overall_status || r.task_data?.overallStatus || 'OPEN',
+          overallProgress: r.overall_progress ?? r.task_data?.overallProgress ?? 0,
+        };
+      });
     } catch (err) {
       console.warn('[DatabaseRest] getTasks error:', err);
       return [];

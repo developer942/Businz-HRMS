@@ -48,68 +48,61 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
     );
   }, [currentUser.role]);
 
-  const [selectedAssignerName, setSelectedAssignerName] = useState<string>(() => {
-    if (isManagerOrAdmin) return 'ALL';
-    return currentUser.name;
-  });
-
-  useEffect(() => {
-    if (isManagerOrAdmin) {
-      setSelectedAssignerName('ALL');
-    } else {
-      setSelectedAssignerName(currentUser.name);
-    }
-  }, [currentUser.id, currentUser.name, isManagerOrAdmin]);
-
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(10);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
 
-  const uniqueAssigners = useMemo(() => {
-    const names = new Set<string>();
-    enhancedTasks.forEach(t => {
-      if (t.assignedByName) names.add(t.assignedByName);
-    });
-    if (currentUser.name) names.add(currentUser.name);
-    return Array.from(names);
-  }, [enhancedTasks, currentUser.name]);
-
+  // Assigned Tasks strictly shows ONLY tasks that the logged-in user (currentUser) assigned to someone else
   const assignedTasks = useMemo(() => {
-    if (!isManagerOrAdmin) {
-      const myEmpRecord = employees.find(
-        e =>
-          e.employeeId === currentUser.employeeId ||
-          e.id === currentUser.id ||
-          (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-          `${e.firstName} ${e.lastName}`.toLowerCase() === currentUser.name.toLowerCase()
-      );
-
-      const matchesAssigner = (idOrCode?: string, name?: string) => {
-        if (idOrCode) {
-          if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
-          if (myEmpRecord && (idOrCode === myEmpRecord.employeeId || idOrCode === myEmpRecord.id)) return true;
-        }
-        if (name) {
-          const target = name.trim().toLowerCase();
-          if (target === currentUser.name.trim().toLowerCase()) return true;
-          if (myEmpRecord && target === `${myEmpRecord.firstName} ${myEmpRecord.lastName}`.trim().toLowerCase()) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-      return enhancedTasks.filter(t => matchesAssigner(t.assignedById, t.assignedByName));
-    }
-
-    if (selectedAssignerName === 'ALL') {
-      return enhancedTasks;
-    }
-    return enhancedTasks.filter(
-      t => (t.assignedByName || t.assignedBy || '').trim().toLowerCase() === selectedAssignerName.trim().toLowerCase()
+    const myEmpRecord = employees.find(
+      e =>
+        e.employeeId === currentUser.employeeId ||
+        e.id === currentUser.id ||
+        (e.email && currentUser.email && e.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        `${e.firstName} ${e.lastName}`.trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase()
     );
-  }, [enhancedTasks, selectedAssignerName, isManagerOrAdmin, currentUser, employees]);
+
+    const myNameClean = String(currentUser.name || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+    const myEmpFullName = myEmpRecord
+      ? `${myEmpRecord.firstName || ''} ${myEmpRecord.lastName || ''}`.trim().toLowerCase()
+      : '';
+    const isCeoUser =
+      currentUser.role === 'CEO' ||
+      currentUser.role === 'Super Admin' ||
+      (currentUser as any).designation?.toLowerCase().includes('ceo') ||
+      myNameClean.startsWith('velmurugan');
+
+    const matchesMeAsAssigner = (t: EnhancedTask) => {
+      const idCandidates = [t.assignedById, t.createdById].filter(Boolean).map(v => String(v).trim().toLowerCase());
+      const myIds = [
+        currentUser.employeeId,
+        currentUser.id,
+        myEmpRecord?.employeeId,
+        myEmpRecord?.id
+      ]
+        .filter(Boolean)
+        .map(v => String(v).trim().toLowerCase());
+
+      if (idCandidates.some(id => myIds.includes(id))) {
+        return true;
+      }
+
+      const rawNames = [t.assignedByName, t.assignedBy, t.createdBy].filter(Boolean).map(v => String(v));
+      for (const raw of rawNames) {
+        const clean = raw.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+        if (!clean) continue;
+        if (myNameClean && clean === myNameClean) return true;
+        if (myEmpFullName && clean === myEmpFullName) return true;
+        if (isCeoUser && (clean === 'velmurugan' || clean.startsWith('velmurugan ') || raw.toLowerCase().includes('(ceo)'))) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    return enhancedTasks.filter(t => matchesMeAsAssigner(t));
+  }, [enhancedTasks, currentUser, employees]);
 
   const filteredTasks = useMemo(() => {
     return assignedTasks.filter(t => {
@@ -142,7 +135,7 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterStatus, filterPriority, filterDepartment, selectedAssignerName, searchQuery]);
+  }, [filterStatus, filterPriority, filterDepartment, searchQuery]);
 
   const activeMobileFilterCount = useMemo(() => {
     let count = 0;
@@ -291,31 +284,6 @@ export const AssignedTasks: React.FC<Props> = ({ onViewTask }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {isManagerOrAdmin && (
-              <select
-                value={selectedAssignerName}
-                onChange={e => setSelectedAssignerName(e.target.value)}
-                style={{
-                  height: '38px',
-                  padding: '0 12px',
-                  fontSize: '0.8rem',
-                  fontWeight: 600,
-                  borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
-                  background: '#F8FAFC',
-                  color: '#0F172A',
-                  cursor: 'pointer'
-                }}
-              >
-                <option value="ALL">All Assigners ({enhancedTasks.length})</option>
-                {uniqueAssigners.map(name => (
-                  <option key={name} value={name}>
-                    {name} {name === currentUser.name ? '(Me)' : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {[
                 { key: 'ALL', label: 'All', count: assignedTasks.length },

@@ -122,25 +122,44 @@ export const TaskManagement: React.FC = () => {
 
   const matchesCurrentUser = (idOrCode?: string, name?: string) => {
     if (idOrCode) {
-      if (idOrCode === currentUser.employeeId || idOrCode === currentUser.id) return true;
-      if (currentEmpRecord && (idOrCode === currentEmpRecord.employeeId || idOrCode === currentEmpRecord.id)) return true;
+      const codeLower = String(idOrCode).trim().toLowerCase();
+      if (currentUser.employeeId && codeLower === String(currentUser.employeeId).trim().toLowerCase()) return true;
+      if (currentUser.id && codeLower === String(currentUser.id).trim().toLowerCase()) return true;
+      if (currentEmpRecord) {
+        if (currentEmpRecord.employeeId && codeLower === String(currentEmpRecord.employeeId).trim().toLowerCase()) return true;
+        if (currentEmpRecord.id && codeLower === String(currentEmpRecord.id).trim().toLowerCase()) return true;
+      }
     }
     if (name) {
-      const target = name.trim().toLowerCase();
-      if (target === currentUser.name.trim().toLowerCase()) return true;
-      if (
-        currentEmpRecord &&
-        target === `${currentEmpRecord.firstName} ${currentEmpRecord.lastName}`.trim().toLowerCase()
-      )
+      const raw = String(name);
+      const target = raw.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+      const myName = String(currentUser.name || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+      if (target && myName && target === myName) return true;
+      if (currentEmpRecord) {
+        const empFullName = `${currentEmpRecord.firstName || ''} ${currentEmpRecord.lastName || ''}`.trim().toLowerCase();
+        if (target && empFullName && target === empFullName) return true;
+      }
+      const isCeoUser =
+        currentUser.role === 'CEO' ||
+        currentUser.role === 'Super Admin' ||
+        myName.startsWith('velmurugan');
+      if (isCeoUser && (target === 'velmurugan' || target.startsWith('velmurugan ') || raw.toLowerCase().includes('(ceo)'))) {
         return true;
+      }
     }
     return false;
+  };
+
+  const isTaskAssignedByCurrentUser = (t: (typeof enhancedTasks)[0]) => {
+    return (
+      matchesCurrentUser(t.assignedById || t.createdById, t.assignedByName || t.assignedBy || t.createdBy)
+    );
   };
 
   const isInvolvedInTask = (t: (typeof enhancedTasks)[0]) => {
     const isAssignee = t.assignees.some(a => matchesCurrentUser(a.employeeId, a.employeeName));
     const isResponsible = matchesCurrentUser(t.responsiblePersonId, t.responsiblePersonName);
-    const isAssigner = matchesCurrentUser(t.assignedById, t.assignedByName);
+    const isAssigner = isTaskAssignedByCurrentUser(t);
     return isAssignee || isResponsible || isAssigner;
   };
 
@@ -185,7 +204,7 @@ export const TaskManagement: React.FC = () => {
     ).length;
 
     const assignedByMeCount = enhancedTasks.filter(
-      t => matchesCurrentUser(t.assignedById, t.assignedByName) && isTaskUnseen(t)
+      t => isTaskAssignedByCurrentUser(t) && isTaskUnseen(t)
     ).length;
 
     const teamTasksCount = enhancedTasks.filter(t => {
@@ -248,7 +267,7 @@ export const TaskManagement: React.FC = () => {
         .forEach(t => markTaskViewed?.(t.id));
     } else if (activeTab === 'assigned_tasks') {
       enhancedTasks
-        .filter(t => matchesCurrentUser(t.assignedById, t.assignedByName) && isTaskUnseen(t))
+        .filter(t => isTaskAssignedByCurrentUser(t) && isTaskUnseen(t))
         .forEach(t => markTaskViewed?.(t.id));
     } else if (activeTab === 'team_tasks') {
       enhancedTasks
