@@ -362,10 +362,11 @@ export function downloadPagarBookMusterRollExcel(
         } else if (rec.status === 'Present' || rec.status === 'Late') {
           state = '1P';
           totalPresent++;
-        } else if (rec.status === 'Half Day') {
-          state = '0.5P';
+        } else if (rec.status === 'Half Day' || stLower === 'half day' || stLower === 'half-day' || stLower === 'hd') {
+          state = 'HD';
           totalHalfDays++;
           totalPresent += 0.5;
+          totalAbsent += 0.5;
         } else if (rec.status === 'Absent') {
           state = 'A';
           totalAbsent++;
@@ -385,9 +386,7 @@ export function downloadPagarBookMusterRollExcel(
 
         let whMins = 0;
         if (state !== 'A' && state !== 'H' && state !== 'WO' && state !== 'PL') {
-          if (rec.workingHours && rec.workingHours > 0) {
-            whMins = Math.round(rec.workingHours * 60);
-          } else if (inTime !== '-' && outTime !== '-') {
+          if (inTime !== '-' && outTime !== '-') {
             const inM = parseTimeToMins(rec.checkIn);
             const outM = parseTimeToMins(rec.checkOut);
             if (inM !== null && outM !== null) {
@@ -400,12 +399,22 @@ export function downloadPagarBookMusterRollExcel(
               }
               whMins = Math.max(0, diff);
             }
+          } else if (rec.workingHours && rec.workingHours > 0) {
+            whMins = Math.round(rec.workingHours * 60);
           }
         }
 
         if (whMins > 0) {
           whStr = minutesToHHMM(whMins);
           totalWHMinutes += whMins;
+
+          // Automatic Half Day Rule: if worked hours < 70% of standard shift hours (e.g. < 6.3 hrs / < 6 hrs on a 9h shift), mark as Half Day (HD)
+          if (state === '1P' && whMins < Math.round(standardShiftMins * 0.7)) {
+            state = 'HD';
+            totalPresent -= 0.5;
+            totalHalfDays += 1;
+            totalAbsent += 0.5;
+          }
 
           // OT hours strictly calculated ONLY after standard shift working hours (e.g. 9 hrs = 540 mins)
           if (whMins > standardShiftMins) {

@@ -555,6 +555,20 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     return outM < endM;
   };
 
+  const isHalfDayRecord = (record: AttendanceRecord): boolean => {
+    const st = String(record.status || '').toLowerCase().trim();
+    if (st === 'half day' || st === 'half-day' || st === 'hd') return true;
+    if (st === 'absent' || st === 'holiday' || st === 'week off' || st === 'on leave') return false;
+    if (st.includes('wfh') || st.includes('home') || st.includes('field') || st.includes('visit') || st.includes('duty')) return false;
+
+    const shift = getEmployeeShift(record.employeeId);
+    const stdHours = shift.totalHours || 9;
+    const dur = getRecordWorkingDuration(record);
+    if (dur.isPending) return false;
+    const workedHours = dur.decimalHours > 0 ? dur.decimalHours : toNum(record.workingHours);
+    return workedHours > 0 && workedHours < stdHours * 0.7;
+  };
+
   // Report Types Metadata
   const reportCards = [
     {
@@ -577,6 +591,13 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       subtitle: 'List of present employees',
       icon: <UserCheck size={19} color="#10b981" />,
       iconBg: '#dcfce7'
+    },
+    {
+      key: 'halfday' as ReportTypeKey,
+      title: 'Half Day Report',
+      subtitle: '< 70% shift hrs (0.5 salary)',
+      icon: <CircleDot size={19} color="#c2410c" />,
+      iconBg: '#ffedd5'
     },
     {
       key: 'late' as ReportTypeKey,
@@ -711,11 +732,12 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               pCount++;
               row[`day_${d}`] = 'PL';
             }
+          } else if (rec && isHalfDayRecord(rec)) {
+            pCount += 0.5;
+            aCount += 0.5;
+            row[`day_${d}`] = 'HD';
           } else if (st === 'present' || st === 'late' || (hasPunch && st !== 'absent')) {
             pCount++;
-            row[`day_${d}`] = 'P';
-          } else if (st === 'half day') {
-            pCount += 0.5;
             row[`day_${d}`] = 'P';
           } else {
             aCount++;
@@ -1033,6 +1055,33 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           daysCount: `${days} ${days === 1 ? 'day' : 'days'}`,
           reason: l.reason || 'Personal Leave',
           status: l.status
+        });
+      });
+    } else if (selectedReportType === 'halfday') {
+      columns = [
+        { key: 'empId', label: 'Employee ID' },
+        { key: 'name', label: 'Employee Name' },
+        { key: 'dept', label: 'Department' },
+        { key: 'date', label: 'Date' },
+        { key: 'checkIn', label: 'Check In' },
+        { key: 'checkOut', label: 'Check Out' },
+        { key: 'workingHours', label: 'Worked Hours' },
+        { key: 'shiftHours', label: 'Shift Hours' },
+        { key: 'status', label: 'Salary Status' }
+      ];
+      filteredAttendance.filter(r => isHalfDayRecord(r)).forEach(r => {
+        const shift = getEmployeeShift(r.employeeId);
+        const dur = getRecordWorkingDuration(r);
+        data.push({
+          empId: r.employeeId,
+          name: r.employeeName,
+          dept: r.department,
+          date: formatDateDisplay(r.date),
+          checkIn: formatTimeDisplay(r.checkIn, '--:--'),
+          checkOut: formatTimeDisplay(r.checkOut, '--:--'),
+          workingHours: dur.text,
+          shiftHours: `${shift.totalHours || 9} hrs`,
+          status: 'Half Day (0.5 Day Salary)'
         });
       });
     } else {
@@ -1922,7 +1971,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             </table>
           )}
 
-          {/* G. HALF-DAY VIEW (IF ACCESSED DIRECTLY) */}
+          {/* G. HALF-DAY VIEW */}
           {selectedReportType === 'halfday' && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
@@ -1930,36 +1979,44 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   <th style={{ padding: '10px 14px', fontWeight: 700, width: '52px' }}>#</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Employee</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Date</th>
-                  <th style={{ padding: '10px 14px', fontWeight: 700 }}>Session</th>
-                  <th style={{ padding: '10px 14px', fontWeight: 700 }}>Logged Hours</th>
+                  <th style={{ padding: '10px 14px', fontWeight: 700 }}>Check In</th>
+                  <th style={{ padding: '10px 14px', fontWeight: 700 }}>Check Out</th>
+                  <th style={{ padding: '10px 14px', fontWeight: 700 }}>Worked Hours</th>
+                  <th style={{ padding: '10px 14px', fontWeight: 700 }}>Shift Hours</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredAttendance.filter(r => r.status === 'Half Day').length === 0 ? (
+                {filteredAttendance.filter(r => isHalfDayRecord(r)).length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
                       No half-day records for this date range.
                     </td>
                   </tr>
                 ) : (
-                  filteredAttendance.filter(r => r.status === 'Half Day').map((r, idx) => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
-                        <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
-                      </td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
-                      <td style={{ padding: '10px 14px', color: '#475569' }}>First Half (Morning)</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 700 }}>{toNum(r.workingHours)} hrs</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ backgroundColor: '#f3e8ff', color: '#7e22ce', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                          Half-Day Approved
-                        </span>
-                      </td>
-                    </tr>
-                  ))
+                  filteredAttendance.filter(r => isHalfDayRecord(r)).map((r, idx) => {
+                    const shift = getEmployeeShift(r.employeeId);
+                    const dur = getRecordWorkingDuration(r);
+                    return (
+                      <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b' }}>{idx + 1}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.employeeName}</div>
+                          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
+                        <td style={{ padding: '10px 14px', color: '#0f172a', fontWeight: 600 }}>{formatTimeDisplay(r.checkIn, '--:--')}</td>
+                        <td style={{ padding: '10px 14px', color: '#475569' }}>{formatTimeDisplay(r.checkOut, '--:--')}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#c2410c' }}>{dur.text}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{shift.totalHours || 9} hrs</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ backgroundColor: '#ffedd5', color: '#c2410c', border: '1px solid #fdba74', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
+                            HD — Half Day (0.5 Salary)
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

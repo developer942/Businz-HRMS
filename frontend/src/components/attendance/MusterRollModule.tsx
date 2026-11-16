@@ -31,7 +31,7 @@ import {
   CalendarDays
 } from 'lucide-react';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
-import { downloadPagarBookMusterRollExcel } from '../../utils/pagarBookMusterRollExporter';
+import { downloadPagarBookMusterRollExcel, resolveEmployeeStandardShiftHours } from '../../utils/pagarBookMusterRollExporter';
 import { normalizeToYYYYMMDD, formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { toNum } from '../../utils/numbers';
 
@@ -73,6 +73,7 @@ export interface StatusConfig {
 
 export const ATTENDANCE_STATUS_CONFIG: Record<string, StatusConfig> = {
   P: { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 1.0 },
+  HD: { code: 'HD', label: 'Half Day', badgeBg: '#FFEDD5', badgeColor: '#C2410C', borderColor: '#FDBA74', weight: 0.5 },
   PL: { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 },
   UL: { code: 'UL', label: 'Unpaid Leave (LOP)', badgeBg: '#FEF3C7', badgeColor: '#B45309', borderColor: '#FDE68A', weight: 0.0 },
   A: { code: 'A', label: 'Absent (LOP)', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
@@ -85,12 +86,12 @@ export const ATTENDANCE_STATUS_CONFIG: Record<string, StatusConfig> = {
   OD: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
   L: { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 },
   WO: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
-  HD: { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 0.5 },
   ML: { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 }
 };
 
 export const DISPLAYED_STATUS_CONFIGS: StatusConfig[] = [
   { code: 'P', label: 'Present', badgeBg: '#DCFCE7', badgeColor: '#15803D', borderColor: '#86EFAC', weight: 1.0 },
+  { code: 'HD', label: 'Half Day', badgeBg: '#FFEDD5', badgeColor: '#C2410C', borderColor: '#FDBA74', weight: 0.5 },
   { code: 'PL', label: 'Paid Leave', badgeBg: '#F3E8FF', badgeColor: '#7E22CE', borderColor: '#D8B4FE', weight: 1.0 },
   { code: 'UL', label: 'Unpaid Leave (LOP)', badgeBg: '#FEF3C7', badgeColor: '#B45309', borderColor: '#FDE68A', weight: 0.0 },
   { code: 'A', label: 'Absent (LOP)', badgeBg: '#FEE2E2', badgeColor: '#B91C1C', borderColor: '#FCA5A5', weight: 0.0 },
@@ -401,6 +402,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       let code: AttendanceStatusCode = 'P';
       if (st === 'absent') {
         code = (methodLower.includes('unpaid') || reasonLower.includes('unpaid')) ? 'UL' : 'A';
+      } else if (st === 'half day' || st === 'half-day' || st === 'hd') {
+        code = 'HD';
       } else if (st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home')) {
         code = 'WFH';
       } else if (st.includes('duty') || st.includes('field') || st.includes('visit') || st.includes('on duty') || methodLower.includes('field')) {
@@ -409,21 +412,31 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         code = 'P';
       }
 
+      const stdShiftHours = resolveEmployeeStandardShiftHours(employee, shifts);
+      let workedDecimalHours = 0;
+
       let whDisplay = '--:--';
       if (code === 'A' || code === 'UL') {
         whDisplay = '00:00';
-      } else if (attRec.checkIn && attRec.checkOut && attRec.checkOut !== '--:--') {
+      } else if (attRec.checkIn && attRec.checkOut && attRec.checkOut !== '--:--' && !String(attRec.checkOut).toLowerCase().includes('progress')) {
         const inM = parseTimeToMinutes ? parseTimeToMinutes(attRec.checkIn) : 0;
         const outM = parseTimeToMinutes ? parseTimeToMinutes(attRec.checkOut) : 0;
         let diff = outM - inM;
         if (diff < 0) diff += 24 * 60;
+        workedDecimalHours = diff / 60;
         const h = Math.floor(diff / 60);
         const m = diff % 60;
         whDisplay = `${h}h ${m}m`;
-      } else if (toNum(attRec.workingHours) > 0) {
-        whDisplay = `${toNum(attRec.workingHours).toFixed(1)} hrs`;
+      } else if (toNum(attRec.workingHours) > 0 && (!attRec.checkOut || !String(attRec.checkOut).toLowerCase().includes('progress'))) {
+        workedDecimalHours = toNum(attRec.workingHours);
+        whDisplay = `${workedDecimalHours.toFixed(1)} hrs`;
       } else if (attRec.checkIn) {
         whDisplay = 'In Progress';
+      }
+
+      // Automatic Half Day Rule: if worked hours > 0 and < 70% of shift working hours (e.g. < 6.3h / < 6h on a 9h shift), mark as Half Day (HD)
+      if (code === 'P' && workedDecimalHours > 0 && workedDecimalHours < stdShiftHours * 0.7) {
+        code = 'HD';
       }
 
       return {
@@ -433,7 +446,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         workingHours: whDisplay,
         shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
         location: attRec.location?.address || employee.address || 'Main Campus',
-        remarks: attRec.reason || (code === 'A' ? 'Marked Absent by HR/CEO' : code === 'UL' ? 'Unpaid Leave (LOP)' : attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : (code === 'WFH' ? 'Work From Home' : 'Regular Attendance')))
+        remarks: attRec.reason || (code === 'A' ? 'Marked Absent by HR/CEO' : code === 'UL' ? 'Unpaid Leave (LOP)' : code === 'HD' ? `Half Day (< 70% of ${stdShiftHours}h shift — 0.5 Day Salary)` : attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : (code === 'WFH' ? 'Work From Home' : 'Regular Attendance')))
       };
     }
 
@@ -703,6 +716,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       { key: 'desig', label: 'Designation' },
       ...calendarDays.map(d => ({ key: `day_${d.dayNum}`, label: `${String(d.dayNum).padStart(2, '0')} (${d.dayName})` })),
       { key: 'totalP', label: 'Present (P)' },
+      { key: 'totalHD', label: 'Half Day (HD)' },
       { key: 'totalPL', label: 'Paid Leave (PL)' },
       { key: 'totalA', label: 'Absent / LOP (A/UL)' },
       { key: 'totalH', label: 'Holiday (H)' },
@@ -714,7 +728,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     const data: Record<string, any>[] = [];
 
     filteredEmployees.forEach(emp => {
-      let p = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
+      let p = 0, hd = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
       const row: Record<string, any> = {
         empId: emp.employeeId,
         empName: `${emp.firstName} ${emp.lastName}`,
@@ -739,7 +753,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           case 'FV':
           case 'FD':
           case 'OD': fv++; break;
-          case 'HD': p += 0.5; a += 0.5; break;
+          case 'HD': hd++; p += 0.5; a += 0.5; break;
           default: p++; break;
         }
       });
@@ -749,6 +763,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       const rate = Math.min(100, Math.round((effectivePresent / workingDays) * 100));
 
       row.totalP = p;
+      row.totalHD = hd;
       row.totalPL = pl;
       row.totalA = a;
       row.totalH = h;
@@ -975,6 +990,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
 
                   {/* Dynamic Total Summary Columns */}
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#15803D', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Present">P</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#C2410C', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Half Day (0.5 Paid / 0.5 LOP)">HD</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#7E22CE', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Paid Leave">PL</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#B91C1C', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Absent / Unpaid Leave (Loss of Pay)">A/LOP</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#F8FAFC', padding: '10px 8px', fontWeight: 800, color: '#1E40AF', borderBottom: '2px solid #CBD5E1', borderRight: '1px solid #E2E8F0', textAlign: 'center', minWidth: '44px' }} title="Holiday / Weekly Off">H</th>
@@ -990,7 +1006,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   // Skeleton Loader Rows
                   Array.from({ length: 6 }).map((_, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                      <td colSpan={calendarDays.length + 10} style={{ padding: '16px', textAlign: 'center' }}>
+                      <td colSpan={calendarDays.length + 11} style={{ padding: '16px', textAlign: 'center' }}>
                         <div style={{ height: '20px', backgroundColor: '#E2E8F0', borderRadius: '4px', animation: 'pulse 1.5s infinite' }} />
                       </td>
                     </tr>
@@ -998,7 +1014,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 ) : paginatedEmployees.length === 0 ? (
                   // Empty State
                   <tr>
-                    <td colSpan={calendarDays.length + 10} style={{ padding: '48px 16px', textAlign: 'center' }}>
+                    <td colSpan={calendarDays.length + 11} style={{ padding: '48px 16px', textAlign: 'center' }}>
                       <div className="muster-empty-sticky-center">
                         <CalendarDays size={42} color="#94A3B8" style={{ margin: '0 auto 12px' }} />
                         <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569' }}>No attendance records found</div>
@@ -1027,7 +1043,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   </tr>
                 ) : (
                   paginatedEmployees.map(employee => {
-                    let p = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
+                    let p = 0, hd = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
 
                     const dayCells = calendarDays.map(dayItem => {
                       const att = getCellAttendance(employee, dayItem);
@@ -1045,7 +1061,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                         case 'FV':
                         case 'FD':
                         case 'OD': fv++; break;
-                        case 'HD': p += 0.5; a += 0.5; break;
+                        case 'HD': hd++; p += 0.5; a += 0.5; break;
                         default: p++; break;
                       }
                       return { dayItem, att };
@@ -1154,8 +1170,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                           );
                         })}
 
-                        {/* Summary Columns: P, PL, A/LOP, H, WFH, FV and % Rate */}
+                        {/* Summary Columns: P, HD, PL, A/LOP, H, WFH, FV and % Rate */}
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#15803D', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#F0FDF4' }}>{p}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#C2410C', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#FFF7ED' }}>{hd}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#7E22CE', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#FAF5FF' }}>{pl}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#B91C1C', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#FEF2F2' }}>{a}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#1E40AF', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #F1F5F9', backgroundColor: '#EFF6FF' }}>{h}</td>

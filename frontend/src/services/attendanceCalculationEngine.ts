@@ -678,7 +678,44 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
 
     if (att) {
       const statusNorm = String(att.status || '').trim().toLowerCase();
-      if (
+      const rawCheckIn = att.checkIn ?? att.check_in;
+      const rawCheckOut = att.checkOut ?? att.check_out;
+      const hasCompletedOut =
+        Boolean(rawCheckOut) &&
+        String(rawCheckOut).trim() !== '' &&
+        String(rawCheckOut).trim() !== '--:--' &&
+        !String(rawCheckOut).toLowerCase().includes('progress');
+      let workedHrsForDay = 0;
+      if (hasCompletedOut && rawCheckIn) {
+        const inM = parseTimeToMinutes(String(rawCheckIn));
+        const outM = parseTimeToMinutes(String(rawCheckOut));
+        if (inM !== null && outM !== null) {
+          let diff = outM - inM;
+          if (diff < 0) diff += 24 * 60;
+          workedHrsForDay = diff / 60;
+        }
+      }
+      if (workedHrsForDay <= 0 && (!rawCheckOut || hasCompletedOut)) {
+        const numWh = Number(att.workingHours ?? att.working_hours ?? 0);
+        if (Number.isFinite(numWh) && numWh > 0) {
+          workedHrsForDay = numWh;
+        }
+      }
+      const shiftHrsForDay = Number(att.shiftWorkingHours ?? att.shiftHours ?? 9) || 9;
+      const isHalfDayByHours =
+        (statusNorm === 'present' || statusNorm === 'late') &&
+        workedHrsForDay > 0 &&
+        workedHrsForDay < shiftHrsForDay * 0.7;
+
+      if (statusNorm === 'half day' || statusNorm === 'half-day' || statusNorm === 'hd' || isHalfDayByHours) {
+        dayObj.dayPresent = 0.5;
+        actualPunchedDays += 0.5;
+        if (lopEnabled) {
+          dayObj.dayLop = 0.5;
+        } else {
+          dayObj.dayPresent = 1;
+        }
+      } else if (
         statusNorm === 'present' ||
         statusNorm === 'late' ||
         statusNorm === 'work from home' ||
@@ -687,14 +724,6 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       ) {
         dayObj.dayPresent = 1;
         actualPunchedDays += 1;
-      } else if (statusNorm === 'half day' || statusNorm === 'half-day') {
-        dayObj.dayPresent = 0.5;
-        actualPunchedDays += 0.5;
-        if (lopEnabled) {
-          dayObj.dayLop = 0.5;
-        } else {
-          dayObj.dayPresent = 1;
-        }
       } else if (statusNorm === 'on leave' || statusNorm === 'leave') {
         const unpaid = isLeaveTypeUnpaidCheck(att.leaveType || att.reason);
         if (unpaid && lopEnabled) {
@@ -1476,11 +1505,12 @@ export function calculateAttendanceHoursAndStatus(params: {
   }
 
   const regularHours = Math.min(workedHours, reqHours);
+  const grossHours = Math.round((grossMins / 60) * 100) / 100;
 
-  // Status determination
+  // Status determination (Half Day if worked hours is less than 70% of shift working hours, e.g. < 6.3h / < 6h on a 9h shift)
   let status: AttendanceRecord['status'] = manualStatusOverride || 'Present';
   if (!manualStatusOverride || manualStatusOverride === 'Present' || manualStatusOverride === 'Late') {
-    if (workedHours < halfDayThreshold && workedHours > 0) {
+    if ((grossHours > 0 && grossHours < reqHours * 0.7) || (workedHours < halfDayThreshold && workedHours > 0)) {
       status = 'Half Day';
     } else if (lateMinutes > 0) {
       status = 'Late';

@@ -2169,6 +2169,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const shiftStandardHours = Number((matchedShift as any)?.workingHours) > 0 ? Number((matchedShift as any).workingHours) : 9.0;
+    if ((finalStatus === 'Present' || finalStatus === 'Late') && effectiveCheckIn && effectiveCheckOut && effectiveCheckOut !== '--:--') {
+      const inM = parseTimeToMinutes(effectiveCheckIn);
+      const outM = parseTimeToMinutes(effectiveCheckOut);
+      if (inM !== null && outM !== null) {
+        const grossHrs = Math.max(0, outM - inM) / 60;
+        if (grossHrs > 0 && grossHrs < shiftStandardHours * 0.7) {
+          finalStatus = 'Half Day';
+        }
+      }
+    }
     const calculatedOtHours = computedWorkingHours > shiftStandardHours ? Math.round((computedWorkingHours - shiftStandardHours) * 10) / 10 : 0;
     const finalOtStatus = params.otStatus ?? existingRec.otStatus ?? 'Pending';
     const approvedOt = params.approvedOtHours !== undefined
@@ -3787,6 +3797,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       finalLateStatus = 'N/A';
       finalLateMinutes = 0;
+    }
+
+    const shiftStandardHoursForManual = Number((matchedShift as any)?.workingHours) > 0 ? Number((matchedShift as any).workingHours) : 9.0;
+    if ((finalStatus === 'Present' || finalStatus === 'Late') && cleanCheckIn && cleanCheckOut && cleanCheckOut !== '--:--') {
+      const inM = parseTimeToMinutes(cleanCheckIn);
+      const outM = parseTimeToMinutes(cleanCheckOut);
+      if (inM !== null && outM !== null) {
+        let diff = outM - inM;
+        if (diff < 0) diff += 24 * 60;
+        const grossHrs = diff / 60;
+        if (grossHrs > 0 && grossHrs < shiftStandardHoursForManual * 0.7) {
+          finalStatus = 'Half Day';
+        }
+      }
     }
 
     let existingRecord: AttendanceRecord | undefined;
@@ -8156,7 +8180,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         const existingStatus = copy[existingIdx].status;
         const existingLateStatus = copy[existingIdx].lateStatus;
-        const finalStatus = wantsCheckOut ? (existingStatus || calculatedStatus) : calculatedStatus;
+        let finalStatus = wantsCheckOut ? (existingStatus || calculatedStatus) : calculatedStatus;
+        const shiftStandardHours = Number((empShift as any)?.workingHours) > 0 ? Number((empShift as any).workingHours) : 9.0;
+        if (wantsCheckOut && (finalStatus === 'Present' || finalStatus === 'Late') && workedHours > 0 && workedHours < shiftStandardHours * 0.7) {
+          finalStatus = 'Half Day';
+        }
         const finalLateStatus = wantsCheckOut ? (existingLateStatus || 'On Time') : (copy[existingIdx].lateStatus || calculatedLateStatus);
 
         const updatedRecord: AttendanceRecord = {
