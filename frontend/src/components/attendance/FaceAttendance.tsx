@@ -36,7 +36,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Image,
-  Search
+  Search,
+  SlidersHorizontal
 } from 'lucide-react';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import {
@@ -184,6 +185,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('all');
   const [selectedEmpFilter, setSelectedEmpFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
+  const [isMobileFilterSheetOpen, setIsMobileFilterSheetOpen] = useState<boolean>(false);
+  const [draftDeptFilter, setDraftDeptFilter] = useState<string>('all');
+  const [draftEmpFilter, setDraftEmpFilter] = useState<string>('all');
+  const [draftStatusFilter, setDraftStatusFilter] = useState<string>('all');
   const [previewPhoto, setPreviewPhoto] = useState<{
     url: string;
     title: string;
@@ -2483,40 +2488,87 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     });
   }, [allStaffMonthlyRecords, staffSearchQuery, selectedDeptFilter, selectedEmpFilter, selectedStatusFilter]);
 
-  const allStaffStats = useMemo(() => {
+  const showAllEmployeesView = (isCEO || isHrOrAdmin) && activityViewTab === 'all';
+  const activeLogRecords = showAllEmployeesView ? filteredAllStaffMonthlyRecords : myMonthlyRecords;
+  const totalScopeEmployees = availableFilterEmployees.length;
+
+  const activeSummaryStats = useMemo(() => {
     let presentCount = 0;
-    let halfDayCount = 0;
     let lateCount = 0;
-    filteredAllStaffMonthlyRecords.forEach(r => {
+    let halfDayCount = 0;
+    activeLogRecords.forEach(r => {
       const effStatus = resolveEffectiveRecordStatus(r);
       if (effStatus === 'Half Day') {
         halfDayCount++;
       } else if (effStatus === 'Late') {
         lateCount++;
-        presentCount++;
       } else if (effStatus === 'Present') {
         presentCount++;
       }
     });
     return {
-      totalLogs: filteredAllStaffMonthlyRecords.length,
+      totalRecords: activeLogRecords.length,
       presentCount,
-      halfDayCount,
-      lateCount
+      lateCount,
+      halfDayCount
     };
-  }, [filteredAllStaffMonthlyRecords]);
+  }, [activeLogRecords]);
 
-  const getStatusBadgeStyle = (statusStr: string) => {
-    if (statusStr === 'Half Day') {
-      return { bg: '#ffedd5', color: '#c2410c', border: '#fdba74', label: 'Half Day' };
-    }
-    if (statusStr === 'Late') {
-      return { bg: '#fef3c7', color: '#b45309', border: '#fcd34d', label: 'Late' };
-    }
-    if (statusStr === 'Present') {
-      return { bg: '#dcfce7', color: '#15803d', border: '#86efac', label: 'Present' };
-    }
-    return { bg: '#fee2e2', color: '#b91c1c', border: '#fca5a5', label: statusStr || 'Absent' };
+  const draftFilterEmployees = useMemo(() => {
+    return employees
+      .filter(e => !isOwnerOrCEO(e))
+      .filter(e => draftDeptFilter === 'all' || String(e.department || '').trim().toLowerCase() === draftDeptFilter.toLowerCase())
+      .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
+  }, [employees, draftDeptFilter]);
+
+  const activeMobileFilterCount = useMemo(() => {
+    let c = 0;
+    if (selectedDeptFilter !== 'all') c++;
+    if (selectedEmpFilter !== 'all') c++;
+    if (selectedStatusFilter !== 'all') c++;
+    return c;
+  }, [selectedDeptFilter, selectedEmpFilter, selectedStatusFilter]);
+
+  const getStatusDotColor = (statusStr: string): string => {
+    if (statusStr === 'Present') return '#16a34a';
+    if (statusStr === 'Late') return '#d97706';
+    if (statusStr === 'Half Day') return '#d97706';
+    return '#dc2626';
+  };
+
+  const renderPlainStatus = (statusStr: string) => {
+    const label = statusStr || 'Absent';
+    const dotColor = getStatusDotColor(label);
+    return (
+      <span
+        data-testid="record-status"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          fontSize: '0.82rem',
+          fontWeight: 600,
+          color: '#0f172a',
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          borderRadius: 0,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        <span
+          style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            backgroundColor: dotColor,
+            display: 'inline-block',
+            flexShrink: 0
+          }}
+        />
+        <span>{label}</span>
+      </span>
+    );
   };
 
   const getWeekdayShort = (dateRaw?: string) => {
@@ -2527,7 +2579,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short' });
   };
 
-  const renderPunchCell = (
+  const formatShortHumanDate = (dateRaw?: string) => {
+    const ymd = normalizeToYYYYMMDD(dateRaw);
+    if (!ymd) return formatDateDDMMYYYY(dateRaw);
+    const [y, m, d] = ymd.split('-').map(Number);
+    if (!y || !m || !d) return formatDateDDMMYYYY(dateRaw);
+    return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const renderDesktopPunchInline = (
     type: 'Check-In' | 'Check-Out',
     timeVal: string | undefined,
     photoUrl: string | null,
@@ -2537,96 +2597,80 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   ) => {
     const isCheckIn = type === 'Check-In';
     const hasTime = Boolean(timeVal && timeVal !== '--:--' && String(timeVal).trim() !== '');
-    const displayTime = hasTime
-      ? formatAttendanceTime(timeVal!)
-      : (!isCheckIn && hasCheckIn ? 'In Progress' : '—');
-    const timeColor = hasTime
-      ? '#0f172a'
-      : (!isCheckIn && hasCheckIn ? '#d97706' : '#94a3b8');
+    if (!hasTime && !isCheckIn && hasCheckIn) {
+      return (
+        <span
+          data-testid="record-checkout-time"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '0.82rem',
+            fontWeight: 500,
+            color: '#64748b'
+          }}
+        >
+          <Clock size={14} color="#64748b" />
+          <span>In Progress</span>
+        </span>
+      );
+    }
+
+    if (!hasTime) {
+      return (
+        <span
+          data-testid={isCheckIn ? 'record-checkin-time' : 'record-checkout-time'}
+          style={{ fontSize: '0.82rem', color: '#94a3b8', fontWeight: 500 }}
+        >
+          —
+        </span>
+      );
+    }
+
+    const formatted = formatAttendanceTime(timeVal!);
 
     return (
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '10px',
-          backgroundColor: '#f8fafc',
-          padding: '6px 10px',
-          borderRadius: '10px',
-          border: '1px solid #e2e8f0',
-          minWidth: isMobileViewport ? '100%' : '156px',
-          boxSizing: 'border-box'
-        }}
-      >
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
         {photoUrl ? (
-          <div
+          <button
+            type="button"
             data-testid={isCheckIn ? 'checkin-photo-thumb' : 'checkout-photo-thumb'}
             onClick={(e) => {
               e.stopPropagation();
               setPreviewPhoto({
                 url: photoUrl,
-                title: `${personName} - ${type} Photo`,
+                title: `${personName} – ${type} Photo`,
                 subtitle: formatDateDDMMYYYY(recDate),
-                time: hasTime ? formatAttendanceTime(timeVal!) : undefined
+                time: formatted
               });
             }}
             title={`View ${type} Photo`}
             style={{
               cursor: 'pointer',
-              width: '34px',
-              height: '34px',
-              borderRadius: '8px',
+              width: '32px',
+              height: '32px',
+              padding: 0,
+              borderRadius: '6px',
               overflow: 'hidden',
-              border: `1.5px solid ${isCheckIn ? '#86efac' : '#67e8f9'}`,
-              flexShrink: 0,
-              backgroundColor: '#e2e8f0'
+              border: '1px solid #e2e8f0',
+              backgroundColor: '#f8fafc',
+              flexShrink: 0
             }}
           >
-            <img src={photoUrl} alt={type} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        ) : (
-          <div
-            style={{
-              width: '34px',
-              height: '34px',
-              borderRadius: '8px',
-              backgroundColor: isCheckIn ? '#f0fdf4' : '#ecfeff',
-              border: `1px dashed ${isCheckIn ? '#bbf7d0' : '#a5f3fc'}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              color: isCheckIn ? '#16a34a' : '#0e7490'
-            }}
-          >
-            <Clock size={14} />
-          </div>
-        )}
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: '0.6rem',
-              fontWeight: 800,
-              letterSpacing: '0.04em',
-              color: isCheckIn ? '#16a34a' : '#0e7490',
-              lineHeight: 1.2
-            }}
-          >
-            {type.toUpperCase()}
-          </div>
-          <div
-            data-testid={isCheckIn ? 'record-checkin-time' : 'record-checkout-time'}
-            style={{
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              color: timeColor,
-              whiteSpace: 'nowrap',
-              lineHeight: 1.3
-            }}
-          >
-            {displayTime}
-          </div>
-        </div>
+            <img src={photoUrl} alt={type} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          </button>
+        ) : null}
+        <span
+          data-testid={isCheckIn ? 'record-checkin-time' : 'record-checkout-time'}
+          style={{
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            color: '#0f172a',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {formatted}
+        </span>
       </div>
     );
   };
@@ -2637,18 +2681,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         <div
           data-testid="attendance-log-empty"
           style={{
-            padding: '40px 16px',
+            padding: '44px 16px',
             textAlign: 'center',
-            backgroundColor: '#f8fafc',
+            backgroundColor: '#ffffff',
             borderRadius: '12px',
-            border: '1px dashed #cbd5e1'
+            border: '1px solid #e2e8f0'
           }}
         >
-          <Calendar size={30} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
-          <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-            No attendance logs for {formatMonthDisplay(selectedMonth)}
+          <Calendar size={26} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+            No attendance records for {formatMonthDisplay(selectedMonth)}
           </div>
-          <div style={{ fontSize: '0.76rem', color: '#64748b' }}>
+          <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
             {showEmployeeCol
               ? 'No employee punch records match your selected filters for this month.'
               : 'Punch in using Face Attendance to see your daily verified records and photos.'}
@@ -2668,152 +2712,242 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       return (
         <div
           data-testid="attendance-log-records-list"
-          style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            overflow: 'hidden'
+          }}
         >
-          {records.map(rec => {
+          {records.map((rec, idx) => {
             const recDate = rec.date || rec.shiftDate;
+            const recordKey = rec.id || `${rec.employeeId}_${recDate}`;
+            const isExpanded = expandedRecordId === recordKey;
             const inPhoto = getRecordPhoto(rec, 'Check-In');
             const outPhoto = getRecordPhoto(rec, 'Check-Out');
-            const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
             const effStatus = resolveEffectiveRecordStatus(rec);
-            const badge = getStatusBadgeStyle(effStatus);
             const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
             const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+            const hasOut = Boolean(rec.checkOut && rec.checkOut !== '--:--' && String(rec.checkOut).trim() !== '');
+            const checkInDisplay = hasIn ? formatAttendanceTime(rec.checkIn) : '—';
+            const checkOutDisplay = hasOut ? formatAttendanceTime(rec.checkOut) : (hasIn ? 'In Progress' : '—');
+            const workHrsVal = Number(rec.workingHours || 0);
+            const workHrsDisplay = workHrsVal > 0 ? `${workHrsVal} hrs` : '—';
             const dailyOt = getRecordDailyOt(rec);
 
             return (
               <div
-                key={rec.id || `${rec.employeeId}_${recDate}`}
+                key={recordKey}
                 data-testid="attendance-log-record"
+                onClick={() => setExpandedRecordId(prev => (prev === recordKey ? null : recordKey))}
                 style={{
-                  padding: '12px',
-                  borderRadius: '12px',
-                  border: `1px solid ${isTodayRow ? '#67e8f9' : '#e2e8f0'}`,
+                  padding: '13px 14px',
+                  borderBottom: idx < records.length - 1 ? '1px solid #f1f5f9' : 'none',
                   backgroundColor: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px'
+                  cursor: 'pointer'
                 }}
               >
-                {/* Card Top Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                  {showEmployeeCol ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                      <div
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          background: 'linear-gradient(135deg, #0e7490, #0891b2)',
-                          color: '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
-                          fontSize: '0.72rem',
-                          flexShrink: 0
-                        }}
-                      >
-                        {(rec.employeeName || 'EM').substring(0, 2).toUpperCase()}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, fontSize: '0.84rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {/* Top Line: Primary Title & Expand Chevron */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                  <div style={{ minWidth: 0 }}>
+                    {showEmployeeCol ? (
+                      <>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0f172a', lineHeight: 1.3 }}>
                           {rec.employeeName}
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                          <span data-testid="record-date" style={{ fontWeight: 700, color: '#334155' }}>{formatDateDDMMYYYY(recDate)}</span>
-                          <span>•</span>
-                          <span>{rec.department || 'General'}</span>
+                        <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '1px' }}>
+                          {rec.employeeId} · {rec.department || 'General'}
                         </div>
+                      </>
+                    ) : (
+                      <div data-testid="record-date" style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0f172a', lineHeight: 1.3 }}>
+                        {formatShortHumanDate(recDate)} ({getWeekdayShort(recDate)})
                       </div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span data-testid="record-date" style={{ fontWeight: 800, fontSize: '0.86rem', color: '#0f172a' }}>
-                        {formatDateDDMMYYYY(recDate)}
-                      </span>
-                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>
-                        ({getWeekdayShort(recDate)})
-                      </span>
-                      {isTodayRow && (
-                        <span style={{
-                          fontSize: '0.6rem',
-                          fontWeight: 800,
-                          backgroundColor: '#0e7490',
-                          color: '#ffffff',
-                          padding: '2px 6px',
-                          borderRadius: '4px'
-                        }}>
-                          TODAY
-                        </span>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                    <span
-                      data-testid="record-status"
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    {!showEmployeeCol && renderPlainStatus(effStatus)}
+                    <ChevronRight
+                      size={16}
+                      color="#94a3b8"
                       style={{
-                        padding: '3px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.68rem',
-                        fontWeight: 800,
-                        backgroundColor: badge.bg,
-                        color: badge.color,
-                        border: `1px solid ${badge.border}`
+                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.15s ease'
                       }}
-                    >
-                      {badge.label}
-                    </span>
-                    <span
-                      data-testid="record-working-hours"
-                      style={{
-                        fontSize: '0.72rem',
-                        fontWeight: 800,
-                        color: '#0e7490',
-                        backgroundColor: '#ecfeff',
-                        padding: '3px 7px',
-                        borderRadius: '6px'
-                      }}
-                    >
-                      {rec.workingHours ?? 0} hrs
-                    </span>
+                    />
                   </div>
                 </div>
 
-                {/* Card Middle: Compact 2-Column Check-In & Check-Out */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {renderPunchCell('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
-                  {renderPunchCell('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
-                </div>
+                {/* Date & Status Line for All Employees Mobile View */}
+                {showEmployeeCol && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '0.78rem', color: '#334155' }}>
+                    <span data-testid="record-date" style={{ fontWeight: 500, color: '#475569' }}>
+                      {formatShortHumanDate(recDate)}
+                    </span>
+                    <span style={{ color: '#cbd5e1' }}>·</span>
+                    {renderPlainStatus(effStatus)}
+                  </div>
+                )}
 
-                {/* Card Bottom: Daily OT Hrs & OT Amount Strip */}
+                {/* Compact Times & Working Hours Summary */}
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    backgroundColor: dailyOt.otHrs > 0 ? '#ecfeff' : '#f8fafc',
-                    border: `1px solid ${dailyOt.otHrs > 0 ? '#a5f3fc' : '#e2e8f0'}`,
-                    fontSize: '0.74rem'
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '4px 12px',
+                    marginTop: '8px',
+                    fontSize: '0.78rem',
+                    color: '#475569'
                   }}
                 >
                   <div>
-                    <span style={{ fontWeight: 700, color: '#64748b' }}>OT Hrs: </span>
-                    <span style={{ fontWeight: 800, color: dailyOt.otHrs > 0 ? '#0e7490' : '#64748b' }}>
-                      {dailyOt.otHrs} hrs
+                    <span style={{ color: '#64748b' }}>Check-in: </span>
+                    <span data-testid="record-checkin-time" style={{ fontWeight: 600, color: '#0f172a' }}>
+                      {checkInDisplay}
                     </span>
                   </div>
                   <div>
-                    <span style={{ fontWeight: 700, color: '#64748b' }}>OT Amount: </span>
-                    <span style={{ fontWeight: 800, color: dailyOt.otAmount > 0 ? '#15803d' : '#64748b' }}>
-                      {formatCurrency(dailyOt.otAmount)}
+                    <span style={{ color: '#64748b' }}>Check-out: </span>
+                    <span
+                      data-testid="record-checkout-time"
+                      style={{
+                        fontWeight: 600,
+                        color: hasOut ? '#0f172a' : '#64748b',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      {!hasOut && hasIn && <Clock size={12} color="#64748b" />}
+                      {checkOutDisplay}
+                    </span>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', marginTop: '2px' }}>
+                    <span style={{ color: '#64748b' }}>Working Hours: </span>
+                    <span data-testid="record-working-hours" style={{ fontWeight: 600, color: '#0f172a' }}>
+                      {workHrsDisplay}
                     </span>
                   </div>
                 </div>
+
+                {/* Expandable Details on Tap */}
+                {isExpanded && (
+                  <div
+                    data-testid="attendance-log-expanded-details"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      marginTop: '10px',
+                      paddingTop: '10px',
+                      borderTop: '1px solid #f1f5f9',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}
+                  >
+                    {/* Photos Row */}
+                    {(inPhoto || outPhoto) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        {inPhoto && (
+                          <button
+                            type="button"
+                            data-testid="checkin-photo-thumb"
+                            onClick={() =>
+                              setPreviewPhoto({
+                                url: inPhoto,
+                                title: `${personName} – Check-In Photo`,
+                                subtitle: formatDateDDMMYYYY(recDate),
+                                time: hasIn ? formatAttendanceTime(rec.checkIn) : undefined
+                              })
+                            }
+                            style={{
+                              minHeight: '44px',
+                              padding: '5px 10px 5px 6px',
+                              borderRadius: '8px',
+                              border: '1px solid #e2e8f0',
+                              backgroundColor: '#f8fafc',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <img
+                              src={inPhoto}
+                              alt="Check-In"
+                              style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }}
+                            />
+                            <span style={{ fontSize: '0.76rem', fontWeight: 600, color: '#0f172a' }}>
+                              Check-In Photo
+                            </span>
+                          </button>
+                        )}
+                        {outPhoto && (
+                          <button
+                            type="button"
+                            data-testid="checkout-photo-thumb"
+                            onClick={() =>
+                              setPreviewPhoto({
+                                url: outPhoto,
+                                title: `${personName} – Check-Out Photo`,
+                                subtitle: formatDateDDMMYYYY(recDate),
+                                time: hasOut ? formatAttendanceTime(rec.checkOut) : undefined
+                              })
+                            }
+                            style={{
+                              minHeight: '44px',
+                              padding: '5px 10px 5px 6px',
+                              borderRadius: '8px',
+                              border: '1px solid #e2e8f0',
+                              backgroundColor: '#f8fafc',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <img
+                              src={outPhoto}
+                              alt="Check-Out"
+                              style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }}
+                            />
+                            <span style={{ fontSize: '0.76rem', fontWeight: 600, color: '#0f172a' }}>
+                              Check-Out Photo
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expanded Metrics Grid */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '6px 12px',
+                        fontSize: '0.76rem',
+                        color: '#475569'
+                      }}
+                    >
+                      <div>
+                        <span style={{ color: '#64748b' }}>Working Hours: </span>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{workHrsDisplay}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>OT Hours: </span>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{dailyOt.otHrs} hrs</span>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>OT Amount: </span>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{formatCurrency(dailyOt.otAmount)}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Verification: </span>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{rec.method || 'Face Verified'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2821,7 +2955,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       );
     }
 
-    // Desktop / Laptop Clean Table View
+    // Desktop / Laptop Clean Apple-Style Table View
     return (
       <div
         data-testid="attendance-log-records-list"
@@ -2835,20 +2969,20 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
-              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>DATE</th>
+              <tr style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>Date</th>
                 {showEmployeeCol && (
                   <>
-                    <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>EMPLOYEE</th>
-                    <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>DEPARTMENT</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>Employee</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>Department</th>
                   </>
                 )}
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>CHECK-IN</th>
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>CHECK-OUT</th>
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>WORKING HRS</th>
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#0e7490', fontSize: '0.72rem', letterSpacing: '0.04em' }}>OT HRS</th>
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#0e7490', fontSize: '0.72rem', letterSpacing: '0.04em' }}>OT AMOUNT</th>
-                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>STATUS</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>Check-In</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>Check-Out</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>Working Hrs</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>OT Hrs</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem' }}>OT Amount</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#64748b', fontSize: '0.76rem', textAlign: 'left' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -2856,9 +2990,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 const recDate = rec.date || rec.shiftDate;
                 const inPhoto = getRecordPhoto(rec, 'Check-In');
                 const outPhoto = getRecordPhoto(rec, 'Check-Out');
-                const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
                 const effStatus = resolveEffectiveRecordStatus(rec);
-                const badge = getStatusBadgeStyle(effStatus);
                 const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
                 const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
                 const dailyOt = getRecordDailyOt(rec);
@@ -2869,52 +3001,36 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     data-testid="attendance-log-record"
                     style={{
                       borderBottom: '1px solid #f1f5f9',
-                      backgroundColor: isTodayRow ? '#f0fdfa' : '#ffffff',
-                      transition: 'background-color 0.15s ease'
+                      backgroundColor: '#ffffff'
                     }}
                   >
                     {/* Date */}
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div>
-                          <div data-testid="record-date" style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.84rem' }}>
-                            {formatDateDDMMYYYY(recDate)}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
-                            {getWeekdayShort(recDate)}
-                          </div>
-                        </div>
-                        {isTodayRow && (
-                          <span style={{
-                            fontSize: '0.62rem',
-                            fontWeight: 800,
-                            backgroundColor: '#0e7490',
-                            color: '#ffffff',
-                            padding: '2px 7px',
-                            borderRadius: '5px'
-                          }}>
-                            TODAY
-                          </span>
-                        )}
+                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                      <div data-testid="record-date" style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.84rem' }}>
+                        {formatDateDDMMYYYY(recDate)}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>
+                        {getWeekdayShort(recDate)}
                       </div>
                     </td>
 
-                    {/* Employee & Department (HR / CEO View) */}
+                    {/* Employee & Department */}
                     {showEmployeeCol && (
                       <>
-                        <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <div
                               style={{
                                 width: '32px',
                                 height: '32px',
                                 borderRadius: '50%',
-                                background: 'linear-gradient(135deg, #0e7490, #0891b2)',
-                                color: '#ffffff',
+                                backgroundColor: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                color: '#334155',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                fontWeight: 800,
+                                fontWeight: 600,
                                 fontSize: '0.72rem',
                                 flexShrink: 0
                               }}
@@ -2922,98 +3038,61 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                               {(rec.employeeName || 'EM').substring(0, 2).toUpperCase()}
                             </div>
                             <div>
-                              <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.84rem' }}>
+                              <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.84rem' }}>
                                 {rec.employeeName}
                               </div>
-                              <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                              <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>
                                 {rec.employeeId}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                          <span style={{
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            backgroundColor: '#f1f5f9',
-                            color: '#334155',
-                            fontSize: '0.74rem',
-                            fontWeight: 700
-                          }}>
-                            {rec.department || 'General'}
-                          </span>
+                        <td style={{ padding: '11px 16px', whiteSpace: 'nowrap', color: '#334155', fontSize: '0.8rem', fontWeight: 500 }}>
+                          {rec.department || 'General'}
                         </td>
                       </>
                     )}
 
                     {/* Check-In */}
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                      {renderPunchCell('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
+                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                      {renderDesktopPunchInline('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
                     </td>
 
                     {/* Check-Out */}
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                      {renderPunchCell('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
+                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                      {renderDesktopPunchInline('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
                     </td>
 
                     {/* Working Hours */}
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                      <span
-                        data-testid="record-working-hours"
-                        style={{
-                          display: 'inline-block',
-                          padding: '4px 10px',
-                          borderRadius: '8px',
-                          backgroundColor: Number(rec.workingHours || 0) > 0 ? '#ecfeff' : '#f8fafc',
-                          color: Number(rec.workingHours || 0) > 0 ? '#0e7490' : '#64748b',
-                          fontWeight: 800,
-                          fontSize: '0.78rem',
-                          border: `1px solid ${Number(rec.workingHours || 0) > 0 ? '#a5f3fc' : '#e2e8f0'}`
-                        }}
-                      >
-                        {rec.workingHours ?? 0} hrs
-                      </span>
+                    <td data-testid="record-working-hours" style={{ padding: '11px 16px', whiteSpace: 'nowrap', color: '#334155', fontWeight: 500 }}>
+                      {rec.workingHours ?? 0} hrs
                     </td>
 
                     {/* Daily OT Hours */}
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', fontWeight: 800, color: dailyOt.otHrs > 0 ? '#0e7490' : '#94a3b8' }}>
+                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap', fontWeight: 500, color: '#334155' }}>
                       {dailyOt.otHrs > 0 ? `${dailyOt.otHrs} hrs` : '0 hrs'}
                     </td>
 
                     {/* Daily OT Amount */}
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', fontWeight: 800, color: dailyOt.otAmount > 0 ? '#15803d' : '#94a3b8' }}>
+                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap', fontWeight: 500, color: '#334155' }}>
                       {formatCurrency(dailyOt.otAmount)}
                     </td>
 
-                    {/* Status */}
-                    <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <span
-                        data-testid="record-status"
-                        style={{
-                          display: 'inline-block',
-                          padding: '4px 12px',
-                          borderRadius: '9999px',
-                          fontSize: '0.72rem',
-                          fontWeight: 800,
-                          backgroundColor: badge.bg,
-                          color: badge.color,
-                          border: `1px solid ${badge.border}`
-                        }}
-                      >
-                        {badge.label}
-                      </span>
+                    {/* Status (Plain text + tiny indicator dot) */}
+                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                      {renderPlainStatus(effStatus)}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
-              <tr style={{ backgroundColor: '#ecfeff', borderTop: '2px solid #a5f3fc' }}>
-                <td colSpan={showEmployeeCol ? 6 : 4} style={{ padding: '10px 16px', fontWeight: 800, color: '#0e7490', fontSize: '0.76rem' }}>
-                  TOTAL OT HOURS: {totalViewOtHours} hrs
+              <tr style={{ backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                <td colSpan={showEmployeeCol ? 6 : 4} style={{ padding: '10px 16px', fontWeight: 600, color: '#334155', fontSize: '0.78rem' }}>
+                  Total OT Hours: {totalViewOtHours} hrs
                 </td>
-                <td colSpan={3} style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#0e7490', fontSize: '0.82rem' }}>
-                  TOTAL OT AMOUNT: {formatCurrency(totalViewOtAmount)}
+                <td colSpan={3} style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>
+                  Total OT Amount: {formatCurrency(totalViewOtAmount)}
                 </td>
               </tr>
             </tfoot>
@@ -3023,26 +3102,19 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     );
   };
 
-  const showAllEmployeesView = (isCEO || isHrOrAdmin) && activityViewTab === 'all';
-
   const renderMonthlyActivityCard = (isDedicatedLogPage: boolean) => (
     <div
       data-testid={isDedicatedLogPage ? 'attendance-log-card' : 'monthly-activity-card'}
       className={isDedicatedLogPage ? 'attendance-log-card' : 'face-attendance-activity-card'}
       style={{
-        backgroundColor: '#ffffff',
-        borderRadius: '16px',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 2px 12px rgba(15, 23, 42, 0.03)',
-        padding: isMobileViewport ? '12px' : '18px 20px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '14px'
+        gap: isMobileViewport ? '12px' : '16px'
       }}
     >
-      {/* Top Bar: Month Picker + Role Switcher / Count Badge */}
+      {/* Top Bar: Month Picker + Employee Scope Switcher */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
             data-testid="month-prev-btn"
@@ -3053,12 +3125,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: '32px',
-              height: '32px',
+              minWidth: isMobileViewport ? '44px' : '36px',
+              minHeight: isMobileViewport ? '44px' : '36px',
               borderRadius: '8px',
-              border: '1px solid #cbd5e1',
+              border: '1px solid #e2e8f0',
               backgroundColor: '#ffffff',
-              color: '#0e7490',
+              color: '#334155',
               cursor: 'pointer'
             }}
           >
@@ -3068,19 +3140,20 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           <div
             data-testid="month-display"
             style={{
-              padding: '5px 14px',
+              minHeight: isMobileViewport ? '44px' : '36px',
+              padding: '0 14px',
               borderRadius: '8px',
-              backgroundColor: '#ecfeff',
-              border: '1px solid #a5f3fc',
-              color: '#0e7490',
-              fontSize: '0.82rem',
-              fontWeight: 800,
+              backgroundColor: '#ffffff',
+              border: '1px solid #e2e8f0',
+              color: '#0f172a',
+              fontSize: '0.84rem',
+              fontWeight: 600,
               display: 'flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '7px'
             }}
           >
-            <Calendar size={14} />
+            <Calendar size={14} color="#64748b" />
             <span>{formatMonthDisplay(selectedMonth)}</span>
           </div>
 
@@ -3094,12 +3167,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: '32px',
-              height: '32px',
+              minWidth: isMobileViewport ? '44px' : '36px',
+              minHeight: isMobileViewport ? '44px' : '36px',
               borderRadius: '8px',
-              border: '1px solid #cbd5e1',
+              border: '1px solid #e2e8f0',
               backgroundColor: '#ffffff',
-              color: '#0e7490',
+              color: '#334155',
               cursor: 'pointer'
             }}
           >
@@ -3108,250 +3181,588 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         </div>
 
         {(isHrOrAdmin || isCEO) ? (
-          <div style={{
-            display: 'inline-flex',
-            backgroundColor: '#f1f5f9',
-            padding: '3px',
-            borderRadius: '10px',
-            border: '1px solid #e2e8f0'
-          }}>
-            <button
-              type="button"
-              onClick={() => setActivityViewTab('all')}
+          isCEO ? (
+            <div
               style={{
-                padding: '6px 12px',
-                borderRadius: '7px',
-                border: 'none',
-                fontSize: '0.76rem',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
+                minHeight: isMobileViewport ? '44px' : '36px',
+                padding: '0 14px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '5px',
-                backgroundColor: activityViewTab === 'all' ? '#ffffff' : 'transparent',
-                color: activityViewTab === 'all' ? '#0e7490' : '#64748b',
-                boxShadow: activityViewTab === 'all' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
+                gap: '6px'
               }}
             >
-              <Users size={13} />
-              <span>All Employees ({allStaffMonthlyRecords.length})</span>
-            </button>
-            {!isCEO && (
+              <Users size={14} color="#64748b" />
+              <span>All Employees ({totalScopeEmployees})</span>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'inline-flex',
+                backgroundColor: '#f1f5f9',
+                padding: '3px',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setActivityViewTab('all')}
+                style={{
+                  minHeight: isMobileViewport ? '38px' : '30px',
+                  padding: '0 12px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  backgroundColor: activityViewTab === 'all' ? '#ffffff' : 'transparent',
+                  color: activityViewTab === 'all' ? '#0f172a' : '#64748b',
+                  boxShadow: activityViewTab === 'all' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
+                }}
+              >
+                <Users size={13} />
+                <span>All Employees ({totalScopeEmployees})</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setActivityViewTab('my')}
                 style={{
-                  padding: '6px 12px',
+                  minHeight: isMobileViewport ? '38px' : '30px',
+                  padding: '0 12px',
                   borderRadius: '7px',
                   border: 'none',
-                  fontSize: '0.76rem',
-                  fontWeight: 800,
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px',
                   backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
-                  color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
-                  boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
+                  color: activityViewTab === 'my' ? '#0f172a' : '#64748b',
+                  boxShadow: activityViewTab === 'my' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
                 }}
               >
                 <User size={13} />
                 <span>My Attendance ({myMonthlyRecords.length})</span>
               </button>
-            )}
-          </div>
+            </div>
+          )
         ) : (
           <span
             data-testid="attendance-log-count-badge"
             style={{
-              backgroundColor: '#ecfeff',
-              color: '#0e7490',
-              padding: '5px 12px',
+              backgroundColor: '#ffffff',
+              color: '#334155',
+              padding: '6px 12px',
               borderRadius: '8px',
-              fontSize: '0.75rem',
-              fontWeight: 800,
-              border: '1px solid #a5f3fc'
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              border: '1px solid #e2e8f0'
             }}
           >
-            {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'LOG' : 'LOGS'}
+            {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'Record' : 'Records'}
           </span>
         )}
       </div>
 
-      {/* Summary KPI Strip */}
-      {showAllEmployeesView ? (
+      {/* Unified Summary Section (1 Horizontal Row on Desktop, 2x2 Grid on Mobile) */}
+      <div
+        data-testid="attendance-log-summary"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+          backgroundColor: '#ffffff',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          overflow: 'hidden'
+        }}
+      >
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
-            gap: '10px'
+            padding: isMobileViewport ? '12px 14px' : '14px 20px',
+            borderRight: '1px solid #f1f5f9',
+            borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
           }}
         >
-          <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total Logs</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>{allStaffStats.totalLogs}</div>
-          </div>
-          <div style={{ backgroundColor: '#f0fdf4', padding: '10px 14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>Present</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>{allStaffStats.presentCount}</div>
-          </div>
-          <div style={{ backgroundColor: '#fff7ed', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fed7aa' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase' }}>Half Day</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#c2410c', marginTop: '2px' }}>{allStaffStats.halfDayCount}</div>
-          </div>
-          <div style={{ backgroundColor: '#fffbeb', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fde68a' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#b45309', textTransform: 'uppercase' }}>Late</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#b45309', marginTop: '2px' }}>{allStaffStats.lateCount}</div>
+          {!isMobileViewport && <Users size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Total Records</div>
+            <div data-testid="summary-total-records" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+              {activeSummaryStats.totalRecords}
+            </div>
           </div>
         </div>
-      ) : (
+
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
-            gap: '10px'
+            padding: isMobileViewport ? '12px 14px' : '14px 20px',
+            borderRight: isMobileViewport ? 'none' : '1px solid #f1f5f9',
+            borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
           }}
         >
-          <div style={{ backgroundColor: '#f0fdf4', padding: '10px 14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>Present Days</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>{monthlyStats.presentDays} d</div>
+          {!isMobileViewport && <CheckCircle2 size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Present</div>
+            <div data-testid="summary-present" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+              {activeSummaryStats.presentCount}
+            </div>
           </div>
-          <div style={{ backgroundColor: '#fff7ed', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fed7aa' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase' }}>Half Days</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#c2410c', marginTop: '2px' }}>{monthlyStats.halfDays} d</div>
+        </div>
+
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 20px',
+            borderRight: '1px solid #f1f5f9',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}
+        >
+          {!isMobileViewport && <Clock size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Late</div>
+            <div data-testid="summary-late" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+              {activeSummaryStats.lateCount}
+            </div>
           </div>
-          <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Working Hours</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>{monthlyStats.totalHours} hrs</div>
+        </div>
+
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}
+        >
+          {!isMobileViewport && <Calendar size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Half Day</div>
+            <div data-testid="summary-halfday" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+              {activeSummaryStats.halfDayCount}
+            </div>
           </div>
-          <div style={{ backgroundColor: '#ecfeff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #a5f3fc' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#0e7490', textTransform: 'uppercase' }}>Monthly OT</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0e7490', marginTop: '2px' }}>
-              {monthlyStats.totalOtHours} hrs • <span style={{ color: '#15803d' }}>{formatCurrency(monthlyStats.totalOtAmount)}</span>
+        </div>
+      </div>
+
+      {/* Search & Filters Section */}
+      {showAllEmployeesView && (
+        isMobileViewport ? (
+          /* Mobile: Full-width search + Compact Filters button opening bottom sheet */
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search size={15} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                placeholder="Search employee, ID, or dept..."
+                value={staffSearchQuery}
+                onChange={(e) => setStaffSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '44px',
+                  padding: '0 12px 0 36px',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
+                  fontSize: '0.84rem',
+                  color: '#0f172a',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <button
+              type="button"
+              data-testid="mobile-filters-btn"
+              onClick={() => {
+                setDraftDeptFilter(selectedDeptFilter);
+                setDraftEmpFilter(selectedEmpFilter);
+                setDraftStatusFilter(selectedStatusFilter);
+                setIsMobileFilterSheetOpen(true);
+              }}
+              style={{
+                minHeight: '44px',
+                padding: '0 14px',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                flexShrink: 0
+              }}
+            >
+              <SlidersHorizontal size={15} color="#475569" />
+              <span>Filters</span>
+              {activeMobileFilterCount > 0 && (
+                <span
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    backgroundColor: '#0e7490',
+                    color: '#ffffff',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  {activeMobileFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+        ) : (
+          /* Desktop: Clean 4-column inline filter row */
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.5fr 1fr 1fr 0.8fr',
+              gap: '10px'
+            }}
+          >
+            <div style={{ position: 'relative' }}>
+              <Search size={15} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                placeholder="Search employee name, ID, or department..."
+                value={staffSearchQuery}
+                onChange={(e) => setStaffSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: '38px',
+                  padding: '0 12px 0 36px',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
+                  fontSize: '0.8rem',
+                  color: '#0f172a',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <select
+              value={selectedDeptFilter}
+              onChange={(e) => {
+                setSelectedDeptFilter(e.target.value);
+                setSelectedEmpFilter('all');
+              }}
+              style={{
+                width: '100%',
+                height: '38px',
+                padding: '0 10px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                color: '#0f172a',
+                outline: 'none'
+              }}
+            >
+              <option value="all">All Departments</option>
+              {availableDepartments.map(dept => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+
+            <select
+              value={selectedEmpFilter}
+              onChange={(e) => setSelectedEmpFilter(e.target.value)}
+              style={{
+                width: '100%',
+                height: '38px',
+                padding: '0 10px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                color: '#0f172a',
+                outline: 'none'
+              }}
+            >
+              <option value="all">All Employees ({totalScopeEmployees})</option>
+              {availableFilterEmployees.map(emp => (
+                <option key={emp.employeeId} value={emp.employeeId}>
+                  {emp.firstName} {emp.lastName} ({emp.employeeId})
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedStatusFilter}
+              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              style={{
+                width: '100%',
+                height: '38px',
+                padding: '0 10px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                color: '#0f172a',
+                outline: 'none'
+              }}
+            >
+              <option value="all">All Status</option>
+              <option value="Present">Present</option>
+              <option value="Half Day">Half Day</option>
+              <option value="Late">Late</option>
+            </select>
+          </div>
+        )
+      )}
+
+      {/* Attendance Log Records (Table on Desktop/Laptop, Compact Expandable Rows on Mobile) */}
+      {showAllEmployeesView
+        ? renderRecordsResponsiveView(filteredAllStaffMonthlyRecords, true)
+        : renderRecordsResponsiveView(myMonthlyRecords, false)}
+
+      {/* Mobile Filter Bottom Sheet */}
+      {isMobileFilterSheetOpen && (
+        <div
+          data-testid="mobile-filter-sheet-overlay"
+          onClick={() => setIsMobileFilterSheetOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99998,
+            backgroundColor: 'rgba(15, 23, 42, 0.4)',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            data-testid="mobile-filter-sheet"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '500px',
+              backgroundColor: '#ffffff',
+              borderTopLeftRadius: '18px',
+              borderTopRightRadius: '18px',
+              padding: '16px 16px calc(18px + env(safe-area-inset-bottom, 0px))',
+              boxShadow: '0 -10px 25px rgba(15, 23, 42, 0.12)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>Filter Attendance</span>
+              <button
+                type="button"
+                onClick={() => setIsMobileFilterSheetOpen(false)}
+                aria-label="Close filters"
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  marginRight: '-8px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#475569' }}>Department</label>
+              <select
+                value={draftDeptFilter}
+                onChange={(e) => {
+                  setDraftDeptFilter(e.target.value);
+                  setDraftEmpFilter('all');
+                }}
+                style={{
+                  width: '100%',
+                  minHeight: '44px',
+                  padding: '0 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
+                  fontSize: '0.84rem',
+                  color: '#0f172a',
+                  outline: 'none'
+                }}
+              >
+                <option value="all">All Departments</option>
+                {availableDepartments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#475569' }}>Employee</label>
+              <select
+                value={draftEmpFilter}
+                onChange={(e) => setDraftEmpFilter(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '44px',
+                  padding: '0 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
+                  fontSize: '0.84rem',
+                  color: '#0f172a',
+                  outline: 'none'
+                }}
+              >
+                <option value="all">All Employees ({draftFilterEmployees.length})</option>
+                {draftFilterEmployees.map(emp => (
+                  <option key={emp.employeeId} value={emp.employeeId}>
+                    {emp.firstName} {emp.lastName} ({emp.employeeId})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.76rem', fontWeight: 600, color: '#475569' }}>Status</label>
+              <select
+                value={draftStatusFilter}
+                onChange={(e) => setDraftStatusFilter(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '44px',
+                  padding: '0 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
+                  fontSize: '0.84rem',
+                  color: '#0f172a',
+                  outline: 'none'
+                }}
+              >
+                <option value="all">All Status</option>
+                <option value="Present">Present</option>
+                <option value="Half Day">Half Day</option>
+                <option value="Late">Late</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                data-testid="mobile-filter-clear-btn"
+                onClick={() => {
+                  setSelectedDeptFilter('all');
+                  setSelectedEmpFilter('all');
+                  setSelectedStatusFilter('all');
+                  setDraftDeptFilter('all');
+                  setDraftEmpFilter('all');
+                  setDraftStatusFilter('all');
+                  setIsMobileFilterSheetOpen(false);
+                }}
+                style={{
+                  minHeight: '44px',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                data-testid="mobile-filter-apply-btn"
+                onClick={() => {
+                  setSelectedDeptFilter(draftDeptFilter);
+                  setSelectedEmpFilter(draftEmpFilter);
+                  setSelectedStatusFilter(draftStatusFilter);
+                  setIsMobileFilterSheetOpen(false);
+                }}
+                style={{
+                  minHeight: '44px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  backgroundColor: '#0e7490',
+                  color: '#ffffff',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Apply
+              </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Filter Bar for All Employees View (HR & CEO) */}
-      {showAllEmployeesView && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: isMobileViewport ? '1fr' : '1.4fr 1fr 1fr 0.8fr',
-            gap: '10px',
-            backgroundColor: '#f8fafc',
-            padding: '10px',
-            borderRadius: '12px',
-            border: '1px solid #e2e8f0'
-          }}
-        >
-          <div style={{ position: 'relative' }}>
-            <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-            <input
-              type="text"
-              placeholder="Search employee name, ID, or dept..."
-              value={staffSearchQuery}
-              onChange={(e) => setStaffSearchQuery(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 32px',
-                borderRadius: '8px',
-                border: '1px solid #cbd5e1',
-                backgroundColor: '#ffffff',
-                fontSize: '0.78rem',
-                color: '#0f172a',
-                outline: 'none',
-                boxSizing: 'border-box'
-              }}
-            />
-          </div>
-
-          <select
-            value={selectedDeptFilter}
-            onChange={(e) => {
-              setSelectedDeptFilter(e.target.value);
-              setSelectedEmpFilter('all');
-            }}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              backgroundColor: '#ffffff',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              color: '#0f172a',
-              outline: 'none'
-            }}
-          >
-            <option value="all">All Departments</option>
-            {availableDepartments.map(dept => (
-              <option key={dept} value={dept}>{dept}</option>
-            ))}
-          </select>
-
-          <select
-            value={selectedEmpFilter}
-            onChange={(e) => setSelectedEmpFilter(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              backgroundColor: '#ffffff',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              color: '#0f172a',
-              outline: 'none'
-            }}
-          >
-            <option value="all">All Employees ({availableFilterEmployees.length})</option>
-            {availableFilterEmployees.map(emp => (
-              <option key={emp.employeeId} value={emp.employeeId}>
-                {emp.firstName} {emp.lastName} ({emp.employeeId})
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={selectedStatusFilter}
-            onChange={(e) => setSelectedStatusFilter(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              backgroundColor: '#ffffff',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              color: '#0f172a',
-              outline: 'none'
-            }}
-          >
-            <option value="all">All Status</option>
-            <option value="Present">Present</option>
-            <option value="Half Day">Half Day</option>
-            <option value="Late">Late</option>
-          </select>
-        </div>
-      )}
-
-      {/* Attendance Log Records (Table on Desktop/Laptop, Compact Cards on Mobile) */}
-      {showAllEmployeesView
-        ? renderRecordsResponsiveView(filteredAllStaffMonthlyRecords, true)
-        : renderRecordsResponsiveView(myMonthlyRecords, false)}
     </div>
   );
 
   return (
     <div data-testid={mode === 'log' ? 'attendance-log-page' : 'daily-attendance-page'}>
       {/* Minimal Header */}
-      <div className="page-header face-attendance-minimal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <div className="page-title-group">
-          <h1 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
-            {mode === 'log' ? 'Attendance Log' : 'Face Attendance'}
-          </h1>
+      <div className="page-header face-attendance-minimal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobileViewport ? '10px' : '14px' }}>
+        <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {mode === 'log' && !isMobileViewport && (
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#0e7490',
+                flexShrink: 0
+              }}
+            >
+              <Calendar size={18} />
+            </div>
+          )}
+          <div>
+            <h1 style={{ fontSize: isMobileViewport ? '1.1rem' : '1.25rem', fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
+              {mode === 'log' ? 'Attendance Log' : 'Face Attendance'}
+            </h1>
+            {mode === 'log' && (
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                Employee check-in and check-out records
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -4406,35 +4817,36 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         </div>
       )}
 
-      {/* PHOTO PREVIEW LIGHTBOX MODAL */}
+      {/* PHOTO PREVIEW LIGHTBOX MODAL (CLEAN APPLE-STYLE WHITE MODAL) */}
       {previewPhoto && (
         <div 
           className="modal-overlay" 
+          data-testid="photo-preview-modal"
           onClick={() => setPreviewPhoto(null)}
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: 99999,
-            backgroundColor: 'rgba(15, 23, 42, 0.75)',
-            backdropFilter: 'blur(4px)',
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(3px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '20px'
+            padding: '16px',
+            overflowY: 'auto'
           }}
         >
           <div 
             className="modal-content"
             onClick={e => e.stopPropagation()}
             style={{
-              maxWidth: '460px',
+              maxWidth: '400px',
               width: '100%',
               backgroundColor: '#ffffff',
-              borderRadius: '20px',
+              borderRadius: '18px',
               overflow: 'hidden',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
-              border: '1px solid #e2e8f0',
-              animation: 'fadeIn 0.2s ease-out'
+              boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.14)',
+              border: '1px solid #e2e8f0'
             }}
           >
             {/* Header */}
@@ -4442,90 +4854,94 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '16px 20px',
-              borderBottom: '1px solid #e2e8f0',
-              backgroundColor: '#f8fafc'
+              padding: '14px 16px 12px',
+              backgroundColor: '#ffffff'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Camera size={18} color="#0e7490" />
-                <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                <Camera size={18} color="#334155" style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {previewPhoto.title}
                 </span>
               </div>
               <button
                 type="button"
+                aria-label="Close photo preview"
                 onClick={() => setPreviewPhoto(null)}
                 style={{
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
                   color: '#64748b',
-                  padding: '4px',
-                  borderRadius: '6px',
+                  width: '44px',
+                  height: '44px',
+                  margin: '-10px -10px -10px 0',
+                  borderRadius: '8px',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Photo Preview Container */}
+            {/* Clean Photo Preview Container (No dark box) */}
             <div style={{
-              padding: '16px',
-              backgroundColor: '#0f172a',
+              padding: '0 16px',
+              backgroundColor: '#ffffff',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              minHeight: '260px',
-              maxHeight: '420px'
+              justifyContent: 'center'
             }}>
               <img
                 src={previewPhoto.url}
                 alt={previewPhoto.title}
                 style={{
-                  maxWidth: '100%',
-                  maxHeight: '380px',
+                  width: '100%',
+                  maxHeight: '58vh',
                   borderRadius: '12px',
-                  objectFit: 'contain',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+                  objectFit: 'cover',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #f1f5f9',
+                  display: 'block'
                 }}
               />
             </div>
 
             {/* Footer with verification metadata */}
             <div style={{
-              padding: '14px 20px',
+              padding: '14px 16px 16px',
               backgroundColor: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              borderTop: '1px solid #e2e8f0'
+              gap: '10px'
             }}>
               <div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>
+                <div style={{ fontSize: '0.86rem', fontWeight: 700, color: '#0f172a' }}>
                   {previewPhoto.subtitle}
                 </div>
                 {previewPhoto.time && (
-                  <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>
                     Punch Time: {previewPhoto.time}
                   </div>
                 )}
               </div>
               <span style={{
-                padding: '4px 10px',
+                padding: '5px 10px',
                 borderRadius: '9999px',
-                fontSize: '0.72rem',
-                fontWeight: 800,
-                backgroundColor: '#ecfeff',
-                color: '#0e7490',
-                border: '1px solid #a5f3fc',
+                fontSize: '0.74rem',
+                fontWeight: 600,
+                backgroundColor: '#f0f9ff',
+                color: '#0284c7',
+                border: '1px solid #bae6fd',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px'
+                gap: '5px',
+                flexShrink: 0
               }}>
-                <CheckCircle2 size={12} />
+                <CheckCircle2 size={13} />
                 <span>Face Verified</span>
               </span>
             </div>
