@@ -413,13 +413,21 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       } else {
         setBreakDuration(45);
       }
-    } else {
-      // Employee has no recorded attendance for this date (Absent):
-      // Keep Missed In & Missed Out checked and do not pre-fill shift times
+    } else if (selectedEmpId) {
+      // Employee selected with no prior attendance record for this date:
+      // Unlock Check-In & Check-Out inputs so user can immediately add punch times
       setCheckInTime('');
       setCheckOutTime('');
-      setIsMissedCheckIn(true);
-      setIsMissedCheckOut(true);
+      setIsMissedCheckIn(false);
+      setIsMissedCheckOut(false);
+      setOtHours(0);
+      setBreakDuration(45);
+      setStatus('Present');
+    } else {
+      setCheckInTime('');
+      setCheckOutTime('');
+      setIsMissedCheckIn(false);
+      setIsMissedCheckOut(false);
       setOtHours(0);
       setBreakDuration(45);
       setStatus('Present');
@@ -1037,8 +1045,8 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
               </div>
             )}
 
-            {/* Check-In & Check-Out Times (if status is Present or Late or Half Day or WFH) */}
-            {status !== 'Absent' && status !== 'On Leave' && (() => {
+            {/* Check-In & Check-Out Times — ONLY displayed AFTER an Employee is selected */}
+            {Boolean(selectedEmployee) && status !== 'Absent' && status !== 'On Leave' && (() => {
               const parse12Parts = (raw: string, fallback: string) => {
                 const norm = normalizeTimeString(raw) || normalizeTimeString(fallback) || '09:00 AM';
                 const m = norm.match(/^(\d{2}):(\d{2})\s*(AM|PM)$/i);
