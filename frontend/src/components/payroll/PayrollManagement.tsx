@@ -812,15 +812,6 @@ export const PayrollManagement: React.FC = () => {
               <button className="btn btn-primary" onClick={processPayrollBatch}>
                 <CreditCard size={16} /> Process {currentMonthInfo.monthLong} Payroll Batch
               </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => recalculatePayrollBatch(activeMonthName, activeYear, false)}
-                title={`Recalculate ${activeMonthName} ${activeYear} processed records using Calendar Day Payroll (Paid/Locked records are preserved)`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', borderColor: '#0E7490', color: '#0E7490', fontWeight: 700 }}
-              >
-                <RefreshCw size={15} /> Recalculate {activeMonthName} Batch
-              </button>
             </>
           )}
           {canMarkPaid && (
@@ -915,17 +906,6 @@ export const PayrollManagement: React.FC = () => {
                 {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
               </h3>
             </div>
-            <span style={{
-              fontSize: '0.74rem',
-              fontWeight: 700,
-              color: '#0E7490',
-              backgroundColor: '#ECFEFF',
-              border: '1px solid #A5F3FC',
-              padding: '4px 10px',
-              borderRadius: '999px'
-            }}>
-              Calendar Month: {batchCalendarDays} Days • Calendar Day Proration (Paid Days / {batchCalendarDays})
-            </span>
             {canViewAllPayroll && availableBatches.length > 1 && (
               <select
                 value={selectedBatch}
