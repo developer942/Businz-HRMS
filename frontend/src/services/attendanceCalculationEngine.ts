@@ -2509,6 +2509,11 @@ export function buildEmployeeMonthlyAttendanceOtReport(params: {
       anyDayOtEligible = true;
     }
 
+    const stdShiftHours =
+      Number((assignedShift as any)?.workingHours) > 0
+        ? Number((assignedShift as any).workingHours)
+        : (dateEligibility.standardShiftHours || baseEligibility.standardShiftHours || 9);
+
     const workHrs = Math.round((Number(rec?.workingHours ?? (rec as any)?.workHours ?? 0) + Number.EPSILON) * 100) / 100;
     totalShiftWorkHours += workHrs;
 
@@ -2543,13 +2548,16 @@ export function buildEmployeeMonthlyAttendanceOtReport(params: {
               ? itemCalc.overtimeAmount
               : (rawReqAmt > 0 ? Math.round((rawReqAmt + Number.EPSILON) * 100) / 100 : itemCalc.overtimeAmount);
         }
-      } else if (rec) {
-        const recApprovedHrs =
-          rec.approvedOtHours !== undefined && rec.approvedOtHours > 0
+      } else if (rec && rec.otApprovalStatus !== 'Rejected' && rec.otStatus !== 'Rejected') {
+        const explicitApprovedHrs =
+          rec.approvedOtHours !== undefined && Number(rec.approvedOtHours) > 0
             ? Number(rec.approvedOtHours)
-            : (rec.otApprovalStatus === 'Approved' || rec.otStatus === 'Approved'
-                ? Number(rec.overtimeHours || rec.calculatedOtHours || 0)
-                : 0);
+            : Number((rec as any).otHours || rec.overtimeHours || rec.calculatedOtHours || 0);
+        const autoExcessHrs =
+          workHrs > stdShiftHours
+            ? Math.round((workHrs - stdShiftHours + Number.EPSILON) * 100) / 100
+            : 0;
+        const recApprovedHrs = explicitApprovedHrs > 0 ? explicitApprovedHrs : autoExcessHrs;
         if (recApprovedHrs > 0) {
           otHrs = recApprovedHrs;
           const attCalc = calculateEnterpriseOvertimeRateAndAmount({

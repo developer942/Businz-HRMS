@@ -10,6 +10,8 @@ import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
+import { buildEmployeeMonthlyAttendanceOtReport } from '../../services/attendanceCalculationEngine';
+import { formatCurrency } from '../../utils/numbers';
 import { pettyCashService } from '../../services/pettyCashService';
 import { 
   Users, 
@@ -66,7 +68,11 @@ export const Dashboard: React.FC = () => {
     weeklySchedules,
     expenses = [],
     loanRecords = [],
-    overtimeRequests = []
+    overtimeRequests = [],
+    overtimePolicy,
+    departmentOtPolicies = [],
+    employeeOtPolicies = [],
+    payrollSettingsConfig
   } = useHRMS();
 
   const isCEO = 
@@ -86,6 +92,7 @@ export const Dashboard: React.FC = () => {
   const isEmployee = (currentUser.role === 'Employee' || isAccountsStaff) && !isCEO;
   const [profileModalEmployee, setProfileModalEmployee] = useState<Employee | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AttendanceCategoryType | null>(null);
+  const [isOtDetailsModalOpen, setIsOtDetailsModalOpen] = useState<boolean>(false);
   const [pendingPettyCashCount, setPendingPettyCashCount] = useState<number>(0);
   const [activeCustodianId, setActiveCustodianId] = useState<string | null>(null);
   const todayStr = getLocalDateStr();
@@ -111,42 +118,43 @@ export const Dashboard: React.FC = () => {
     currentUser.employeeId === activeCustodianId
   );
 
-  // Current month's recorded overtime for the logged-in employee. Attendance is
-  // the authoritative source; approved requests are a fallback for legacy rows.
-  const employeeOtHours = useMemo(() => {
+  // Current month's daily overtime report (OT hours & OT amount) for the logged-in employee
+  const employeeMonthlyOtReport = useMemo(() => {
+    const month = getMonthInfo();
     const userEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
     const userName = (currentUser.name || '').trim().toLowerCase();
-    const month = getMonthInfo();
+    const matchedEmpObj = (employees || []).find(e => {
+      const eCode = (e.employeeId || '').trim().toLowerCase();
+      const eId = (e.id || '').trim().toLowerCase();
+      const eName = `${e.firstName} ${e.lastName}`.trim().toLowerCase();
+      return (userEmpId && (eCode === userEmpId || eId === userEmpId)) || (userName && eName === userName);
+    });
+    return buildEmployeeMonthlyAttendanceOtReport({
+      employee: matchedEmpObj || currentUser,
+      attendanceRecords,
+      overtimeRequests,
+      overtimePolicy,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      payrollConfig: payrollSettingsConfig,
+      shifts,
+      month: month.monthIndex + 1,
+      year: month.year
+    });
+  }, [
+    currentUser,
+    employees,
+    attendanceRecords,
+    overtimeRequests,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig,
+    shifts
+  ]);
 
-    const recordedHours = (attendanceRecords || [])
-      .filter(record => {
-        const rEmpId = (record.employeeId || '').trim().toLowerCase();
-        const rName = (record.employeeName || '').trim().toLowerCase();
-        const matchEmp = (userEmpId && rEmpId === userEmpId) || (userName && rName === userName);
-        return matchEmp && isDateInMonth(record.shiftDate || record.date, month);
-      })
-      .reduce((sum, record) => sum + (
-        Number(record.approvedOtHours) ||
-        Number(record.otHours) ||
-        Number(record.calculatedOtHours) ||
-        0
-      ), 0);
-
-    const approvedRequestHours = (overtimeRequests || [])
-      .filter(req => {
-        const rEmpId = (req.employeeId || '').trim().toLowerCase();
-        const rName = (req.employeeName || '').trim().toLowerCase();
-        const matchEmp = (userEmpId && rEmpId === userEmpId) || (userName && rName === userName);
-        if (!matchEmp) return false;
-        const isApproved = req.status === 'Approved' || req.status === 'Partially Approved';
-        if (!isApproved) return false;
-        return isDateInMonth(req.date, month);
-      })
-      .reduce((sum, req) => sum + (Number(req.approvedOtHours) || 0), 0);
-
-    const total = recordedHours > 0 ? recordedHours : approvedRequestHours;
-    return Math.round(total * 10) / 10;
-  }, [attendanceRecords, overtimeRequests, currentUser]);
+  const employeeOtHours = employeeMonthlyOtReport.totalApprovedOtHours;
+  const employeeOtAmount = employeeMonthlyOtReport.totalApprovedOtAmount;
 
   useEffect(() => {
     if (isEmployee) return;
@@ -861,7 +869,7 @@ export const Dashboard: React.FC = () => {
                 <div
                   className="mobile-kpi-card"
                   data-testid="mobile-kpi-overtime"
-                  onClick={() => setActiveModule('overtime')}
+                  onClick={() => setIsOtDetailsModalOpen(true)}
                 >
                   <div className="mobile-kpi-top">
                     <div className="mobile-kpi-icon-box cyan">
@@ -873,7 +881,7 @@ export const Dashboard: React.FC = () => {
                     <span className="mobile-kpi-value">{employeeOtHours} hrs</span>
                   </div>
                   <div className="mobile-kpi-badge-wrap">
-                    <span className="mobile-kpi-trend green">Overtime</span>
+                    <span className="mobile-kpi-trend green">{formatCurrency(employeeOtAmount)}</span>
                   </div>
                 </div>
               </div>
@@ -1472,23 +1480,23 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. Monthly Attendance Rate */}
+            {/* 2. Monthly Overtime (Replaced Monthly Attendance % card) */}
             <div 
               className="kpi-card compact"
-              data-testid="desktop-kpi-monthly-attendance"
-              onClick={() => setActiveModule('attendance_log')}
+              data-testid="desktop-kpi-monthly-ot"
+              onClick={() => setIsOtDetailsModalOpen(true)}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">
-                <span>MONTHLY ATTENDANCE</span>
-                <CalendarCheck size={15} color="#0891B2" />
+                <span>MONTHLY OT</span>
+                <Clock size={15} color="#0891B2" />
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: '#0E7490' }}>
-                  {employeeAttendanceStats.attendanceRate}%
+                  {employeeOtHours} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>hrs</span>
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green" style={{ border: 'none' }}>↗ Consistent</span>
+                  <span className="kpi-trend-badge green" style={{ border: 'none' }}>{formatCurrency(employeeOtAmount)}</span>
                   <span>{employeeAttendanceStats.monthLabel}</span>
                 </div>
               </div>
@@ -2118,6 +2126,180 @@ export const Dashboard: React.FC = () => {
           fieldAssignments={fieldAssignments}
           currentUser={currentUser}
         />
+      )}
+
+      {/* DAILY OVERTIME (OT HRS & AMOUNT) MODAL (DESKTOP & MOBILE) */}
+      {isOtDetailsModalOpen && (
+        <div
+          data-testid="monthly-ot-details-modal"
+          onClick={() => setIsOtDetailsModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(15, 23, 42, 0.48)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '12px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '780px',
+              maxHeight: '88vh',
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              border: '1px solid #E2E8F0',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.12)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '14px 18px',
+              borderBottom: '1px solid #E2E8F0',
+              backgroundColor: '#F8FAFC',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  backgroundColor: '#ECFEFF',
+                  color: '#0E7490',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <Clock size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 800, color: '#0F172A' }}>
+                    Daily Overtime (OT Hrs & Amount) — {employeeAttendanceStats.monthLabel}
+                  </h3>
+                  <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>
+                    {currentUser.name} ({currentUser.employeeId}) • {currentUser.department || 'General'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOtDetailsModalOpen(false)}
+                aria-label="Close modal"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: '#64748B',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Summary Strip */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '8px',
+              padding: '12px 18px 0'
+            }}>
+              <div style={{ backgroundColor: '#F8FAFC', padding: '8px 10px', borderRadius: '10px', border: '1px solid #E2E8F0', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Working Hrs</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0F172A' }}>{employeeMonthlyOtReport.totalShiftWorkHours} hrs</div>
+              </div>
+              <div style={{ backgroundColor: '#ECFEFF', padding: '8px 10px', borderRadius: '10px', border: '1px solid #A5F3FC', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#0E7490', textTransform: 'uppercase' }}>Total OT Hrs</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0E7490' }}>{employeeOtHours} hrs</div>
+              </div>
+              <div style={{ backgroundColor: '#F0FDF4', padding: '8px 10px', borderRadius: '10px', border: '1px solid #BBF7D0', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#15803D', textTransform: 'uppercase' }}>OT Amount</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#15803D' }}>{formatCurrency(employeeOtAmount)}</div>
+              </div>
+            </div>
+
+            {/* Daily Table Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 18px' }}>
+              {employeeMonthlyOtReport.rows.length === 0 ? (
+                <div style={{
+                  padding: '32px 16px',
+                  textAlign: 'center',
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: '12px',
+                  border: '1px dashed #CBD5E1',
+                  color: '#64748B',
+                  fontSize: '0.84rem',
+                  fontWeight: 600
+                }}>
+                  No attendance or overtime records found for {employeeAttendanceStats.monthLabel}.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto', border: '1px solid #E2E8F0', borderRadius: '12px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', textAlign: 'left' }}>
+                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em' }}>DATE</th>
+                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em' }}>SHIFT TIME</th>
+                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>SHIFT WORK HRS</th>
+                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT HRS</th>
+                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT AMOUNT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employeeMonthlyOtReport.rows.map((row) => (
+                        <tr key={row.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                          <td style={{ padding: '9px 12px', fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap' }}>
+                            {formatDateDDMMYYYY(row.date)}
+                          </td>
+                          <td style={{ padding: '9px 12px', color: '#334155' }}>
+                            <div style={{ fontWeight: 600 }}>{row.shiftTime}</div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748B' }}>{row.punchTimeDisplay}</div>
+                          </td>
+                          <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap' }}>
+                            {row.shiftWorkHrs} hrs
+                          </td>
+                          <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: row.otHrs > 0 ? '#0E7490' : '#94A3B8', whiteSpace: 'nowrap' }}>
+                            {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
+                          </td>
+                          <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: row.otAmount > 0 ? '#15803D' : '#94A3B8', whiteSpace: 'nowrap' }}>
+                            {formatCurrency(row.otAmount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ backgroundColor: '#ECFEFF', borderTop: '2px solid #A5F3FC' }}>
+                        <td colSpan={3} style={{ padding: '10px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.74rem' }}>
+                          TOTAL OT HOURS: {employeeOtHours} hrs
+                        </td>
+                        <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#0E7490', fontSize: '0.8rem' }}>
+                          TOTAL OT AMOUNT: {formatCurrency(employeeOtAmount)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

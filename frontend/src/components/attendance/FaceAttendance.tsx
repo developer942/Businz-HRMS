@@ -41,7 +41,8 @@ import {
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import {
   parseTimeToMinutes,
-  buildEmployeeMonthlyAttendanceOtReport
+  buildEmployeeMonthlyAttendanceOtReport,
+  calculateEnterpriseOvertimeRateAndAmount
 } from '../../services/attendanceCalculationEngine';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import { formatCurrency } from '../../utils/numbers';
@@ -2278,12 +2279,61 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     return rawStatus || 'Present';
   };
 
+  const getRecordDailyOt = (rec: any): { otHrs: number; otAmount: number } => {
+    const empMatch = employees.find(
+      e =>
+        String(e.employeeId || '').toLowerCase() === String(rec?.employeeId || '').toLowerCase() ||
+        String(e.id || '').toLowerCase() === String(rec?.employeeId || '').toLowerCase()
+    ) || currentUserEmp || currentUser;
+    if (!empMatch || isOwnerOrCEO(empMatch)) return { otHrs: 0, otAmount: 0 };
+    if (rec?.otApprovalStatus === 'Rejected' || rec?.otStatus === 'Rejected') return { otHrs: 0, otAmount: 0 };
+
+    const recDate = normalizeToYYYYMMDD(rec?.date || rec?.shiftDate);
+    const matchedOtReq = (overtimeRequests || []).find(req => {
+      const rEmpId = String(req.employeeId || '').trim().toLowerCase();
+      const recEmpId = String(rec?.employeeId || (empMatch as any).employeeId || '').trim().toLowerCase();
+      const isApproved = req.status === 'Approved' || req.status === 'Partially Approved' || req.status === 'Paid';
+      return isApproved && rEmpId === recEmpId && normalizeToYYYYMMDD(req.date) === recDate;
+    });
+
+    const stdShiftHours = 9;
+    const workHrs = Number(rec?.workingHours || 0);
+    const explicitOt =
+      matchedOtReq
+        ? Number(matchedOtReq.approvedOtHours || (matchedOtReq as any).otHours || matchedOtReq.requestedOtHours || 0)
+        : (rec?.approvedOtHours !== undefined && Number(rec.approvedOtHours) > 0
+            ? Number(rec.approvedOtHours)
+            : Number((rec as any)?.otHours || rec?.overtimeHours || rec?.calculatedOtHours || 0));
+    const autoExcessOt = workHrs > stdShiftHours ? Math.round((workHrs - stdShiftHours + Number.EPSILON) * 100) / 100 : 0;
+    const otHrs = explicitOt > 0 ? explicitOt : autoExcessOt;
+    if (otHrs <= 0) return { otHrs: 0, otAmount: 0 };
+
+    const [yStr, mStr] = (selectedMonth || '').split('-');
+    const calc = calculateEnterpriseOvertimeRateAndAmount({
+      employee: empMatch as any,
+      approvedOtHours: otHrs,
+      month: Number(mStr) || undefined,
+      year: Number(yStr) || undefined,
+      dateStr: recDate,
+      payrollConfig: payrollSettingsConfig,
+      overtimePolicy,
+      departmentOtPolicies,
+      employeeOtPolicies,
+    });
+    return {
+      otHrs: Math.round((otHrs + Number.EPSILON) * 100) / 100,
+      otAmount: calc.overtimeAmount
+    };
+  };
+
   // Monthly summary stats for current user
   const monthlyStats = useMemo(() => {
     let presentDays = 0;
     let halfDays = 0;
     let lateDays = 0;
     let totalWorkedHours = 0;
+    let totalOtHours = 0;
+    let totalOtAmount = 0;
 
     myMonthlyRecords.forEach(r => {
       const effStatus = resolveEffectiveRecordStatus(r);
@@ -2297,6 +2347,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         lateDays++;
       }
       totalWorkedHours += Number(r.workingHours || 0);
+      const dailyOt = getRecordDailyOt(r);
+      totalOtHours += dailyOt.otHrs;
+      totalOtAmount += dailyOt.otAmount;
     });
 
     return {
@@ -2304,9 +2357,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       halfDays,
       lateDays,
       totalHours: Math.round(totalWorkedHours * 10) / 10,
+      totalOtHours: Math.round((totalOtHours + Number.EPSILON) * 100) / 100,
+      totalOtAmount: Math.round((totalOtAmount + Number.EPSILON) * 100) / 100,
       totalPunches: myMonthlyRecords.length
     };
-  }, [myMonthlyRecords]);
+  }, [myMonthlyRecords, employees, currentUserEmp, currentUser, overtimeRequests, selectedMonth, payrollSettingsConfig, overtimePolicy, departmentOtPolicies, employeeOtPolicies]);
 
   // All Staff Monthly records (Consolidated & deduplicated per employee per date)
   const allStaffMonthlyRecords = useMemo(() => {
@@ -2602,6 +2657,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       );
     }
 
+    const totalViewOtHours = Math.round(
+      records.reduce((sum, r) => sum + getRecordDailyOt(r).otHrs, 0) * 100
+    ) / 100;
+    const totalViewOtAmount = Math.round(
+      records.reduce((sum, r) => sum + getRecordDailyOt(r).otAmount, 0) * 100
+    ) / 100;
+
     if (isMobileViewport) {
       return (
         <div
@@ -2617,6 +2679,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             const badge = getStatusBadgeStyle(effStatus);
             const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
             const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+            const dailyOt = getRecordDailyOt(rec);
 
             return (
               <div
@@ -2719,10 +2782,37 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                   </div>
                 </div>
 
-                {/* Card Bottom: Compact 2-Column Check-In & Check-Out */}
+                {/* Card Middle: Compact 2-Column Check-In & Check-Out */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   {renderPunchCell('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
                   {renderPunchCell('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
+                </div>
+
+                {/* Card Bottom: Daily OT Hrs & OT Amount Strip */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    borderRadius: '8px',
+                    backgroundColor: dailyOt.otHrs > 0 ? '#ecfeff' : '#f8fafc',
+                    border: `1px solid ${dailyOt.otHrs > 0 ? '#a5f3fc' : '#e2e8f0'}`,
+                    fontSize: '0.74rem'
+                  }}
+                >
+                  <div>
+                    <span style={{ fontWeight: 700, color: '#64748b' }}>OT Hrs: </span>
+                    <span style={{ fontWeight: 800, color: dailyOt.otHrs > 0 ? '#0e7490' : '#64748b' }}>
+                      {dailyOt.otHrs} hrs
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ fontWeight: 700, color: '#64748b' }}>OT Amount: </span>
+                    <span style={{ fontWeight: 800, color: dailyOt.otAmount > 0 ? '#15803d' : '#64748b' }}>
+                      {formatCurrency(dailyOt.otAmount)}
+                    </span>
+                  </div>
                 </div>
               </div>
             );
@@ -2756,6 +2846,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>CHECK-IN</th>
                 <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>CHECK-OUT</th>
                 <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>WORKING HRS</th>
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#0e7490', fontSize: '0.72rem', letterSpacing: '0.04em' }}>OT HRS</th>
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#0e7490', fontSize: '0.72rem', letterSpacing: '0.04em' }}>OT AMOUNT</th>
                 <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>STATUS</th>
               </tr>
             </thead>
@@ -2769,6 +2861,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 const badge = getStatusBadgeStyle(effStatus);
                 const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
                 const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+                const dailyOt = getRecordDailyOt(rec);
 
                 return (
                   <tr
@@ -2882,6 +2975,16 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                       </span>
                     </td>
 
+                    {/* Daily OT Hours */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', fontWeight: 800, color: dailyOt.otHrs > 0 ? '#0e7490' : '#94a3b8' }}>
+                      {dailyOt.otHrs > 0 ? `${dailyOt.otHrs} hrs` : '0 hrs'}
+                    </td>
+
+                    {/* Daily OT Amount */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', fontWeight: 800, color: dailyOt.otAmount > 0 ? '#15803d' : '#94a3b8' }}>
+                      {formatCurrency(dailyOt.otAmount)}
+                    </td>
+
                     {/* Status */}
                     <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <span
@@ -2904,6 +3007,16 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr style={{ backgroundColor: '#ecfeff', borderTop: '2px solid #a5f3fc' }}>
+                <td colSpan={showEmployeeCol ? 6 : 4} style={{ padding: '10px 16px', fontWeight: 800, color: '#0e7490', fontSize: '0.76rem' }}>
+                  TOTAL OT HOURS: {totalViewOtHours} hrs
+                </td>
+                <td colSpan={3} style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#0e7490', fontSize: '0.82rem' }}>
+                  TOTAL OT AMOUNT: {formatCurrency(totalViewOtAmount)}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -3107,13 +3220,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase' }}>Half Days</div>
             <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#c2410c', marginTop: '2px' }}>{monthlyStats.halfDays} d</div>
           </div>
-          <div style={{ backgroundColor: '#fffbeb', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fde68a' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#b45309', textTransform: 'uppercase' }}>Late Arrivals</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#b45309', marginTop: '2px' }}>{monthlyStats.lateDays} d</div>
+          <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Working Hours</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>{monthlyStats.totalHours} hrs</div>
           </div>
           <div style={{ backgroundColor: '#ecfeff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #a5f3fc' }}>
-            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#0e7490', textTransform: 'uppercase' }}>Working Hours</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0e7490', marginTop: '2px' }}>{monthlyStats.totalHours} hrs</div>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#0e7490', textTransform: 'uppercase' }}>Monthly OT</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0e7490', marginTop: '2px' }}>
+              {monthlyStats.totalOtHours} hrs • <span style={{ color: '#15803d' }}>{formatCurrency(monthlyStats.totalOtAmount)}</span>
+            </div>
           </div>
         </div>
       )}
