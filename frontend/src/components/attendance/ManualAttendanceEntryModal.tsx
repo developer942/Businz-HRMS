@@ -388,20 +388,24 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     initializedRecordKey.current = currentKey;
 
     if (existingRecord) {
-      setStatus(existingRecord.status || 'Present');
+      const initialStatus =
+        existingRecord.status === 'Absent' || existingRecord.status === 'Missing Punch'
+          ? 'Present'
+          : existingRecord.status || 'Present';
+      setStatus(initialStatus);
       if (existingRecord.checkIn && existingRecord.checkIn !== '--:--' && existingRecord.checkIn !== '-') {
         setCheckInTime(normalizeTimeString(existingRecord.checkIn) || existingRecord.checkIn);
         setIsMissedCheckIn(false);
       } else {
-        setCheckInTime('');
-        setIsMissedCheckIn(true);
+        setCheckInTime(shiftStartTimeStr || '09:00 AM');
+        setIsMissedCheckIn(false);
       }
       if (existingRecord.checkOut && existingRecord.checkOut !== '--:--' && existingRecord.checkOut !== '-') {
         setCheckOutTime(normalizeTimeString(existingRecord.checkOut) || existingRecord.checkOut);
         setIsMissedCheckOut(false);
       } else {
-        setCheckOutTime('');
-        setIsMissedCheckOut(true);
+        setCheckOutTime(shiftEndTimeStr || '06:00 PM');
+        setIsMissedCheckOut(false);
       }
       if (existingRecord.otHours) {
         setOtHours(existingRecord.otHours);
@@ -415,9 +419,9 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       }
     } else if (selectedEmpId) {
       // Employee selected with no prior attendance record for this date:
-      // Unlock Check-In & Check-Out inputs so user can immediately add punch times
-      setCheckInTime('');
-      setCheckOutTime('');
+      // Pre-fill with employee's assigned shift start & end times and unlock inputs
+      setCheckInTime(shiftStartTimeStr || '09:00 AM');
+      setCheckOutTime(shiftEndTimeStr || '06:00 PM');
       setIsMissedCheckIn(false);
       setIsMissedCheckOut(false);
       setOtHours(0);
@@ -432,15 +436,18 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       setBreakDuration(45);
       setStatus('Present');
     }
-  }, [isOpen, existingRecord, date, selectedEmpId]);
+  }, [isOpen, existingRecord, date, selectedEmpId, shiftStartTimeStr, shiftEndTimeStr]);
 
   if (!isOpen) return null;
+
+  const effectiveCheckInRaw = checkInTime.trim() || shiftStartTimeStr || '09:00 AM';
+  const effectiveCheckOutRaw = checkOutTime.trim() || shiftEndTimeStr || '06:00 PM';
 
   // Real-time calculation of working hours (supports overnight shifts)
   const calculatedHours = calculateNetWorkingHours({
     status,
-    checkInTime,
-    checkOutTime,
+    checkInTime: effectiveCheckInRaw,
+    checkOutTime: effectiveCheckOutRaw,
     isMissedCheckIn,
     isMissedCheckOut,
     breakDurationMinutes: Number(breakDuration) || 0
@@ -461,18 +468,18 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
     }
 
     if (status !== 'Absent' && status !== 'On Leave') {
-      if (!isMissedCheckIn && !isValidTimeInput(checkInTime)) {
+      if (!isMissedCheckIn && !isValidTimeInput(effectiveCheckInRaw)) {
         setError('Please enter a valid Check-In time in HH:MM AM/PM format (e.g. 09:00 AM).');
         return;
       }
-      if (!isMissedCheckOut && !isValidTimeInput(checkOutTime)) {
+      if (!isMissedCheckOut && !isValidTimeInput(effectiveCheckOutRaw)) {
         setError('Please enter a valid Check-Out time in HH:MM AM/PM format (e.g. 06:00 PM).');
         return;
       }
     }
 
-    const finalCheckIn = isMissedCheckIn ? null : normalizeTimeString(checkInTime);
-    const finalCheckOut = isMissedCheckOut ? null : normalizeTimeString(checkOutTime);
+    const finalCheckIn = isMissedCheckIn ? null : normalizeTimeString(effectiveCheckInRaw);
+    const finalCheckOut = isMissedCheckOut ? null : normalizeTimeString(effectiveCheckOutRaw);
 
     // If the check-in time is on-time or within grace period, ensure status is recorded as Present
     let statusToSend = status;
@@ -1179,9 +1186,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           onClick={() => {
                             if (isMissedCheckIn) {
                               setIsMissedCheckIn(false);
-                              if (!checkInTime) setCheckInTime(shiftStartTimeStr || '09:00 AM');
+                              if (!checkInTime.trim()) setCheckInTime(shiftStartTimeStr || '09:00 AM');
                               setActiveTimePicker('checkIn');
                             } else {
+                              if (!checkInTime.trim()) setCheckInTime(shiftStartTimeStr || '09:00 AM');
                               setActiveTimePicker(prev => (prev === 'checkIn' ? null : 'checkIn'));
                             }
                           }}
@@ -1331,17 +1339,22 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                                         color: inParts.mer === p ? '#FFFFFF' : '#475569'
                                       }}
                                     >
-                                      {p}
-                                    </button>
-                                  ))}
+                                        {p}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <button
-                                type="button"
-                                onClick={() => setActiveTimePicker(null)}
-                                style={{
+                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!checkInTime.trim()) {
+                                      setCheckInTime(`${inParts.hh}:${inParts.mm} ${inParts.mer}`);
+                                    }
+                                    setActiveTimePicker(null);
+                                  }}
+                                  style={{
                                   padding: '4px 10px',
                                   borderRadius: '6px',
                                   border: 'none',
@@ -1475,9 +1488,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           onClick={() => {
                             if (isMissedCheckOut) {
                               setIsMissedCheckOut(false);
-                              if (!checkOutTime) setCheckOutTime(shiftEndTimeStr || '06:00 PM');
+                              if (!checkOutTime.trim()) setCheckOutTime(shiftEndTimeStr || '06:00 PM');
                               setActiveTimePicker('checkOut');
                             } else {
+                              if (!checkOutTime.trim()) setCheckOutTime(shiftEndTimeStr || '06:00 PM');
                               setActiveTimePicker(prev => (prev === 'checkOut' ? null : 'checkOut'));
                             }
                           }}
@@ -1627,17 +1641,22 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                                         color: outParts.mer === p ? '#FFFFFF' : '#475569'
                                       }}
                                     >
-                                      {p}
-                                    </button>
-                                  ))}
+                                        {p}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <button
-                                type="button"
-                                onClick={() => setActiveTimePicker(null)}
-                                style={{
+                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!checkOutTime.trim()) {
+                                      setCheckOutTime(`${outParts.hh}:${outParts.mm} ${outParts.mer}`);
+                                    }
+                                    setActiveTimePicker(null);
+                                  }}
+                                  style={{
                                   padding: '4px 10px',
                                   borderRadius: '6px',
                                   border: 'none',
