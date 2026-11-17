@@ -166,12 +166,22 @@ export function runCalendarDayPayrollTests() {
       },
     };
 
-    const novPunches = Array.from({ length: 8 }, (_, i) => ({
+    const novWorkingDates = [
+      '2026-11-02',
+      '2026-11-03',
+      '2026-11-04',
+      '2026-11-05',
+      '2026-11-06',
+      '2026-11-07',
+      '2026-11-09',
+      '2026-11-10',
+    ];
+    const novPunches = novWorkingDates.map((dateStr, i) => ({
       id: `att-vijay-${i + 1}`,
       employeeId: 'VRM-043',
       employeeName: 'Vijay E',
       department: 'Production',
-      date: `2026-11-${String(i + 2).padStart(2, '0')}`,
+      date: dateStr,
       status: 'Present' as const,
       workingHours: 9,
     }));
@@ -188,7 +198,7 @@ export function runCalendarDayPayrollTests() {
       'November',
       2026,
       [],
-      {}
+      { evaluationCutoffDate: '2026-11-17' } as any
     );
 
     const beRes = computeFullPayroll({
@@ -202,6 +212,7 @@ export function runCalendarDayPayrollTests() {
       payrollMonth: 11,
       payrollYear: 2026,
       settings: baseSettings,
+      evaluationCutoffDate: '2026-11-17',
       attendance: {
         workingDays: 25,
         presentDays: 8,
@@ -212,33 +223,34 @@ export function runCalendarDayPayrollTests() {
         weeklyOff: 'Sunday',
         attendanceRecords: novPunches,
       },
-    });
+    } as any);
 
-    // Nov 2026 has 30 calendar days, 5 Sundays (Nov 1, 8, 15, 22, 29), 25 working days
+    // Up to Nov 17, 2026: 17 calendar days elapsed (14 working days + 3 Sundays: Nov 1, 8, 15).
+    // Vijay E has 8 present punches, 6 elapsed working days absent (LOP = 6), 3 elapsed paid Sundays -> Total Paid Days = 11 / 30.
     assertEqual(feRes.calendarDays, 30, 'Vijay E Nov 2026 Calendar Days (FE)');
     assertEqual(feRes.eligibleDays, 30, 'Vijay E Nov 2026 Eligible Days (FE)');
     assertEqual(feRes.workingDays, 25, 'Vijay E Nov 2026 Working Days (FE)');
-    assertEqual(feRes.paidWeekOffDays, 5, 'Vijay E Nov 2026 Paid Week Off Days (FE)');
-    assertEqual(feRes.lopDays, 0, 'Vijay E Nov 2026 LOP Days (FE)');
-    assertEqual(feRes.paidDays, 30, 'Vijay E Nov 2026 Total Paid Days (FE)');
-    assertEqual(feRes.basicSalary, 6400, 'Vijay E Nov 2026 Basic Salary (FE)');
-    assertEqual(feRes.hra, 5600, 'Vijay E Nov 2026 HRA (FE)');
-    assertEqual(feRes.da, 3200, 'Vijay E Nov 2026 DA (FE)');
-    assertEqual(feRes.conveyance, 800, 'Vijay E Nov 2026 Conveyance (FE)');
-    assertEqual(feRes.grossSalary, 16000, 'Vijay E Nov 2026 Gross Salary (FE)');
+    assertEqual(feRes.presentDays, 8, 'Vijay E Nov 2026 Present Days up to Nov 17 (FE)');
+    assertEqual(feRes.paidWeekOffDays, 3, 'Vijay E Nov 2026 Elapsed Paid Week Off Days up to Nov 17 (FE)');
+    assertEqual(feRes.lopDays, 6, 'Vijay E Nov 2026 Elapsed LOP Days up to Nov 17 (FE)');
+    assertEqual(feRes.paidDays, 11, 'Vijay E Nov 2026 Total Paid Days up to Nov 17 (FE)');
+    assertEqual(feRes.grossSalary, 5867, 'Vijay E Nov 2026 Prorated Gross Salary for 11/30 days (FE)');
     assertEqual(feRes.totalDeductions, 0, 'Vijay E Nov 2026 Total Deductions (FE)');
-    assertEqual(feRes.netSalary, 16000, 'Vijay E Nov 2026 Net Pay (FE)');
+    assertEqual(feRes.netSalary, 5867, 'Vijay E Nov 2026 Net Pay for 11/30 days (FE)');
     assertEqual(
-      feRes.earningsBreakdown[0].description?.includes('Paid 30/30 days'),
+      feRes.earningsBreakdown[0].description?.includes('Paid 11/30 days'),
       true,
-      'Vijay E Nov 2026 Earnings Description shows Paid 30/30 days'
+      'Vijay E Nov 2026 Earnings Description shows Paid 11/30 days'
     );
 
-    // Backend parity
+    // Backend parity for ongoing month up to Nov 17 (11/30 paid days)
     assertEqual(beRes.calendarDays, 30, 'Vijay E Nov 2026 Calendar Days (BE)');
-    assertEqual(beRes.paidDays, 30, 'Vijay E Nov 2026 Total Paid Days (BE)');
-    assertEqual(beRes.grossSalary, 16000, 'Vijay E Nov 2026 Gross Salary (BE)');
-    assertEqual(beRes.netSalary, 16000, 'Vijay E Nov 2026 Net Pay (BE)');
+    assertEqual(beRes.presentDays, 8, 'Vijay E Nov 2026 Present Days (BE)');
+    assertEqual(beRes.paidWeekOffDays, 3, 'Vijay E Nov 2026 Paid Week Off Days (BE)');
+    assertEqual(beRes.lopDays, 6, 'Vijay E Nov 2026 LOP Days (BE)');
+    assertEqual(beRes.paidDays, 11, 'Vijay E Nov 2026 Total Paid Days (BE)');
+    assertEqual(beRes.grossSalary, 5866.67, 'Vijay E Nov 2026 Prorated Gross Salary (BE)');
+    assertEqual(beRes.netSalary, 5866.67, 'Vijay E Nov 2026 Net Pay (BE)');
   }
 
   // ---------------------------------------------------------------------------

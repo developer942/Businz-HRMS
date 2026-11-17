@@ -405,6 +405,7 @@ export interface CalendarDayPayrollParams {
   month: string | number;
   year: number;
   employeeId?: string;
+  employeeUuid?: string;
   department?: string;
   joiningDate?: string | null;
   exitDate?: string | null;
@@ -422,6 +423,7 @@ export interface CalendarDayPayrollParams {
   autoConvertPendingToLop?: boolean;
   lopEnabled?: boolean;
   isCeo?: boolean;
+  evaluationCutoffDate?: string;
   explicitLopDays?: number;
   explicitPaidLeaveDays?: number;
   explicitUnpaidLeaveDays?: number;
@@ -573,18 +575,37 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
   }
 
   const empIdNorm = String(params.employeeId || '').trim().toLowerCase();
+  const empUuidNorm = String(params.employeeUuid || '').trim().toLowerCase();
+  const matchesTargetEmp = (rawId: any): boolean => {
+    if (!empIdNorm && !empUuidNorm) return true;
+    const idNorm = String(rawId || '').trim().toLowerCase();
+    if (!idNorm) return !empIdNorm;
+    return (Boolean(empIdNorm) && idNorm === empIdNorm) || (Boolean(empUuidNorm) && idNorm === empUuidNorm);
+  };
 
+  let maxMonthAttDateStr = '';
   const monthAttMap = new Map<string, any>();
   if (Array.isArray(params.attendanceRecords)) {
     for (const rec of params.attendanceRecords) {
       if (!rec) continue;
-      if (empIdNorm) {
-        const recEmp = String(rec.employeeId || rec.employee_id || '').trim().toLowerCase();
-        if (recEmp && recEmp !== empIdNorm) continue;
-      }
       const dIso = normalizeDateToISO(rec.date || rec.shiftDate || rec.shift_date);
       if (!dIso || dIso < monthStartStr || dIso > monthEndStr) continue;
-      monthAttMap.set(dIso, rec);
+      if (dIso > maxMonthAttDateStr) {
+        maxMonthAttDateStr = dIso;
+      }
+      if (!matchesTargetEmp(rec.employeeId || rec.employee_id)) continue;
+      const existing = monthAttMap.get(dIso);
+      if (!existing) {
+        monthAttMap.set(dIso, rec);
+      } else {
+        const isManual = String(rec.method || '').toLowerCase().includes('manual');
+        const existingManual = String(existing.method || '').toLowerCase().includes('manual');
+        const hasOut = Boolean(rec.checkOut ?? rec.check_out);
+        const existingOut = Boolean(existing.checkOut ?? existing.check_out);
+        if ((isManual && !existingManual) || (hasOut && !existingOut)) {
+          monthAttMap.set(dIso, rec);
+        }
+      }
     }
   }
 
@@ -597,10 +618,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       if (!lr) continue;
       const statusNorm = String(lr.status || '').trim().toLowerCase();
       if (statusNorm !== 'approved') continue;
-      if (empIdNorm) {
-        const lrEmp = String(lr.employeeId || lr.employee_id || '').trim().toLowerCase();
-        if (lrEmp && lrEmp !== empIdNorm) continue;
-      }
+      if (!matchesTargetEmp(lr.employeeId || lr.employee_id)) continue;
       const sIso = normalizeDateToISO(lr.startDate || lr.start_date);
       const eIso = normalizeDateToISO(lr.endDate || lr.end_date || sIso);
       if (!sIso || !eIso) continue;
@@ -632,7 +650,31 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
     }
   }
 
-  const hasDailyRecords = monthAttMap.size > 0 || approvedLeavesInMonth.length > 0;
+  const isPunchLogAttendanceMode =
+    Boolean(empIdNorm || empUuidNorm) &&
+    Array.isArray(params.attendanceRecords) &&
+    params.attendanceRecords.length > 0;
+
+  const todayIstIso = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+
+  const evaluationCutoffDate = (() => {
+    const explicitCutoff = normalizeDateToISO(params.evaluationCutoffDate);
+    if (explicitCutoff) return explicitCutoff;
+    if (todayIstIso >= monthStartStr && todayIstIso <= monthEndStr) {
+      return maxMonthAttDateStr && maxMonthAttDateStr > todayIstIso ? maxMonthAttDateStr : todayIstIso;
+    }
+    if (todayIstIso < monthStartStr) {
+      return maxMonthAttDateStr || todayIstIso;
+    }
+    return monthEndStr;
+  })();
+
+  const hasDailyRecords = isPunchLogAttendanceMode || monthAttMap.size > 0 || approvedLeavesInMonth.length > 0;
   let actualPunchedDays = 0;
   let pendingAttendanceDays = 0;
 
@@ -641,6 +683,14 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
 
     const leaveInfo = leaveDatesInRequestRange.get(dayObj.dateStr);
     const att = monthAttMap.get(dayObj.dateStr);
+
+    if (isPunchLogAttendanceMode && dayObj.dateStr > evaluationCutoffDate && !leaveInfo && !att) {
+      // Future working day in the ongoing month: has not occurred yet
+      dayObj.dayPresent = 0;
+      dayObj.dayPaidLeave = 0;
+      dayObj.dayLop = 0;
+      continue;
+    }
 
     if (leaveInfo) {
       if (leaveInfo.isWfh) {
@@ -658,9 +708,11 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
         if (attStatus === 'absent' && lopEnabled) {
           dayObj.dayLop += 0.5;
           dayObj.isUnpaidLeaveOrAbsence = true;
-        } else {
+        } else if (att || !isPunchLogAttendanceMode) {
           dayObj.dayPresent = 0.5;
           if (att) actualPunchedDays += 0.5;
+        } else if (lopEnabled) {
+          dayObj.dayLop += 0.5;
         }
       } else {
         if (leaveInfo.isUnpaid && lopEnabled) {
@@ -720,7 +772,8 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
         statusNorm === 'late' ||
         statusNorm === 'work from home' ||
         statusNorm === 'wfh' ||
-        statusNorm === 'on duty'
+        statusNorm === 'on duty' ||
+        statusNorm === 'field visit'
       ) {
         dayObj.dayPresent = 1;
         actualPunchedDays += 1;
@@ -754,6 +807,12 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       } else {
         dayObj.dayPresent = 1;
       }
+    } else if (isPunchLogAttendanceMode) {
+      // Elapsed scheduled working day with NO attendance punch and NO approved leave -> Absent / LOP
+      dayObj.dayPresent = 0;
+      if (lopEnabled) {
+        dayObj.dayLop = 1;
+      }
     } else {
       dayObj.dayPresent = 1;
     }
@@ -781,6 +840,16 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
   for (let i = 0; i < dayList.length; i++) {
     const dayObj = dayList[i];
     if (!dayObj.isEligible || dayObj.isScheduledWorkingDay) continue;
+
+    if (
+      isPunchLogAttendanceMode &&
+      dayObj.dateStr > evaluationCutoffDate &&
+      !monthAttMap.has(dayObj.dateStr) &&
+      !leaveDatesInRequestRange.has(dayObj.dateStr)
+    ) {
+      // Future weekly off or future holiday in the ongoing month: has not occurred yet
+      continue;
+    }
 
     let convertToLop = false;
 
@@ -862,7 +931,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
         Number(params.explicitAbsentDays || 0) +
         Number(params.explicitHalfDays || 0) * 0.5;
 
-  if (lopEnabled && rawExplicitLop > lopDays) {
+  if (!isPunchLogAttendanceMode && lopEnabled && rawExplicitLop > lopDays) {
     const targetLop = Math.min(eligibleDays, rawExplicitLop);
     const additionalLop = targetLop - lopDays;
     lopDays = targetLop;
@@ -882,13 +951,23 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
     }
   }
 
+  if (isPunchLogAttendanceMode && presentDays + paidLeaveDays <= 0) {
+    paidWeekOffDays = 0;
+    paidHolidayDays = 0;
+  }
+
   presentDays = Math.round(presentDays * 100) / 100;
   paidLeaveDays = Math.round(paidLeaveDays * 100) / 100;
   lopDays = lopEnabled ? Math.round(lopDays * 100) / 100 : 0;
   paidWeekOffDays = Math.round(paidWeekOffDays * 100) / 100;
   paidHolidayDays = Math.round(paidHolidayDays * 100) / 100;
 
-  const paidDays = Math.max(0, Math.round((eligibleDays - lopDays) * 100) / 100);
+  const paidDays = isPunchLogAttendanceMode
+    ? Math.min(
+        eligibleDays,
+        Math.max(0, Math.round((presentDays + paidWeekOffDays + paidHolidayDays + paidLeaveDays) * 100) / 100)
+      )
+    : Math.max(0, Math.round((eligibleDays - lopDays) * 100) / 100);
   const prorationFactor = calendarDays > 0 ? paidDays / calendarDays : 1;
 
   return {

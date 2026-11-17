@@ -13683,15 +13683,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           };
         }
 
-        // For non-Paid, non-Locked records that were previously saved with the legacy /26 working-days bug
-        // or are missing Calendar Day Payroll breakdown fields, normalize with Calendar Day calculation
-        const hasLegacyDivisorBug =
-          rec.calendarDays === undefined ||
-          rec.paidWeekOffDays === undefined ||
-          rec.workingDays === 26 ||
-          (rec.earningsBreakdown || []).some(e => String(e.description || '').includes('/26 days'));
-
-        if (!hasLegacyDivisorBug || !emp) {
+        // For all non-Paid, non-Locked records, dynamically recalculate from live attendance,
+        // leaves, holidays, weekly schedules, and salary policies so current/elapsed month
+        // attendance is always reflected accurately for every employee.
+        if (!emp) {
           return rec;
         }
 

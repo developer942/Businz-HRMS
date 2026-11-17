@@ -379,19 +379,26 @@ export const PayrollManagement: React.FC = () => {
     }
 
     const code = (comp.code || '').toUpperCase().trim();
-    
-    // Direct matches if available on PayrollRecord or Employee
+
+    if (Array.isArray(p.earningsBreakdown) && p.earningsBreakdown.length > 0) {
+      const matchedLine = p.earningsBreakdown.find(
+        e => e.name.trim().toLowerCase() === comp.name.trim().toLowerCase()
+      );
+      if (matchedLine) return toNum(matchedLine.amount);
+    }
+
+    // Direct matches if available on PayrollRecord
     if (code === 'BASIC') {
       return basic;
     }
-    if (code === 'DA') {
-      if (p.da !== undefined && toNum(p.da) > 0) return toNum(p.da);
+    if (code === 'DA' && p.da !== undefined) {
+      return toNum(p.da);
     }
-    if (code === 'HRA') {
-      if (p.hra !== undefined && toNum(p.hra) > 0) return toNum(p.hra);
+    if (code === 'HRA' && p.hra !== undefined) {
+      return toNum(p.hra);
     }
-    if (code === 'CONV' || code === 'CONVEYANCE') {
-      if (p.conveyance !== undefined && toNum(p.conveyance) > 0) return toNum(p.conveyance);
+    if ((code === 'CONV' || code === 'CONVEYANCE') && p.conveyance !== undefined) {
+      return toNum(p.conveyance);
     }
 
     // Check employee allowances object if present

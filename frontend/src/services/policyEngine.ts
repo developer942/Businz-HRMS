@@ -1751,6 +1751,7 @@ export const calculateEmployeePayroll = (
     weeklyOff: employee.shiftDetails?.weeklyOff,
     weeklySchedules: overtimeOptions?.weeklySchedules || [],
     employeeId: employee.employeeId,
+    employeeUuid: employee.id,
     department: employee.department,
     holidays: overtimeOptions?.holidays || [],
     attendanceRecords: isCeoEmployee ? [] : attendanceRecords,
@@ -1758,6 +1759,7 @@ export const calculateEmployeePayroll = (
     sandwichPolicies: overtimeOptions?.sandwichPolicies || [],
     weekOffEligibilityPolicy: overtimeOptions?.weekOffEligibilityPolicy,
     autoConvertPendingToLop: overtimeOptions?.autoConvertPendingToLop ?? false,
+    evaluationCutoffDate: (overtimeOptions as any)?.evaluationCutoffDate,
     explicitLopDays: isCeoEmployee ? 0 : overtimeOptions?.explicitLopDays,
     explicitPaidLeaveDays: isCeoEmployee ? 0 : overtimeOptions?.explicitPaidLeaveDays,
   });

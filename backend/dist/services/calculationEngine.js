@@ -377,21 +377,43 @@ export function calculateCalendarDayPayrollAttendance(params) {
         });
     }
     const empIdNorm = String(params.employeeId || '').trim().toLowerCase();
+    const empUuidNorm = String(params.employeeUuid || '').trim().toLowerCase();
+    const matchesTargetEmp = (rawId) => {
+        if (!empIdNorm && !empUuidNorm)
+            return true;
+        const idNorm = String(rawId || '').trim().toLowerCase();
+        if (!idNorm)
+            return !empIdNorm;
+        return (Boolean(empIdNorm) && idNorm === empIdNorm) || (Boolean(empUuidNorm) && idNorm === empUuidNorm);
+    };
     // Filter attendance records strictly to this employee and target month/year
+    let maxMonthAttDateStr = '';
     const monthAttMap = new Map();
     if (Array.isArray(params.attendanceRecords)) {
         for (const rec of params.attendanceRecords) {
             if (!rec)
                 continue;
-            if (empIdNorm) {
-                const recEmp = String(rec.employeeId || rec.employee_id || '').trim().toLowerCase();
-                if (recEmp && recEmp !== empIdNorm)
-                    continue;
-            }
             const dIso = normalizeDateToISO(rec.date || rec.shiftDate || rec.shift_date);
             if (!dIso || dIso < monthStartStr || dIso > monthEndStr)
                 continue;
-            monthAttMap.set(dIso, rec);
+            if (dIso > maxMonthAttDateStr) {
+                maxMonthAttDateStr = dIso;
+            }
+            if (!matchesTargetEmp(rec.employeeId || rec.employee_id))
+                continue;
+            const existing = monthAttMap.get(dIso);
+            if (!existing) {
+                monthAttMap.set(dIso, rec);
+            }
+            else {
+                const isManual = String(rec.method || '').toLowerCase().includes('manual');
+                const existingManual = String(existing.method || '').toLowerCase().includes('manual');
+                const hasOut = Boolean(rec.checkOut ?? rec.check_out);
+                const existingOut = Boolean(existing.checkOut ?? existing.check_out);
+                if ((isManual && !existingManual) || (hasOut && !existingOut)) {
+                    monthAttMap.set(dIso, rec);
+                }
+            }
         }
     }
     // Filter approved leave requests covering dates in this month
@@ -405,11 +427,8 @@ export function calculateCalendarDayPayrollAttendance(params) {
             const statusNorm = String(lr.status || '').trim().toLowerCase();
             if (statusNorm !== 'approved')
                 continue;
-            if (empIdNorm) {
-                const lrEmp = String(lr.employeeId || lr.employee_id || '').trim().toLowerCase();
-                if (lrEmp && lrEmp !== empIdNorm)
-                    continue;
-            }
+            if (!matchesTargetEmp(lr.employeeId || lr.employee_id))
+                continue;
             const sIso = normalizeDateToISO(lr.startDate || lr.start_date);
             const eIso = normalizeDateToISO(lr.endDate || lr.end_date || sIso);
             if (!sIso || !eIso)
@@ -439,7 +458,28 @@ export function calculateCalendarDayPayrollAttendance(params) {
             }
         }
     }
-    const hasDailyRecords = monthAttMap.size > 0 || approvedLeavesInMonth.length > 0;
+    const isPunchLogAttendanceMode = Boolean(empIdNorm || empUuidNorm) &&
+        Array.isArray(params.attendanceRecords) &&
+        params.attendanceRecords.length > 0;
+    const todayIstIso = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
+    const evaluationCutoffDate = (() => {
+        const explicitCutoff = normalizeDateToISO(params.evaluationCutoffDate);
+        if (explicitCutoff)
+            return explicitCutoff;
+        if (todayIstIso >= monthStartStr && todayIstIso <= monthEndStr) {
+            return maxMonthAttDateStr && maxMonthAttDateStr > todayIstIso ? maxMonthAttDateStr : todayIstIso;
+        }
+        if (todayIstIso < monthStartStr) {
+            return maxMonthAttDateStr || todayIstIso;
+        }
+        return monthEndStr;
+    })();
+    const hasDailyRecords = isPunchLogAttendanceMode || monthAttMap.size > 0 || approvedLeavesInMonth.length > 0;
     let actualPunchedDays = 0;
     let pendingAttendanceDays = 0;
     // Step 1: Evaluate all eligible Scheduled Working Days
@@ -448,6 +488,13 @@ export function calculateCalendarDayPayrollAttendance(params) {
             continue;
         const leaveInfo = leaveDatesInRequestRange.get(dayObj.dateStr);
         const att = monthAttMap.get(dayObj.dateStr);
+        if (isPunchLogAttendanceMode && dayObj.dateStr > evaluationCutoffDate && !leaveInfo && !att) {
+            // Future working day in the ongoing month: has not occurred yet
+            dayObj.dayPresent = 0;
+            dayObj.dayPaidLeave = 0;
+            dayObj.dayLop = 0;
+            continue;
+        }
         if (leaveInfo) {
             if (leaveInfo.isWfh) {
                 dayObj.dayPresent = 1;
@@ -468,10 +515,13 @@ export function calculateCalendarDayPayrollAttendance(params) {
                     dayObj.dayLop += 0.5;
                     dayObj.isUnpaidLeaveOrAbsence = true;
                 }
-                else {
+                else if (att || !isPunchLogAttendanceMode) {
                     dayObj.dayPresent = 0.5;
                     if (att)
                         actualPunchedDays += 0.5;
+                }
+                else if (lopEnabled) {
+                    dayObj.dayLop += 0.5;
                 }
             }
             else {
@@ -490,15 +540,18 @@ export function calculateCalendarDayPayrollAttendance(params) {
         }
         if (att) {
             const statusNorm = String(att.status || '').trim().toLowerCase();
-            if (statusNorm === 'present' ||
-                statusNorm === 'late' ||
-                statusNorm === 'work from home' ||
-                statusNorm === 'wfh' ||
-                statusNorm === 'on duty') {
-                dayObj.dayPresent = 1;
-                actualPunchedDays += 1;
-            }
-            else if (statusNorm === 'half day' || statusNorm === 'half-day') {
+            const rawCheckOut = att.checkOut ?? att.check_out;
+            const hasCompletedOut = Boolean(rawCheckOut) &&
+                String(rawCheckOut).trim() !== '' &&
+                String(rawCheckOut).trim() !== '--:--' &&
+                !String(rawCheckOut).toLowerCase().includes('progress');
+            const numWh = Number(att.workingHours ?? att.working_hours ?? 0);
+            const workedHrsForDay = Number.isFinite(numWh) && numWh > 0 && (!rawCheckOut || hasCompletedOut) ? numWh : 0;
+            const shiftHrsForDay = Number(att.shiftWorkingHours ?? att.shiftHours ?? 9) || 9;
+            const isHalfDayByHours = (statusNorm === 'present' || statusNorm === 'late') &&
+                workedHrsForDay > 0 &&
+                workedHrsForDay < shiftHrsForDay * 0.7;
+            if (statusNorm === 'half day' || statusNorm === 'half-day' || statusNorm === 'hd' || isHalfDayByHours) {
                 dayObj.dayPresent = 0.5;
                 actualPunchedDays += 0.5;
                 if (lopEnabled) {
@@ -507,6 +560,15 @@ export function calculateCalendarDayPayrollAttendance(params) {
                 else {
                     dayObj.dayPresent = 1;
                 }
+            }
+            else if (statusNorm === 'present' ||
+                statusNorm === 'late' ||
+                statusNorm === 'work from home' ||
+                statusNorm === 'wfh' ||
+                statusNorm === 'on duty' ||
+                statusNorm === 'field visit') {
+                dayObj.dayPresent = 1;
+                actualPunchedDays += 1;
             }
             else if (statusNorm === 'on leave' || statusNorm === 'leave') {
                 const unpaid = isLeaveTypeUnpaidCheck(att.leaveType || att.reason);
@@ -547,9 +609,14 @@ export function calculateCalendarDayPayrollAttendance(params) {
                 dayObj.dayPresent = 1;
             }
         }
+        else if (isPunchLogAttendanceMode) {
+            // Elapsed scheduled working day with NO attendance punch and NO approved leave -> Absent / LOP
+            dayObj.dayPresent = 0;
+            if (lopEnabled) {
+                dayObj.dayLop = 1;
+            }
+        }
         else {
-            // No attendance punch recorded on this scheduled working day:
-            // Requirement 7 & 9: Do NOT automatically convert unpunched days to LOP.
             dayObj.dayPresent = 1;
         }
     }
@@ -576,6 +643,13 @@ export function calculateCalendarDayPayrollAttendance(params) {
         const dayObj = dayList[i];
         if (!dayObj.isEligible || dayObj.isScheduledWorkingDay)
             continue;
+        if (isPunchLogAttendanceMode &&
+            dayObj.dateStr > evaluationCutoffDate &&
+            !monthAttMap.has(dayObj.dateStr) &&
+            !leaveDatesInRequestRange.has(dayObj.dateStr)) {
+            // Future weekly off or future holiday in the ongoing month: has not occurred yet
+            continue;
+        }
         let convertToLop = false;
         if (dayObj.isExplicitSandwichUnpaid && lopEnabled) {
             convertToLop = true;
@@ -651,7 +725,7 @@ export function calculateCalendarDayPayrollAttendance(params) {
         : Number(params.explicitUnpaidLeaveDays || 0) +
             Number(params.explicitAbsentDays || 0) +
             Number(params.explicitHalfDays || 0) * 0.5;
-    if (lopEnabled && rawExplicitLop > lopDays) {
+    if (!isPunchLogAttendanceMode && lopEnabled && rawExplicitLop > lopDays) {
         const targetLop = Math.min(eligibleDays, rawExplicitLop);
         const additionalLop = targetLop - lopDays;
         lopDays = targetLop;
@@ -669,6 +743,10 @@ export function calculateCalendarDayPayrollAttendance(params) {
             paidHolidayDays -= deductFromHoliday;
         }
     }
+    if (isPunchLogAttendanceMode && presentDays + paidLeaveDays <= 0) {
+        paidWeekOffDays = 0;
+        paidHolidayDays = 0;
+    }
     // Round to 2 decimal places (supports 0.5 half days cleanly)
     presentDays = Math.round(presentDays * 100) / 100;
     paidLeaveDays = Math.round(paidLeaveDays * 100) / 100;
@@ -676,9 +754,11 @@ export function calculateCalendarDayPayrollAttendance(params) {
     paidWeekOffDays = Math.round(paidWeekOffDays * 100) / 100;
     paidHolidayDays = Math.round(paidHolidayDays * 100) / 100;
     // Requirement 5:
-    // Eligible Days = Calendar Days within the employee's active employment period.
-    // Paid Days = Eligible Days - Approved LOP Days.
-    const paidDays = Math.max(0, Math.round((eligibleDays - lopDays) * 100) / 100);
+    // In punch-log attendance mode: Paid Days = Present Days + Paid Week Offs + Paid Holidays + Paid Leaves (elapsed up to cutoff).
+    // In summary mode: Paid Days = Eligible Days - Approved LOP Days.
+    const paidDays = isPunchLogAttendanceMode
+        ? Math.min(eligibleDays, Math.max(0, Math.round((presentDays + paidWeekOffDays + paidHolidayDays + paidLeaveDays) * 100) / 100))
+        : Math.max(0, Math.round((eligibleDays - lopDays) * 100) / 100);
     const prorationFactor = calendarDays > 0 ? paidDays / calendarDays : 1;
     return {
         calendarDays,
@@ -1318,6 +1398,7 @@ export const computeFullPayroll = (input) => {
         month: input.payrollMonth,
         year: input.payrollYear,
         employeeId: input.employeeId,
+        employeeUuid: input.employeeContext?.id,
         joiningDate: input.joiningDate ?? input.attendance?.joiningDate ?? input.employeeContext?.joiningDate,
         exitDate: input.exitDate ?? input.attendance?.exitDate,
         weeklyOff: input.weeklyOff ?? input.attendance?.weeklyOff,
@@ -1331,6 +1412,7 @@ export const computeFullPayroll = (input) => {
         autoConvertPendingToLop: input.autoConvertPendingToLop,
         lopEnabled: input.settings?.lopEnabled !== false,
         isCeo,
+        evaluationCutoffDate: input.evaluationCutoffDate,
         explicitLopDays: input.attendance?.lopDays,
         explicitPaidLeaveDays: input.attendance?.paidLeaveDays,
         explicitUnpaidLeaveDays: input.attendance?.unpaidLeaveDays,

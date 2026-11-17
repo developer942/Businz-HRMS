@@ -209,8 +209,10 @@ export class PayrollService {
             const joiningDate = emp.joiningDate || profileData.joiningDate || profileData.dateOfJoining;
             const exitDate = profileData.exitDate || profileData.relievingDate || profileData.lastWorkingDate || profileData.terminationDate;
             const weeklyOff = emp.shiftDetails?.weeklyOff || profileData.shiftDetails?.weeklyOff || profileData.weeklyOff;
-            const empAtt = allAttendance.filter(a => String(a.employeeId || '').toLowerCase() === String(emp.employeeId || '').toLowerCase());
-            const empLeaves = allApprovedLeaves.filter(l => String(l.employeeId || '').toLowerCase() === String(emp.employeeId || '').toLowerCase());
+            const empLeaves = allApprovedLeaves.filter(l => {
+                const lEmp = String(l.employeeId || l.employee_id || '').toLowerCase();
+                return lEmp === String(emp.employeeId || '').toLowerCase() || (emp.id && lEmp === String(emp.id).toLowerCase());
+            });
             const calculated = computeFullPayroll({
                 employeeId: emp.employeeId,
                 monthlySalary: structure.monthlySalary,
@@ -227,7 +229,7 @@ export class PayrollService {
                 weeklyOff: weeklyOff || undefined,
                 weeklySchedules: calendarCtx.weeklySchedules,
                 holidays: calendarCtx.holidays,
-                attendanceRecords: empAtt,
+                attendanceRecords: allAttendance,
                 leaveRequests: empLeaves,
                 sandwichPolicies: calendarCtx.sandwichPolicies,
                 attendance: {
