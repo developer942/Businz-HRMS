@@ -797,7 +797,7 @@ export const Dashboard: React.FC = () => {
                 <div
                   className="mobile-kpi-card"
                   data-testid="mobile-kpi-present-days"
-                  onClick={() => setActiveModule(isAccountsStaff ? 'face_attendance' : 'attendance_log')}
+                  onClick={() => setActiveModule('attendance_log')}
                 >
                   <div className="mobile-kpi-top">
                     <div className="mobile-kpi-icon-box green">
@@ -1476,7 +1476,7 @@ export const Dashboard: React.FC = () => {
             <div 
               className="kpi-card compact"
               data-testid="desktop-kpi-monthly-attendance"
-              onClick={() => setActiveModule(isAccountsStaff ? 'face_attendance' : 'attendance_log')}
+              onClick={() => setActiveModule('attendance_log')}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">
@@ -1498,7 +1498,7 @@ export const Dashboard: React.FC = () => {
             <div 
               className="kpi-card compact"
               data-testid="desktop-kpi-present-days"
-              onClick={() => setActiveModule(isAccountsStaff ? 'face_attendance' : 'attendance_log')}
+              onClick={() => setActiveModule('attendance_log')}
               style={{ cursor: 'pointer' }}
             >
               <div className="kpi-card-header">

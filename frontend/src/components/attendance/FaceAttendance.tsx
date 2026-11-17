@@ -154,14 +154,35 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const [scanResult, setScanResult] = useState<{ status: 'success' | 'error' | null; message: string }>({ status: null, message: '' });
   const [punchType, setPunchType] = useState<'Check-In' | 'Check-Out'>('Check-In');
   const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString());
+  const isCEO = isOwnerOrCEO(currentUser);
+  const isHrOrAdmin = useMemo(() => {
+    const role = String(currentUser.role || '').trim();
+    const dept = String(currentUser.department || '').trim().toLowerCase();
+    const desig = String(currentUser.designation || '').trim().toLowerCase();
+    return (
+      role === 'Super Admin' ||
+      role === 'HR Manager' ||
+      role === 'HR Admin' ||
+      role === 'HR' ||
+      role === 'Management' ||
+      role === 'Admin' ||
+      dept === 'hr' ||
+      dept.includes('human resource') ||
+      desig.includes('hr')
+    );
+  }, [currentUser]);
+
   const [activityViewTab, setActivityViewTab] = useState<'my' | 'all'>(() =>
-    isOwnerOrCEO(currentUser) ? 'all' : 'my'
+    (isOwnerOrCEO(currentUser) || isHrOrAdmin) ? 'all' : 'my'
   );
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [staffSearchQuery, setStaffSearchQuery] = useState<string>('');
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('all');
+  const [selectedEmpFilter, setSelectedEmpFilter] = useState<string>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [previewPhoto, setPreviewPhoto] = useState<{
     url: string;
     title: string;
@@ -292,13 +313,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
   const isCompletedToday = Boolean(isCheckedIn && isCheckedOut);
 
-  const isCEO = isOwnerOrCEO(currentUser);
-
   useEffect(() => {
-    if (isCEO && activityViewTab === 'my') {
+    if (isCEO || isHrOrAdmin) {
       setActivityViewTab('all');
+    } else {
+      setActivityViewTab('my');
     }
-  }, [isCEO, activityViewTab]);
+  }, [isCEO, isHrOrAdmin, currentUser.id, currentUser.employeeId]);
 
   // PagarBook 2-Step Camera + GPS states
   const [isRequestingPermissions, setIsRequestingPermissions] = useState<boolean>(false);
@@ -1836,13 +1857,6 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
   const isEmployee = currentUser.role === 'Employee' || currentUser.role === 'Assignee';
 
-  const isHrOrAdmin = 
-    currentUser.role === 'Super Admin' ||
-    currentUser.role === 'HR Manager' ||
-    currentUser.role === 'HR Admin' ||
-    currentUser.role === 'Management' ||
-    currentUser.role === 'Admin';
-
   const currentUserEmp = useMemo(() => {
     return employees.find(e => 
       (currentUser.employeeId && (e.employeeId?.toLowerCase() === currentUser.employeeId?.toLowerCase() || e.id?.toLowerCase() === currentUser.employeeId?.toLowerCase())) ||
@@ -2247,17 +2261,39 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     });
   }, [attendanceRecords, selectedMonth, isLogForCurrentUser]);
 
+  const resolveEffectiveRecordStatus = (rec: any): string => {
+    const rawStatus = String(rec?.status || 'Present').trim();
+    const statusNorm = rawStatus.toLowerCase();
+    if (statusNorm === 'half day' || statusNorm === 'half-day' || statusNorm === 'hd') {
+      return 'Half Day';
+    }
+    const hasOut = Boolean(rec?.checkOut && rec.checkOut !== '--:--' && String(rec.checkOut).trim() !== '');
+    const hrs = Number(rec?.workingHours || 0);
+    if (hasOut && hrs > 0 && hrs < 9 * 0.7 && (statusNorm === 'present' || statusNorm === 'late')) {
+      return 'Half Day';
+    }
+    if (statusNorm === 'late' || (rec?.lateStatus && rec.lateStatus !== 'On Time' && rec.lateStatus !== 'N/A')) {
+      return 'Late';
+    }
+    return rawStatus || 'Present';
+  };
+
   // Monthly summary stats for current user
   const monthlyStats = useMemo(() => {
     let presentDays = 0;
+    let halfDays = 0;
     let lateDays = 0;
     let totalWorkedHours = 0;
 
     myMonthlyRecords.forEach(r => {
-      if (r.status === 'Present' || r.status === 'Half Day') {
-        presentDays += r.status === 'Half Day' ? 0.5 : 1;
+      const effStatus = resolveEffectiveRecordStatus(r);
+      if (effStatus === 'Half Day') {
+        presentDays += 0.5;
+        halfDays += 1;
+      } else if (effStatus === 'Present' || effStatus === 'Late') {
+        presentDays += 1;
       }
-      if ((r.lateStatus && r.lateStatus !== 'On Time' && r.lateStatus !== 'N/A') || (r.lateDurationMinutes && r.lateDurationMinutes > 0)) {
+      if (effStatus === 'Late' || (r.lateStatus && r.lateStatus !== 'On Time' && r.lateStatus !== 'N/A') || (r.lateDurationMinutes && r.lateDurationMinutes > 0)) {
         lateDays++;
       }
       totalWorkedHours += Number(r.workingHours || 0);
@@ -2265,6 +2301,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
     return {
       presentDays,
+      halfDays,
       lateDays,
       totalHours: Math.round(totalWorkedHours * 10) / 10,
       totalPunches: myMonthlyRecords.length
@@ -2290,88 +2327,590 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const byEmpDate = new Map<string, any>();
     rawList.forEach(rec => {
       const dateKey = normalizeToYYYYMMDD(rec.date || rec.shiftDate);
-      const empKey = String(rec.employeeId || rec.employeeName || '').toLowerCase();
+      const empMatch = employees.find(
+        e =>
+          String(e.employeeId || '').toLowerCase() === String(rec.employeeId || '').toLowerCase() ||
+          String(e.id || '').toLowerCase() === String(rec.employeeId || '').toLowerCase()
+      );
+      const canonicalEmpId = empMatch?.employeeId || rec.employeeId || '';
+      const empName = empMatch ? `${empMatch.firstName} ${empMatch.lastName}`.trim() : (rec.employeeName || 'Employee');
+      const empDept = empMatch?.department || rec.department || 'General';
+      const empKey = String(canonicalEmpId || empName).toLowerCase();
       if (!dateKey || !empKey) return;
       const uniqueKey = `${empKey}_${dateKey}`;
 
+      const enrichedRec = {
+        ...rec,
+        employeeId: canonicalEmpId || rec.employeeId,
+        employeeName: empName,
+        department: empDept,
+        designation: empMatch?.designation || '',
+        avatar: empMatch?.avatar || ''
+      };
+
       const existing = byEmpDate.get(uniqueKey);
       if (!existing) {
-        byEmpDate.set(uniqueKey, { ...rec });
+        byEmpDate.set(uniqueKey, enrichedRec);
         return;
       }
 
       const existingHasIn = existing.checkIn && existing.checkIn !== '--:--' && existing.checkIn.trim() !== '';
-      const recHasIn = rec.checkIn && rec.checkIn !== '--:--' && rec.checkIn.trim() !== '';
+      const recHasIn = enrichedRec.checkIn && enrichedRec.checkIn !== '--:--' && enrichedRec.checkIn.trim() !== '';
       const existingHasOut = existing.checkOut && existing.checkOut !== '--:--' && existing.checkOut.trim() !== '';
-      const recHasOut = rec.checkOut && rec.checkOut !== '--:--' && rec.checkOut.trim() !== '';
+      const recHasOut = enrichedRec.checkOut && enrichedRec.checkOut !== '--:--' && enrichedRec.checkOut.trim() !== '';
       const existingHours = Number(existing.workingHours || 0);
-      const recHours = Number(rec.workingHours || 0);
+      const recHours = Number(enrichedRec.workingHours || 0);
 
-      const isRecManual = (rec.method as string) === 'Manual Override' || rec.method === 'Manual Punch' || Boolean(rec.reason);
+      const isRecManual = (enrichedRec.method as string) === 'Manual Override' || enrichedRec.method === 'Manual Punch' || Boolean(enrichedRec.reason);
       const isExistingManual = (existing.method as string) === 'Manual Override' || existing.method === 'Manual Punch' || Boolean(existing.reason);
 
       const preferRec = (isRecManual && !isExistingManual) || (!isExistingManual && ((recHasOut && !existingHasOut) || (recHours > existingHours)));
-      const base = preferRec ? { ...rec } : { ...existing };
+      const base = preferRec ? { ...enrichedRec } : { ...existing };
       const finalHours = (isRecManual && !isExistingManual) ? recHours : (isExistingManual && !isRecManual) ? existingHours : Math.max(existingHours, recHours);
 
       byEmpDate.set(uniqueKey, {
         ...base,
-        checkIn: (existingHasIn && recHasIn) ? (preferRec ? rec.checkIn : existing.checkIn) : (existingHasIn ? existing.checkIn : rec.checkIn),
-        checkOut: (existingHasOut && recHasOut) ? (preferRec ? rec.checkOut : existing.checkOut) : (existingHasOut ? existing.checkOut : rec.checkOut),
+        checkIn: (existingHasIn && recHasIn) ? (preferRec ? enrichedRec.checkIn : existing.checkIn) : (existingHasIn ? existing.checkIn : enrichedRec.checkIn),
+        checkOut: (existingHasOut && recHasOut) ? (preferRec ? enrichedRec.checkOut : existing.checkOut) : (existingHasOut ? existing.checkOut : enrichedRec.checkOut),
         workingHours: finalHours > 0 ? finalHours : base.workingHours,
-        checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
-        checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto
+        checkInPhoto: existing.checkInPhoto || enrichedRec.checkInPhoto,
+        checkOutPhoto: enrichedRec.checkOutPhoto || existing.checkOutPhoto
       });
     });
 
     return Array.from(byEmpDate.values()).sort((a, b) => {
       const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
       const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
-      return String(db).localeCompare(String(da));
+      const cmp = String(db).localeCompare(String(da));
+      if (cmp !== 0) return cmp;
+      return String(a.employeeName || '').localeCompare(String(b.employeeName || ''));
     });
-  }, [attendanceRecords, selectedMonth]);
+  }, [attendanceRecords, selectedMonth, employees]);
 
-  // Filtered all staff monthly by search
+  const availableDepartments = useMemo(() => {
+    const depts = new Set<string>();
+    employees.forEach(e => {
+      if (!isOwnerOrCEO(e) && e.department) depts.add(e.department.trim());
+    });
+    allStaffMonthlyRecords.forEach(r => {
+      if (r.department) depts.add(String(r.department).trim());
+    });
+    return Array.from(depts).filter(Boolean).sort();
+  }, [employees, allStaffMonthlyRecords]);
+
+  const availableFilterEmployees = useMemo(() => {
+    return employees
+      .filter(e => !isOwnerOrCEO(e))
+      .filter(e => selectedDeptFilter === 'all' || String(e.department || '').trim().toLowerCase() === selectedDeptFilter.toLowerCase())
+      .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
+  }, [employees, selectedDeptFilter]);
+
+  // Filtered all staff monthly by search, department, employee, and status
   const filteredAllStaffMonthlyRecords = useMemo(() => {
-    if (!staffSearchQuery.trim()) return allStaffMonthlyRecords;
     const q = staffSearchQuery.toLowerCase().trim();
-    return allStaffMonthlyRecords.filter(r =>
-      (r.employeeName && r.employeeName.toLowerCase().includes(q)) ||
-      (r.employeeId && r.employeeId.toLowerCase().includes(q)) ||
-      (r.department && r.department.toLowerCase().includes(q))
-    );
-  }, [allStaffMonthlyRecords, staffSearchQuery]);
-
-  // Monthly Attendance & Overtime Report for the current user (excludes CEO; shows OT fields only for OT-eligible employees)
-  const myMonthlyOtReport = useMemo(() => {
-    const [yearPart, monthPart] = (selectedMonth || '').split('-').map(Number);
-    const now = new Date();
-    const targetYear = yearPart || now.getFullYear();
-    const targetMonth = monthPart || now.getMonth() + 1;
-    return buildEmployeeMonthlyAttendanceOtReport({
-      employee: currentUserEmp || currentUser,
-      attendanceRecords,
-      overtimeRequests,
-      overtimePolicy,
-      departmentOtPolicies,
-      employeeOtPolicies,
-      payrollConfig: payrollSettingsConfig,
-      shifts,
-      month: targetMonth,
-      year: targetYear
+    return allStaffMonthlyRecords.filter(r => {
+      if (selectedDeptFilter !== 'all' && String(r.department || '').trim().toLowerCase() !== selectedDeptFilter.toLowerCase()) {
+        return false;
+      }
+      if (selectedEmpFilter !== 'all' && String(r.employeeId || '').trim().toLowerCase() !== selectedEmpFilter.toLowerCase()) {
+        return false;
+      }
+      const effStatus = resolveEffectiveRecordStatus(r);
+      if (selectedStatusFilter !== 'all' && effStatus.toLowerCase() !== selectedStatusFilter.toLowerCase()) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        (r.employeeName && r.employeeName.toLowerCase().includes(q)) ||
+        (r.employeeId && r.employeeId.toLowerCase().includes(q)) ||
+        (r.department && r.department.toLowerCase().includes(q))
+      );
     });
-  }, [
-    selectedMonth,
-    currentUserEmp,
-    currentUser,
-    attendanceRecords,
-    overtimeRequests,
-    overtimePolicy,
-    departmentOtPolicies,
-    employeeOtPolicies,
-    payrollSettingsConfig,
-    shifts
-  ]);
+  }, [allStaffMonthlyRecords, staffSearchQuery, selectedDeptFilter, selectedEmpFilter, selectedStatusFilter]);
+
+  const allStaffStats = useMemo(() => {
+    let presentCount = 0;
+    let halfDayCount = 0;
+    let lateCount = 0;
+    filteredAllStaffMonthlyRecords.forEach(r => {
+      const effStatus = resolveEffectiveRecordStatus(r);
+      if (effStatus === 'Half Day') {
+        halfDayCount++;
+      } else if (effStatus === 'Late') {
+        lateCount++;
+        presentCount++;
+      } else if (effStatus === 'Present') {
+        presentCount++;
+      }
+    });
+    return {
+      totalLogs: filteredAllStaffMonthlyRecords.length,
+      presentCount,
+      halfDayCount,
+      lateCount
+    };
+  }, [filteredAllStaffMonthlyRecords]);
+
+  const getStatusBadgeStyle = (statusStr: string) => {
+    if (statusStr === 'Half Day') {
+      return { bg: '#ffedd5', color: '#c2410c', border: '#fdba74', label: 'Half Day' };
+    }
+    if (statusStr === 'Late') {
+      return { bg: '#fef3c7', color: '#b45309', border: '#fcd34d', label: 'Late' };
+    }
+    if (statusStr === 'Present') {
+      return { bg: '#dcfce7', color: '#15803d', border: '#86efac', label: 'Present' };
+    }
+    return { bg: '#fee2e2', color: '#b91c1c', border: '#fca5a5', label: statusStr || 'Absent' };
+  };
+
+  const getWeekdayShort = (dateRaw?: string) => {
+    const ymd = normalizeToYYYYMMDD(dateRaw);
+    if (!ymd) return '';
+    const [y, m, d] = ymd.split('-').map(Number);
+    if (!y || !m || !d) return '';
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short' });
+  };
+
+  const renderPunchCell = (
+    type: 'Check-In' | 'Check-Out',
+    timeVal: string | undefined,
+    photoUrl: string | null,
+    personName: string,
+    recDate: string,
+    hasCheckIn?: boolean
+  ) => {
+    const isCheckIn = type === 'Check-In';
+    const hasTime = Boolean(timeVal && timeVal !== '--:--' && String(timeVal).trim() !== '');
+    const displayTime = hasTime
+      ? formatAttendanceTime(timeVal!)
+      : (!isCheckIn && hasCheckIn ? 'In Progress' : '—');
+    const timeColor = hasTime
+      ? '#0f172a'
+      : (!isCheckIn && hasCheckIn ? '#d97706' : '#94a3b8');
+
+    return (
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '10px',
+          backgroundColor: '#f8fafc',
+          padding: '6px 10px',
+          borderRadius: '10px',
+          border: '1px solid #e2e8f0',
+          minWidth: isMobileViewport ? '100%' : '156px',
+          boxSizing: 'border-box'
+        }}
+      >
+        {photoUrl ? (
+          <div
+            data-testid={isCheckIn ? 'checkin-photo-thumb' : 'checkout-photo-thumb'}
+            onClick={(e) => {
+              e.stopPropagation();
+              setPreviewPhoto({
+                url: photoUrl,
+                title: `${personName} - ${type} Photo`,
+                subtitle: formatDateDDMMYYYY(recDate),
+                time: hasTime ? formatAttendanceTime(timeVal!) : undefined
+              });
+            }}
+            title={`View ${type} Photo`}
+            style={{
+              cursor: 'pointer',
+              width: '34px',
+              height: '34px',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              border: `1.5px solid ${isCheckIn ? '#86efac' : '#67e8f9'}`,
+              flexShrink: 0,
+              backgroundColor: '#e2e8f0'
+            }}
+          >
+            <img src={photoUrl} alt={type} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+        ) : (
+          <div
+            style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '8px',
+              backgroundColor: isCheckIn ? '#f0fdf4' : '#ecfeff',
+              border: `1px dashed ${isCheckIn ? '#bbf7d0' : '#a5f3fc'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: isCheckIn ? '#16a34a' : '#0e7490'
+            }}
+          >
+            <Clock size={14} />
+          </div>
+        )}
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: '0.6rem',
+              fontWeight: 800,
+              letterSpacing: '0.04em',
+              color: isCheckIn ? '#16a34a' : '#0e7490',
+              lineHeight: 1.2
+            }}
+          >
+            {type.toUpperCase()}
+          </div>
+          <div
+            data-testid={isCheckIn ? 'record-checkin-time' : 'record-checkout-time'}
+            style={{
+              fontSize: '0.82rem',
+              fontWeight: 800,
+              color: timeColor,
+              whiteSpace: 'nowrap',
+              lineHeight: 1.3
+            }}
+          >
+            {displayTime}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRecordsResponsiveView = (records: any[], showEmployeeCol: boolean) => {
+    if (records.length === 0) {
+      return (
+        <div
+          data-testid="attendance-log-empty"
+          style={{
+            padding: '40px 16px',
+            textAlign: 'center',
+            backgroundColor: '#f8fafc',
+            borderRadius: '12px',
+            border: '1px dashed #cbd5e1'
+          }}
+        >
+          <Calendar size={30} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
+          <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
+            No attendance logs for {formatMonthDisplay(selectedMonth)}
+          </div>
+          <div style={{ fontSize: '0.76rem', color: '#64748b' }}>
+            {showEmployeeCol
+              ? 'No employee punch records match your selected filters for this month.'
+              : 'Punch in using Face Attendance to see your daily verified records and photos.'}
+          </div>
+        </div>
+      );
+    }
+
+    if (isMobileViewport) {
+      return (
+        <div
+          data-testid="attendance-log-records-list"
+          style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+        >
+          {records.map(rec => {
+            const recDate = rec.date || rec.shiftDate;
+            const inPhoto = getRecordPhoto(rec, 'Check-In');
+            const outPhoto = getRecordPhoto(rec, 'Check-Out');
+            const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
+            const effStatus = resolveEffectiveRecordStatus(rec);
+            const badge = getStatusBadgeStyle(effStatus);
+            const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
+            const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+
+            return (
+              <div
+                key={rec.id || `${rec.employeeId}_${recDate}`}
+                data-testid="attendance-log-record"
+                style={{
+                  padding: '12px',
+                  borderRadius: '12px',
+                  border: `1px solid ${isTodayRow ? '#67e8f9' : '#e2e8f0'}`,
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                {/* Card Top Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  {showEmployeeCol ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #0e7490, #0891b2)',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '0.72rem',
+                          flexShrink: 0
+                        }}
+                      >
+                        {(rec.employeeName || 'EM').substring(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.84rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {rec.employeeName}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                          <span data-testid="record-date" style={{ fontWeight: 700, color: '#334155' }}>{formatDateDDMMYYYY(recDate)}</span>
+                          <span>•</span>
+                          <span>{rec.department || 'General'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span data-testid="record-date" style={{ fontWeight: 800, fontSize: '0.86rem', color: '#0f172a' }}>
+                        {formatDateDDMMYYYY(recDate)}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>
+                        ({getWeekdayShort(recDate)})
+                      </span>
+                      {isTodayRow && (
+                        <span style={{
+                          fontSize: '0.6rem',
+                          fontWeight: 800,
+                          backgroundColor: '#0e7490',
+                          color: '#ffffff',
+                          padding: '2px 6px',
+                          borderRadius: '4px'
+                        }}>
+                          TODAY
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    <span
+                      data-testid="record-status"
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '9999px',
+                        fontSize: '0.68rem',
+                        fontWeight: 800,
+                        backgroundColor: badge.bg,
+                        color: badge.color,
+                        border: `1px solid ${badge.border}`
+                      }}
+                    >
+                      {badge.label}
+                    </span>
+                    <span
+                      data-testid="record-working-hours"
+                      style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        color: '#0e7490',
+                        backgroundColor: '#ecfeff',
+                        padding: '3px 7px',
+                        borderRadius: '6px'
+                      }}
+                    >
+                      {rec.workingHours ?? 0} hrs
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card Bottom: Compact 2-Column Check-In & Check-Out */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {renderPunchCell('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
+                  {renderPunchCell('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // Desktop / Laptop Clean Table View
+    return (
+      <div
+        data-testid="attendance-log-records-list"
+        style={{
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          backgroundColor: '#ffffff'
+        }}
+      >
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>DATE</th>
+                {showEmployeeCol && (
+                  <>
+                    <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>EMPLOYEE</th>
+                    <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>DEPARTMENT</th>
+                  </>
+                )}
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>CHECK-IN</th>
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>CHECK-OUT</th>
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em' }}>WORKING HRS</th>
+                <th style={{ padding: '11px 16px', fontWeight: 800, color: '#475569', fontSize: '0.72rem', letterSpacing: '0.04em', textAlign: 'right' }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map(rec => {
+                const recDate = rec.date || rec.shiftDate;
+                const inPhoto = getRecordPhoto(rec, 'Check-In');
+                const outPhoto = getRecordPhoto(rec, 'Check-Out');
+                const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
+                const effStatus = resolveEffectiveRecordStatus(rec);
+                const badge = getStatusBadgeStyle(effStatus);
+                const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
+                const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+
+                return (
+                  <tr
+                    key={rec.id || `${rec.employeeId}_${recDate}`}
+                    data-testid="attendance-log-record"
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      backgroundColor: isTodayRow ? '#f0fdfa' : '#ffffff',
+                      transition: 'background-color 0.15s ease'
+                    }}
+                  >
+                    {/* Date */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div>
+                          <div data-testid="record-date" style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.84rem' }}>
+                            {formatDateDDMMYYYY(recDate)}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                            {getWeekdayShort(recDate)}
+                          </div>
+                        </div>
+                        {isTodayRow && (
+                          <span style={{
+                            fontSize: '0.62rem',
+                            fontWeight: 800,
+                            backgroundColor: '#0e7490',
+                            color: '#ffffff',
+                            padding: '2px 7px',
+                            borderRadius: '5px'
+                          }}>
+                            TODAY
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Employee & Department (HR / CEO View) */}
+                    {showEmployeeCol && (
+                      <>
+                        <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: 'linear-gradient(135deg, #0e7490, #0891b2)',
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 800,
+                                fontSize: '0.72rem',
+                                flexShrink: 0
+                              }}
+                            >
+                              {(rec.employeeName || 'EM').substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.84rem' }}>
+                                {rec.employeeName}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                                {rec.employeeId}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                          <span style={{
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            backgroundColor: '#f1f5f9',
+                            color: '#334155',
+                            fontSize: '0.74rem',
+                            fontWeight: 700
+                          }}>
+                            {rec.department || 'General'}
+                          </span>
+                        </td>
+                      </>
+                    )}
+
+                    {/* Check-In */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                      {renderPunchCell('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
+                    </td>
+
+                    {/* Check-Out */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                      {renderPunchCell('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
+                    </td>
+
+                    {/* Working Hours */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                      <span
+                        data-testid="record-working-hours"
+                        style={{
+                          display: 'inline-block',
+                          padding: '4px 10px',
+                          borderRadius: '8px',
+                          backgroundColor: Number(rec.workingHours || 0) > 0 ? '#ecfeff' : '#f8fafc',
+                          color: Number(rec.workingHours || 0) > 0 ? '#0e7490' : '#64748b',
+                          fontWeight: 800,
+                          fontSize: '0.78rem',
+                          border: `1px solid ${Number(rec.workingHours || 0) > 0 ? '#a5f3fc' : '#e2e8f0'}`
+                        }}
+                      >
+                        {rec.workingHours ?? 0} hrs
+                      </span>
+                    </td>
+
+                    {/* Status */}
+                    <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <span
+                        data-testid="record-status"
+                        style={{
+                          display: 'inline-block',
+                          padding: '4px 12px',
+                          borderRadius: '9999px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          backgroundColor: badge.bg,
+                          color: badge.color,
+                          border: `1px solid ${badge.border}`
+                        }}
+                      >
+                        {badge.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const showAllEmployeesView = (isCEO || isHrOrAdmin) && activityViewTab === 'all';
 
   const renderMonthlyActivityCard = (isDedicatedLogPage: boolean) => (
     <div
@@ -2381,95 +2920,80 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         backgroundColor: '#ffffff',
         borderRadius: '16px',
         border: '1px solid #e2e8f0',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
-        padding: isDedicatedLogPage ? '14px' : undefined,
+        boxShadow: '0 2px 12px rgba(15, 23, 42, 0.03)',
+        padding: isMobileViewport ? '12px' : '18px 20px',
         display: 'flex',
         flexDirection: 'column',
         gap: '14px'
       }}
     >
-      {/* Header Strip with Month Navigation */}
+      {/* Top Bar: Month Picker + Role Switcher / Count Badge */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-        <div>
-          {!isDedicatedLogPage && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-              <Calendar size={18} color="#0e7490" />
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                Monthly Activity
-              </h2>
-            </div>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            data-testid="month-prev-btn"
+            onClick={handlePrevMonth}
+            title="Previous Month"
+            aria-label="Previous Month"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              color: '#0e7490',
+              cursor: 'pointer'
+            }}
+          >
+            <ChevronLeft size={16} />
+          </button>
 
-          {/* Month Picker Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              data-testid="month-prev-btn"
-              onClick={handlePrevMonth}
-              title="Previous Month"
-              aria-label="Previous Month"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '30px',
-                height: '30px',
-                borderRadius: '8px',
-                border: '1px solid #cbd5e1',
-                backgroundColor: '#ffffff',
-                color: '#0e7490',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <ChevronLeft size={16} />
-            </button>
-
-            <div
-              data-testid="month-display"
-              style={{
-                padding: '4px 12px',
-                borderRadius: '8px',
-                backgroundColor: '#ecfeff',
-                border: '1px solid #a5f3fc',
-                color: '#0e7490',
-                fontSize: '0.8rem',
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}
-            >
-              <Calendar size={13} />
-              <span>{formatMonthDisplay(selectedMonth)}</span>
-            </div>
-
-            <button
-              type="button"
-              data-testid="month-next-btn"
-              onClick={handleNextMonth}
-              title="Next Month"
-              aria-label="Next Month"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '30px',
-                height: '30px',
-                borderRadius: '8px',
-                border: '1px solid #cbd5e1',
-                backgroundColor: '#ffffff',
-                color: '#0e7490',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <ChevronRight size={16} />
-            </button>
+          <div
+            data-testid="month-display"
+            style={{
+              padding: '5px 14px',
+              borderRadius: '8px',
+              backgroundColor: '#ecfeff',
+              border: '1px solid #a5f3fc',
+              color: '#0e7490',
+              fontSize: '0.82rem',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Calendar size={14} />
+            <span>{formatMonthDisplay(selectedMonth)}</span>
           </div>
+
+          <button
+            type="button"
+            data-testid="month-next-btn"
+            onClick={handleNextMonth}
+            title="Next Month"
+            aria-label="Next Month"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              color: '#0e7490',
+              cursor: 'pointer'
+            }}
+          >
+            <ChevronRight size={16} />
+          </button>
         </div>
 
-        {/* If HR / Admin: Toggle between My Monthly and All Staff Monthly (CEO has no personal My Monthly tab) */}
         {(isHrOrAdmin || isCEO) ? (
           <div style={{
             display: 'inline-flex',
@@ -2478,35 +3002,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             borderRadius: '10px',
             border: '1px solid #e2e8f0'
           }}>
-            {!isCEO && (
-              <button
-                type="button"
-                onClick={() => setActivityViewTab('my')}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: '7px',
-                  border: 'none',
-                  fontSize: '0.76rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
-                  color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
-                  boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <User size={13} />
-                <span>My Monthly ({myMonthlyRecords.length})</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setActivityViewTab('all')}
               style={{
-                padding: '5px 12px',
+                padding: '6px 12px',
                 borderRadius: '7px',
                 border: 'none',
                 fontSize: '0.76rem',
@@ -2517,13 +3017,35 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 gap: '5px',
                 backgroundColor: activityViewTab === 'all' ? '#ffffff' : 'transparent',
                 color: activityViewTab === 'all' ? '#0e7490' : '#64748b',
-                boxShadow: activityViewTab === 'all' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                transition: 'all 0.15s ease'
+                boxShadow: activityViewTab === 'all' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
               }}
             >
               <Users size={13} />
-              <span>All Staff ({allStaffMonthlyRecords.length})</span>
+              <span>All Employees ({allStaffMonthlyRecords.length})</span>
             </button>
+            {!isCEO && (
+              <button
+                type="button"
+                onClick={() => setActivityViewTab('my')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '0.76rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  backgroundColor: activityViewTab === 'my' ? '#ffffff' : 'transparent',
+                  color: activityViewTab === 'my' ? '#0e7490' : '#64748b',
+                  boxShadow: activityViewTab === 'my' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
+                }}
+              >
+                <User size={13} />
+                <span>My Attendance ({myMonthlyRecords.length})</span>
+              </button>
+            )}
           </div>
         ) : (
           <span
@@ -2531,366 +3053,89 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             style={{
               backgroundColor: '#ecfeff',
               color: '#0e7490',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              fontSize: '0.74rem',
+              padding: '5px 12px',
+              borderRadius: '8px',
+              fontSize: '0.75rem',
               fontWeight: 800,
-              letterSpacing: '0.04em'
+              border: '1px solid #a5f3fc'
             }}
           >
-            {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'RECORD' : 'RECORDS'}
+            {myMonthlyRecords.length} {myMonthlyRecords.length === 1 ? 'LOG' : 'LOGS'}
           </span>
         )}
       </div>
 
-      {/* Compact Monthly Summary Bar */}
-      {!isCEO && activityViewTab === 'my' && (
+      {/* Summary KPI Strip */}
+      {showAllEmployeesView ? (
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '8px',
-            backgroundColor: '#f8fafc',
-            padding: '8px 10px',
-            borderRadius: '10px',
-            border: '1px solid #e2e8f0'
+            gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+            gap: '10px'
           }}
         >
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Present</div>
-            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#15803d' }}>{monthlyStats.presentDays} d</div>
+          <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total Logs</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>{allStaffStats.totalLogs}</div>
           </div>
-          <div style={{ textAlign: 'center', borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Late</div>
-            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#b45309' }}>{monthlyStats.lateDays} d</div>
+          <div style={{ backgroundColor: '#f0fdf4', padding: '10px 14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>Present</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>{allStaffStats.presentCount}</div>
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.64rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Working Hrs</div>
-            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0e7490' }}>{monthlyStats.totalHours} hrs</div>
+          <div style={{ backgroundColor: '#fff7ed', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fed7aa' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase' }}>Half Day</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#c2410c', marginTop: '2px' }}>{allStaffStats.halfDayCount}</div>
+          </div>
+          <div style={{ backgroundColor: '#fffbeb', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fde68a' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#b45309', textTransform: 'uppercase' }}>Late</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#b45309', marginTop: '2px' }}>{allStaffStats.lateCount}</div>
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+            gap: '10px'
+          }}
+        >
+          <div style={{ backgroundColor: '#f0fdf4', padding: '10px 14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>Present Days</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>{monthlyStats.presentDays} d</div>
+          </div>
+          <div style={{ backgroundColor: '#fff7ed', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fed7aa' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase' }}>Half Days</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#c2410c', marginTop: '2px' }}>{monthlyStats.halfDays} d</div>
+          </div>
+          <div style={{ backgroundColor: '#fffbeb', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fde68a' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#b45309', textTransform: 'uppercase' }}>Late Arrivals</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#b45309', marginTop: '2px' }}>{monthlyStats.lateDays} d</div>
+          </div>
+          <div style={{ backgroundColor: '#ecfeff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #a5f3fc' }}>
+            <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#0e7490', textTransform: 'uppercase' }}>Working Hours</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0e7490', marginTop: '2px' }}>{monthlyStats.totalHours} hrs</div>
           </div>
         </div>
       )}
 
-      {/* VIEW 1: MY MONTHLY ACTIVITY (Only for attendance-tracked employees and HR, never CEO) */}
-      {!isCEO && activityViewTab === 'my' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* Standardized Monthly Attendance + Overtime Details Table */}
-          {myMonthlyOtReport.rows.length > 0 && (
-            <div
-              data-testid="monthly-attendance-ot-table-card"
-              style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: '12px',
-                overflow: 'hidden',
-                backgroundColor: '#ffffff'
-              }}
-            >
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                      <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em' }}>DATE</th>
-                      <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em' }}>SHIFT TIME</th>
-                      <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>SHIFT WORK HRS</th>
-                      {myMonthlyOtReport.showOtFields ? (
-                        <>
-                          <th style={{ padding: '9px 12px', fontWeight: 800, color: '#0e7490', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT HRS</th>
-                          <th style={{ padding: '9px 12px', fontWeight: 800, color: '#0e7490', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>OT AMOUNT</th>
-                        </>
-                      ) : (
-                        <th style={{ padding: '9px 12px', fontWeight: 800, color: '#475569', fontSize: '0.7rem', letterSpacing: '0.04em', textAlign: 'right' }}>STATUS</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {myMonthlyOtReport.rows.map(row => (
-                      <tr key={`ot-row-${row.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '8px 12px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
-                          {formatDateDDMMYYYY(row.date)}
-                        </td>
-                        <td style={{ padding: '8px 12px', color: '#334155' }}>
-                          <div style={{ fontWeight: 600 }}>{row.shiftTime}</div>
-                          <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{row.punchTimeDisplay}</div>
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
-                          {row.shiftWorkHrs} hrs
-                        </td>
-                        {myMonthlyOtReport.showOtFields ? (
-                          <>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: row.otHrs > 0 ? '#0e7490' : '#94a3b8' }}>
-                              {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: row.otAmount > 0 ? '#15803d' : '#94a3b8' }}>
-                              {formatCurrency(row.otAmount)}
-                            </td>
-                          </>
-                        ) : (
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: row.status === 'Present' ? '#15803d' : '#64748b' }}>
-                            {row.status}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                  {myMonthlyOtReport.showOtFields && (
-                    <tfoot>
-                      <tr style={{ backgroundColor: '#ecfeff', borderTop: '2px solid #a5f3fc' }}>
-                        <td colSpan={3} style={{ padding: '9px 12px', fontWeight: 800, color: '#0e7490', fontSize: '0.74rem' }}>
-                          TOTAL APPROVED OT HOURS: {myMonthlyOtReport.totalApprovedOtHours} hrs
-                        </td>
-                        <td colSpan={2} style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#0e7490', fontSize: '0.78rem' }}>
-                          TOTAL APPROVED OT AMOUNT: {formatCurrency(myMonthlyOtReport.totalApprovedOtAmount)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-            </div>
-          )}
-
-          <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em', marginBottom: '2px' }}>
-            {formatMonthDisplay(selectedMonth).toUpperCase()} PUNCH LOGS ({myMonthlyRecords.length})
-          </div>
-
-          {myMonthlyRecords.length === 0 ? (
-            <div
-              data-testid="attendance-log-empty"
-              style={{
-                padding: '30px 16px',
-                textAlign: 'center',
-                backgroundColor: '#f8fafc',
-                borderRadius: '12px',
-                border: '1px dashed #cbd5e1'
-              }}
-            >
-              <Calendar size={28} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
-              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
-                No records for {formatMonthDisplay(selectedMonth)}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                Punch in using Face Attendance to see your daily verified records and photos.
-              </div>
-            </div>
-          ) : (
-            <div
-              data-testid="attendance-log-records-list"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                maxHeight: isDedicatedLogPage ? 'none' : '480px',
-                overflowY: isDedicatedLogPage ? 'visible' : 'auto',
-                paddingRight: isDedicatedLogPage ? 0 : '4px'
-              }}
-            >
-              {myMonthlyRecords.map(rec => {
-                const recDate = rec.date || rec.shiftDate;
-                const inPhoto = getRecordPhoto(rec, 'Check-In');
-                const outPhoto = getRecordPhoto(rec, 'Check-Out');
-                const isTodayRow = normalizeToYYYYMMDD(recDate) === todayStr;
-                const isExpanded = expandedRecordId === rec.id;
-
-                return (
-                  <div
-                    key={rec.id}
-                    data-testid="attendance-log-record"
-                    onClick={() => setExpandedRecordId(prev => (prev === rec.id ? null : rec.id))}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: '12px',
-                      border: `1px solid ${isTodayRow ? '#a5f3fc' : '#e2e8f0'}`,
-                      backgroundColor: isTodayRow ? '#f0fdfa' : '#f8fafc',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {/* Row Top: Date, TODAY Badge, Status Pill, Working Hours & Expand Chevron */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span data-testid="record-date" style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
-                          {formatDateDDMMYYYY(recDate)}
-                        </span>
-                        {isTodayRow && (
-                          <span style={{
-                            fontSize: '0.62rem',
-                            fontWeight: 800,
-                            backgroundColor: '#0e7490',
-                            color: '#ffffff',
-                            padding: '1px 6px',
-                            borderRadius: '4px'
-                          }}>
-                            TODAY
-                          </span>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span
-                          data-testid="record-status"
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.68rem',
-                            fontWeight: 800,
-                            backgroundColor: rec.status === 'Present' ? '#dcfce7' : rec.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
-                            color: rec.status === 'Present' ? '#15803d' : rec.status === 'Half Day' ? '#b45309' : '#b91c1c'
-                          }}
-                        >
-                          {rec.status}
-                        </span>
-                        <span data-testid="record-working-hours" style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b' }}>
-                          {rec.workingHours ?? 0} hrs
-                        </span>
-                        <ChevronRight
-                          size={14}
-                          color="#64748b"
-                          style={{
-                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.15s ease'
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Row Bottom: Side-by-side Check-In and Check-Out with Photos */}
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: '8px',
-                      backgroundColor: '#ffffff',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      border: '1px solid #e2e8f0'
-                    }}>
-                      {/* Check-In Side */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                        <div>
-                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
-                            CHECK-IN
-                          </div>
-                          <div data-testid="record-checkin-time" style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkIn ? '#0f172a' : '#94a3b8' }}>
-                            {rec.checkIn ? formatAttendanceTime(rec.checkIn) : '—'}
-                          </div>
-                        </div>
-
-                        {inPhoto ? (
-                          <div
-                            data-testid="checkin-photo-thumb"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPreviewPhoto({
-                                url: inPhoto,
-                                title: `${currentUser.name || 'Staff'} - Check-In Photo`,
-                                subtitle: formatDateDDMMYYYY(recDate),
-                                time: rec.checkIn ? formatAttendanceTime(rec.checkIn) : undefined
-                              });
-                            }}
-                            title="View Check-In Photo"
-                            style={{
-                              cursor: 'pointer',
-                              position: 'relative',
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '6px',
-                              overflow: 'hidden',
-                              border: '1.5px solid #86efac',
-                              flexShrink: 0
-                            }}
-                          >
-                            <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Check-Out Side */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                        <div>
-                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
-                            CHECK-OUT
-                          </div>
-                          <div data-testid="record-checkout-time" style={{ fontSize: '0.8rem', fontWeight: 800, color: rec.checkOut ? '#0f172a' : rec.checkIn ? '#d97706' : '#94a3b8' }}>
-                            {rec.checkOut ? formatAttendanceTime(rec.checkOut) : (rec.checkIn ? 'In Progress' : '—')}
-                          </div>
-                        </div>
-
-                        {outPhoto ? (
-                          <div
-                            data-testid="checkout-photo-thumb"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPreviewPhoto({
-                                url: outPhoto,
-                                title: `${currentUser.name || 'Staff'} - Check-Out Photo`,
-                                subtitle: formatDateDDMMYYYY(recDate),
-                                time: rec.checkOut ? formatAttendanceTime(rec.checkOut) : undefined
-                              });
-                            }}
-                            title="View Check-Out Photo"
-                            style={{
-                              cursor: 'pointer',
-                              position: 'relative',
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '6px',
-                              overflow: 'hidden',
-                              border: '1.5px solid #67e8f9',
-                              flexShrink: 0
-                            }}
-                          >
-                            <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {/* Expandable Record Details */}
-                    {isExpanded && (
-                      <div
-                        data-testid="attendance-log-expanded-details"
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: '8px',
-                          backgroundColor: '#ffffff',
-                          border: '1px dashed #cbd5e1',
-                          fontSize: '0.72rem',
-                          color: '#475569',
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr',
-                          gap: '6px'
-                        }}
-                      >
-                        <div>
-                          <span style={{ fontWeight: 700, color: '#0f172a' }}>Method: </span>
-                          <span>{rec.method || 'Face Scan'}</span>
-                        </div>
-                        <div>
-                          <span style={{ fontWeight: 700, color: '#0f172a' }}>Punctuality: </span>
-                          <span>{rec.lateStatus || 'On Time'}</span>
-                        </div>
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <span style={{ fontWeight: 700, color: '#0f172a' }}>Location: </span>
-                          <span>{rec.location?.address || geofenceConfig.officeName || 'Verified Office Geofence'}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* VIEW 2: ALL STAFF MONTHLY ATTENDANCE (ACCESSIBLE TO HR/ADMIN) */
-        <>
-          {/* Search Bar for Filtering Staff */}
+      {/* Filter Bar for All Employees View (HR & CEO) */}
+      {showAllEmployeesView && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isMobileViewport ? '1fr' : '1.4fr 1fr 1fr 0.8fr',
+            gap: '10px',
+            backgroundColor: '#f8fafc',
+            padding: '10px',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0'
+          }}
+        >
           <div style={{ position: 'relative' }}>
             <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
             <input
               type="text"
-              placeholder="Search staff name, ID or department..."
+              placeholder="Search employee name, ID, or dept..."
               value={staffSearchQuery}
               onChange={(e) => setStaffSearchQuery(e.target.value)}
               style={{
@@ -2898,6 +3143,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 padding: '8px 12px 8px 32px',
                 borderRadius: '8px',
                 border: '1px solid #cbd5e1',
+                backgroundColor: '#ffffff',
                 fontSize: '0.78rem',
                 color: '#0f172a',
                 outline: 'none',
@@ -2906,172 +3152,80 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             />
           </div>
 
-          <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.04em' }}>
-            COMPANY ATTENDANCE - {formatMonthDisplay(selectedMonth).toUpperCase()} ({filteredAllStaffMonthlyRecords.length} LOGS)
-          </div>
+          <select
+            value={selectedDeptFilter}
+            onChange={(e) => {
+              setSelectedDeptFilter(e.target.value);
+              setSelectedEmpFilter('all');
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: '#0f172a',
+              outline: 'none'
+            }}
+          >
+            <option value="all">All Departments</option>
+            {availableDepartments.map(dept => (
+              <option key={dept} value={dept}>{dept}</option>
+            ))}
+          </select>
 
-          {filteredAllStaffMonthlyRecords.length === 0 ? (
-            <div style={{
-              padding: '40px 16px',
-              textAlign: 'center',
-              backgroundColor: '#f8fafc',
-              borderRadius: '12px',
-              border: '1px dashed #cbd5e1'
-            }}>
-              <Users size={32} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
-              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>
-                No staff records found for {formatMonthDisplay(selectedMonth)}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                Records punched by employees in this month will appear here with photos.
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
-              {filteredAllStaffMonthlyRecords.map(staff => {
-                const recDate = staff.date || staff.shiftDate;
-                const inPhoto = getRecordPhoto(staff, 'Check-In');
-                const outPhoto = getRecordPhoto(staff, 'Check-Out');
+          <select
+            value={selectedEmpFilter}
+            onChange={(e) => setSelectedEmpFilter(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: '#0f172a',
+              outline: 'none'
+            }}
+          >
+            <option value="all">All Employees ({availableFilterEmployees.length})</option>
+            {availableFilterEmployees.map(emp => (
+              <option key={emp.employeeId} value={emp.employeeId}>
+                {emp.firstName} {emp.lastName} ({emp.employeeId})
+              </option>
+            ))}
+          </select>
 
-                return (
-                  <div
-                    key={staff.id}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #e2e8f0',
-                      backgroundColor: '#f8fafc',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px'
-                    }}
-                  >
-                    {/* Top: Name, Department, Date & Status */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '50%',
-                          background: 'linear-gradient(135deg, #0e7490, #0891b2)',
-                          color: '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
-                          fontSize: '0.7rem'
-                        }}>
-                          {(staff.employeeName || 'EM').substring(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
-                            {staff.employeeName}
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                            {formatDateDDMMYYYY(recDate)} • {staff.department || 'General'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <span style={{
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.66rem',
-                        fontWeight: 800,
-                        backgroundColor: staff.status === 'Present' ? '#dcfce7' : staff.status === 'Half Day' ? '#fef3c7' : '#fee2e2',
-                        color: staff.status === 'Present' ? '#15803d' : staff.status === 'Half Day' ? '#b45309' : '#b91c1c'
-                      }}>
-                        {staff.status}
-                      </span>
-                    </div>
-
-                    {/* Bottom: Side-by-side Check-In and Check-Out Times with Photos */}
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: '8px',
-                      backgroundColor: '#ffffff',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      border: '1px solid #e2e8f0'
-                    }}>
-                      {/* Check-In */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#16a34a' }}>
-                            CHECK-IN
-                          </div>
-                          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkIn ? '#0f172a' : '#94a3b8' }}>
-                            {staff.checkIn ? formatAttendanceTime(staff.checkIn) : '—'}
-                          </div>
-                        </div>
-
-                        {inPhoto ? (
-                          <div
-                            onClick={() => setPreviewPhoto({
-                              url: inPhoto,
-                              title: `${staff.employeeName} - Check-In Photo`,
-                              subtitle: formatDateDDMMYYYY(recDate),
-                              time: staff.checkIn ? formatAttendanceTime(staff.checkIn) : undefined
-                            })}
-                            title="View Check-In Photo"
-                            style={{
-                              cursor: 'pointer',
-                              width: '30px',
-                              height: '30px',
-                              borderRadius: '6px',
-                              overflow: 'hidden',
-                              border: '1.5px solid #86efac',
-                              flexShrink: 0
-                            }}
-                          >
-                            <img src={inPhoto} alt="Check-In" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Check-Out */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#0e7490' }}>
-                            CHECK-OUT
-                          </div>
-                          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: staff.checkOut ? '#0f172a' : staff.checkIn ? '#d97706' : '#94a3b8' }}>
-                            {staff.checkOut ? formatAttendanceTime(staff.checkOut) : (staff.checkIn ? 'In Progress' : '—')}
-                          </div>
-                        </div>
-
-                        {outPhoto ? (
-                          <div
-                            onClick={() => setPreviewPhoto({
-                              url: outPhoto,
-                              title: `${staff.employeeName} - Check-Out Photo`,
-                              subtitle: formatDateDDMMYYYY(recDate),
-                              time: staff.checkOut ? formatAttendanceTime(staff.checkOut) : undefined
-                            })}
-                            title="View Check-Out Photo"
-                            style={{
-                              cursor: 'pointer',
-                              width: '30px',
-                              height: '30px',
-                              borderRadius: '6px',
-                              overflow: 'hidden',
-                              border: '1.5px solid #67e8f9',
-                              flexShrink: 0
-                            }}
-                          >
-                            <img src={outPhoto} alt="Check-Out" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
+          <select
+            value={selectedStatusFilter}
+            onChange={(e) => setSelectedStatusFilter(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: '#0f172a',
+              outline: 'none'
+            }}
+          >
+            <option value="all">All Status</option>
+            <option value="Present">Present</option>
+            <option value="Half Day">Half Day</option>
+            <option value="Late">Late</option>
+          </select>
+        </div>
       )}
+
+      {/* Attendance Log Records (Table on Desktop/Laptop, Compact Cards on Mobile) */}
+      {showAllEmployeesView
+        ? renderRecordsResponsiveView(filteredAllStaffMonthlyRecords, true)
+        : renderRecordsResponsiveView(myMonthlyRecords, false)}
     </div>
   );
 
