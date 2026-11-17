@@ -10,13 +10,33 @@ import {
 import { FieldAssignment, LocationPoint } from '../types/tracking.js';
 import { checkDuplicateFieldAssignment, DUPLICATE_REQUEST_ERROR_MESSAGE } from '../utils/requestValidation.js';
 
+const ADMIN_TRACKING_ROLES = new Set([
+  'super admin',
+  'ceo',
+  'hr manager',
+  'hr admin',
+  'hr',
+  'department manager',
+  'department head',
+  'manager',
+]);
+
+const canViewAllTracking = (req: Request): boolean => {
+  const role = String(req.user?.role || '').trim().toLowerCase();
+  return ADMIN_TRACKING_ROLES.has(role);
+};
+
 export const getAssignments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { date, status, employeeId } = req.query;
+    const effectiveEmployeeId = canViewAllTracking(req)
+      ? (employeeId as string)
+      : req.user?.employeeId || req.user?.id || (employeeId as string);
+
     const assignments = await trackingRepository.getAssignments({
       date: date as string,
       status: status as string,
-      employeeId: employeeId as string,
+      employeeId: effectiveEmployeeId,
     });
 
     res.status(200).json({
@@ -110,7 +130,26 @@ export const startTrip = async (req: Request, res: Response, next: NextFunction)
       return;
     }
 
+    if (
+      !canViewAllTracking(req) &&
+      req.user?.employeeId &&
+      validated.employeeId &&
+      validated.employeeId.trim().toLowerCase() !== req.user.employeeId.trim().toLowerCase() &&
+      validated.employeeId.trim().toLowerCase() !== String(req.user.id || '').trim().toLowerCase()
+    ) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Employees may only start trips for their own field duty assignments.',
+          details: [],
+        },
+      });
+      return;
+    }
+
     const trip = await trackingRepository.startTrip({
+      tripId: validated.tripId,
       assignmentId: validated.assignmentId,
       employeeId: targetEmpId,
       startLat: validated.startLat,
@@ -138,7 +177,7 @@ export const recordLocationPoints = async (req: Request, res: Response, next: Ne
     const rawPoints = Array.isArray(validated) ? validated : [validated];
 
     const points: LocationPoint[] = rawPoints.map((p, idx) => ({
-      id: `lp-${Date.now()}-${idx}`,
+      id: p.id || `lp-${Date.now()}-${idx}`,
       tripId: p.tripId,
       assignmentId: p.assignmentId || '',
       employeeId: p.employeeId || req.user?.employeeId || '',
@@ -147,11 +186,13 @@ export const recordLocationPoints = async (req: Request, res: Response, next: Ne
       longitude: p.longitude,
       accuracy: p.accuracy ?? 10,
       speed: p.speed ?? 0,
+      speedMps: p.speedMps,
       heading: p.heading,
       altitude: p.altitude,
       source: p.source || 'browser_watch',
       batteryLevel: p.batteryLevel ?? 100,
       syncedOffline: p.syncedOffline ?? false,
+      uploadStatus: 'uploaded',
     }));
 
     const result = await trackingRepository.recordLocationPoints(points);
@@ -215,8 +256,12 @@ export const endTrip = async (req: Request, res: Response, next: NextFunction): 
 export const getTrips = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { employeeId, status } = req.query;
+    const effectiveEmployeeId = canViewAllTracking(req)
+      ? (employeeId as string)
+      : req.user?.employeeId || req.user?.id || (employeeId as string);
+
     const trips = await trackingRepository.getTrips({
-      employeeId: employeeId as string,
+      employeeId: effectiveEmployeeId,
       status: status as string,
     });
 

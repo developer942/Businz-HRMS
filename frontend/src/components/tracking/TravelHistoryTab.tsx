@@ -4,7 +4,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { FieldAssignment, FieldTripSession } from '../../types/tracking';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { EmployeeFieldActivityModal } from './EmployeeFieldActivityModal';
-import { formatKm, formatTimeAmPm } from '../../services/trackingEngine';
+import { formatKm, formatTimeAmPm, calculateSequentialRouteMetrics } from '../../services/trackingEngine';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { DateInput } from '../common/DateInput';
 
@@ -62,8 +62,22 @@ export const TravelHistoryTab: React.FC = () => {
         ? new Date(trip.tripEndTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
         : (assignment.status === 'Completed' ? formatTimeAmPm(assignment.endTime) : '—');
 
-      const km = trip?.totalKm || 0;
-      const issues = trackingAlerts.filter((alt) => alt.assignmentId === assignment.id || alt.employeeId === assignment.employeeId).length;
+      const metrics = trip
+        ? calculateSequentialRouteMetrics(
+            trip.locationPoints || [],
+            trip.segments,
+            trip.tripEndTime || trip.checkOutTime
+          )
+        : null;
+
+      const km = metrics ? metrics.verifiedKm : trip?.totalKm || 0;
+      const unverifiedGapKm = metrics ? metrics.unverifiedGapKm : 0;
+      const missingIntervalsCount = metrics ? metrics.missingIntervalsCount : 0;
+      const gpsDataQuality = metrics ? metrics.gpsDataQuality : 'Insufficient GPS Data';
+      const issues =
+        trackingAlerts.filter(
+          (alt) => alt.assignmentId === assignment.id || alt.employeeId === assignment.employeeId
+        ).length + missingIntervalsCount;
 
       return {
         id: assignment.id,
@@ -81,6 +95,9 @@ export const TravelHistoryTab: React.FC = () => {
         tripStart: tripStartFormatted,
         tripEnd: tripEndFormatted,
         kmTravelled: km,
+        unverifiedGapKm,
+        missingIntervalsCount,
+        gpsDataQuality,
         gpsIssues: issues,
         status: trip?.status || assignment.status
       };
@@ -353,19 +370,30 @@ export const TravelHistoryTab: React.FC = () => {
                       {rec.tripEnd}
                     </td>
 
-                    {/* KM Travelled */}
-                    <td style={{ padding: '14px 14px', fontWeight: 800, color: '#0E7490' }}>
-                      {formatKm(rec.kmTravelled)}
+                    {/* KM Travelled (Verified Road KM) */}
+                    <td style={{ padding: '14px 14px' }}>
+                      <div style={{ fontWeight: 800, color: '#0E7490' }}>
+                        {formatKm(rec.kmTravelled)}
+                      </div>
+                      {rec.unverifiedGapKm > 0 && (
+                        <div style={{ fontSize: '0.68rem', color: '#B45309', fontWeight: 600 }}>
+                          Gap: {formatKm(rec.unverifiedGapKm)}
+                        </div>
+                      )}
                     </td>
 
-                    {/* GPS Issues */}
+                    {/* GPS Data Quality & Issues */}
                     <td style={{ padding: '14px 14px' }}>
-                      {rec.gpsIssues > 0 ? (
+                      {rec.missingIntervalsCount > 0 ? (
+                        <span style={{ color: '#D97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem' }}>
+                          <AlertTriangle size={12} /> Partial ({rec.missingIntervalsCount} Gap{rec.missingIntervalsCount > 1 ? 's' : ''})
+                        </span>
+                      ) : rec.gpsIssues > 0 ? (
                         <span style={{ color: '#EF4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.78rem' }}>
                           <AlertTriangle size={12} /> {rec.gpsIssues} Issues
                         </span>
                       ) : (
-                        <span style={{ color: '#16A34A', fontSize: '0.78rem' }}>Clean</span>
+                        <span style={{ color: '#16A34A', fontWeight: 600, fontSize: '0.78rem' }}>Verified</span>
                       )}
                     </td>
 

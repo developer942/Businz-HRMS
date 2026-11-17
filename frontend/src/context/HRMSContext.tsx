@@ -92,11 +92,18 @@ import {
   calculateHaversineMeters,
   calculateSequentialRouteKm,
   calculateSequentialRouteMetrics,
+  normalizeTripSessionMetrics,
+  matchTripSegmentsToRoads,
   metersToKm,
   isTrackingScheduleActive,
   isValidMovementPoint
 } from '../services/trackingEngine';
 import { trackingApiService } from '../services/trackingApiService';
+import {
+  defaultLocationProvider,
+  OfflineTrackingStorage,
+  generateTrackingUuid
+} from '../services/trackingLocationProvider';
 import {
   CompanyInfo,
   CompanyBranch,
@@ -12206,19 +12213,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return existingActiveTrip;
     }
 
+    const tripId = `TRIP-${Date.now()}`;
     const initialPoint: LocationPoint = {
-      id: `pt-${Date.now()}-1`,
-      tripId: `TRIP-${Date.now()}`,
+      id: generateTrackingUuid(),
+      tripId,
       assignmentId,
       employeeId: assignment?.employeeId || currentUser.employeeId || currentUser.id,
       recordedAt: now,
       latitude: startLat,
       longitude: startLng,
       accuracy: 15,
-      speed: 0
+      speed: 0,
+      speedMps: 0,
+      source: 'start_point',
+      uploadStatus: 'pending',
+      qualityFlag: 'high',
     };
     const newTrip: FieldTripSession = {
-      id: initialPoint.tripId,
+      id: tripId,
       assignmentId,
       employeeId: assignment?.employeeId || currentUser.employeeId || currentUser.id,
       employeeName: assignment?.employeeName || currentUser.name,
@@ -12230,11 +12242,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       startLng,
       startAddress,
       totalKm: 0,
+      verifiedDistanceMeters: 0,
+      estimatedDistanceMeters: 0,
       recordedDistanceMeters: 0,
       roadMatchedDistanceMeters: 0,
       unverifiedDistanceMeters: 0,
+      gpsDataQuality: 'Insufficient GPS Data',
+      missingIntervalsCount: 0,
+      missingDurationSeconds: 0,
       status: 'Active',
       locationPoints: [initialPoint],
+      segments: [],
       gpsStatus: 'GPS Active',
       trackingStatus: 'Travelling',
       lastGpsUpdate: now,
@@ -12245,17 +12263,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setTripSessions(prev => [newTrip, ...prev.filter(t => !(t.assignmentId === assignmentId && t.status === 'Active'))]);
     setFieldAssignments(prev => prev.map(a => a.id === assignmentId && a.status === 'Scheduled' ? { ...a, status: 'Active', updatedAt: now } : a));
 
-    // Persist trip to PostgreSQL backend
+    // Persist trip to PostgreSQL backend (backend deterministically maps tripId & assignmentId to UUID)
     trackingApiService.startTrip({
+      tripId: newTrip.id,
       assignmentId,
       employeeId: newTrip.employeeId,
       startLat,
       startLng,
       startAddress
-    }).then(serverTrip => {
-      if (serverTrip?.id) {
-        setTripSessions(prev => prev.map(t => t.id === newTrip.id ? { ...t, id: serverTrip.id } : t));
-      }
     }).catch(err => {
       console.warn('[HRMSContext] trackingApiService.startTrip async error:', err);
     });
@@ -12263,27 +12278,47 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return newTrip;
   };
 
-  const recordLocationPoint = (tripId: string, point: Omit<LocationPoint, 'id' | 'tripId'>) => {
-    // Send point to PostgreSQL backend for persistence & validation
-    trackingApiService.recordLocationPoints({
+  const recordLocationPoint = (tripId: string, point: Omit<LocationPoint, 'id' | 'tripId'> & { id?: string }) => {
+    const pointId = point.id || generateTrackingUuid();
+    const recordedIso = point.recordedAt || new Date().toISOString();
+    const candidatePoint: LocationPoint = {
       ...point,
+      id: pointId,
       tripId,
-    } as LocationPoint).then(res => {
-      if (res?.totalKm !== undefined) {
-        setTripSessions(prev => prev.map(t => t.id === tripId ? {
-          ...t,
-          totalKm: res.totalKm,
-          recordedDistanceMeters: res.recordedKm * 1000,
-          roadMatchedDistanceMeters: res.roadMatchedKm * 1000
-        } : t));
-      }
-    }).catch(() => {});
+      recordedAt: recordedIso,
+      uploadStatus: typeof navigator !== 'undefined' && !navigator.onLine ? 'pending' : 'uploaded',
+    };
+
+    // Send point to PostgreSQL backend for persistence & validation, or queue offline on failure
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      trackingApiService.recordLocationPoints(candidatePoint).then(res => {
+        if (!res) {
+          OfflineTrackingStorage.saveOfflinePoint({ ...candidatePoint, uploadStatus: 'pending' });
+        }
+      }).catch(() => {
+        OfflineTrackingStorage.saveOfflinePoint({ ...candidatePoint, uploadStatus: 'pending' });
+      });
+    } else {
+      OfflineTrackingStorage.saveOfflinePoint({ ...candidatePoint, uploadStatus: 'pending' });
+    }
+
+    let acceptedPointsForRoadMatch: LocationPoint[] | null = null;
 
     setTripSessions(prev => prev.map(trip => {
       if (trip.id !== tripId || trip.status !== 'Active') return trip;
 
+      // Deduplicate by point ID or identical coordinate+timestamp
+      const alreadyExists = trip.locationPoints.some(
+        p =>
+          p.id === pointId ||
+          (p.recordedAt === recordedIso &&
+            Math.abs(p.latitude - point.latitude) < 0.000001 &&
+            Math.abs(p.longitude - point.longitude) < 0.000001)
+      );
+      if (alreadyExists) return trip;
+
       const prevPoint = trip.locationPoints[trip.locationPoints.length - 1] || null;
-      const recordedAtMs = point.recordedAt ? new Date(point.recordedAt).getTime() : Date.now();
+      const recordedAtMs = new Date(recordedIso).getTime();
       const validation = isValidMovementPoint(
         prevPoint,
         point.latitude,
@@ -12295,35 +12330,65 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!validation.valid && prevPoint) {
         return {
           ...trip,
-          lastGpsUpdate: point.recordedAt || new Date().toISOString(),
+          gpsStatus: (point.accuracy || 15) > 100 ? 'Low Accuracy' : 'GPS Active',
+          lastGpsUpdate: recordedIso,
           updatedAt: new Date().toISOString()
         };
       }
 
       const newPt: LocationPoint = {
-        ...point,
-        id: `pt-${Date.now()}-${trip.locationPoints.length + 1}`,
-        tripId,
+        ...candidatePoint,
+        speed: point.speed ?? validation.calculatedSpeedKmh,
         distanceFromPrevMeters: validation.distanceMeters,
+        qualityFlag: validation.qualityFlag,
         isRejected: false
       };
       const updatedPoints = [...trip.locationPoints, newPt];
-      const metrics = calculateSequentialRouteMetrics(updatedPoints);
+      acceptedPointsForRoadMatch = updatedPoints;
+      const metrics = calculateSequentialRouteMetrics(updatedPoints, trip.segments, trip.tripEndTime);
 
       return {
         ...trip,
         locationPoints: updatedPoints,
         totalKm: metrics.totalKm,
+        verifiedDistanceMeters: metrics.verifiedDistanceMeters,
+        estimatedDistanceMeters: metrics.estimatedDistanceMeters,
         recordedDistanceMeters: metrics.recordedDistanceMeters,
         roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
         unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
+        gpsDataQuality: metrics.gpsDataQuality,
+        missingIntervalsCount: metrics.missingIntervalsCount,
+        missingDurationSeconds: metrics.missingDurationSeconds,
         segments: metrics.segments,
         lastGpsUpdate: newPt.recordedAt,
-        gpsStatus: 'GPS Active',
+        gpsStatus: (newPt.accuracy || 15) > 50 ? 'Low Accuracy' : 'GPS Active',
         trackingStatus: validation.calculatedSpeedKmh > 3 ? 'Travelling' : 'Stopped',
         updatedAt: new Date().toISOString()
       };
     }));
+
+    // Asynchronously snap contiguous verified segments to OpenStreetMap roads via OSRM
+    if (acceptedPointsForRoadMatch && (acceptedPointsForRoadMatch as LocationPoint[]).length >= 2) {
+      const ptsToMatch = acceptedPointsForRoadMatch as LocationPoint[];
+      matchTripSegmentsToRoads(ptsToMatch).then(matchedMetrics => {
+        setTripSessions(prev => prev.map(t => {
+          if (t.id !== tripId) return t;
+          // Only apply if point count hasn't regressed
+          if (t.locationPoints.length < ptsToMatch.length) return t;
+          return {
+            ...t,
+            totalKm: matchedMetrics.totalKm,
+            verifiedDistanceMeters: matchedMetrics.verifiedDistanceMeters,
+            roadMatchedDistanceMeters: matchedMetrics.roadMatchedDistanceMeters,
+            unverifiedDistanceMeters: matchedMetrics.unverifiedDistanceMeters,
+            gpsDataQuality: matchedMetrics.gpsDataQuality,
+            missingIntervalsCount: matchedMetrics.missingIntervalsCount,
+            missingDurationSeconds: matchedMetrics.missingDurationSeconds,
+            segments: matchedMetrics.segments,
+          };
+        }));
+      }).catch(() => {});
+    }
   };
 
   const endTrip = (tripId: string, endLat: number, endLng: number, endAddress: string = 'Destination'): void => {
@@ -12332,33 +12397,51 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Call backend API to finalize trip in PostgreSQL
     trackingApiService.endTrip(tripId, endLat, endLng, endAddress).catch(() => {});
 
+    let finalPtsForRoadMatch: LocationPoint[] | null = null;
+
     setTripSessions(prev => prev.map(t => {
       if (t.id !== tripId) return t;
       const finalPoints = [...t.locationPoints];
+      const lastPt = finalPoints[finalPoints.length - 1];
       if (endLat && endLng) {
-        finalPoints.push({
-          id: `pt-end-${Date.now()}`,
-          tripId,
-          assignmentId: t.assignmentId,
-          employeeId: t.employeeId,
-          recordedAt: now,
-          latitude: endLat,
-          longitude: endLng,
-          accuracy: 10,
-          speed: 0
-        });
+        const distFromLast = lastPt
+          ? calculateHaversineMeters(lastPt.latitude, lastPt.longitude, endLat, endLng)
+          : 0;
+        // Only append end point if it differs from the last recorded point by >= 3m
+        if (!lastPt || distFromLast >= 3) {
+          finalPoints.push({
+            id: generateTrackingUuid(),
+            tripId,
+            assignmentId: t.assignmentId,
+            employeeId: t.employeeId,
+            recordedAt: now,
+            latitude: endLat,
+            longitude: endLng,
+            accuracy: 10,
+            speed: 0,
+            source: 'destination_arrival',
+            uploadStatus: 'uploaded',
+            qualityFlag: 'high'
+          });
+        }
       }
-      const metrics = calculateSequentialRouteMetrics(finalPoints);
+      finalPtsForRoadMatch = finalPoints;
+      const metrics = calculateSequentialRouteMetrics(finalPoints, t.segments, now);
       return {
         ...t,
         endLat,
         endLng,
         endAddress,
         tripEndTime: now,
-        totalKm: Math.max(t.totalKm, metrics.totalKm),
+        totalKm: metrics.totalKm,
+        verifiedDistanceMeters: metrics.verifiedDistanceMeters,
+        estimatedDistanceMeters: metrics.estimatedDistanceMeters,
         recordedDistanceMeters: metrics.recordedDistanceMeters,
         roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
         unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
+        gpsDataQuality: metrics.gpsDataQuality,
+        missingIntervalsCount: metrics.missingIntervalsCount,
+        missingDurationSeconds: metrics.missingDurationSeconds,
         segments: metrics.segments,
         status: 'Completed',
         trackingStatus: 'Completed',
@@ -12367,6 +12450,22 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updatedAt: now
       };
     }));
+
+    if (finalPtsForRoadMatch && (finalPtsForRoadMatch as LocationPoint[]).length >= 2) {
+      matchTripSegmentsToRoads(finalPtsForRoadMatch as LocationPoint[], now).then(matched => {
+        setTripSessions(prev => prev.map(t => t.id === tripId ? {
+          ...t,
+          totalKm: matched.totalKm,
+          verifiedDistanceMeters: matched.verifiedDistanceMeters,
+          roadMatchedDistanceMeters: matched.roadMatchedDistanceMeters,
+          unverifiedDistanceMeters: matched.unverifiedDistanceMeters,
+          gpsDataQuality: matched.gpsDataQuality,
+          missingIntervalsCount: matched.missingIntervalsCount,
+          missingDurationSeconds: matched.missingDurationSeconds,
+          segments: matched.segments,
+        } : t));
+      }).catch(() => {});
+    }
 
     setFieldAssignments(prev => prev.map(a => {
       const trip = tripSessions.find(t => t.id === tripId);
@@ -12438,19 +12537,109 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedAt: nowIso
     } : a));
 
-    setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? {
-      ...t,
-      checkOutTime: nowIso,
-      tripEndTime: t.tripEndTime || nowIso,
-      endLat: t.endLat ?? (activeTrip?.locationPoints[activeTrip.locationPoints.length - 1]?.latitude || t.startLat),
-      endLng: t.endLng ?? (activeTrip?.locationPoints[activeTrip.locationPoints.length - 1]?.longitude || t.startLng),
-      endAddress: t.endAddress || 'Field Duty Check-Out',
-      status: 'Completed',
-      trackingStatus: 'Completed',
-      gpsStatus: t.gpsStatus === 'GPS Active' ? 'GPS Active' : t.gpsStatus,
-      updatedAt: nowIso
-    } : t));
+    trackingApiService.updateAssignment(assignmentId, { status: 'Completed' }).catch(() => {});
+
+    // Request a final live GPS fix on Field Check-Out so the trip completion coordinate is fresh
+    defaultLocationProvider.getCurrentPosition().then(pos => {
+      if (activeTrip) {
+        endTrip(activeTrip.id, pos.lat, pos.lng, 'Field Duty Check-Out');
+      }
+      setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? {
+        ...t,
+        checkOutTime: nowIso,
+        tripEndTime: t.tripEndTime || nowIso,
+        endLat: pos.lat,
+        endLng: pos.lng,
+        endAddress: t.endAddress || 'Field Duty Check-Out',
+        status: 'Completed',
+        trackingStatus: 'Completed',
+        updatedAt: nowIso
+      } : t));
+    }).catch(() => {
+      const lastPt = activeTrip?.locationPoints[activeTrip.locationPoints.length - 1];
+      const fallbackLat = lastPt?.latitude || activeTrip?.startLat || 13.0827;
+      const fallbackLng = lastPt?.longitude || activeTrip?.startLng || 80.2707;
+      if (activeTrip) {
+        endTrip(activeTrip.id, fallbackLat, fallbackLng, 'Field Duty Check-Out');
+      }
+      setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? normalizeTripSessionMetrics({
+        ...t,
+        checkOutTime: nowIso,
+        tripEndTime: t.tripEndTime || nowIso,
+        endLat: t.endLat ?? fallbackLat,
+        endLng: t.endLng ?? fallbackLng,
+        endAddress: t.endAddress || 'Field Duty Check-Out',
+        status: 'Completed',
+        trackingStatus: 'Completed',
+        gpsStatus: t.gpsStatus === 'GPS Active' ? 'GPS Active' : t.gpsStatus,
+        updatedAt: nowIso
+      }) : t));
+    });
   };
+
+  // Global Active-Trip Foreground GPS Watcher & Offline Queue Sync
+  // Keeps active trip tracking alive even when the employee switches tabs inside BUSINZ HRMS.
+  const activeEmployeeTrip = useMemo(() => {
+    const keys = [currentUser.employeeId, currentUser.id, currentUser.name]
+      .filter(Boolean)
+      .map(v => String(v).trim().toLowerCase());
+    return tripSessions.find(t => {
+      if (t.status !== 'Active') return false;
+      const tKeys = [t.employeeId, t.employeeName].map(v => String(v || '').trim().toLowerCase());
+      return tKeys.some(k => keys.includes(k));
+    });
+  }, [tripSessions, currentUser.employeeId, currentUser.id, currentUser.name]);
+
+  useEffect(() => {
+    if (!activeEmployeeTrip || activeEmployeeTrip.status !== 'Active') return;
+    const tripId = activeEmployeeTrip.id;
+    const assignmentId = activeEmployeeTrip.assignmentId;
+    const employeeId = activeEmployeeTrip.employeeId;
+
+    const watchId = defaultLocationProvider.watchPosition(
+      pos => {
+        recordLocationPoint(tripId, {
+          assignmentId,
+          employeeId,
+          recordedAt: new Date(pos.timestamp).toISOString(),
+          latitude: pos.lat,
+          longitude: pos.lng,
+          accuracy: pos.accuracy,
+          speed: pos.speed,
+          speedMps: pos.speedMps,
+          heading: pos.heading,
+          altitude: pos.altitude,
+          batteryLevel: pos.batteryLevel,
+          source: 'browser_watch'
+        });
+      },
+      err => {
+        console.warn('[HRMSContext] Active trip GPS watch warning:', err);
+      },
+      { activePollIntervalMs: 10000, lowBatteryPollIntervalMs: 20000, minMovementMeters: 10 }
+    );
+
+    const handleOnlineSync = () => {
+      const offlinePts = OfflineTrackingStorage.getOfflinePoints();
+      if (offlinePts.length > 0) {
+        const forThisTrip = offlinePts.filter(p => p.tripId === tripId);
+        if (forThisTrip.length > 0) {
+          trackingApiService.recordLocationPoints(forThisTrip).then(res => {
+            if (res) {
+              OfflineTrackingStorage.clearOfflinePoints(forThisTrip.map(p => p.id));
+            }
+          }).catch(() => {});
+          forThisTrip.forEach(pt => recordLocationPoint(tripId, pt));
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineSync);
+    return () => {
+      defaultLocationProvider.clearWatch(watchId);
+      window.removeEventListener('online', handleOnlineSync);
+    };
+  }, [activeEmployeeTrip?.id, activeEmployeeTrip?.status]);
 
   const resolveTrackingAlert = (alertId: string) => {
     const now = new Date();
@@ -13443,15 +13632,72 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         });
 
+        const applyNormalizedTrips = (incomingTrips: FieldTripSession[]) => {
+          setTripSessions(prev => {
+            // Merge any active local trip points so cloud poll never overwrites newer local points
+            const merged = incomingTrips.map(inc => {
+              const localMatch = prev.find(p => p.id === inc.id);
+              if (localMatch && localMatch.locationPoints?.length > (inc.locationPoints?.length || 0)) {
+                return normalizeTripSessionMetrics({
+                  ...inc,
+                  locationPoints: localMatch.locationPoints,
+                  segments: localMatch.segments || inc.segments,
+                  lastGpsUpdate: localMatch.lastGpsUpdate || inc.lastGpsUpdate,
+                });
+              }
+              return normalizeTripSessionMetrics(inc);
+            });
+            // Preserve any brand-new local Active trip not yet in cloud
+            prev.forEach(localTrip => {
+              if (localTrip.status === 'Active' && !merged.some(m => m.id === localTrip.id)) {
+                merged.unshift(normalizeTripSessionMetrics(localTrip));
+              }
+            });
+            return merged;
+          });
+
+          // Asynchronously snap contiguous verified segments to OpenStreetMap roads via OSRM
+          incomingTrips.forEach(tr => {
+            if (Array.isArray(tr.locationPoints) && tr.locationPoints.length >= 2) {
+              const alreadyRoadMatched = Array.isArray(tr.segments) && tr.segments.some(
+                s => s.segmentType === 'road_matched' && Array.isArray(s.coordinates) && s.coordinates.length > 2
+              );
+              if (!alreadyRoadMatched) {
+                matchTripSegmentsToRoads(tr.locationPoints, tr.tripEndTime || tr.checkOutTime).then(matched => {
+                  setTripSessions(curr => curr.map(c => c.id === tr.id ? {
+                    ...c,
+                    totalKm: matched.totalKm,
+                    verifiedDistanceMeters: matched.verifiedDistanceMeters,
+                    roadMatchedDistanceMeters: matched.roadMatchedDistanceMeters,
+                    unverifiedDistanceMeters: matched.unverifiedDistanceMeters,
+                    gpsDataQuality: matched.gpsDataQuality,
+                    missingIntervalsCount: matched.missingIntervalsCount,
+                    missingDurationSeconds: matched.missingDurationSeconds,
+                    segments: matched.segments,
+                  } : c));
+                }).catch(() => {});
+              }
+            }
+          });
+        };
+
         trackingApiService.getTrips().then(dbTrips => {
+          const settingsTrips = Array.isArray(settings.trip_sessions_data) ? settings.trip_sessions_data : [];
           if (dbTrips && dbTrips.length > 0) {
-            setTripSessions(dbTrips);
-          } else if (Array.isArray(settings.trip_sessions_data)) {
-            setTripSessions(settings.trip_sessions_data);
+            // Combine DB trips and any legacy company_settings trips not yet in DB
+            const combined = [...dbTrips];
+            settingsTrips.forEach((st: FieldTripSession) => {
+              if (!combined.some(d => d.id === st.id || d.assignmentId === st.assignmentId)) {
+                combined.push(st);
+              }
+            });
+            applyNormalizedTrips(combined);
+          } else if (settingsTrips.length > 0) {
+            applyNormalizedTrips(settingsTrips);
           }
         }).catch(() => {
           if (Array.isArray(settings.trip_sessions_data)) {
-            setTripSessions(settings.trip_sessions_data);
+            applyNormalizedTrips(settings.trip_sessions_data);
           }
         });
 

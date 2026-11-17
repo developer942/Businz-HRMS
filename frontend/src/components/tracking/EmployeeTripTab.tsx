@@ -111,54 +111,17 @@ export const EmployeeTripTab: React.FC<EmployeeTripTabProps> = ({ onTripEnded, o
     return () => clearInterval(interval);
   }, [activeTrip?.tripStartTime, activeTrip?.status]);
 
-  // Setup battery-efficient location tracking when trip is active
+  // Keep Screen Wake Lock requested while viewing active trip tab.
+  // Note: Active GPS watchPosition is managed globally in HRMSContext so switching tabs never interrupts tracking.
   useEffect(() => {
     if (!activeTrip || activeTrip.status !== 'Active') return;
-
-    // Use watchPosition or timed interval (every 2-5 mins / on move)
-    const id = defaultLocationProvider.watchPosition(
-      (pos) => {
-        const pointData = {
-          assignmentId: activeTrip.assignmentId,
-          employeeId: activeTrip.employeeId,
-          recordedAt: new Date(pos.timestamp).toISOString(),
-          latitude: pos.lat,
-          longitude: pos.lng,
-          accuracy: pos.accuracy,
-          speed: pos.speed,
-          heading: pos.heading,
-          altitude: pos.altitude,
-          source: 'browser_watch'
-        };
-
-        if (navigator.onLine) {
-          recordLocationPoint(activeTrip.id, pointData);
-        } else {
-          // Offline storage
-          OfflineTrackingStorage.saveOfflinePoint({
-            ...pointData,
-            id: `offline-pt-${Date.now()}`,
-            tripId: activeTrip.id
-          });
-          setOfflinePendingCount(OfflineTrackingStorage.getOfflinePoints().length);
-        }
-      },
-      (err) => {
-        console.warn('GPS location tracking error:', err);
-      }
-    );
-
-    setWatchId(id);
-
-    return () => {
-      if (id >= 0) defaultLocationProvider.clearWatch(id);
-      setWatchId(null);
-    };
-  }, [activeTrip?.id]);
+    defaultLocationProvider.requestWakeLock().catch(() => {});
+    setOfflinePendingCount(OfflineTrackingStorage.getOfflinePoints().length);
+  }, [activeTrip?.id, activeTrip?.locationPoints?.length]);
 
   const handleEndTrip = async () => {
     if (!activeTrip) return;
-    if (window.confirm(`Are you sure you want to end your trip? Current logged distance: ${formatKm(activeTrip.totalKm)}`)) {
+    if (window.confirm(`Are you sure you want to end your trip? Current verified distance: ${formatKm(activeTrip.totalKm)}`)) {
       if (watchId !== null) defaultLocationProvider.clearWatch(watchId);
 
       try {

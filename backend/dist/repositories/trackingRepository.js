@@ -1,10 +1,24 @@
 // ==============================================================================
 // VRM Enterprise HRMS — PostgreSQL Tracking Repository
 // ==============================================================================
+import crypto from 'crypto';
 import { query, withTransaction } from '../config/database.js';
 import { employeeRepository } from './employeeRepository.js';
-import { validateLocationPoint, calculateHaversineMeters, estimateRoadDistanceMeters, metersToKm, } from '../services/gpsAccuracyEngine.js';
+import { validateLocationPoint, calculateHaversineMeters, metersToKm, } from '../services/gpsAccuracyEngine.js';
 const isUuid = (val) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+/**
+ * Converts any string identifier (e.g. 'FA-2026-001', 'TRIP-1793021575710', 'pt-1')
+ * deterministically into a valid RFC-4122 UUID so PostgreSQL UUID columns accept it seamlessly.
+ */
+export const toDeterministicUuid = (val) => {
+    if (!val)
+        return crypto.randomUUID();
+    const trimmed = String(val).trim();
+    if (isUuid(trimmed))
+        return trimmed.toLowerCase();
+    const hash = crypto.createHash('md5').update(trimmed).digest('hex');
+    return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+};
 export class TrackingRepository {
     /**
      * Helper to resolve any employee identifier (e.g. 'VRM-027' or UUID) to employee UUID.
@@ -133,8 +147,10 @@ export class TrackingRepository {
         const eDate = data.endDate || sDate;
         const sTime = data.startTime || '09:00';
         const eTime = data.endTime || '18:00';
+        const assignmentUuid = data.id ? toDeterministicUuid(data.id) : crypto.randomUUID();
         const insertSql = `
       INSERT INTO public.field_duty_assignments (
+        id,
         employee_id,
         department,
         duty_type,
@@ -154,10 +170,16 @@ export class TrackingRepository {
         allowed_radius_meters,
         notes,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      ON CONFLICT (id) DO UPDATE SET
+        status = EXCLUDED.status,
+        customer_site_name = EXCLUDED.customer_site_name,
+        site_address = EXCLUDED.site_address,
+        updated_at = NOW()
       RETURNING *
     `;
         const values = [
+            assignmentUuid,
             empInfo.uuid,
             data.department || empInfo.dept,
             data.dutyType || 'Site Visit',
@@ -228,7 +250,7 @@ export class TrackingRepository {
         }
         if (fields.length === 0)
             return null;
-        values.push(id);
+        values.push(toDeterministicUuid(id));
         const sql = `
       UPDATE public.field_duty_assignments
       SET ${fields.join(', ')}, updated_at = NOW()
@@ -270,20 +292,41 @@ export class TrackingRepository {
         if (!empInfo) {
             throw new Error(`Employee not found: ${params.employeeId}`);
         }
+        const assignmentUuid = toDeterministicUuid(params.assignmentId);
+        const requestedTripUuid = params.tripId ? toDeterministicUuid(params.tripId) : crypto.randomUUID();
         // Check if active trip already exists for this assignment
         const checkSql = `
       SELECT * FROM public.field_trip_sessions
       WHERE assignment_id = $1 AND employee_id = $2 AND status = 'Active'
       LIMIT 1
     `;
-        const existing = await query(checkSql, [params.assignmentId, empInfo.uuid]);
+        const existing = await query(checkSql, [assignmentUuid, empInfo.uuid]);
         if (existing.rows.length > 0) {
             return this.mapTripRow(existing.rows[0], empInfo);
         }
         return withTransaction(async (client) => {
+            // Ensure the assignment exists in field_duty_assignments so foreign key constraint succeeds
+            await client.query(`INSERT INTO public.field_duty_assignments (
+          id, employee_id, department, duty_type, schedule_type,
+          start_date, end_date, start_time, end_time,
+          customer_site_name, site_address, purpose,
+          tracking_required, travel_km_required, attendance_type,
+          site_lat, site_lng, allowed_radius_meters, status
+        ) VALUES ($1, $2, $3, 'Site Visit', 'One Day', CURRENT_DATE, CURRENT_DATE, '09:00', '18:00',
+          $4, $5, 'Field Duty Visit', TRUE, TRUE, 'Flexible Field Check-in', $6, $7, 200, 'Active')
+        ON CONFLICT (id) DO UPDATE SET status = 'Active', updated_at = NOW()`, [
+                assignmentUuid,
+                empInfo.uuid,
+                empInfo.dept,
+                params.startAddress || 'Client Site',
+                params.startAddress || 'Client Location',
+                params.startLat,
+                params.startLng,
+            ]);
             // 1. Insert new trip session
             const insertTripSql = `
         INSERT INTO public.field_trip_sessions (
+          id,
           assignment_id,
           employee_id,
           trip_start_time,
@@ -300,11 +343,13 @@ export class TrackingRepository {
           last_gps_update,
           raw_points_count,
           accepted_points_count
-        ) VALUES ($1, $2, NOW(), $3, $4, $5, 0.0, 0.0, 0.0, 0.0, 'Active', 'Travelling', 'GPS Active', NOW(), 1, 1)
+        ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, 0.0, 0.0, 0.0, 0.0, 'Active', 'Travelling', 'GPS Active', NOW(), 1, 1)
+        ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
         RETURNING *
       `;
             const tripRes = await client.query(insertTripSql, [
-                params.assignmentId,
+                requestedTripUuid,
+                assignmentUuid,
                 empInfo.uuid,
                 params.startLat,
                 params.startLng,
@@ -331,13 +376,11 @@ export class TrackingRepository {
       `;
             const ptRes = await client.query(insertPointSql, [
                 tripRow.id,
-                params.assignmentId,
+                assignmentUuid,
                 empInfo.uuid,
                 params.startLat,
                 params.startLng,
             ]);
-            // 3. Mark assignment as Active
-            await client.query(`UPDATE public.field_duty_assignments SET status = 'Active', updated_at = NOW() WHERE id = $1`, [params.assignmentId]);
             const trip = this.mapTripRow(tripRow, empInfo);
             trip.locationPoints = [this.mapLocationPointRow(ptRes.rows[0])];
             return trip;
@@ -347,7 +390,10 @@ export class TrackingRepository {
         if (points.length === 0) {
             return { added: 0, accepted: 0, totalKm: 0, recordedKm: 0, roadMatchedKm: 0 };
         }
-        const tripId = points[0].tripId;
+        const tripId = toDeterministicUuid(points[0].tripId);
+        const sortedPoints = points
+            .slice()
+            .sort((a, b) => new Date(a.recordedAt || 0).getTime() - new Date(b.recordedAt || 0).getTime());
         return withTransaction(async (client) => {
             // 1. Fetch trip and last accepted point
             const tripRes = await client.query(`SELECT * FROM public.field_trip_sessions WHERE id = $1 AND status = 'Active' FOR UPDATE`, [tripId]);
@@ -369,17 +415,25 @@ export class TrackingRepository {
             let rejectedCount = Number(trip.rejected_points_count || 0);
             let lastSpeed = 0;
             let lastRecordedAt = trip.last_gps_update || new Date().toISOString();
-            for (const pt of points) {
+            for (const pt of sortedPoints) {
+                const pointUuid = pt.id ? toDeterministicUuid(pt.id) : crypto.randomUUID();
+                // Idempotency check: skip if this exact point ID was already recorded
+                const existingPt = await client.query(`SELECT id FROM public.field_location_points WHERE id = $1 LIMIT 1`, [pointUuid]);
+                if (existingPt.rows.length > 0) {
+                    continue;
+                }
                 rawCount++;
                 const validation = validateLocationPoint(pt, prevAccepted);
                 if (!validation.accepted) {
                     rejectedCount++;
                     // Insert rejected point for audit trail
                     await client.query(`INSERT INTO public.field_location_points (
-              trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
+              id, trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
               accuracy, speed, heading, altitude, battery_level, synced_offline,
               distance_from_prev_meters, is_rejected, rejection_reason, source
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, $14, $15)`, [
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE, $15, $16)
+            ON CONFLICT (id) DO NOTHING`, [
+                        pointUuid,
                         tripId,
                         trip.assignment_id,
                         trip.employee_id,
@@ -403,10 +457,8 @@ export class TrackingRepository {
                 lastSpeed = validation.calculatedSpeedKmh;
                 lastRecordedAt = pt.recordedAt || new Date().toISOString();
                 if (validation.isGap) {
-                    // Missing / background gap
+                    // Missing / background gap — NEVER add into recordedMeters, roadMatchedMeters, or totalKm!
                     unverifiedMeters += validation.distanceFromPrevMeters;
-                    const roadEst = estimateRoadDistanceMeters(validation.distanceFromPrevMeters);
-                    roadMatchedMeters += roadEst;
                     // Record gap segment
                     if (prevAccepted) {
                         await client.query(`INSERT INTO public.field_visit_distance_segments (
@@ -443,11 +495,13 @@ export class TrackingRepository {
                     }
                 }
                 const ptRes = await client.query(`INSERT INTO public.field_location_points (
-            trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
+            id, trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
             accuracy, speed, heading, altitude, battery_level, synced_offline,
             distance_from_prev_meters, is_rejected, source
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE, $14)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE, $15)
+          ON CONFLICT (id) DO NOTHING
           RETURNING *`, [
+                    pointUuid,
                     tripId,
                     trip.assignment_id,
                     trip.employee_id,
@@ -463,9 +517,11 @@ export class TrackingRepository {
                     validation.distanceFromPrevMeters,
                     pt.source || 'browser_watch',
                 ]);
-                prevAccepted = this.mapLocationPointRow(ptRes.rows[0]);
+                if (ptRes.rows.length > 0) {
+                    prevAccepted = this.mapLocationPointRow(ptRes.rows[0]);
+                }
             }
-            // 3. Compute final road-matched KM
+            // 3. Compute final Verified KM (strictly excluding unverified gaps)
             const finalKm = metersToKm(roadMatchedMeters > 0 ? roadMatchedMeters : recordedMeters);
             let trackingStatus = lastSpeed > 4 ? 'Travelling' : 'Stopped';
             // 4. Geofence arrival detection against assigned client destination
@@ -535,8 +591,9 @@ export class TrackingRepository {
         });
     }
     async endTrip(tripId, endLat, endLng, endAddress, totalKmOverride) {
+        const resolvedTripId = toDeterministicUuid(tripId);
         return withTransaction(async (client) => {
-            const tripRes = await client.query(`SELECT * FROM public.field_trip_sessions WHERE id = $1 FOR UPDATE`, [tripId]);
+            const tripRes = await client.query(`SELECT * FROM public.field_trip_sessions WHERE id = $1 FOR UPDATE`, [resolvedTripId]);
             if (tripRes.rows.length === 0)
                 return null;
             const trip = tripRes.rows[0];
@@ -545,7 +602,7 @@ export class TrackingRepository {
                 await client.query(`INSERT INTO public.field_location_points (
             trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
             accuracy, speed, distance_from_prev_meters, is_rejected, source
-          ) VALUES ($1, $2, $3, NOW(), $4, $5, 10, 0, 0, FALSE, 'destination_arrival')`, [tripId, trip.assignment_id, trip.employee_id, endLat, endLng]);
+          ) VALUES ($1, $2, $3, NOW(), $4, $5, 10, 0, 0, FALSE, 'destination_arrival')`, [resolvedTripId, trip.assignment_id, trip.employee_id, endLat, endLng]);
             }
             const finalKm = totalKmOverride !== undefined ? totalKmOverride : Number(trip.total_km);
             const updateSql = `
@@ -566,10 +623,12 @@ export class TrackingRepository {
                 endLng,
                 endAddress || 'Destination Site',
                 finalKm,
-                tripId,
+                resolvedTripId,
             ]);
             // Complete assignment
-            await client.query(`UPDATE public.field_duty_assignments SET status = 'Completed', updated_at = NOW() WHERE id = $1`, [trip.assignment_id]);
+            if (trip.assignment_id) {
+                await client.query(`UPDATE public.field_duty_assignments SET status = 'Completed', updated_at = NOW() WHERE id = $1`, [trip.assignment_id]);
+            }
             return this.mapTripRow(completedRes.rows[0]);
         });
     }
@@ -634,12 +693,13 @@ export class TrackingRepository {
     }
     async getTripLocationPoints(tripId) {
         try {
+            const resolvedTripId = toDeterministicUuid(tripId);
             const sql = `
         SELECT * FROM public.field_location_points 
         WHERE trip_id = $1 
         ORDER BY recorded_at ASC
       `;
-            const res = await query(sql, [tripId]);
+            const res = await query(sql, [resolvedTripId]);
             return res.rows.map((p) => this.mapLocationPointRow(p));
         }
         catch (err) {
@@ -685,6 +745,7 @@ export class TrackingRepository {
     }
     async resolveAlert(alertId) {
         try {
+            const resolvedAlertId = toDeterministicUuid(alertId);
             const sql = `
         UPDATE public.field_tracking_alerts SET
           status = 'Resolved',
@@ -693,7 +754,7 @@ export class TrackingRepository {
         WHERE id = $1
         RETURNING *
       `;
-            const res = await query(sql, [alertId]);
+            const res = await query(sql, [resolvedAlertId]);
             if (res.rows.length === 0)
                 return null;
             const r = res.rows[0];

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { FieldAssignment, FieldTripSession, TodayFieldEmployeeItem } from '../../types/tracking';
-import { formatKm } from '../../services/trackingEngine';
+import { formatKm, calculateSequentialRouteMetrics } from '../../services/trackingEngine';
 import { EmployeeFieldActivityModal } from './EmployeeFieldActivityModal';
 
 export interface TrackingOverviewProps {
@@ -60,7 +60,14 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
         ? calculateRelativeTime(trip.lastGpsUpdate)
         : 'Just now';
 
-      const travelKm = trip?.totalKm || 0;
+      const metrics = trip
+        ? calculateSequentialRouteMetrics(
+            trip.locationPoints || [],
+            trip.segments,
+            trip.tripEndTime || trip.checkOutTime
+          )
+        : null;
+      const travelKm = metrics ? metrics.verifiedKm : trip?.totalKm || 0;
       const gpsStatus = trip?.gpsStatus || (assignment.status === 'Active' ? 'GPS Active' : 'GPS Off');
       const trackingStatus = trip?.trackingStatus || (assignment.status === 'Active' ? 'Travelling' : 'Idle');
 

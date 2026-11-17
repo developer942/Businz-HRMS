@@ -14,23 +14,14 @@ import {
 const getApiBase = () => `${API_BASE_URL}`;
 
 const getAuthToken = (): string | null => {
-  let token =
-    localStorage.getItem('vrm_auth_token') ||
+  return (
     sessionStorage.getItem('vrm_auth_token') ||
+    localStorage.getItem('vrm_auth_token') ||
+    sessionStorage.getItem('vrm_hrms_auth_token') ||
+    localStorage.getItem('vrm_hrms_auth_token') ||
     localStorage.getItem('token') ||
-    null;
-
-  if (!token) {
-    const rawUser = localStorage.getItem('vrm_hrms_current_user');
-    if (rawUser) {
-      try {
-        const u = JSON.parse(rawUser);
-        const payload = btoa(unescape(encodeURIComponent(JSON.stringify(u))));
-        token = 'vrm_session_' + payload;
-      } catch {}
-    }
-  }
-  return token;
+    null
+  );
 };
 
 const getHeaders = (extra: Record<string, string> = {}) => {
@@ -97,6 +88,7 @@ export const trackingApiService = {
 
   // Trips & Sessions
   async startTrip(params: {
+    tripId?: string;
     assignmentId: string;
     employeeId: string;
     startLat: number;

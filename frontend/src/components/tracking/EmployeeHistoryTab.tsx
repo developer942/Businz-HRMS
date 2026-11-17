@@ -4,7 +4,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { FieldAssignment, FieldTripSession } from '../../types/tracking';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { EmployeeFieldActivityModal } from './EmployeeFieldActivityModal';
-import { formatKm, formatTimeAmPm } from '../../services/trackingEngine';
+import { formatKm, formatTimeAmPm, calculateSequentialRouteMetrics } from '../../services/trackingEngine';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export const EmployeeHistoryTab: React.FC = () => {
@@ -36,6 +36,14 @@ export const EmployeeHistoryTab: React.FC = () => {
           ? new Date(trip.tripEndTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
           : (assignment.status === 'Completed' ? formatTimeAmPm(assignment.endTime) : '—');
 
+        const metrics = trip
+          ? calculateSequentialRouteMetrics(
+              trip.locationPoints || [],
+              trip.segments,
+              trip.tripEndTime || trip.checkOutTime
+            )
+          : null;
+
         return {
           id: assignment.id,
           assignment,
@@ -46,7 +54,8 @@ export const EmployeeHistoryTab: React.FC = () => {
           siteAddress: assignment.siteAddress,
           startTime,
           endTime,
-          kmTravelled: trip?.totalKm || 0,
+          kmTravelled: metrics ? metrics.verifiedKm : trip?.totalKm || 0,
+          unverifiedGapKm: metrics ? metrics.unverifiedGapKm : 0,
           status: trip?.status || assignment.status
         };
       });

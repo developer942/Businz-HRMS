@@ -97,10 +97,13 @@ export interface LocationPoint {
   longitude: number;
   accuracy?: number;
   speed?: number;
+  speedMps?: number;
   heading?: number;
   altitude?: number;
   batteryLevel?: number;
   syncedOffline?: boolean;
+  uploadStatus?: 'pending' | 'uploaded' | 'failed';
+  qualityFlag?: 'high' | 'moderate' | 'low_accuracy' | 'rejected';
   distanceFromPrevMeters?: number;
   isRejected?: boolean;
   rejectionReason?: string;
@@ -129,14 +132,17 @@ export interface FieldVisitStop {
 export interface FieldVisitDistanceSegment {
   id: string;
   tripId: string;
-  segmentType: 'recorded' | 'road_matched' | 'unverified_gap';
+  segmentType: 'recorded' | 'road_matched' | 'estimated_road' | 'unverified_gap';
   startLat: number;
   startLng: number;
   endLat: number;
   endLng: number;
+  startTime?: string;
+  endTime?: string;
   distanceMeters: number;
   durationSeconds: number;
   polyline?: string;
+  coordinates?: [number, number][];
   createdAt: string;
 }
 
@@ -157,10 +163,16 @@ export interface FieldTripSession {
   endLng?: number;
   endAddress?: string;
   totalKm: number;
+  legacyStoredKm?: number;
+  verifiedDistanceMeters?: number;
+  estimatedDistanceMeters?: number;
   recordedDistanceMeters?: number;
   roadMatchedDistanceMeters?: number;
   suggestedDistanceMeters?: number;
   unverifiedDistanceMeters?: number;
+  gpsDataQuality?: 'Verified' | 'Partial (Gaps Detected)' | 'Insufficient GPS Data';
+  missingIntervalsCount?: number;
+  missingDurationSeconds?: number;
   rawPointsCount?: number;
   acceptedPointsCount?: number;
   rejectedPointsCount?: number;

@@ -6,6 +6,7 @@ import {
 } from '../utils/requestValidation.js';
 
 export const baseAssignmentSchema = z.object({
+  id: z.string().optional(),
   employeeId: z.string().min(1, 'employeeId is required'),
   customerSiteName: z.string().min(1, 'customerSiteName is required'),
   dutyType: z.enum(['Site Visit', 'Customer Visit', 'Vendor Visit', 'Travel', 'Field Work', 'Other']).optional(),
@@ -56,6 +57,7 @@ export const updateAssignmentSchema = baseAssignmentSchema.partial().extend({
 });
 
 export const startTripSchema = z.object({
+  tripId: z.string().optional(),
   assignmentId: z.string().min(1, 'assignmentId is required'),
   employeeId: z.string().optional(),
   startLat: z.number().min(-90).max(90),
@@ -71,6 +73,7 @@ export const endTripSchema = z.object({
 });
 
 export const locationPointSchema = z.object({
+  id: z.string().optional(),
   tripId: z.string().min(1, 'tripId is required'),
   assignmentId: z.string().optional(),
   employeeId: z.string().optional(),
@@ -80,11 +83,14 @@ export const locationPointSchema = z.object({
   timestamp: z.string().optional(),
   accuracy: z.number().optional(),
   speed: z.number().min(0).optional().default(0),
+  speedMps: z.number().min(0).optional(),
   heading: z.number().optional(),
   altitude: z.number().optional(),
   source: z.string().optional(),
   batteryLevel: z.number().min(0).max(100).optional().default(100),
   syncedOffline: z.boolean().optional(),
+  uploadStatus: z.enum(['pending', 'uploaded', 'failed']).optional(),
+  qualityFlag: z.enum(['high', 'moderate', 'low_accuracy', 'rejected']).optional(),
 });
 
 export const locationPointsSchema = z.union([
