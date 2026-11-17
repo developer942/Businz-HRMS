@@ -1704,6 +1704,7 @@ export function calculateEnterpriseOvertimeRateAndAmount(params: {
     params.rateType ??
     elig?.defaultMultiplier ??
     params.overtimePolicy?.defaultMultiplier ??
+    params.overtimePolicy?.regularMultiplier ??
     params.overtimePolicy?.rateMethod ??
     '1x Salary';
 

@@ -23,7 +23,7 @@ import {
   X,
   Plus
 } from 'lucide-react';
-import { toNum } from '../../utils/numbers';
+import { toNum, formatCurrency } from '../../utils/numbers';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { downloadPagarBookMusterRollExcel } from '../../utils/pagarBookMusterRollExporter';
@@ -32,6 +32,7 @@ import { MusterRollModule } from './MusterRollModule';
 import { ManualAttendanceEntryModal } from './ManualAttendanceEntryModal';
 import { AttendanceRecord } from '../../types/hrms';
 import { isAttendanceExemptEmployee, isOwnerOrCEO } from '../../data/hrmsInitialData';
+import { calculateEnterpriseOvertimeRateAndAmount } from '../../services/attendanceCalculationEngine';
 
 export type ReportTypeKey = 
   | 'muster' 
@@ -57,7 +58,21 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
   title,
   subtitle
 }) => {
-  const { employees, attendanceRecords, leaveRequests, departments, currentUser, shifts, holidayPolicies, businessSettings, companyInfo } = useHRMS();
+  const {
+    employees,
+    attendanceRecords,
+    leaveRequests,
+    departments,
+    currentUser,
+    shifts,
+    holidayPolicies,
+    businessSettings,
+    companyInfo,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig
+  } = useHRMS();
 
   const isHrOrCeo =
     currentUser?.role === 'Super Admin' ||
@@ -997,7 +1012,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         { key: 'standardHours', label: 'Standard Hours' },
         { key: 'totalHours', label: 'Total Hours' },
         { key: 'otHours', label: 'OT Logged' },
-        { key: 'rate', label: 'Multiplier' }
+        { key: 'rate', label: 'Multiplier' },
+        { key: 'otAmount', label: 'OT Amount' }
       ];
       filteredAttendance.filter(r => {
         if (r.status === 'Absent') return false;
@@ -1013,6 +1029,37 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const rawHours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
         const otHrs = Math.max(0, Math.round((rawHours - stdHours) * 100) / 100);
         const totalHours = rawHours;
+        const empObj = employees.find(
+          e =>
+            String(e.employeeId || '').toLowerCase() === String(r.employeeId || '').toLowerCase() ||
+            String(e.id || '').toLowerCase() === String(r.employeeId || '').toLowerCase()
+        );
+        const policyMult =
+          overtimePolicy?.defaultMultiplier === '2x Salary' ||
+          overtimePolicy?.defaultMultiplier === '1.5x Salary' ||
+          overtimePolicy?.defaultMultiplier === '1x Salary'
+            ? overtimePolicy.defaultMultiplier
+            : overtimePolicy?.regularMultiplier === 2
+            ? '2x Salary'
+            : overtimePolicy?.regularMultiplier === 1.5
+            ? '1.5x Salary'
+            : '1x Salary';
+        const otCalc = calculateEnterpriseOvertimeRateAndAmount({
+          employee: empObj || { employeeId: r.employeeId, department: r.department },
+          approvedOtHours: otHrs,
+          dateStr: normalizeToYYYYMMDD(r.date || r.shiftDate),
+          payrollConfig: payrollSettingsConfig,
+          overtimePolicy,
+          departmentOtPolicies,
+          employeeOtPolicies,
+          rateType: policyMult
+        });
+        const multLabel =
+          otCalc.multiplierFactor === 2
+            ? '2x Salary (Statutory Rate)'
+            : otCalc.multiplierFactor === 1.5
+            ? '1.5x Salary'
+            : '1x Salary (Standard Rate)';
         data.push({
           empId: r.employeeId,
           name: r.employeeName,
@@ -1021,7 +1068,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           standardHours: `${stdHours.toFixed(1)} hrs`,
           totalHours: `${totalHours.toFixed(1)} hrs`,
           otHours: `+${otHrs.toFixed(1)} hrs`,
-          rate: '1.5x Rate'
+          rate: multLabel,
+          otAmount: formatCurrency(otCalc.overtimeAmount)
         });
       });
     } else if (selectedReportType === 'leave') {
@@ -2034,6 +2082,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Total Hours</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>OT Logged</th>
                   <th style={{ padding: '10px 14px', fontWeight: 700 }}>Multiplier</th>
+                  <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>OT Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -2052,20 +2101,60 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   if (otList.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontWeight: 600 }}>
+                        <td colSpan={8} style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontWeight: 600 }}>
                           No overtime logged for this timeframe.
                         </td>
                       </tr>
                     );
                   }
 
-                  return otList.map((r, idx) => {
+                  const policyMult =
+                    overtimePolicy?.defaultMultiplier === '2x Salary' ||
+                    overtimePolicy?.defaultMultiplier === '1.5x Salary' ||
+                    overtimePolicy?.defaultMultiplier === '1x Salary'
+                      ? overtimePolicy.defaultMultiplier
+                      : overtimePolicy?.regularMultiplier === 2
+                      ? '2x Salary'
+                      : overtimePolicy?.regularMultiplier === 1.5
+                      ? '1.5x Salary'
+                      : '1x Salary';
+
+                  let totalOtHrsSum = 0;
+                  let totalOtAmountSum = 0;
+
+                  const renderedRows = otList.map((r, idx) => {
                     const shift = getEmployeeShift(r.employeeId);
                     const stdHours = shift.totalHours || 9;
                     const dur = getRecordWorkingDuration(r);
                     const rawHours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
                     const otHrs = Math.max(0, Math.round((rawHours - stdHours) * 100) / 100);
                     const totalHours = rawHours;
+
+                    const empObj = employees.find(
+                      e =>
+                        String(e.employeeId || '').toLowerCase() === String(r.employeeId || '').toLowerCase() ||
+                        String(e.id || '').toLowerCase() === String(r.employeeId || '').toLowerCase()
+                    );
+                    const otCalc = calculateEnterpriseOvertimeRateAndAmount({
+                      employee: empObj || { employeeId: r.employeeId, department: r.department },
+                      approvedOtHours: otHrs,
+                      dateStr: normalizeToYYYYMMDD(r.date || r.shiftDate),
+                      payrollConfig: payrollSettingsConfig,
+                      overtimePolicy,
+                      departmentOtPolicies,
+                      employeeOtPolicies,
+                      rateType: policyMult
+                    });
+
+                    const multLabel =
+                      otCalc.multiplierFactor === 2
+                        ? '2x Salary (Statutory Rate)'
+                        : otCalc.multiplierFactor === 1.5
+                        ? '1.5x Salary'
+                        : '1x Salary (Standard Rate)';
+
+                    totalOtHrsSum += otHrs;
+                    totalOtAmountSum += otCalc.overtimeAmount;
 
                     return (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -2079,13 +2168,34 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                         <td style={{ padding: '10px 14px', fontWeight: 700 }}>{totalHours.toFixed(1)} hrs</td>
                         <td style={{ padding: '10px 14px', color: '#0E7490', fontWeight: 800 }}>+{otHrs.toFixed(1)} hrs</td>
                         <td style={{ padding: '10px 14px' }}>
-                          <span style={{ backgroundColor: '#ECFEFF', color: '#0E7490', border: '1px solid #A5F3FC', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                            1.5x Rate
+                          <span style={{ backgroundColor: '#DCFCE7', color: '#15803D', border: '1px solid #BBF7D0', padding: '3px 8px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700 }}>
+                            {multLabel}
                           </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#15803D' }}>
+                          {formatCurrency(otCalc.overtimeAmount)}
                         </td>
                       </tr>
                     );
                   });
+
+                  return (
+                    <>
+                      {renderedRows}
+                      <tr style={{ backgroundColor: '#ECFEFF', borderTop: '2px solid #A5F3FC' }}>
+                        <td colSpan={5} style={{ padding: '10px 14px', fontWeight: 800, color: '#0E7490', fontSize: '0.78rem' }}>
+                          TOTAL OVERTIME SUMMARY
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 800, color: '#0E7490', fontSize: '0.82rem' }}>
+                          +{totalOtHrsSum.toFixed(1)} hrs
+                        </td>
+                        <td style={{ padding: '10px 14px' }} />
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#15803D', fontSize: '0.84rem' }}>
+                          {formatCurrency(Math.round((totalOtAmountSum + Number.EPSILON) * 100) / 100)}
+                        </td>
+                      </tr>
+                    </>
+                  );
                 })()}
               </tbody>
             </table>
