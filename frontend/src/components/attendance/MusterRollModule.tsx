@@ -125,7 +125,22 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   fromDateProp,
   toDateProp
 }) => {
-  const { employees, attendanceRecords, leaveRequests, currentUser, shifts, holidayPolicies, businessSettings, companyInfo, addManualAttendanceRecord } = useHRMS();
+  const {
+    employees,
+    attendanceRecords,
+    leaveRequests,
+    currentUser,
+    shifts,
+    holidayPolicies,
+    businessSettings,
+    companyInfo,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig,
+    attendancePolicies,
+    addManualAttendanceRecord
+  } = useHRMS();
 
   // ---------------------------------------------------------------------------
   // 1. FILTER STATES (Default: Current Month & Year)
@@ -798,7 +813,14 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       toDate,
       businessSettings?.businessName || companyInfo?.companyName || 'BUSINZ',
       shifts,
-      holidayPolicies
+      holidayPolicies,
+      {
+        overtimePolicy,
+        departmentOtPolicies,
+        employeeOtPolicies,
+        payrollSettingsConfig,
+        attendancePolicies
+      }
     );
     setExportDropdownOpen(false);
   };

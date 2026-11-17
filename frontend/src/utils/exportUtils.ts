@@ -63,6 +63,271 @@ export const formatExportValue = (value: unknown, column: ExportColumn): unknown
   return parsed.includesTime ? formatDateTimeDDMMYYYY(parsed.date) : formatDateDDMMYYYY(parsed.date);
 };
 
+export interface XlsxBoldStyleOptions {
+  /** 1-based row numbers where every cell in the row should be styled bold (defaults to [1]) */
+  boldRows?: number[];
+  /** Specific cell coordinates (e.g. 'A4', 'B4', 'H5') that should be styled bold */
+  boldCells?: string[];
+}
+
+const CRC32_LOOKUP_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function computeCrc32(bytes: Uint8Array): number {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    crc = CRC32_LOOKUP_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function readUInt16LE(buf: Uint8Array, offset: number): number {
+  return buf[offset] | (buf[offset + 1] << 8);
+}
+
+function readUInt32LE(buf: Uint8Array, offset: number): number {
+  return (
+    (buf[offset]) |
+    (buf[offset + 1] << 8) |
+    (buf[offset + 2] << 16) |
+    ((buf[offset + 3] << 24) >>> 0)
+  ) >>> 0;
+}
+
+function writeUInt32LE(buf: Uint8Array, value: number, offset: number): void {
+  const v = value >>> 0;
+  buf[offset] = v & 0xFF;
+  buf[offset + 1] = (v >>> 8) & 0xFF;
+  buf[offset + 2] = (v >>> 16) & 0xFF;
+  buf[offset + 3] = (v >>> 24) & 0xFF;
+}
+
+/**
+ * Injects genuine OpenXML bold font & cellXf styles into a SheetJS .xlsx binary buffer
+ * so that all header rows (and any specified label/identifier cells) open in BOLD
+ * in Microsoft Excel, Apple Numbers, Google Sheets, and LibreOffice.
+ */
+export function applyBoldStylesToXlsxBuffer(
+  rawBuffer: ArrayBuffer | Uint8Array,
+  options?: XlsxBoldStyleOptions
+): Uint8Array {
+  const input = rawBuffer instanceof Uint8Array ? rawBuffer : new Uint8Array(rawBuffer);
+  const boldRowSet = new Set<number>(options?.boldRows && options.boldRows.length > 0 ? options.boldRows : [1]);
+  const boldCellSet = new Set<string>((options?.boldCells || []).map(c => c.toUpperCase()));
+
+  try {
+    interface ZipLocalEntry {
+      header: Uint8Array;
+      nameBytes: Uint8Array;
+      extraBytes: Uint8Array;
+      dataBytes: Uint8Array;
+      name: string;
+      newOffset: number;
+    }
+
+    interface ZipCentralEntry {
+      header: Uint8Array;
+      nameBytes: Uint8Array;
+      extraBytes: Uint8Array;
+      commentBytes: Uint8Array;
+      name: string;
+    }
+
+    const decoder = new TextDecoder('utf-8');
+    const encoder = new TextEncoder();
+    const localEntries: ZipLocalEntry[] = [];
+    let offset = 0;
+
+    while (offset + 30 <= input.length && readUInt32LE(input, offset) === 0x04034B50) {
+      const method = readUInt16LE(input, offset + 8);
+      if (method !== 0) {
+        // Fallback safely if compressed entries are encountered
+        return input;
+      }
+      const csize = readUInt32LE(input, offset + 18);
+      const fnlen = readUInt16LE(input, offset + 26);
+      const exlen = readUInt16LE(input, offset + 28);
+      const header = input.slice(offset, offset + 30);
+      const nameStart = offset + 30;
+      const extraStart = nameStart + fnlen;
+      const dataStart = extraStart + exlen;
+      const nextOffset = dataStart + csize;
+      if (nextOffset > input.length) return input;
+
+      const nameBytes = input.slice(nameStart, extraStart);
+      const extraBytes = input.slice(extraStart, dataStart);
+      const dataBytes = input.slice(dataStart, nextOffset);
+      const name = decoder.decode(nameBytes);
+
+      localEntries.push({
+        header,
+        nameBytes,
+        extraBytes,
+        dataBytes,
+        name,
+        newOffset: 0
+      });
+      offset = nextOffset;
+    }
+
+    const centralEntries: ZipCentralEntry[] = [];
+    while (offset + 46 <= input.length && readUInt32LE(input, offset) === 0x02014B50) {
+      const fnlen = readUInt16LE(input, offset + 28);
+      const exlen = readUInt16LE(input, offset + 30);
+      const cmlen = readUInt16LE(input, offset + 32);
+      const header = input.slice(offset, offset + 46);
+      const nameStart = offset + 46;
+      const extraStart = nameStart + fnlen;
+      const commentStart = extraStart + exlen;
+      const nextOffset = commentStart + cmlen;
+      if (nextOffset > input.length) return input;
+
+      const nameBytes = input.slice(nameStart, extraStart);
+      const extraBytes = input.slice(extraStart, commentStart);
+      const commentBytes = input.slice(commentStart, nextOffset);
+      const name = decoder.decode(nameBytes);
+
+      centralEntries.push({
+        header,
+        nameBytes,
+        extraBytes,
+        commentBytes,
+        name
+      });
+      offset = nextOffset;
+    }
+
+    if (offset + 22 > input.length || readUInt32LE(input, offset) !== 0x06054B50) {
+      return input;
+    }
+    const eocdBytes = input.slice(offset);
+
+    const stylesEntry = localEntries.find(e => e.name === 'xl/styles.xml');
+    if (!stylesEntry) return input;
+
+    let stylesXml = decoder.decode(stylesEntry.dataBytes);
+    const fontsMatch = stylesXml.match(/<fonts count="(\d+)">([\s\S]*?)<\/fonts>/);
+    const cellXfsMatch = stylesXml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+    if (!fontsMatch || !cellXfsMatch) return input;
+
+    const origFontCount = parseInt(fontsMatch[1], 10);
+    const boldFontId = origFontCount;
+    const boldFontXml = `<font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>`;
+    stylesXml = stylesXml.replace(
+      /<fonts count="\d+">[\s\S]*?<\/fonts>/,
+      `<fonts count="${origFontCount + 1}">${fontsMatch[2]}${boldFontXml}</fonts>`
+    );
+
+    const origXfCount = parseInt(cellXfsMatch[1], 10);
+    const boldXfId = origXfCount;
+    const boldXfXml = `<xf numFmtId="0" fontId="${boldFontId}" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>`;
+    stylesXml = stylesXml.replace(
+      /<cellXfs count="\d+">[\s\S]*?<\/cellXfs>/,
+      `<cellXfs count="${origXfCount + 1}">${cellXfsMatch[2]}${boldXfXml}</cellXfs>`
+    );
+
+    stylesEntry.dataBytes = encoder.encode(stylesXml);
+
+    for (const entry of localEntries) {
+      if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(entry.name)) continue;
+      let sheetXml = decoder.decode(entry.dataBytes);
+
+      sheetXml = sheetXml.replace(
+        /<row r="(\d+)"([^>]*)>([\s\S]*?)<\/row>/g,
+        (fullRow, rStr, rowAttrs, rowInner) => {
+          const rowNum = parseInt(rStr, 10);
+          const isEntireRowBold = boldRowSet.has(rowNum);
+
+          const updatedInner = rowInner.replace(
+            /<c r="([A-Z]+\d+)"([^>]*?)(\/?)>/g,
+            (fullCell: string, cellRef: string, cellAttrs: string, selfClose: string) => {
+              if (!isEntireRowBold && !boldCellSet.has(cellRef.toUpperCase())) {
+                return fullCell;
+              }
+              let nextAttrs = cellAttrs;
+              if (/\bs="\d+"/.test(nextAttrs)) {
+                nextAttrs = nextAttrs.replace(/\bs="\d+"/, `s="${boldXfId}"`);
+              } else {
+                nextAttrs = ` s="${boldXfId}"${nextAttrs}`;
+              }
+              return `<c r="${cellRef}"${nextAttrs}${selfClose}>`;
+            }
+          );
+
+          return `<row r="${rStr}"${rowAttrs}>${updatedInner}</row>`;
+        }
+      );
+
+      entry.dataBytes = encoder.encode(sheetXml);
+    }
+
+    // Recompute CRC32, sizes, and offsets for all entries
+    const entryByName = new Map<string, ZipLocalEntry>();
+    let currentOffset = 0;
+    for (const entry of localEntries) {
+      entry.newOffset = currentOffset;
+      const crc = computeCrc32(entry.dataBytes);
+      const size = entry.dataBytes.length;
+      writeUInt32LE(entry.header, crc, 14);
+      writeUInt32LE(entry.header, size, 18);
+      writeUInt32LE(entry.header, size, 22);
+      entryByName.set(entry.name, entry);
+      currentOffset += entry.header.length + entry.nameBytes.length + entry.extraBytes.length + size;
+    }
+
+    const cdStartOffset = currentOffset;
+    let cdTotalSize = 0;
+    for (const cd of centralEntries) {
+      const matched = entryByName.get(cd.name);
+      if (matched) {
+        const crc = readUInt32LE(matched.header, 14);
+        const size = matched.dataBytes.length;
+        writeUInt32LE(cd.header, crc, 16);
+        writeUInt32LE(cd.header, size, 20);
+        writeUInt32LE(cd.header, size, 24);
+        writeUInt32LE(cd.header, matched.newOffset, 42);
+      }
+      cdTotalSize += cd.header.length + cd.nameBytes.length + cd.extraBytes.length + cd.commentBytes.length;
+    }
+
+    writeUInt32LE(eocdBytes, cdTotalSize, 12);
+    writeUInt32LE(eocdBytes, cdStartOffset, 16);
+
+    const totalOutputLength = cdStartOffset + cdTotalSize + eocdBytes.length;
+    const output = new Uint8Array(totalOutputLength);
+    let writePos = 0;
+
+    for (const entry of localEntries) {
+      output.set(entry.header, writePos); writePos += entry.header.length;
+      output.set(entry.nameBytes, writePos); writePos += entry.nameBytes.length;
+      output.set(entry.extraBytes, writePos); writePos += entry.extraBytes.length;
+      output.set(entry.dataBytes, writePos); writePos += entry.dataBytes.length;
+    }
+
+    for (const cd of centralEntries) {
+      output.set(cd.header, writePos); writePos += cd.header.length;
+      output.set(cd.nameBytes, writePos); writePos += cd.nameBytes.length;
+      output.set(cd.extraBytes, writePos); writePos += cd.extraBytes.length;
+      output.set(cd.commentBytes, writePos); writePos += cd.commentBytes.length;
+    }
+
+    output.set(eocdBytes, writePos);
+    return output;
+  } catch (err) {
+    console.warn('Could not apply bold styles to XLSX buffer, returning unstyled buffer:', err);
+    return input;
+  }
+}
+
 export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportColumn[]): XLSX.WorkSheet => {
   const sheetData = data.map(item => {
     const row: Record<string, any> = {};
@@ -75,6 +340,10 @@ export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportCol
   });
   const worksheet = XLSX.utils.json_to_sheet(sheetData, { cellDates: true });
   cols.forEach((column, columnIndex) => {
+    const headerAddr = XLSX.utils.encode_cell({ r: 0, c: columnIndex });
+    if (worksheet[headerAddr]) {
+      (worksheet[headerAddr] as any).s = { font: { bold: true } };
+    }
     if (!isDateColumn(column)) return;
     data.forEach((item, rowIndex) => {
       const parsed = parseExportDate(item[column.key]);
@@ -126,6 +395,20 @@ export function downloadCSV(
  * - Microsoft Excel on Windows (without XML/extension warnings)
  * - Google Sheets & Mobile Excel
  */
+export function buildStyledExcelBuffer(
+  data: Record<string, any>[],
+  columns?: ExportColumn[]
+): Uint8Array {
+  const cols = columns && columns.length > 0
+    ? columns
+    : Object.keys(data[0] || {}).map(k => ({ key: k, label: k }));
+  const ws = buildExcelWorksheet(data, cols);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  const rawBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  return applyBoldStylesToXlsxBuffer(rawBuffer, { boldRows: [1] });
+}
+
 export function downloadExcel(
   data: Record<string, any>[],
   filename: string,
@@ -136,20 +419,10 @@ export function downloadExcel(
     return;
   }
 
-  const cols = columns && columns.length > 0
-    ? columns
-    : Object.keys(data[0]).map(k => ({ key: k, label: k }));
-
-  const ws = buildExcelWorksheet(data, cols);
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Report');
-
+  const styledBuffer = buildStyledExcelBuffer(data, columns);
   const cleanFilename = filename.replace(/\.(xlsx?|xls)$/i, '') + '.xlsx';
 
-  // Generate binary XLSX buffer and download with official OpenXML MIME type
-  const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([excelBuffer], { 
+  const blob = new Blob([styledBuffer as unknown as BlobPart], { 
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
   });
   triggerFileDownload(blob, cleanFilename);
@@ -209,34 +482,139 @@ export function downloadPDF(
     ? columns
     : Object.keys(data[0] || {}).map(k => ({ key: k, label: k }));
 
-  // Landscape for wider tables, Portrait for standard tables
   const isLandscape = cols.length > 5;
+  const isWideTable = cols.length > 12;
+
+  // Dynamically size page width for wide tables (e.g., 17-31 day Muster Roll reports) so columns never wrap mid-word
+  const pdfFormat: string | [number, number] = !isWideTable
+    ? 'a4'
+    : cols.length <= 20
+    ? 'a3'
+    : [Math.max(1190.55, 320 + cols.length * 30), 841.89];
+
   const doc = new jsPDF({
     orientation: isLandscape ? 'landscape' : 'portrait',
     unit: 'pt',
-    format: 'a4'
+    format: pdfFormat
   });
 
   const primaryTeal: [number, number, number] = [14, 116, 144]; // #0E7490
+  const leftMargin = isWideTable ? 28 : 36;
 
   // 1. Company Header
   doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
   doc.setTextColor(...primaryTeal);
-  doc.text(companyName, 40, 38);
+  doc.text(companyName, leftMargin, 36);
 
   // 2. Report Title
   doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 41, 59); // Slate 800
-  doc.text(title, 40, 56);
+  doc.text(title, leftMargin, 54);
 
   // 3. Metadata Subtitle
   doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139); // Slate 500
   const dateStr = formatDateDDMMYYYY(new Date());
-  doc.text(`Generated: ${dateStr} • Total Records: ${data.length}`, 40, 70);
+  doc.text(`Generated: ${dateStr} • Total Records: ${data.length}`, leftMargin, 68);
 
-  // 4. Build Structured Table
-  const tableHead = [cols.map(c => c.label)];
+  // 4. Format column labels cleanly so wide tables don't break mid-word
+  const formatPdfHeaderLabel = (col: ExportColumn): string => {
+    const rawLabel = String(col.label || '').trim();
+    if (!isWideTable) return rawLabel;
+
+    // Compact DD/MM/YYYY date headers to DD/MM in wide Muster Roll tables
+    const dmyMatch = rawLabel.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (dmyMatch) {
+      return `${dmyMatch[1]}/${dmyMatch[2]}`;
+    }
+    const dayParenMatch = rawLabel.match(/^(\d{2})\s*\(([A-Za-z]+)\)$/);
+    if (dayParenMatch) {
+      return `${dayParenMatch[1]}\n${dayParenMatch[2]}`;
+    }
+    if (rawLabel === 'Present (P/WFH/FV)') return 'Present\n(P/WFH/FV)';
+    if (rawLabel === 'Absent (A)') return 'Absent\n(A)';
+    if (rawLabel === 'Holidays (H)') return 'Holidays\n(H)';
+    if (rawLabel === 'Attendance %' || rawLabel === 'Attendance Rate (%)') return 'Att. %';
+    if (rawLabel === 'Present (P)') return 'Present\n(P)';
+    if (rawLabel === 'Half Day (HD)') return 'Half Day\n(HD)';
+    if (rawLabel === 'Paid Leave (PL)') return 'Paid Leave\n(PL)';
+    if (rawLabel === 'Absent / LOP (A/UL)') return 'Absent\n(A/UL)';
+    if (rawLabel === 'Holiday (H)') return 'Holiday\n(H)';
+    if (rawLabel === 'Work From Home (WFH)') return 'WFH';
+    if (rawLabel === 'Field Visit (FV)') return 'Field\nVisit';
+    return rawLabel;
+  };
+
+  // 5. Build intelligent per-column alignment & minimum widths
+  const columnStyles: Record<number, any> = {};
+  const colAlignments: Record<number, 'left' | 'center' | 'right'> = {};
+
+  cols.forEach((col, idx) => {
+    const keyLower = String(col.key || '').toLowerCase();
+    const labelLower = String(col.label || '').toLowerCase();
+
+    if (keyLower === 'sno' || labelLower === 's.no' || labelLower === 's.n.' || labelLower === '#') {
+      colAlignments[idx] = 'center';
+      columnStyles[idx] = { halign: 'center', cellWidth: isWideTable ? 30 : 34 };
+    } else if (
+      keyLower === 'empid' ||
+      keyLower === 'employeeid' ||
+      labelLower === 'employee id' ||
+      labelLower === 'employee code' ||
+      labelLower === 'record id'
+    ) {
+      colAlignments[idx] = 'center';
+      columnStyles[idx] = { halign: 'center', minCellWidth: isWideTable ? 58 : 66 };
+    } else if (
+      keyLower === 'name' ||
+      keyLower === 'empname' ||
+      keyLower === 'employeename' ||
+      labelLower.includes('employee name')
+    ) {
+      colAlignments[idx] = 'left';
+      columnStyles[idx] = { halign: 'left', minCellWidth: isWideTable ? 110 : 115 };
+    } else if (
+      keyLower === 'dept' ||
+      keyLower === 'department' ||
+      keyLower === 'desig' ||
+      keyLower === 'designation' ||
+      labelLower === 'department' ||
+      labelLower === 'designation'
+    ) {
+      colAlignments[idx] = 'left';
+      columnStyles[idx] = { halign: 'left', minCellWidth: isWideTable ? 74 : 82 };
+    } else if (
+      keyLower.startsWith('day_') ||
+      /^\d{2}\/\d{2}(\/\d{4})?$/.test(col.label) ||
+      /^\d{2}\s*\([A-Za-z]+\)$/.test(col.label)
+    ) {
+      colAlignments[idx] = 'center';
+      columnStyles[idx] = { halign: 'center', minCellWidth: 26 };
+    } else if (
+      keyLower === 'present' ||
+      keyLower === 'absent' ||
+      keyLower === 'holiday' ||
+      keyLower === 'rate' ||
+      keyLower.startsWith('total') ||
+      labelLower.includes('amount') ||
+      labelLower.includes('hours') ||
+      labelLower.includes('present') ||
+      labelLower.includes('absent') ||
+      labelLower.includes('holiday') ||
+      labelLower.includes('attendance %') ||
+      labelLower.includes('rate')
+    ) {
+      colAlignments[idx] = 'center';
+      columnStyles[idx] = { halign: 'center', minCellWidth: isWideTable ? 46 : 56 };
+    } else {
+      colAlignments[idx] = 'left';
+    }
+  });
+
+  const tableHead = [cols.map(c => formatPdfHeaderLabel(c))];
   const tableBody = data.map(item => cols.map(c => {
     const val = formatExportValue(item[c.key], c);
     return val !== null && val !== undefined && val !== '' ? String(val) : '-';
@@ -244,7 +622,7 @@ export function downloadPDF(
 
   const renderTable = typeof autoTable === 'function' ? autoTable : ((autoTable as any)?.default || (autoTable as any)?.autoTable);
   renderTable(doc, {
-    startY: 82,
+    startY: 80,
     head: tableHead,
     body: tableBody,
     theme: 'grid',
@@ -252,33 +630,66 @@ export function downloadPDF(
       fillColor: primaryTeal,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 8.5,
+      fontSize: isWideTable ? 7.8 : 8.5,
+      valign: 'middle',
       halign: 'left'
     },
     bodyStyles: {
       textColor: [30, 41, 59],
-      fontSize: 8
+      fontSize: isWideTable ? 7.6 : 8,
+      valign: 'middle'
     },
+    columnStyles,
     alternateRowStyles: {
       fillColor: [248, 250, 252] // #F8FAFC
     },
     styles: {
       overflow: 'linebreak',
-      cellPadding: 4.5,
+      cellPadding: isWideTable ? 3.8 : 4.5,
       lineColor: [226, 232, 240], // #E2E8F0
       lineWidth: 0.5
     },
-    margin: { top: 40, right: 36, bottom: 36, left: 36 },
+    margin: { top: 38, right: leftMargin, bottom: 34, left: leftMargin },
+    didParseCell: (hookData: any) => {
+      const colIdx = hookData.column?.index;
+      if (colIdx !== undefined && colAlignments[colIdx]) {
+        hookData.cell.styles.halign = colAlignments[colIdx];
+      }
+      // Color-code short attendance status codes in Muster Roll PDF cells
+      if (hookData.section === 'body' && colIdx !== undefined) {
+        const colDef = cols[colIdx];
+        if (colDef && (String(colDef.key).startsWith('day_') || isWideTable)) {
+          const rawText = String(hookData.cell.raw || '').trim().toUpperCase();
+          if (rawText === 'P' || rawText === '1P') {
+            hookData.cell.styles.textColor = [21, 128, 61]; // Green
+            hookData.cell.styles.fontStyle = 'bold';
+          } else if (rawText === 'A' || rawText === 'UL') {
+            hookData.cell.styles.textColor = [185, 28, 28]; // Red
+            hookData.cell.styles.fontStyle = 'bold';
+          } else if (rawText === 'H' || rawText === 'WO') {
+            hookData.cell.styles.textColor = [30, 64, 175]; // Blue
+            hookData.cell.styles.fontStyle = 'bold';
+          } else if (rawText === 'HD') {
+            hookData.cell.styles.textColor = [194, 65, 12]; // Orange
+            hookData.cell.styles.fontStyle = 'bold';
+          } else if (rawText === 'PL' || rawText === 'WFH' || rawText === 'FV') {
+            hookData.cell.styles.textColor = [14, 116, 144]; // Teal
+            hookData.cell.styles.fontStyle = 'bold';
+          }
+        }
+      }
+    },
     didDrawPage: () => {
       // Clean footer on every page
       const pageSize = doc.internal.pageSize;
       const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
       doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
       doc.setTextColor(148, 163, 184);
-      doc.text(`${companyName} • Confidential Enterprise Report`, 36, pageHeight - 16);
+      doc.text(`${companyName} • Confidential Enterprise Report`, leftMargin, pageHeight - 15);
       const pageStr = `Page ${doc.internal.pages.length - 1}`;
       const pageWidth = pageSize.width ? pageSize.width : pageSize.getWidth();
-      doc.text(pageStr, pageWidth - 36 - doc.getTextWidth(pageStr), pageHeight - 16);
+      doc.text(pageStr, pageWidth - leftMargin - doc.getTextWidth(pageStr), pageHeight - 15);
     }
   });
 

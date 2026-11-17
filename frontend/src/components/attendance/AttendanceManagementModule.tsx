@@ -56,6 +56,7 @@ import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatCurrency } from '../../utils/numbers';
 import { buildAttendanceReport } from '../../services/attendanceReportService';
+import { calculateEnterpriseOvertimeRateAndAmount } from '../../services/attendanceCalculationEngine';
 import { getLocalDateStr } from '../../utils/monthUtils';
 
 export const AttendanceManagementModule: React.FC = () => {
@@ -76,7 +77,11 @@ export const AttendanceManagementModule: React.FC = () => {
     leaveRequests,
     weeklySchedules,
     holidayPolicies,
-    fieldAssignments
+    fieldAssignments,
+    overtimePolicy,
+    departmentOtPolicies,
+    employeeOtPolicies,
+    payrollSettingsConfig
   } = useHRMS();
 
   // Master Navigation Tabs
@@ -272,19 +277,44 @@ export const AttendanceManagementModule: React.FC = () => {
       { key: 'checkIn', label: 'Check In' },
       { key: 'checkOut', label: 'Check Out' },
       { key: 'workingHours', label: 'Working Hours' },
-      { key: 'otHours', label: 'OT Hours' }
+      { key: 'otHours', label: 'OT Hours' },
+      { key: 'otAmount', label: 'OT Amount' },
+      { key: 'fineAmount', label: 'Fine Amount' }
     ];
-    const data = filteredRecords.map(r => ({
-      employeeId: r.employeeId,
-      employeeName: r.employeeName,
-      department: r.department || '',
-      date: formatDateDDMMYYYY(r.date),
-      status: r.status,
-      checkIn: formatTimeDisplay(r.checkIn, '-'),
-      checkOut: formatTimeDisplay(r.checkOut, '-'),
-      workingHours: r.workingHours || '-',
-      otHours: r.approvedOtHours || r.otHours || 0
-    }));
+    const data = filteredRecords.map(r => {
+      const otHrs = Number(r.approvedOtHours ?? r.overtimeHours ?? r.otHours ?? 0);
+      const empObj = employees.find(
+        e =>
+          String(e.employeeId || '').toLowerCase() === String(r.employeeId || '').toLowerCase() ||
+          String(e.id || '').toLowerCase() === String(r.employeeId || '').toLowerCase()
+      );
+      const otCalc = otHrs > 0
+        ? calculateEnterpriseOvertimeRateAndAmount({
+            employee: empObj || { employeeId: r.employeeId, department: r.department },
+            approvedOtHours: otHrs,
+            dateStr: r.date,
+            payrollConfig: payrollSettingsConfig,
+            overtimePolicy,
+            departmentOtPolicies,
+            employeeOtPolicies
+          })
+        : { overtimeAmount: 0 };
+      const fineAmt = Number((r as any).fineAmount ?? (r as any).penaltyAmount ?? (r as any).lateFine ?? 0);
+
+      return {
+        employeeId: r.employeeId,
+        employeeName: r.employeeName,
+        department: r.department || '',
+        date: formatDateDDMMYYYY(r.date),
+        status: r.status,
+        checkIn: formatTimeDisplay(r.checkIn, '-'),
+        checkOut: formatTimeDisplay(r.checkOut, '-'),
+        workingHours: r.workingHours || '-',
+        otHours: otHrs,
+        otAmount: formatCurrency(Math.round(otCalc.overtimeAmount || 0)),
+        fineAmount: formatCurrency(Math.round(fineAmt))
+      };
+    });
     return { columns, data };
   };
 

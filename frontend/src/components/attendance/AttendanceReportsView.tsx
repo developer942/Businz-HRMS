@@ -71,7 +71,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     overtimePolicy,
     departmentOtPolicies,
     employeeOtPolicies,
-    payrollSettingsConfig
+    payrollSettingsConfig,
+    attendancePolicies
   } = useHRMS();
 
   const isHrOrCeo =
@@ -843,6 +844,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         { key: 'checkIn', label: 'Check In' },
         { key: 'checkOut', label: 'Check Out' },
         { key: 'workingHours', label: 'Working Hours' },
+        { key: 'otAmount', label: 'OT Amount' },
+        { key: 'fineAmount', label: 'Fine Amount' },
         { key: 'verification', label: 'Verification / Status' }
       ];
 
@@ -863,6 +866,27 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const isWfo = st.includes('wfo') || st.includes('office') || st.includes('wfh') || st.includes('home') || hasApprovedWfh;
         const isLate = isLateArrivalRecord(r);
         const dur = getRecordWorkingDuration(r);
+        const shift = getEmployeeShift(r.employeeId);
+        const stdHours = shift.totalHours || 9;
+        const rawHours = toNum(r.workingHours) > 0 ? toNum(r.workingHours) : dur.decimalHours;
+        const otHrs = Math.max(0, Math.round((rawHours - stdHours) * 100) / 100, toNum(r.approvedOtHours || r.overtimeHours || r.otHours));
+        const empObj = employees.find(
+          e =>
+            String(e.employeeId || '').toLowerCase() === String(r.employeeId || '').toLowerCase() ||
+            String(e.id || '').toLowerCase() === String(r.employeeId || '').toLowerCase()
+        );
+        const otCalc = otHrs > 0
+          ? calculateEnterpriseOvertimeRateAndAmount({
+              employee: empObj || { employeeId: r.employeeId, department: r.department },
+              approvedOtHours: otHrs,
+              dateStr: rDate,
+              payrollConfig: payrollSettingsConfig,
+              overtimePolicy,
+              departmentOtPolicies,
+              employeeOtPolicies
+            })
+          : { overtimeAmount: 0 };
+        const fineAmt = toNum((r as any).fineAmount ?? (r as any).penaltyAmount ?? (r as any).lateFine ?? 0);
 
         data.push({
           empId: r.employeeId,
@@ -872,6 +896,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           checkIn: formatTimeDisplay(r.checkIn, '--:--'),
           checkOut: r.checkOut && r.checkOut !== '--:--' && !r.checkOut.toLowerCase().includes('progress') ? formatTimeDisplay(r.checkOut, '--:--') : 'In Progress',
           workingHours: dur.isPending ? 'In Progress' : dur.text,
+          otAmount: formatCurrency(Math.round(otCalc.overtimeAmount || 0)),
+          fineAmount: formatCurrency(Math.round(fineAmt)),
           verification: isField ? 'Field Visit' : isWfo ? 'Work From Home (WFH)' : isLate ? 'Late Punch' : (r.method || 'Face Recognition')
         });
       });
@@ -883,7 +909,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         { key: 'date', label: 'Date' },
         { key: 'shiftTime', label: 'Shift Time' },
         { key: 'checkIn', label: 'Actual Punch In' },
-        { key: 'delay', label: 'Delay Duration' }
+        { key: 'delay', label: 'Delay Duration' },
+        { key: 'fineAmount', label: 'Fine Amount' }
       ];
       filteredAttendance.filter(r => {
         return isLateArrivalRecord(r);
@@ -894,6 +921,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const diff = Math.max(0, inM - startM);
         const h = Math.floor(diff / 60);
         const m = diff % 60;
+        const fineAmt = toNum((r as any).fineAmount ?? (r as any).penaltyAmount ?? (r as any).lateFine ?? 0);
         data.push({
           empId: r.employeeId,
           name: r.employeeName,
@@ -901,7 +929,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           date: formatDateDisplay(r.date),
           shiftTime: shift.startTime,
           checkIn: formatTimeDisplay(r.checkIn, '--:--'),
-          delay: diff > 0 ? (h > 0 ? `+${h}h ${m}m` : `+${m} mins`) : 'On Time'
+          delay: diff > 0 ? (h > 0 ? `+${h}h ${m}m` : `+${m} mins`) : 'On Time',
+          fineAmount: formatCurrency(Math.round(fineAmt))
         });
       });
     } else if (selectedReportType === 'early') {
@@ -1185,7 +1214,14 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         tStr,
         businessSettings?.businessName || companyInfo?.companyName || 'BUSINZ',
         shifts,
-        holidayPolicies
+        holidayPolicies,
+        {
+          overtimePolicy,
+          departmentOtPolicies,
+          employeeOtPolicies,
+          payrollSettingsConfig,
+          attendancePolicies
+        }
       );
       return;
     }

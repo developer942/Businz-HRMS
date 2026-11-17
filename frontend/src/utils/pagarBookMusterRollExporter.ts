@@ -1,5 +1,29 @@
-import { Employee, AttendanceRecord, LeaveRequest, Shift, HolidayItem } from '../types/hrms';
+import {
+  Employee,
+  AttendanceRecord,
+  LeaveRequest,
+  Shift,
+  HolidayItem,
+  AttendancePolicy,
+  PayrollSettingsConfig
+} from '../types/hrms';
+import {
+  OvertimePolicy,
+  DepartmentOtPolicy,
+  EmployeeOtPolicy
+} from '../types/attendanceEnterprise';
 import * as XLSX from 'xlsx';
+import { applyBoldStylesToXlsxBuffer } from './exportUtils';
+import { calculateEnterpriseOvertimeRateAndAmount } from '../services/attendanceCalculationEngine';
+import { resolveEffectiveLatePolicy, isCheckInLate } from '../services/policyEngine';
+
+export interface PagarBookMusterRollExportOptions {
+  overtimePolicy?: OvertimePolicy | null;
+  departmentOtPolicies?: DepartmentOtPolicy[];
+  employeeOtPolicies?: EmployeeOtPolicy[];
+  payrollSettingsConfig?: PayrollSettingsConfig | null;
+  attendancePolicies?: Array<AttendancePolicy | any>;
+}
 
 function formatMonthName(monthIndex: number): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -145,7 +169,7 @@ export function generatePagarBookMusterRollFilename(
   return `${companyName} - Attendance Muster Roll - ${startDay} ${startMonth} ${startYear} to ${endDay} ${endMonth} ${endYear}.xlsx`;
 }
 
-export function downloadPagarBookMusterRollExcel(
+export function buildPagarBookMusterRollExcelData(
   employees: Employee[],
   attendanceRecords: AttendanceRecord[],
   leaveRequests: LeaveRequest[],
@@ -153,13 +177,15 @@ export function downloadPagarBookMusterRollExcel(
   toDateStr: string,
   companyName: string = 'BUSINZ',
   shifts: Shift[] = [],
-  holidayPolicies: HolidayItem[] = []
-): void {
-  if (!employees || employees.length === 0) {
-    alert('No employee data available to export.');
-    return;
-  }
-
+  holidayPolicies: HolidayItem[] = [],
+  options?: PagarBookMusterRollExportOptions
+): {
+  aoaRows: (string | number)[][];
+  boldRows: number[];
+  boldCells: string[];
+  styledBuffer: Uint8Array;
+  filename: string;
+} {
   // 1. Generate timezone-safe date list between fromDateStr and toDateStr
   const dates: string[] = [];
   const [y1, m1, d1] = (fromDateStr || '').slice(0, 10).split('-').map(Number);
@@ -194,7 +220,7 @@ export function downloadPagarBookMusterRollExcel(
   });
 
   // Clean fixed columns matching exact user requirement:
-  // 1. Name, 2. Employee ID, 3. Department, 4. Bank Details, 5. Days ➡️ (Punch In, Punch Out, Working Hrs, OT Hrs)
+  // 1. S.N., 2. Employee Name, 3. Employee ID, 4. Department, 5. Bank Details, 6. Days ➡️ (Status, IN, OUT, WH, OT Hrs, OT Amount, Fine Amount)
   const fixedHeaders = [
     'S.N.',
     'Employee Name',
@@ -209,6 +235,8 @@ export function downloadPagarBookMusterRollExcel(
   const summaryHeaders = [
     'Total Working Hours',
     'Total Overtime Hours',
+    'Total OT Amount',
+    'Total Fine Amount',
     'Total Present',
     'Total Absent',
     'Total Half Days',
@@ -216,12 +244,14 @@ export function downloadPagarBookMusterRollExcel(
   ];
 
   const aoaRows: (string | number)[][] = [];
+  const boldRows: number[] = [1, 3];
+  const boldCells: string[] = [];
 
-  // Title / Company Meta Header
+  // Title / Company Meta Header (1-based Row 1)
   aoaRows.push([companyName, 'Attendance Muster Roll', `Period: ${fromDateStr} to ${toDateStr}`]);
-  aoaRows.push([]); // Empty row
+  aoaRows.push([]); // Empty row (1-based Row 2)
 
-  // Table Headers (Row index 2)
+  // Table Headers (1-based Row 3)
   const headerRow: string[] = [
     ...fixedHeaders,
     ...dayHeaderCells,
@@ -245,6 +275,7 @@ export function downloadPagarBookMusterRollExcel(
   );
 
   const emptyFixedCols = Array(fixedHeaders.length - 1).fill('');
+  const activePolicies = (options?.attendancePolicies || []).filter(p => p && p.status === 'Active');
 
   sortedEmployees.forEach((emp, empIdx) => {
     const sn = String(empIdx + 1);
@@ -259,11 +290,50 @@ export function downloadPagarBookMusterRollExcel(
     const shiftStandardHours = resolveEmployeeStandardShiftHours(emp, shifts);
     const standardShiftMins = Math.round(shiftStandardHours * 60);
 
+    // Resolve employee shift & late policy for Fine Amount calculation
+    const empCode = (emp.employeeId || '').toLowerCase().trim();
+    const empUid = (emp.id || '').toLowerCase().trim();
+    const empNameLower = fullName.toLowerCase();
+
+    const assignedShift = (shifts || []).find(s =>
+      s.assignments?.some(a => {
+        const aId = (typeof a === 'string' ? a : a?.employeeId || '').toLowerCase().trim();
+        const isActive = typeof a === 'string' || a?.status !== 'INACTIVE';
+        return isActive && aId && (aId === empCode || (empUid && aId === empUid));
+      }) ||
+      (emp.workShift && (s.id === emp.workShift || s.shiftName === emp.workShift))
+    );
+
+    const latePolicyResolution = resolveEffectiveLatePolicy(
+      emp,
+      activePolicies,
+      assignedShift?.id,
+      assignedShift?.shiftName || emp.workShift
+    );
+    const effectiveLatePolicy = latePolicyResolution.policy;
+
+    const empBasic = Number(
+      emp.basicSalary ||
+      emp.salaryDetails?.basicSalary ||
+      (Number(emp.monthlyCtc || emp.salaryDetails?.monthlyCtc || 0) * 0.4) ||
+      0
+    );
+    const empGross = Number(
+      emp.grossSalary ||
+      emp.monthlyCtc ||
+      emp.salaryDetails?.monthlyCtc ||
+      empBasic ||
+      15000
+    );
+    const dailySalary = Math.max(0, (empBasic > 0 ? empBasic : empGross) / 30);
+
     const stateList: string[] = [];
     const inList: string[] = [];
     const outList: string[] = [];
     const whList: string[] = [];
     const otList: string[] = [];
+    const otAmountList: string[] = [];
+    const fineAmountList: string[] = [];
 
     let totalPresent = 0;
     let totalAbsent = 0;
@@ -271,10 +341,9 @@ export function downloadPagarBookMusterRollExcel(
     let totalPaidLeaves = 0;
     let totalWHMinutes = 0;
     let totalOTMinutes = 0;
-
-    const empCode = (emp.employeeId || '').toLowerCase().trim();
-    const empUid = (emp.id || '').toLowerCase().trim();
-    const empNameLower = fullName.toLowerCase();
+    let totalOTAmount = 0;
+    let totalFineAmount = 0;
+    let lateOccurrenceCount = 0;
 
     dates.forEach(dStr => {
       const [yy, mm, dd] = dStr.split('-').map(Number);
@@ -312,6 +381,9 @@ export function downloadPagarBookMusterRollExcel(
       let outTime = '-';
       let whStr = '-';
       let otStr = '-';
+      let otAmtStr = '-';
+      let fineAmtStr = '-';
+      let dayOtMins = 0;
 
       if (leave) {
         const lType = (leave.leaveType || '').toLowerCase();
@@ -418,10 +490,101 @@ export function downloadPagarBookMusterRollExcel(
 
           // OT hours strictly calculated ONLY after standard shift working hours (e.g. 9 hrs = 540 mins)
           if (whMins > standardShiftMins) {
-            const otMins = whMins - standardShiftMins;
-            otStr = minutesToHHMM(otMins);
-            totalOTMinutes += otMins;
+            dayOtMins = whMins - standardShiftMins;
+            otStr = minutesToHHMM(dayOtMins);
+            totalOTMinutes += dayOtMins;
           }
+        }
+
+        // Also check if explicit approvedOtHours / overtimeHours / otHours is recorded on rec
+        const explicitOtHrs = Number(rec.approvedOtHours ?? rec.overtimeHours ?? rec.otHours ?? 0);
+        if (dayOtMins <= 0 && explicitOtHrs > 0 && state !== 'A' && state !== 'H' && state !== 'WO') {
+          dayOtMins = Math.round(explicitOtHrs * 60);
+          otStr = minutesToHHMM(dayOtMins);
+          totalOTMinutes += dayOtMins;
+        }
+
+        // Calculate OT Amount for this day if dayOtMins > 0
+        if (dayOtMins > 0) {
+          const otHoursDecimal = dayOtMins / 60;
+          const policyMult =
+            options?.overtimePolicy?.defaultMultiplier === '2x Salary' ||
+            options?.overtimePolicy?.defaultMultiplier === '1.5x Salary' ||
+            options?.overtimePolicy?.defaultMultiplier === '1x Salary'
+              ? options.overtimePolicy.defaultMultiplier
+              : options?.overtimePolicy?.regularMultiplier === 2
+              ? '2x Salary'
+              : options?.overtimePolicy?.regularMultiplier === 1.5
+              ? '1.5x Salary'
+              : '1x Salary';
+
+          const otCalc = calculateEnterpriseOvertimeRateAndAmount({
+            employee: emp,
+            approvedOtHours: otHoursDecimal,
+            dateStr: dStr,
+            payrollConfig: options?.payrollSettingsConfig,
+            overtimePolicy: options?.overtimePolicy,
+            departmentOtPolicies: options?.departmentOtPolicies,
+            employeeOtPolicies: options?.employeeOtPolicies,
+            rateType: policyMult
+          });
+          const dayOtAmt = Math.round(otCalc.overtimeAmount || 0);
+          if (dayOtAmt > 0) {
+            otAmtStr = `₹${dayOtAmt}`;
+            totalOTAmount += dayOtAmt;
+          }
+        }
+
+        // Calculate Fine Amount for this day (explicit fine or Late Attendance Policy fine)
+        const explicitFine = Number((rec as any).fineAmount ?? (rec as any).penaltyAmount ?? (rec as any).lateFine ?? 0);
+        let dayFineAmt = explicitFine > 0 ? Math.round(explicitFine) : 0;
+
+        if (state !== 'A' && state !== 'H' && state !== 'WO' && state !== 'PL') {
+          let shiftStartTime = assignedShift?.startTime || effectiveLatePolicy?.startTime || '09:30';
+          if (rec.shiftId) {
+            const matchedShift = (shifts || []).find(s => s.id === rec.shiftId);
+            if (matchedShift?.startTime) shiftStartTime = matchedShift.startTime;
+          } else if (rec.shiftName) {
+            const matchedShift = (shifts || []).find(s => (s.shiftName || '').toLowerCase() === (rec.shiftName || '').toLowerCase());
+            if (matchedShift?.startTime) shiftStartTime = matchedShift.startTime;
+          }
+          const graceMins = effectiveLatePolicy?.graceTimeMinutes ?? (assignedShift as any)?.graceTimeMinutes ?? (assignedShift as any)?.gracePeriod ?? 10;
+          const isLateDay =
+            rec.status === 'Late' ||
+            (rec.lateStatus ? rec.lateStatus !== 'On Time' && rec.lateStatus !== 'N/A' : false) ||
+            (rec.checkIn && rec.checkIn !== '--:--' ? isCheckInLate(rec.checkIn, shiftStartTime, graceMins) : false);
+
+          if (isLateDay) {
+            lateOccurrenceCount++;
+            if (dayFineAmt === 0 && effectiveLatePolicy) {
+              const halfDayEnabled = Boolean(effectiveLatePolicy.halfDayRuleEnabled ?? (effectiveLatePolicy as any).halfDayTriggerEnabled ?? true);
+              const lopEnabled = Boolean(effectiveLatePolicy.lopRuleEnabled ?? (effectiveLatePolicy as any).lopTriggerEnabled ?? true);
+              const isNewPolicyConfigured = effectiveLatePolicy.allowedLateCount !== undefined || halfDayEnabled || lopEnabled;
+
+              if (isNewPolicyConfigured) {
+                const allowedCount = effectiveLatePolicy.allowedLateCount ?? 3;
+                const halfDayThreshold = effectiveLatePolicy.halfDayThresholdCount ?? 4;
+                const lopThreshold = effectiveLatePolicy.lopThresholdCount ?? 6;
+                if (lateOccurrenceCount > allowedCount) {
+                  if (lopEnabled && lateOccurrenceCount >= lopThreshold) {
+                    dayFineAmt = Math.round(dailySalary);
+                  } else if (halfDayEnabled && lateOccurrenceCount >= halfDayThreshold) {
+                    dayFineAmt = Math.round(dailySalary * 0.5);
+                  }
+                }
+              } else if (effectiveLatePolicy.lateRuleType === 'FIXED_AMOUNT') {
+                dayFineAmt = Math.round(Number(effectiveLatePolicy.fixedAmount || 100));
+              } else if (effectiveLatePolicy.lateRuleType === 'PERCENTAGE_DAILY') {
+                const pct = Number(effectiveLatePolicy.percentageOfDailySalary || 5);
+                dayFineAmt = Math.round((dailySalary * pct) / 100);
+              }
+            }
+          }
+        }
+
+        if (dayFineAmt > 0) {
+          fineAmtStr = `₹${dayFineAmt}`;
+          totalFineAmount += dayFineAmt;
         }
       } else if (isSunday || isHoliday) {
         state = isHoliday && !isSunday ? 'H' : 'WO';
@@ -436,10 +599,29 @@ export function downloadPagarBookMusterRollExcel(
       outList.push(outTime);
       whList.push(whStr);
       otList.push(otStr);
+      otAmountList.push(otAmtStr);
+      fineAmountList.push(fineAmtStr);
     });
 
     const totWHFormatted = minutesToHHHMM(totalWHMinutes);
     const totOTFormatted = minutesToHHHMM(totalOTMinutes);
+    const totOTAmtFormatted = `₹${Math.round(totalOTAmount)}`;
+    const totFineAmtFormatted = `₹${Math.round(totalFineAmount)}`;
+
+    // 1-based Excel row index where this employee's block starts
+    const empStartRow1Based = aoaRows.length + 1;
+    boldCells.push(
+      `A${empStartRow1Based}`,
+      `B${empStartRow1Based}`,
+      `C${empStartRow1Based}`,
+      `H${empStartRow1Based}`,
+      `H${empStartRow1Based + 1}`,
+      `H${empStartRow1Based + 2}`,
+      `H${empStartRow1Based + 3}`,
+      `H${empStartRow1Based + 4}`,
+      `H${empStartRow1Based + 5}`,
+      `H${empStartRow1Based + 6}`
+    );
 
     // Row 1: Employee Details + Attendance Status
     aoaRows.push([
@@ -454,6 +636,8 @@ export function downloadPagarBookMusterRollExcel(
       ...stateList,
       totWHFormatted,
       totOTFormatted,
+      totOTAmtFormatted,
+      totFineAmtFormatted,
       totalPresent,
       totalAbsent,
       totalHalfDays,
@@ -494,6 +678,34 @@ export function downloadPagarBookMusterRollExcel(
       totOTFormatted,
       ...Array(summaryHeaders.length - 2).fill('')
     ]);
+
+    // Row 6: OT Amount
+    aoaRows.push([
+      ...emptyFixedCols,
+      'OT Amount',
+      ...otAmountList,
+      '',
+      '',
+      totOTAmtFormatted,
+      ...Array(summaryHeaders.length - 3).fill('')
+    ]);
+
+    // Row 7: Fine Amount
+    aoaRows.push([
+      ...emptyFixedCols,
+      'Fine Amount',
+      ...fineAmountList,
+      '',
+      '',
+      '',
+      totFineAmtFormatted,
+      ...Array(summaryHeaders.length - 4).fill('')
+    ]);
+
+    // Empty separator row (gap) between one employee block and the next employee block
+    if (empIdx < sortedEmployees.length - 1) {
+      aoaRows.push([]);
+    }
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoaRows);
@@ -512,8 +724,8 @@ export function downloadPagarBookMusterRollExcel(
   // Set clean column widths
   ws['!cols'] = [
     { wch: 6 },  // S.N.
-    { wch: 22 }, // Employee Name
-    { wch: 13 }, // Employee ID
+    { wch: 24 }, // Employee Name
+    { wch: 14 }, // Employee ID
     { wch: 16 }, // Department
     { wch: 18 }, // Bank Name
     { wch: 20 }, // Bank Account Number
@@ -527,8 +739,50 @@ export function downloadPagarBookMusterRollExcel(
   XLSX.utils.book_append_sheet(wb, ws, 'Muster Roll');
 
   const filename = generatePagarBookMusterRollFilename(fromDateStr, toDateStr, companyName);
-  const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([excelBuffer], {
+  const rawBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const styledBuffer = applyBoldStylesToXlsxBuffer(rawBuffer, {
+    boldRows,
+    boldCells
+  });
+
+  return {
+    aoaRows,
+    boldRows,
+    boldCells,
+    styledBuffer,
+    filename
+  };
+}
+
+export function downloadPagarBookMusterRollExcel(
+  employees: Employee[],
+  attendanceRecords: AttendanceRecord[],
+  leaveRequests: LeaveRequest[],
+  fromDateStr: string,
+  toDateStr: string,
+  companyName: string = 'BUSINZ',
+  shifts: Shift[] = [],
+  holidayPolicies: HolidayItem[] = [],
+  options?: PagarBookMusterRollExportOptions
+): void {
+  if (!employees || employees.length === 0) {
+    alert('No employee data available to export.');
+    return;
+  }
+
+  const { styledBuffer, filename } = buildPagarBookMusterRollExcelData(
+    employees,
+    attendanceRecords,
+    leaveRequests,
+    fromDateStr,
+    toDateStr,
+    companyName,
+    shifts,
+    holidayPolicies,
+    options
+  );
+
+  const blob = new Blob([styledBuffer as unknown as BlobPart], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   });
   triggerFileDownload(blob, filename);
