@@ -19,31 +19,67 @@ const dateValue = (value: unknown): string => {
 const dateTimeValue = (value: unknown): string =>
   value instanceof Date ? value.toISOString() : String(value || new Date().toISOString());
 
-const mapRequest = (row: any): FieldAllowanceRequest => ({
-  id: row.id,
-  company_id: row.company_id,
-  trip_code: row.trip_code,
-  employee_id: row.employee_id,
-  employee_name: row.employee_name,
-  department_id: row.department_id,
-  department_name: row.department_name || '',
-  purpose: row.purpose,
-  customer_site_name: row.customer_site_name,
-  destination: row.destination,
-  start_date: dateValue(row.start_date),
-  end_date: dateValue(row.end_date),
-  travel_mode: row.travel_mode,
-  description: row.description,
-  advance_required: Boolean(row.advance_required),
-  requested_amount: Number(row.requested_amount || 0),
-  approved_amount: Number(row.approved_amount || 0),
-  allocated_amount: Number(row.allocated_amount || 0),
-  total_spent: Number(row.total_spent || 0),
-  balance: Number(row.allocated_amount || 0) - Number(row.total_spent || 0),
-  status: row.status,
-  created_at: dateTimeValue(row.created_at),
-  updated_at: dateTimeValue(row.updated_at),
-});
+let balanceReturnSchemaReady = false;
+async function ensureBalanceReturnSchema(): Promise<void> {
+  if (balanceReturnSchemaReady) return;
+  try {
+    await query(`
+      ALTER TABLE public.field_allowance_requests
+        ADD COLUMN IF NOT EXISTS returned_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS balance_return_status TEXT NOT NULL DEFAULT 'NONE',
+        ADD COLUMN IF NOT EXISTS balance_returned_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS balance_return_mode TEXT,
+        ADD COLUMN IF NOT EXISTS balance_return_reference TEXT,
+        ADD COLUMN IF NOT EXISTS balance_return_remarks TEXT,
+        ADD COLUMN IF NOT EXISTS balance_received_by TEXT,
+        ADD COLUMN IF NOT EXISTS balance_received_by_name TEXT,
+        ADD COLUMN IF NOT EXISTS balance_received_at TIMESTAMPTZ;
+    `);
+    balanceReturnSchemaReady = true;
+  } catch {
+    // Ignore in isolated mock tests without live DB
+  }
+}
+
+const mapRequest = (row: any): FieldAllowanceRequest => {
+  const allocatedAmount = Number(row.allocated_amount || 0);
+  const totalSpent = Number(row.total_spent || 0);
+  const returnedAmount = Number(row.returned_amount || 0);
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    trip_code: row.trip_code,
+    employee_id: row.employee_id,
+    employee_name: row.employee_name,
+    department_id: row.department_id,
+    department_name: row.department_name || '',
+    purpose: row.purpose,
+    customer_site_name: row.customer_site_name,
+    destination: row.destination,
+    start_date: dateValue(row.start_date),
+    end_date: dateValue(row.end_date),
+    travel_mode: row.travel_mode,
+    description: row.description,
+    advance_required: Boolean(row.advance_required),
+    requested_amount: Number(row.requested_amount || 0),
+    approved_amount: Number(row.approved_amount || 0),
+    allocated_amount: allocatedAmount,
+    total_spent: totalSpent,
+    returned_amount: returnedAmount,
+    balance: allocatedAmount - totalSpent - returnedAmount,
+    balance_return_status: (row.balance_return_status || (returnedAmount > 0 ? 'SUBMITTED_TO_ACCOUNTS' : 'NONE')),
+    balance_returned_at: row.balance_returned_at ? dateTimeValue(row.balance_returned_at) : null,
+    balance_return_mode: row.balance_return_mode || null,
+    balance_return_reference: row.balance_return_reference || null,
+    balance_return_remarks: row.balance_return_remarks || null,
+    balance_received_by: row.balance_received_by || null,
+    balance_received_by_name: row.balance_received_by_name || null,
+    balance_received_at: row.balance_received_at ? dateTimeValue(row.balance_received_at) : null,
+    status: row.status,
+    created_at: dateTimeValue(row.created_at),
+    updated_at: dateTimeValue(row.updated_at),
+  };
+};
 
 const requestSelect = `
   SELECT r.*,
@@ -52,7 +88,8 @@ const requestSelect = `
   FROM public.field_allowance_requests r`;
 
 export class FieldAllowanceRepository {
-  async create(input: Omit<FieldAllowanceRequest, 'id' | 'trip_code' | 'approved_amount' | 'allocated_amount' | 'total_spent' | 'balance' | 'created_at' | 'updated_at'>): Promise<FieldAllowanceRequest> {
+  async create(input: Omit<FieldAllowanceRequest, 'id' | 'trip_code' | 'approved_amount' | 'allocated_amount' | 'total_spent' | 'returned_amount' | 'balance' | 'balance_return_status' | 'created_at' | 'updated_at'>): Promise<FieldAllowanceRequest> {
+    await ensureBalanceReturnSchema();
     const id = randomUUID();
     const tripCode = `FA-${new Date().getFullYear()}-${id.slice(0, 8).toUpperCase()}`;
     await query(
@@ -69,6 +106,7 @@ export class FieldAllowanceRepository {
   }
 
   async updateDraft(companyId: string, id: string, employeeId: string, input: Partial<FieldAllowanceRequest>, submit: boolean): Promise<FieldAllowanceRequest | null> {
+    await ensureBalanceReturnSchema();
     const result = await query(
       `UPDATE public.field_allowance_requests SET
         purpose=$4, customer_site_name=$5, destination=$6, start_date=$7, end_date=$8,
@@ -85,6 +123,7 @@ export class FieldAllowanceRepository {
   }
 
   async list(companyId: string, filters: { employeeId?: string; status?: string; department?: string; search?: string } = {}): Promise<FieldAllowanceRequest[]> {
+    await ensureBalanceReturnSchema();
     const values: unknown[] = [companyId];
     const clauses = ['r.company_id = $1'];
     if (filters.employeeId) { values.push(filters.employeeId); clauses.push(`r.employee_id = $${values.length}`); }
@@ -99,6 +138,7 @@ export class FieldAllowanceRepository {
   }
 
   async getById(companyId: string, id: string): Promise<FieldAllowanceRequest | null> {
+    await ensureBalanceReturnSchema();
     const result = await query(`${requestSelect} WHERE r.company_id=$1 AND r.id=$2 LIMIT 1`, [companyId, id]);
     return result.rows[0] ? mapRequest(result.rows[0]) : null;
   }
@@ -176,6 +216,7 @@ export class FieldAllowanceRepository {
   }
 
   async complete(companyId: string, id: string, employeeId: string): Promise<FieldAllowanceRequest | null> {
+    await ensureBalanceReturnSchema();
     const result = await query(
       `UPDATE public.field_allowance_requests SET status='COMPLETED', updated_at=NOW()
        WHERE company_id=$1 AND id=$2 AND employee_id=$3 AND status IN ('AMOUNT_DISTRIBUTED','IN_PROGRESS','APPROVED') RETURNING id`,
@@ -184,7 +225,71 @@ export class FieldAllowanceRepository {
     return result.rowCount ? this.getById(companyId, id) : null;
   }
 
+  async submitBalanceToAccounts(input: {
+    companyId: string;
+    requestId: string;
+    paymentMethod?: string | null;
+    referenceNumber?: string | null;
+    remarks?: string | null;
+  }): Promise<FieldAllowanceRequest | null> {
+    await ensureBalanceReturnSchema();
+    const current = await this.getById(input.companyId, input.requestId);
+    if (!current) return null;
+
+    const unspent = Math.max(0, Number(current.allocated_amount || 0) - Number(current.total_spent || 0));
+    if (unspent <= 0) {
+      throw new Error('No remaining advance balance to submit to Accounts');
+    }
+
+    const result = await query(
+      `UPDATE public.field_allowance_requests SET
+        status = 'COMPLETED',
+        returned_amount = $3,
+        balance_return_status = 'SUBMITTED_TO_ACCOUNTS',
+        balance_returned_at = NOW(),
+        balance_return_mode = $4,
+        balance_return_reference = $5,
+        balance_return_remarks = $6,
+        updated_at = NOW()
+       WHERE company_id = $1 AND id = $2
+       RETURNING id`,
+      [
+        input.companyId,
+        input.requestId,
+        unspent,
+        input.paymentMethod || 'Cash',
+        input.referenceNumber || null,
+        input.remarks || 'Remaining balance submitted to Accounts after trip completion',
+      ]
+    );
+    return result.rowCount ? this.getById(input.companyId, input.requestId) : null;
+  }
+
+  async confirmBalanceReceived(input: {
+    companyId: string;
+    requestId: string;
+    receivedBy: string;
+    receivedByName: string;
+    remarks?: string | null;
+  }): Promise<FieldAllowanceRequest | null> {
+    await ensureBalanceReturnSchema();
+    const result = await query(
+      `UPDATE public.field_allowance_requests SET
+        balance_return_status = 'RECEIVED_BY_ACCOUNTS',
+        balance_received_by = $3,
+        balance_received_by_name = $4,
+        balance_received_at = NOW(),
+        balance_return_remarks = COALESCE($5, balance_return_remarks),
+        updated_at = NOW()
+       WHERE company_id = $1 AND id = $2 AND returned_amount > 0
+       RETURNING id`,
+      [input.companyId, input.requestId, input.receivedBy, input.receivedByName, input.remarks || null]
+    );
+    return result.rowCount ? this.getById(input.companyId, input.requestId) : null;
+  }
+
   async distributionHistory(companyId: string, search?: string, startDate?: string, endDate?: string): Promise<any[]> {
+    await ensureBalanceReturnSchema();
     const values: unknown[] = [companyId];
     const clauses = ['r.company_id=$1'];
     if (search) { values.push(`%${search}%`); clauses.push(`(r.trip_code ILIKE $${values.length} OR r.employee_name ILIKE $${values.length} OR d.reference_number ILIKE $${values.length})`); }
@@ -199,13 +304,15 @@ export class FieldAllowanceRepository {
   }
 
   async summary(companyId: string): Promise<FieldAllowanceSummary> {
+    await ensureBalanceReturnSchema();
     const result = await query(
       `SELECT COUNT(*)::int AS total_requests,
         COUNT(*) FILTER (WHERE status='PENDING_APPROVAL')::int AS pending_approval,
         COUNT(*) FILTER (WHERE status IN ('APPROVED','AMOUNT_DISTRIBUTED','IN_PROGRESS','COMPLETED'))::int AS approved_requests,
         COALESCE((SELECT SUM(d.distributed_amount) FROM public.field_allowance_distributions d JOIN public.field_allowance_requests x ON x.id=d.request_id WHERE x.company_id=$1),0) AS total_distributed_amount,
         COUNT(*) FILTER (WHERE status IN ('AMOUNT_DISTRIBUTED','IN_PROGRESS'))::int AS active_trips,
-        COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e JOIN public.field_allowance_requests x ON x.id=e.request_id WHERE x.company_id=$1),0) AS total_spent_amount
+        COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e JOIN public.field_allowance_requests x ON x.id=e.request_id WHERE x.company_id=$1),0) AS total_spent_amount,
+        COALESCE((SELECT SUM(x.returned_amount) FROM public.field_allowance_requests x WHERE x.company_id=$1),0) AS total_returned_amount
        FROM public.field_allowance_requests WHERE company_id=$1`, [companyId]
     );
     const r = result.rows[0] || {};
@@ -213,6 +320,7 @@ export class FieldAllowanceRepository {
       total_requests: Number(r.total_requests || 0), pending_approval: Number(r.pending_approval || 0),
       approved_requests: Number(r.approved_requests || 0), total_distributed_amount: Number(r.total_distributed_amount || 0),
       active_trips: Number(r.active_trips || 0), total_spent_amount: Number(r.total_spent_amount || 0),
+      total_returned_amount: Number(r.total_returned_amount || 0),
     };
   }
 }

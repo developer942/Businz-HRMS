@@ -111,6 +111,45 @@ export class FieldAllowanceService {
     return fieldAllowanceRepository.complete(this.company(actor), requestId, employeeKey(actor));
   }
 
+  async submitBalance(
+    actor: FieldAllowanceActor,
+    requestId: string,
+    payload: { paymentMethod?: string | null; referenceNumber?: string | null; remarks?: string | null }
+  ) {
+    const request = await fieldAllowanceRepository.getById(this.company(actor), requestId);
+    if (!request) throw new Error('Field trip was not found');
+    if (!this.isManagement(actor) && !this.isAccounts(actor) && request.employee_id !== employeeKey(actor)) {
+      throw new Error('You are not authorized to submit balance for this field trip');
+    }
+    if (!['AMOUNT_DISTRIBUTED', 'IN_PROGRESS', 'COMPLETED'].includes(request.status)) {
+      throw new Error('Balance can only be submitted to Accounts for active or completed field visits');
+    }
+    return fieldAllowanceRepository.submitBalanceToAccounts({
+      companyId: this.company(actor),
+      requestId,
+      paymentMethod: payload.paymentMethod,
+      referenceNumber: payload.referenceNumber,
+      remarks: payload.remarks,
+    });
+  }
+
+  async confirmBalance(
+    actor: FieldAllowanceActor,
+    requestId: string,
+    payload: { remarks?: string | null }
+  ) {
+    if (!this.isAccounts(actor) && !this.isManagement(actor)) {
+      throw new Error('Only Accounts, HR, or CEO can confirm balance receipt');
+    }
+    return fieldAllowanceRepository.confirmBalanceReceived({
+      companyId: this.company(actor),
+      requestId,
+      receivedBy: actor.id,
+      receivedByName: actor.name || actor.email,
+      remarks: payload.remarks,
+    });
+  }
+
   async history(actor: FieldAllowanceActor, filters: { search?: string; startDate?: string; endDate?: string }) {
     if (!this.isAccounts(actor) && !this.isManagement(actor)) throw new Error('Only Accounts, HR, or CEO can view distribution history');
     return fieldAllowanceRepository.distributionHistory(this.company(actor), filters.search, filters.startDate, filters.endDate);

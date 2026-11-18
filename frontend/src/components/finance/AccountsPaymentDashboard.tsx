@@ -257,6 +257,42 @@ export const AccountsPaymentDashboard: React.FC = () => {
         } : undefined,
         rawRecord: request,
       });
+
+      // 4b. Field Allowance remaining balance submitted by employee back to Accounts
+      const returnedAmt = Number(request.returned_amount || 0);
+      if (
+        returnedAmt > 0 &&
+        (request.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' ||
+          request.balance_return_status === 'RECEIVED_BY_ACCOUNTS')
+      ) {
+        const isPendingReceipt = request.balance_return_status === 'SUBMITTED_TO_ACCOUNTS';
+        list.push({
+          id: `FA-RET-${request.id}`,
+          sourceType: 'FIELD_ALLOWANCE',
+          typeLabel: 'Field Allowance Balance Return',
+          requestNumber: `${request.trip_code}-BAL`,
+          employeeName: request.employee_name,
+          employeeId: request.employee_id,
+          department: request.department_name || 'Operations',
+          approvedAmount: returnedAmt,
+          requestedAmount: returnedAmt,
+          approvedDate: (request.balance_returned_at || request.updated_at || request.created_at).slice(0, 10),
+          approvedBy: request.employee_name,
+          purpose: `Returned unspent balance · ${request.purpose} (${request.destination})`,
+          status: isPendingReceipt ? 'PENDING_DISBURSEMENT' : 'DISBURSED',
+          paymentDetails: !isPendingReceipt
+            ? {
+                paidAmount: returnedAmt,
+                paymentDate: (request.balance_received_at || request.updated_at || '').slice(0, 10),
+                paymentMode: request.balance_return_mode || 'Cash',
+                transactionRef: request.balance_return_reference || undefined,
+                remarks: request.balance_return_remarks || 'Balance received by Accounts',
+                disbursedBy: request.balance_received_by_name || 'Accounts Dept',
+              }
+            : undefined,
+          rawRecord: request,
+        });
+      }
     });
 
     // 5. Payroll Salaries forwarded to Accounts for disbursement
@@ -439,7 +475,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
       return;
     }
 
-    if (selectedItem.sourceType === 'FIELD_ALLOWANCE' && paymentMode !== 'Cash' && !paymentProofPath) {
+    if (selectedItem.sourceType === 'FIELD_ALLOWANCE' && !selectedItem.id.startsWith('FA-RET-') && paymentMode !== 'Cash' && !paymentProofPath) {
       setModalError('Payment proof is mandatory for non-cash Field Allowance distribution.');
       return;
     }
@@ -520,22 +556,35 @@ export const AccountsPaymentDashboard: React.FC = () => {
         await fetchPettyCashRequests();
       } else if (selectedItem.sourceType === 'FIELD_ALLOWANCE') {
         const allowance = selectedItem.rawRecord as FieldAllowanceRequest;
-        await fieldAllowanceService.distribute(allowance.id, {
-          distributedAmount: amountPaid,
-          distributionDate: paymentDate,
-          paymentMethod: paymentMode,
-          referenceNumber: transactionRef.trim() || (paymentMode === 'Cash' ? 'CASH-DISBURSEMENT' : undefined),
-          paymentProofPath: paymentMode === 'Cash' ? undefined : paymentProofPath,
-          remarks: remarks.trim() || undefined,
-        });
+        if (selectedItem.id.startsWith('FA-RET-')) {
+          await fieldAllowanceService.confirmBalance(allowance.id, {
+            remarks: remarks.trim() || `Balance receipt confirmed via ${paymentMode}`,
+          });
+          addNotification({
+            title: 'Field Allowance Balance Received',
+            message: `Accounts confirmed receipt of your returned balance of ${formatCurrency(amountPaid)} for field visit ${allowance.trip_code}.`,
+            priority: 'Normal',
+            category: 'Payroll',
+            targetEmployeeIds: [selectedItem.employeeId]
+          });
+        } else {
+          await fieldAllowanceService.distribute(allowance.id, {
+            distributedAmount: amountPaid,
+            distributionDate: paymentDate,
+            paymentMethod: paymentMode,
+            referenceNumber: transactionRef.trim() || (paymentMode === 'Cash' ? 'CASH-DISBURSEMENT' : undefined),
+            paymentProofPath: paymentMode === 'Cash' ? undefined : paymentProofPath,
+            remarks: remarks.trim() || undefined,
+          });
 
-        addNotification({
-          title: 'Field Allowance Distributed',
-          message: `${formatCurrency(amountPaid)} was distributed for field visit ${allowance.trip_code}. Daily expense reporting is now enabled.`,
-          priority: 'Important',
-          category: 'Payroll',
-          targetEmployeeIds: [selectedItem.employeeId]
-        });
+          addNotification({
+            title: 'Field Allowance Distributed',
+            message: `${formatCurrency(amountPaid)} was distributed for field visit ${allowance.trip_code}. Daily expense reporting is now enabled.`,
+            priority: 'Important',
+            category: 'Payroll',
+            targetEmployeeIds: [selectedItem.employeeId]
+          });
+        }
 
         await fetchFieldAllowancePayments();
       } else if (selectedItem.sourceType === 'SALARY') {

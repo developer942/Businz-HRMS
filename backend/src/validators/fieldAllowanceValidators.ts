@@ -59,3 +59,13 @@ export const fieldAllowanceDailyReportSchema = z.object({
   description: z.string().trim().min(2).max(500),
   attachmentPath: z.string().trim().max(2_000_000).optional().nullable(),
 });
+
+export const fieldAllowanceSubmitBalanceSchema = z.object({
+  paymentMethod: z.string().trim().min(2).max(100).optional().default('Cash'),
+  referenceNumber: z.string().trim().max(150).optional().nullable(),
+  remarks: cleanOptional,
+});
+
+export const fieldAllowanceConfirmBalanceSchema = z.object({
+  remarks: cleanOptional,
+});

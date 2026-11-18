@@ -17,3 +17,5 @@ fieldAllowanceRouter.post('/requests/:id/decision', requireRoles(['HR', 'HR Mana
 fieldAllowanceRouter.post('/requests/:id/distributions', (req, res, next) => fieldAllowanceController.distribute(req, res, next));
 fieldAllowanceRouter.post('/requests/:id/daily-reports', (req, res, next) => fieldAllowanceController.addDailyReport(req, res, next));
 fieldAllowanceRouter.post('/requests/:id/complete', (req, res, next) => fieldAllowanceController.complete(req, res, next));
+fieldAllowanceRouter.post('/requests/:id/submit-balance', (req, res, next) => fieldAllowanceController.submitBalance(req, res, next));
+fieldAllowanceRouter.post('/requests/:id/confirm-balance', (req, res, next) => fieldAllowanceController.confirmBalance(req, res, next));

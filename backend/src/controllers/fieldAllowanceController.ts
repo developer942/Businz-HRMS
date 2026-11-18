@@ -1,10 +1,12 @@
 import type { NextFunction, Request, Response } from 'express';
 import { fieldAllowanceService } from '../services/fieldAllowanceService.js';
 import {
+  fieldAllowanceConfirmBalanceSchema,
   fieldAllowanceDailyReportSchema,
   fieldAllowanceDecisionSchema,
   fieldAllowanceDistributionSchema,
   fieldAllowanceRequestSchema,
+  fieldAllowanceSubmitBalanceSchema,
 } from '../validators/fieldAllowanceValidators.js';
 
 const notFound = (res: Response, message: string) => res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message, details: [] } });
@@ -77,6 +79,24 @@ export class FieldAllowanceController {
       const data = await fieldAllowanceService.complete(req.user!, String(req.params.id));
       if (!data) { notFound(res, 'Active Field Allowance trip not found'); return; }
       res.json({ success: true, data, message: 'Field visit completed' });
+    } catch (error) { next(error); }
+  }
+
+  async submitBalance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const payload = fieldAllowanceSubmitBalanceSchema.parse(req.body || {});
+      const data = await fieldAllowanceService.submitBalance(req.user!, String(req.params.id), payload);
+      if (!data) { notFound(res, 'Field Allowance trip not found'); return; }
+      res.json({ success: true, data, message: 'Remaining balance submitted to Accounts' });
+    } catch (error) { next(error); }
+  }
+
+  async confirmBalance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const payload = fieldAllowanceConfirmBalanceSchema.parse(req.body || {});
+      const data = await fieldAllowanceService.confirmBalance(req.user!, String(req.params.id), payload);
+      if (!data) { notFound(res, 'Field Allowance balance return not found'); return; }
+      res.json({ success: true, data, message: 'Balance receipt confirmed by Accounts' });
     } catch (error) { next(error); }
   }
 

@@ -12,6 +12,7 @@ export const FIELD_ALLOWANCE_STATUSES = [
 export type FieldAllowanceStatus = typeof FIELD_ALLOWANCE_STATUSES[number];
 export type FieldAllowanceDecision = 'APPROVED' | 'REJECTED' | 'CORRECTION_REQUESTED';
 export type FieldAllowanceCategory = 'TRAVEL' | 'FOOD' | 'ROOM' | 'BUS' | 'FUEL' | 'OTHER';
+export type FieldAllowanceBalanceReturnStatus = 'NONE' | 'SUBMITTED_TO_ACCOUNTS' | 'RECEIVED_BY_ACCOUNTS';
 
 export interface FieldAllowanceRequest {
   id: string;
@@ -33,7 +34,16 @@ export interface FieldAllowanceRequest {
   approved_amount: number;
   allocated_amount: number;
   total_spent: number;
+  returned_amount: number;
   balance: number;
+  balance_return_status: FieldAllowanceBalanceReturnStatus;
+  balance_returned_at?: string | null;
+  balance_return_mode?: string | null;
+  balance_return_reference?: string | null;
+  balance_return_remarks?: string | null;
+  balance_received_by?: string | null;
+  balance_received_by_name?: string | null;
+  balance_received_at?: string | null;
   status: FieldAllowanceStatus;
   created_at: string;
   updated_at: string;
@@ -90,4 +100,5 @@ export interface FieldAllowanceSummary {
   total_distributed_amount: number;
   active_trips: number;
   total_spent_amount: number;
+  total_returned_amount: number;
 }

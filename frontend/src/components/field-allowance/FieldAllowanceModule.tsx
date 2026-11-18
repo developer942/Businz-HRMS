@@ -175,6 +175,43 @@ export const FieldAllowanceModule: React.FC = () => {
     }
   };
 
+  const handleQuickSubmitBalanceToAccounts = async (row: FieldAllowanceRequest) => {
+    try {
+      setBusy(true);
+      await fieldAllowanceService.submitBalance(row.id, {
+        paymentMethod: 'Cash',
+        remarks: 'Remaining advance balance submitted to Accounts after trip completion',
+      });
+      await refresh();
+      showToast(
+        'success',
+        `Remaining balance of ${formatInr(row.balance)} for ${row.trip_code} submitted to Accounts.`
+      );
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to submit balance to Accounts.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleQuickConfirmBalance = async (row: FieldAllowanceRequest) => {
+    try {
+      setBusy(true);
+      await fieldAllowanceService.confirmBalance(row.id, {
+        remarks: 'Balance receipt confirmed by Accounts',
+      });
+      await refresh();
+      showToast(
+        'success',
+        `Balance return of ${formatInr(Number(row.returned_amount || 0))} confirmed for ${row.trip_code}.`
+      );
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to confirm balance receipt.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Computed KPI Metrics
   const kpiMetrics = useMemo(() => {
     const totalRequests = summary?.total_requests ?? rows.length;
@@ -190,7 +227,9 @@ export const FieldAllowanceModule: React.FC = () => {
       summary?.total_distributed_amount ?? rows.reduce((sum, r) => sum + Number(r.allocated_amount || 0), 0);
     const totalSpent =
       summary?.total_spent_amount ?? rows.reduce((sum, r) => sum + Number(r.total_spent || 0), 0);
-    const netBalance = totalDistributed - totalSpent;
+    const totalReturned =
+      summary?.total_returned_amount ?? rows.reduce((sum, r) => sum + Number(r.returned_amount || 0), 0);
+    const netBalance = totalDistributed - totalSpent - totalReturned;
 
     return {
       totalRequests,
@@ -199,6 +238,7 @@ export const FieldAllowanceModule: React.FC = () => {
       activeTrips,
       totalDistributed,
       totalSpent,
+      totalReturned,
       netBalance,
     };
   }, [rows, summary]);
@@ -742,55 +782,125 @@ export const FieldAllowanceModule: React.FC = () => {
                             color: row.balance < 0 ? '#DC2626' : '#15803D',
                           }}
                         >
-                          {formatInr(row.balance)}
+                          <div>{formatInr(row.balance)}</div>
+                          {Number(row.returned_amount || 0) > 0 && (
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#0E7490', marginTop: '2px' }}>
+                              {row.balance_return_status === 'RECEIVED_BY_ACCOUNTS'
+                                ? `Settled: ${formatInr(Number(row.returned_amount))}`
+                                : `Submitted to Accounts: ${formatInr(Number(row.returned_amount))}`}
+                            </div>
+                          )}
                         </td>
 
                         <td>
-                          <span className={`status-pill ${getStatusPillClass(row.status)}`}>
-                            {STATUS_LABELS[row.status]}
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                            <span className={`status-pill ${getStatusPillClass(row.status)}`}>
+                              {STATUS_LABELS[row.status]}
+                            </span>
+                            {row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
+                              <span
+                                className="status-pill info"
+                                style={{ fontSize: '0.68rem', padding: '2px 8px' }}
+                              >
+                                Submitted to Accounts
+                              </span>
+                            )}
+                            {row.balance_return_status === 'RECEIVED_BY_ACCOUNTS' && (
+                              <span
+                                className="status-pill success"
+                                style={{ fontSize: '0.68rem', padding: '2px 8px' }}
+                              >
+                                Accounts Settled
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                          {isManagement && row.status === 'PENDING_APPROVAL' ? (
-                            <button
-                              type="button"
-                              className="btn-primary btn-sm"
-                              onClick={() => openDetailModal(row)}
-                              disabled={busy}
-                            >
-                              Review & Decide
-                            </button>
-                          ) : isAccountsUser && row.status === 'APPROVED' && row.advance_required ? (
-                            <button
-                              type="button"
-                              className="btn-primary btn-sm"
-                              onClick={() => openDetailModal(row)}
-                              disabled={busy}
-                            >
-                              Distribute Cash
-                            </button>
-                          ) : !isManagement &&
-                            !isAccountsUser &&
-                            ['DRAFT', 'CORRECTION_REQUESTED'].includes(row.status) ? (
-                            <button
-                              type="button"
-                              className="btn-primary btn-sm"
-                              onClick={() => openEditModal(row)}
-                              disabled={busy}
-                            >
-                              Edit & Submit
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn-secondary btn-sm"
-                              onClick={() => openDetailModal(row)}
-                              disabled={busy}
-                            >
-                              <Eye size={13} /> View Details
-                            </button>
-                          )}
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                            {isManagement && row.status === 'PENDING_APPROVAL' ? (
+                              <button
+                                type="button"
+                                className="btn-primary btn-sm"
+                                onClick={() => openDetailModal(row)}
+                                disabled={busy}
+                              >
+                                Review & Decide
+                              </button>
+                            ) : isAccountsUser && row.status === 'APPROVED' && row.advance_required ? (
+                              <button
+                                type="button"
+                                className="btn-primary btn-sm"
+                                onClick={() => openDetailModal(row)}
+                                disabled={busy}
+                              >
+                                Distribute Cash
+                              </button>
+                            ) : (isAccountsUser || isManagement) &&
+                              row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn-primary btn-sm"
+                                  onClick={() => handleQuickConfirmBalance(row)}
+                                  disabled={busy}
+                                >
+                                  <CheckCircle2 size={13} /> Receive Balance
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary btn-sm"
+                                  onClick={() => openDetailModal(row)}
+                                  disabled={busy}
+                                >
+                                  <Eye size={13} /> View Details
+                                </button>
+                              </>
+                            ) : !isManagement &&
+                              !isAccountsUser &&
+                              ['DRAFT', 'CORRECTION_REQUESTED'].includes(row.status) ? (
+                              <button
+                                type="button"
+                                className="btn-primary btn-sm"
+                                onClick={() => openEditModal(row)}
+                                disabled={busy}
+                              >
+                                Edit & Submit
+                              </button>
+                            ) : !isManagement &&
+                              !isAccountsUser &&
+                              row.status === 'COMPLETED' &&
+                              row.balance > 0 ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn-primary btn-sm"
+                                  onClick={() => handleQuickSubmitBalanceToAccounts(row)}
+                                  disabled={busy}
+                                  title="Submit remaining balance to Accounts"
+                                >
+                                  <Send size={13} /> Submit to Accounts
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary btn-sm"
+                                  onClick={() => openDetailModal(row)}
+                                  disabled={busy}
+                                >
+                                  <Eye size={13} /> View Details
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-secondary btn-sm"
+                                onClick={() => openDetailModal(row)}
+                                disabled={busy}
+                              >
+                                <Eye size={13} /> View Details
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -889,19 +999,48 @@ export const FieldAllowanceModule: React.FC = () => {
                         >
                           {formatInr(row.balance)}
                         </div>
+                        {Number(row.returned_amount || 0) > 0 && (
+                          <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#0E7490', marginTop: '2px' }}>
+                            Returned: {formatInr(Number(row.returned_amount))}
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      className={
-                        isManagement && row.status === 'PENDING_APPROVAL' ? 'btn-primary' : 'btn-secondary'
-                      }
-                      style={{ width: '100%' }}
-                      onClick={() => openDetailModal(row)}
-                    >
-                      {isManagement && row.status === 'PENDING_APPROVAL' ? 'Review & Decide' : 'View Trip Details'}
-                    </button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {!isManagement && !isAccountsUser && row.status === 'COMPLETED' && row.balance > 0 && (
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{ width: '100%' }}
+                          disabled={busy}
+                          onClick={() => handleQuickSubmitBalanceToAccounts(row)}
+                        >
+                          <Send size={14} /> Submit Balance to Accounts ({formatInr(row.balance)})
+                        </button>
+                      )}
+                      {(isAccountsUser || isManagement) && row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{ width: '100%' }}
+                          disabled={busy}
+                          onClick={() => handleQuickConfirmBalance(row)}
+                        >
+                          <CheckCircle2 size={14} /> Receive Balance ({formatInr(Number(row.returned_amount || 0))})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={
+                          isManagement && row.status === 'PENDING_APPROVAL' ? 'btn-primary' : 'btn-secondary'
+                        }
+                        style={{ width: '100%' }}
+                        onClick={() => openDetailModal(row)}
+                      >
+                        {isManagement && row.status === 'PENDING_APPROVAL' ? 'Review & Decide' : 'View Trip Details'}
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -1434,6 +1573,39 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
     }
   };
 
+  const handleSubmitBalance = async () => {
+    try {
+      setLocalBusy(true);
+      await fieldAllowanceService.submitBalance(detail.id, {
+        paymentMethod: 'Cash',
+        remarks: 'Remaining balance submitted to Accounts after trip completion',
+      });
+      await onActionSuccess(
+        `Remaining balance of ${formatInr(detail.balance)} for ${detail.trip_code} submitted to Accounts.`
+      );
+    } catch (err) {
+      onActionError(err instanceof Error ? err.message : 'Unable to submit remaining balance to Accounts.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
+  const handleConfirmBalanceReceipt = async () => {
+    try {
+      setLocalBusy(true);
+      await fieldAllowanceService.confirmBalance(detail.id, {
+        remarks: 'Balance received and settled by Accounts',
+      });
+      await onActionSuccess(
+        `Balance return of ${formatInr(Number(detail.returned_amount || 0))} confirmed for ${detail.trip_code}.`
+      );
+    } catch (err) {
+      onActionError(err instanceof Error ? err.message : 'Unable to confirm balance receipt.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
   const handleFileRead = (
     file: File | undefined,
     onLoaded: (dataUrl: string, name: string) => void
@@ -1925,8 +2097,8 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
-          <div>
+        <div className="modal-footer" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             {!isManagement &&
               !isAccounts &&
               ['DRAFT', 'CORRECTION_REQUESTED'].includes(detail.status) && (
@@ -1943,6 +2115,31 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                 disabled={isWorking}
               >
                 <CheckCircle2 size={14} /> Complete Field Visit
+              </button>
+            )}
+
+            {!isManagement &&
+              !isAccounts &&
+              ['COMPLETED', 'IN_PROGRESS', 'AMOUNT_DISTRIBUTED'].includes(detail.status) &&
+              detail.balance > 0 && (
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={handleSubmitBalance}
+                  disabled={isWorking}
+                >
+                  <Send size={14} /> Submit Balance to Accounts ({formatInr(detail.balance)})
+                </button>
+              )}
+
+            {(isAccounts || isManagement) && detail.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                onClick={handleConfirmBalanceReceipt}
+                disabled={isWorking}
+              >
+                <CheckCircle2 size={14} /> Receive Balance ({formatInr(Number(detail.returned_amount || 0))})
               </button>
             )}
           </div>

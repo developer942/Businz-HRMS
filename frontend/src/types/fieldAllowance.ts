@@ -1,13 +1,22 @@
 export type FieldAllowanceStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'CORRECTION_REQUESTED' | 'REJECTED' | 'APPROVED' | 'AMOUNT_DISTRIBUTED' | 'IN_PROGRESS' | 'COMPLETED';
 export type FieldAllowanceDecision = 'APPROVED' | 'REJECTED' | 'CORRECTION_REQUESTED';
 export type FieldAllowanceCategory = 'TRAVEL' | 'FOOD' | 'ROOM' | 'BUS' | 'FUEL' | 'OTHER';
+export type FieldAllowanceBalanceReturnStatus = 'NONE' | 'SUBMITTED_TO_ACCOUNTS' | 'RECEIVED_BY_ACCOUNTS';
 
 export interface FieldAllowanceRequest {
   id: string; company_id: string; trip_code: string; employee_id: string; employee_name: string;
   department_id?: string | null; department_name: string; purpose: string; customer_site_name?: string | null;
   destination: string; start_date: string; end_date: string; travel_mode?: string | null; description?: string | null;
   advance_required: boolean; requested_amount: number; approved_amount: number; allocated_amount: number;
-  total_spent: number; balance: number; status: FieldAllowanceStatus; created_at: string; updated_at: string;
+  total_spent: number; returned_amount?: number; balance: number;
+  balance_return_status?: FieldAllowanceBalanceReturnStatus;
+  balance_returned_at?: string | null;
+  balance_return_mode?: string | null;
+  balance_return_reference?: string | null;
+  balance_return_remarks?: string | null;
+  balance_received_by_name?: string | null;
+  balance_received_at?: string | null;
+  status: FieldAllowanceStatus; created_at: string; updated_at: string;
 }
 
 export interface FieldAllowanceApproval {
@@ -33,7 +42,7 @@ export interface FieldAllowanceDetail extends FieldAllowanceRequest {
 
 export interface FieldAllowanceSummary {
   total_requests: number; pending_approval: number; approved_requests: number; total_distributed_amount: number;
-  active_trips: number; total_spent_amount: number;
+  active_trips: number; total_spent_amount: number; total_returned_amount?: number;
 }
 
 export interface FieldAllowanceRequestPayload {
