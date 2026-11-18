@@ -281,9 +281,14 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   // Look up existing record for this employee and date
   const existingRecord = useMemo(() => {
     if (!selectedEmpId || !date) return null;
-    return attendanceRecords.find(
-      r => (r.employeeId === selectedEmpId || r.employeeId === selectedEmployee?.employeeId) && r.date === date
-    ) || null;
+    const targetDate = String(date).slice(0, 10);
+    const empIdLower = String(selectedEmpId).toLowerCase().trim();
+    const empCodeLower = String(selectedEmployee?.employeeId || '').toLowerCase().trim();
+    return attendanceRecords.find(r => {
+      const rEmp = String(r.employeeId || '').toLowerCase().trim();
+      const rDate = String(r.date || r.shiftDate || '').slice(0, 10);
+      return (rEmp === empIdLower || (empCodeLower && rEmp === empCodeLower)) && rDate === targetDate;
+    }) || null;
   }, [attendanceRecords, selectedEmpId, selectedEmployee, date]);
 
   // Resolve employee assigned shift & shift window
@@ -393,19 +398,47 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
           ? 'Present'
           : existingRecord.status || 'Present';
       setStatus(initialStatus);
-      if (existingRecord.checkIn && existingRecord.checkIn !== '--:--' && existingRecord.checkIn !== '-') {
-        setCheckInTime(normalizeTimeString(existingRecord.checkIn) || existingRecord.checkIn);
+
+      const rawCheckIn = String(existingRecord.checkIn || '').trim();
+      const hasActualCheckIn = Boolean(
+        rawCheckIn &&
+        rawCheckIn !== '--:--' &&
+        rawCheckIn !== '-' &&
+        rawCheckIn !== '—' &&
+        !rawCheckIn.toLowerCase().includes('missed') &&
+        !rawCheckIn.toLowerCase().includes('absent') &&
+        !rawCheckIn.toLowerCase().includes('none')
+      );
+
+      const rawCheckOut = String(existingRecord.checkOut || '').trim();
+      const hasActualCheckOut = Boolean(
+        rawCheckOut &&
+        rawCheckOut !== '--:--' &&
+        rawCheckOut !== '-' &&
+        rawCheckOut !== '—' &&
+        !rawCheckOut.toLowerCase().includes('progress') &&
+        !rawCheckOut.toLowerCase().includes('missed') &&
+        !rawCheckOut.toLowerCase().includes('none')
+      );
+
+      if (hasActualCheckIn) {
+        setCheckInTime(normalizeTimeString(rawCheckIn) || rawCheckIn);
         setIsMissedCheckIn(false);
-      } else {
+      } else if (!hasActualCheckOut) {
         setCheckInTime(shiftStartTimeStr || '09:00 AM');
         setIsMissedCheckIn(false);
+      } else {
+        setCheckInTime('');
+        setIsMissedCheckIn(true);
       }
-      if (existingRecord.checkOut && existingRecord.checkOut !== '--:--' && existingRecord.checkOut !== '-') {
-        setCheckOutTime(normalizeTimeString(existingRecord.checkOut) || existingRecord.checkOut);
+
+      if (hasActualCheckOut) {
+        setCheckOutTime(normalizeTimeString(rawCheckOut) || rawCheckOut);
         setIsMissedCheckOut(false);
       } else {
-        setCheckOutTime(shiftEndTimeStr || '06:00 PM');
-        setIsMissedCheckOut(false);
+        // Employee has NOT checked out yet: keep Check-Out as Missed Out
+        setCheckOutTime('');
+        setIsMissedCheckOut(true);
       }
       if (existingRecord.otHours) {
         setOtHours(existingRecord.otHours);
@@ -419,19 +452,19 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       }
     } else if (selectedEmpId) {
       // Employee selected with no prior attendance record for this date:
-      // Pre-fill with employee's assigned shift start & end times and unlock inputs
+      // Pre-fill Check-In with employee's shift start time and keep Check-Out as Missed Out
       setCheckInTime(shiftStartTimeStr || '09:00 AM');
-      setCheckOutTime(shiftEndTimeStr || '06:00 PM');
+      setCheckOutTime('');
       setIsMissedCheckIn(false);
-      setIsMissedCheckOut(false);
+      setIsMissedCheckOut(true);
       setOtHours(0);
       setBreakDuration(45);
       setStatus('Present');
     } else {
       setCheckInTime('');
       setCheckOutTime('');
-      setIsMissedCheckIn(false);
-      setIsMissedCheckOut(false);
+      setIsMissedCheckIn(true);
+      setIsMissedCheckOut(true);
       setOtHours(0);
       setBreakDuration(45);
       setStatus('Present');
@@ -1132,8 +1165,13 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                             type="checkbox"
                             checked={isMissedCheckIn}
                             onChange={e => {
-                              setIsMissedCheckIn(e.target.checked);
-                              if (e.target.checked) setActiveTimePicker(null);
+                              const nextMissed = e.target.checked;
+                              setIsMissedCheckIn(nextMissed);
+                              if (nextMissed) {
+                                setActiveTimePicker(null);
+                              } else if (!checkInTime.trim()) {
+                                setCheckInTime(shiftStartTimeStr || '09:00 AM');
+                              }
                             }}
                           />
                           <span>Missed In</span>
@@ -1145,8 +1183,16 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           id="manual-checkin-input"
                           aria-label="Check-In"
                           type="text"
-                          disabled={isMissedCheckIn}
+                          readOnly={isMissedCheckIn}
                           value={isMissedCheckIn ? 'Missed / Absent' : checkInTime}
+                          onClick={() => {
+                            if (isMissedCheckIn) {
+                              setIsMissedCheckIn(false);
+                              if (!checkInTime.trim()) {
+                                setCheckInTime(shiftStartTimeStr || '09:00 AM');
+                              }
+                            }
+                          }}
                           onChange={e => {
                             setCheckInTime(e.target.value);
                             if (error) setError('');
@@ -1434,8 +1480,13 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                             type="checkbox"
                             checked={isMissedCheckOut}
                             onChange={e => {
-                              setIsMissedCheckOut(e.target.checked);
-                              if (e.target.checked) setActiveTimePicker(null);
+                              const nextMissed = e.target.checked;
+                              setIsMissedCheckOut(nextMissed);
+                              if (nextMissed) {
+                                setActiveTimePicker(null);
+                              } else if (!checkOutTime.trim()) {
+                                setCheckOutTime(shiftEndTimeStr || '06:00 PM');
+                              }
                             }}
                           />
                           <span>Missed Out</span>
@@ -1447,8 +1498,16 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           id="manual-checkout-input"
                           aria-label="Check-Out"
                           type="text"
-                          disabled={isMissedCheckOut}
+                          readOnly={isMissedCheckOut}
                           value={isMissedCheckOut ? 'Missed / None' : checkOutTime}
+                          onClick={() => {
+                            if (isMissedCheckOut) {
+                              setIsMissedCheckOut(false);
+                              if (!checkOutTime.trim()) {
+                                setCheckOutTime(shiftEndTimeStr || '06:00 PM');
+                              }
+                            }
+                          }}
                           onChange={e => {
                             setCheckOutTime(e.target.value);
                             if (error) setError('');
