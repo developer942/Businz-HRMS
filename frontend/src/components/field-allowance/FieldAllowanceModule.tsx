@@ -344,49 +344,6 @@ export const FieldAllowanceModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Pending Approvals Action Prompt Banner for Management (Petty Cash Style) */}
-      {isManagement && kpiMetrics.pendingApproval > 0 && statusFilter !== 'PENDING_APPROVAL' && (
-        <div className="action-prompt-card">
-          <div className="action-prompt-left">
-            <div
-              style={{
-                width: '40px',
-                height: '40px',
-                borderRadius: '50%',
-                background: '#0E7490',
-                color: '#FFFFFF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <Clock size={20} />
-            </div>
-            <div className="action-prompt-text">
-              <h4>
-                {kpiMetrics.pendingApproval} Field Allowance Request{kpiMetrics.pendingApproval > 1 ? 's' : ''} Awaiting
-                Approval
-              </h4>
-              <p>
-                Review employee field visit advance requisitions and record an approval decision directly on this page.
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="btn-primary btn-sm"
-            onClick={() => {
-              setStatusFilter('PENDING_APPROVAL');
-              setCurrentPage(1);
-            }}
-          >
-            <CheckCircle2 size={15} /> Filter Pending ({kpiMetrics.pendingApproval})
-          </button>
-        </div>
-      )}
-
       {/* Standardized KPI Cards (Petty Cash Style - Clickable Filters) */}
       {isManagement ? (
         <div className="kpi-grid" style={{ marginBottom: '20px' }}>
