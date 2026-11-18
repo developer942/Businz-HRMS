@@ -1000,11 +1000,12 @@ interface HRMSContextType {
   sendLeaveReminder: (leave: LeaveRequest) => void;
 
   payrollRecords: PayrollRecord[];
-  processPayrollBatch: () => void | Promise<void>;
+  processPayrollBatch: (targetMonth?: string, targetYear?: number) => void | Promise<void>;
   recalculatePayrollBatch: (targetMonth?: string, targetYear?: number, forceApproved?: boolean) => void | Promise<void>;
   updateEmployeeSalaryScheme: (employeeId: string, withPf: boolean) => void;
   updatePayrollRecordAdvanceDeduction: (recordId: string, amount: number) => void;
-  markPayrollRecordsPaid: (recordIds: string[]) => void;
+  sendPayrollRecordsToAccounts: (recordIds: string[]) => void;
+  markPayrollRecordsPaid: (recordIds: string[], paymentDetails?: PayrollRecord['disbursementDetails']) => void;
 
   departments: DepartmentItem[];
   addDepartment: (dept: Omit<DepartmentItem, 'id' | 'employeeCount'>) => Promise<{ success: boolean; data?: DepartmentItem; message?: string }> | void;
@@ -10791,12 +10792,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(storageKey, JSON.stringify(Array.from(alreadySent)));
   }, [currentUser, enhancedTasks]);
 
-  const processPayrollBatch = async () => {
+  const processPayrollBatch = async (targetMonth?: string, targetYear?: number) => {
     const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
     const currentMonthInfo = getMonthInfo();
-    const batchMonthNum = currentMonthInfo.monthIndex + 1;
-    const batchYear = currentMonthInfo.year;
-    const batchMonthName = currentMonthInfo.monthLong;
+    const batchMonthName = targetMonth || currentMonthInfo.monthLong;
+    const batchMonthNum = resolveMonthNumber(batchMonthName) || (currentMonthInfo.monthIndex + 1);
+    const batchYear = targetYear || currentMonthInfo.year;
     const batchMonthPad = String(batchMonthNum).padStart(2, '0');
 
     let backendRecords: any[] | null = null;
@@ -10832,9 +10833,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const employeeWithPf = resolveEmployeeWithPf(emp);
       const resolvedAttPolicy = resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
       const existingPayrollRec = payrollRecords.find(
-        p => p.employeeId === emp.employeeId && p.month === batchMonthName && Number(p.year) === batchYear
+        p => p.employeeId === emp.employeeId && p.month.toLowerCase() === batchMonthName.toLowerCase() && Number(p.year) === batchYear
       );
-      if (existingPayrollRec && (existingPayrollRec.status === 'Paid' || existingPayrollRec.isLocked)) {
+      if (existingPayrollRec && (existingPayrollRec.status === 'Paid' || existingPayrollRec.status === 'Sent to Accounts' || existingPayrollRec.isLocked)) {
         return existingPayrollRec;
       }
 
@@ -11085,8 +11086,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return loan;
     }));
 
-    setPayrollRecords(updatedRecords);
-    supabaseDirect.saveCompanySetting('payroll_records_data', updatedRecords);
+    setPayrollRecords(prev => {
+      const otherMonths = prev.filter(
+        p => !(String(p.month || '').toLowerCase() === batchMonthName.toLowerCase() && Number(p.year) === batchYear)
+      );
+      const merged = [...updatedRecords, ...otherMonths];
+      supabaseDirect.saveCompanySetting('payroll_records_data', merged);
+      return merged;
+    });
 
     // Persist payroll batch to central Supabase payroll_records table
     updatedRecords.forEach(rec => {
@@ -11348,25 +11355,70 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
   };
 
-  const markPayrollRecordsPaid = (recordIds: string[]) => {
+  const sendPayrollRecordsToAccounts = (recordIds: string[]) => {
+    if (!recordIds.length) return;
+    const idSet = new Set(recordIds);
+    const nowIso = new Date().toISOString();
+    const sentBy = currentUser?.name || 'HR/CEO';
+
+    setPayrollRecords(prev => {
+      const next = prev.map(rec => {
+        if (idSet.has(rec.id) && rec.status !== 'Paid') {
+          return {
+            ...rec,
+            status: 'Sent to Accounts' as const,
+            sentToAccountsAt: nowIso,
+            sentToAccountsBy: sentBy,
+          };
+        }
+        return rec;
+      });
+      supabaseDirect.saveCompanySetting('payroll_records_data', next).catch(() => {});
+      return next;
+    });
+
+    addNotification({
+      title: 'Payroll Forwarded to Accounts',
+      message: `${recordIds.length} salary record(s) have been forwarded to the Accounts department for payment distribution.`,
+      priority: 'Important',
+      category: 'Payroll',
+      targetRoles: ['ACCOUNTS', 'Finance Manager', 'CEO', 'Super Admin']
+    });
+  };
+
+  const markPayrollRecordsPaid = (recordIds: string[], paymentDetails?: PayrollRecord['disbursementDetails']) => {
     if (!recordIds.length) return;
     const idSet = new Set(recordIds);
     const nowIso = new Date().toISOString();
     const paidKeys = new Set<string>();
+    const disbursedByName = paymentDetails?.disbursedBy || currentUser?.name || 'Accounts Dept';
 
-    setPayrollRecords(prev => prev.map(rec => {
-      if (idSet.has(rec.id)) {
-        paidKeys.add(`${rec.employeeId}::${resolveMonthNumber(rec.month)}::${rec.year}`);
-        return {
-          ...rec,
-          status: 'Paid',
-          isLocked: true,
-          lockedAt: nowIso,
-          lockedBy: currentUser?.name || 'Accounts/CEO',
-        };
-      }
-      return rec;
-    }));
+    setPayrollRecords(prev => {
+      const next = prev.map(rec => {
+        if (idSet.has(rec.id)) {
+          paidKeys.add(`${rec.employeeId}::${resolveMonthNumber(rec.month)}::${rec.year}`);
+          return {
+            ...rec,
+            status: 'Paid' as const,
+            isLocked: true,
+            lockedAt: nowIso,
+            lockedBy: disbursedByName,
+            disbursementDetails: {
+              paidAmount: paymentDetails?.paidAmount ?? rec.netSalary,
+              paymentDate: paymentDetails?.paymentDate || nowIso.slice(0, 10),
+              paymentMode: paymentDetails?.paymentMode || 'Bank Transfer',
+              transactionRef: paymentDetails?.transactionRef,
+              paymentProofPath: paymentDetails?.paymentProofPath,
+              remarks: paymentDetails?.remarks,
+              disbursedBy: disbursedByName,
+            }
+          };
+        }
+        return rec;
+      });
+      supabaseDirect.saveCompanySetting('payroll_records_data', next).catch(() => {});
+      return next;
+    });
 
     // Lock & mark corresponding approved overtime records as Paid to prevent duplicate payment or modification
     setOvertimeRequests(prev => prev.map(req => {
@@ -14201,6 +14253,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       recalculatePayrollBatch,
       updateEmployeeSalaryScheme,
       updatePayrollRecordAdvanceDeduction,
+      sendPayrollRecordsToAccounts,
       markPayrollRecordsPaid,
       departments,
       addDepartment,

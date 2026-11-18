@@ -4,7 +4,7 @@ import { pettyCashService } from '../../services/pettyCashService';
 import { fieldAllowanceService } from '../../services/fieldAllowanceService';
 import { PettyCashRequest } from '../../types/pettyCash';
 import type { FieldAllowanceDistribution, FieldAllowanceRequest } from '../../types/fieldAllowance';
-import { Expense, LoanRecord } from '../../types/hrms';
+import { Expense, LoanRecord, PayrollRecord } from '../../types/hrms';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
@@ -28,14 +28,15 @@ import {
   Calendar,
   Check,
   History,
-  MapPin
+  MapPin,
+  IndianRupee
 } from 'lucide-react';
 
-type PaymentTab = 'ALL' | 'EXPENSES' | 'ADVANCES' | 'PETTY_CASH' | 'FIELD_ALLOWANCE' | 'HISTORY';
+type PaymentTab = 'ALL' | 'SALARY' | 'EXPENSES' | 'ADVANCES' | 'PETTY_CASH' | 'FIELD_ALLOWANCE' | 'HISTORY';
 
 interface UnifiedPaymentItem {
   id: string;
-  sourceType: 'EXPENSE' | 'ADVANCE' | 'PETTY_CASH' | 'FIELD_ALLOWANCE';
+  sourceType: 'SALARY' | 'EXPENSE' | 'ADVANCE' | 'PETTY_CASH' | 'FIELD_ALLOWANCE';
   typeLabel: string;
   requestNumber: string;
   employeeName: string;
@@ -56,14 +57,16 @@ interface UnifiedPaymentItem {
     remarks?: string;
     disbursedBy?: string;
   };
-  rawRecord: Expense | LoanRecord | PettyCashRequest | FieldAllowanceRequest;
+  rawRecord: Expense | LoanRecord | PettyCashRequest | FieldAllowanceRequest | PayrollRecord;
 }
 
 export const AccountsPaymentDashboard: React.FC = () => {
   const { 
     expenses = [], 
     loanRecords = [], 
+    payrollRecords = [],
     disburseLoan, 
+    markPayrollRecordsPaid,
     addNotification,
     employees = []
   } = useHRMS();
@@ -256,18 +259,55 @@ export const AccountsPaymentDashboard: React.FC = () => {
       });
     });
 
+    // 5. Payroll Salaries forwarded to Accounts for disbursement
+    (payrollRecords || []).forEach(pay => {
+      const isPendingDisbursement = pay.status === 'Sent to Accounts';
+      const isDisbursed = pay.status === 'Paid';
+      if (!isPendingDisbursement && !isDisbursed) return;
+
+      const netAmt = Number(pay.netSalary || 0);
+      list.push({
+        id: `SAL-${pay.id}`,
+        sourceType: 'SALARY',
+        typeLabel: `Salary Payout (${pay.month} ${pay.year})`,
+        requestNumber: pay.id.startsWith('PAY-') ? pay.id : `SAL-${pay.id.slice(0, 8).toUpperCase()}`,
+        employeeName: pay.employeeName || 'Employee',
+        employeeId: pay.employeeId,
+        department: pay.department || 'General',
+        approvedAmount: netAmt,
+        requestedAmount: Number(pay.grossSalary || netAmt),
+        approvedDate: pay.sentToAccountsAt
+          ? pay.sentToAccountsAt.slice(0, 10)
+          : (pay.lockedAt ? pay.lockedAt.slice(0, 10) : `${pay.year}-${String(pay.month).slice(0, 3)}`),
+        approvedBy: pay.sentToAccountsBy || 'HR / CEO',
+        purpose: `${pay.month} ${pay.year} Monthly Net Salary Distribution`,
+        status: isPendingDisbursement ? 'PENDING_DISBURSEMENT' : 'DISBURSED',
+        paymentDetails: isDisbursed ? {
+          paidAmount: pay.disbursementDetails?.paidAmount ?? netAmt,
+          paymentDate: pay.disbursementDetails?.paymentDate || (pay.lockedAt ? pay.lockedAt.slice(0, 10) : undefined),
+          paymentMode: pay.disbursementDetails?.paymentMode || 'Bank Transfer',
+          transactionRef: pay.disbursementDetails?.transactionRef,
+          paymentProofPath: pay.disbursementDetails?.paymentProofPath,
+          remarks: pay.disbursementDetails?.remarks,
+          disbursedBy: pay.disbursementDetails?.disbursedBy || pay.lockedBy || 'Accounts Dept'
+        } : undefined,
+        rawRecord: pay
+      });
+    });
+
     // Sort: Pending items first, then chronologically descending
     return list.sort((a, b) => {
       if (a.status === 'PENDING_DISBURSEMENT' && b.status !== 'PENDING_DISBURSEMENT') return -1;
       if (a.status !== 'PENDING_DISBURSEMENT' && b.status === 'PENDING_DISBURSEMENT') return 1;
       return b.approvedDate.localeCompare(a.approvedDate);
     });
-  }, [expenses, loanRecords, pettyCashRequests, fieldAllowanceRequests, fieldAllowanceDistributions, employees]);
+  }, [expenses, loanRecords, payrollRecords, pettyCashRequests, fieldAllowanceRequests, fieldAllowanceDistributions, employees]);
 
   // Tab Filtering & Search
   const filteredItems = useMemo(() => {
     return unifiedItems.filter(item => {
       // Tab filter
+      if (activeTab === 'SALARY' && item.sourceType !== 'SALARY') return false;
       if (activeTab === 'EXPENSES' && item.sourceType !== 'EXPENSE') return false;
       if (activeTab === 'ADVANCES' && item.sourceType !== 'ADVANCE') return false;
       if (activeTab === 'PETTY_CASH' && item.sourceType !== 'PETTY_CASH') return false;
@@ -296,6 +336,9 @@ export const AccountsPaymentDashboard: React.FC = () => {
     const pendingItems = unifiedItems.filter(i => i.status === 'PENDING_DISBURSEMENT');
     const pendingTotal = pendingItems.reduce((sum, i) => sum + i.approvedAmount, 0);
 
+    const pendingSalaries = pendingItems.filter(i => i.sourceType === 'SALARY');
+    const pendingSalariesTotal = pendingSalaries.reduce((sum, i) => sum + i.approvedAmount, 0);
+
     const pendingExpenses = pendingItems.filter(i => i.sourceType === 'EXPENSE');
     const pendingExpensesTotal = pendingExpenses.reduce((sum, i) => sum + i.approvedAmount, 0);
 
@@ -314,6 +357,9 @@ export const AccountsPaymentDashboard: React.FC = () => {
     return {
       pendingCount: pendingItems.length,
       pendingTotal,
+      pendingSalaryCount: pendingSalaries.length,
+      pendingSalaryTotal: pendingSalariesTotal,
+      pendingSalaryRecordIds: pendingSalaries.map(s => (s.rawRecord as PayrollRecord).id),
       pendingExpensesCount: pendingExpenses.length,
       pendingExpensesTotal,
       pendingAdvancesCount: pendingAdvances.length,
@@ -492,6 +538,25 @@ export const AccountsPaymentDashboard: React.FC = () => {
         });
 
         await fetchFieldAllowancePayments();
+      } else if (selectedItem.sourceType === 'SALARY') {
+        const payRec = selectedItem.rawRecord as PayrollRecord;
+        markPayrollRecordsPaid([payRec.id], {
+          paidAmount: amountPaid,
+          paymentDate,
+          paymentMode,
+          transactionRef: transactionRef.trim() || undefined,
+          paymentProofPath: paymentMode === 'Cash' ? undefined : (paymentProofPath || undefined),
+          remarks: remarks.trim() || undefined,
+          disbursedBy: 'Accounts Dept'
+        });
+
+        addNotification({
+          title: 'Salary Distributed by Accounts',
+          message: `Your ${payRec.month} ${payRec.year} salary of ${formatCurrency(amountPaid)} has been distributed via ${paymentMode}.`,
+          priority: 'Important',
+          category: 'Payroll',
+          targetEmployeeIds: [selectedItem.employeeId]
+        });
       }
 
       setSuccessMessage(`Payment of ${formatCurrency(amountPaid)} recorded successfully for ${selectedItem.employeeName} (${selectedItem.requestNumber}).`);
@@ -578,7 +643,25 @@ export const AccountsPaymentDashboard: React.FC = () => {
             
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {metrics.pendingSalaryCount > 0 && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  markPayrollRecordsPaid(metrics.pendingSalaryRecordIds, {
+                    paymentDate,
+                    paymentMode: 'Bank Transfer',
+                    remarks: 'Bulk salary distribution by Accounts Department',
+                    disbursedBy: 'Accounts Dept'
+                  });
+                }}
+                style={{ backgroundColor: '#0E7490', borderColor: '#0E7490', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <IndianRupee size={16} />
+                <span>Distribute All Salaries ({metrics.pendingSalaryCount})</span>
+              </button>
+            )}
             <ExportDropdown
               onExportExcel={handleExportExcel}
               onExportPDF={handleExportPDF}
@@ -612,6 +695,22 @@ export const AccountsPaymentDashboard: React.FC = () => {
           </div>
           <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '4px' }}>
             Awaiting Accounts payment distribution
+          </div>
+        </div>
+
+        {/* Salary Payouts */}
+        <div className="card" style={{ padding: '18px 20px', borderLeft: '4px solid #0284C7' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+              Salary Payouts
+            </span>
+            <IndianRupee size={17} color="#0284C7" />
+          </div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
+            {formatCurrency(metrics.pendingSalaryTotal)}
+          </div>
+          <div style={{ fontSize: '0.74rem', color: '#0284C7', fontWeight: 600, marginTop: '4px' }}>
+            {metrics.pendingSalaryCount} salary record(s) ready for payout
           </div>
         </div>
 
@@ -692,6 +791,14 @@ export const AccountsPaymentDashboard: React.FC = () => {
               style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
             >
               All Pending ({metrics.pendingCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('SALARY')}
+              className={`btn ${activeTab === 'SALARY' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
+            >
+              Salary Payouts ({metrics.pendingSalaryCount})
             </button>
             <button
               type="button"
@@ -816,6 +923,11 @@ export const AccountsPaymentDashboard: React.FC = () => {
                       {/* Type & Category */}
                       <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {item.sourceType === 'SALARY' && (
+                            <span style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: '#E0F2FE', color: '#0284C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <IndianRupee size={15} />
+                            </span>
+                          )}
                           {item.sourceType === 'EXPENSE' && (
                             <span style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: '#FFF7ED', color: '#EA580C', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <CreditCard size={15} />

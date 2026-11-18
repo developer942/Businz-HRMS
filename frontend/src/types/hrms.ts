@@ -570,7 +570,18 @@ export interface PayrollRecord {
   sandwichUnpaidDays?: number;
   sandwichDeduction?: number;
   internalDetails?: PayrollInternalDetails;
-  status: 'Pending' | 'Verified' | 'Processed' | 'Paid';
+  status: 'Pending' | 'Verified' | 'Processed' | 'Sent to Accounts' | 'Paid';
+  sentToAccountsAt?: string;
+  sentToAccountsBy?: string;
+  disbursementDetails?: {
+    paidAmount?: number;
+    paymentDate?: string;
+    paymentMode?: string;
+    transactionRef?: string;
+    paymentProofPath?: string;
+    remarks?: string;
+    disbursedBy?: string;
+  };
 }
 
 export interface PayrollComponentLineItem {
