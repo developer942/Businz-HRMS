@@ -424,10 +424,8 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       if (hasActualCheckIn) {
         setCheckInTime(normalizeTimeString(rawCheckIn) || rawCheckIn);
         setIsMissedCheckIn(false);
-      } else if (!hasActualCheckOut) {
-        setCheckInTime(shiftStartTimeStr || '09:00 AM');
-        setIsMissedCheckIn(false);
       } else {
+        // Employee has NOT checked in: keep Check-In as Missed In without pre-filling shift start time
         setCheckInTime('');
         setIsMissedCheckIn(true);
       }
@@ -452,10 +450,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       }
     } else if (selectedEmpId) {
       // Employee selected with no prior attendance record for this date:
-      // Pre-fill Check-In with employee's shift start time and keep Check-Out as Missed Out
-      setCheckInTime(shiftStartTimeStr || '09:00 AM');
+      // Neither Check-In nor Check-Out happened yet — keep both as Missed In and Missed Out
+      setCheckInTime('');
       setCheckOutTime('');
-      setIsMissedCheckIn(false);
+      setIsMissedCheckIn(true);
       setIsMissedCheckOut(true);
       setOtHours(0);
       setBreakDuration(45);
@@ -1184,7 +1182,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
                           aria-label="Check-In"
                           type="text"
                           readOnly={isMissedCheckIn}
-                          value={isMissedCheckIn ? 'Missed / Absent' : checkInTime}
+                          value={isMissedCheckIn ? 'Missed / None' : checkInTime}
                           onClick={() => {
                             if (isMissedCheckIn) {
                               setIsMissedCheckIn(false);

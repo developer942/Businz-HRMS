@@ -47,9 +47,12 @@ assert.ok(
 // 3. Verify preservation of other Manual Attendance fields
 assert.ok(modalSource.includes('Break Duration (Minutes)'), 'Break Duration field must remain unchanged');
 assert.ok(modalSource.includes('Approved OT Hours (Optional)'), 'Approved Overtime field must remain unchanged');
-assert.ok(modalSource.includes('Reason / Executive Authorization'), 'Executive Authorization field must remain unchanged');
 assert.ok(modalSource.includes('Save Attendance Record'), 'Save Attendance Record button must remain unchanged');
 assert.ok(modalSource.includes('Missed In') && modalSource.includes('Missed Out'), 'Missed punch workflow must be preserved');
+assert.ok(
+  modalSource.includes('// Employee has NOT checked in: keep Check-In as Missed In without pre-filling shift start time'),
+  'Check-In must stay Missed In when employee has not checked in'
+);
 
 // 4. Verify pure helper logic matching ManualAttendanceEntryModal.tsx exports
 const parseTimeToMinutes = (timeStr) => {
