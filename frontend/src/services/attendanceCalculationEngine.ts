@@ -197,18 +197,52 @@ const ORDINAL_MAP: Record<string, number> = {
 };
 
 /**
- * Normalizes any date string ('YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', ISO timestamp) into 'YYYY-MM-DD'.
+ * Returns today's date string ('YYYY-MM-DD') in Asia/Kolkata local timezone.
+ */
+export function getIstTodayDateStr(ref: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(ref);
+  } catch {
+    const y = ref.getFullYear();
+    const m = String(ref.getMonth() + 1).padStart(2, '0');
+    const d = String(ref.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+}
+
+/**
+ * Normalizes any date string ('YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', ISO timestamp) into 'YYYY-MM-DD'
+ * using Asia/Kolkata timezone for ISO timestamps with time/offset.
  */
 export function normalizeDateToISO(dateInput?: string | Date | null): string | null {
   if (!dateInput) return null;
   if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
-    const y = dateInput.getFullYear();
-    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
-    const d = String(dateInput.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return getIstTodayDateStr(dateInput);
   }
   const clean = String(dateInput).trim();
   if (!clean || clean === '—' || clean === '-' || clean === 'N/A') return null;
+
+  // Plain YYYY-MM-DD without time offset
+  const plainIsoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (plainIsoMatch) {
+    const y = plainIsoMatch[1];
+    const m = String(Number(plainIsoMatch[2])).padStart(2, '0');
+    const d = String(Number(plainIsoMatch[3])).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // ISO timestamp with time/timezone (e.g. 2026-11-06T18:30:00.000Z or 2026-11-07T00:00:00.000Z)
+  if (clean.includes('T') && (clean.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(clean))) {
+    const parsed = new Date(clean);
+    if (!isNaN(parsed.getTime())) {
+      return getIstTodayDateStr(parsed);
+    }
+  }
 
   const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
@@ -339,15 +373,35 @@ export function isDateCompanyPaidHoliday(
 
   const match = holidays.find(h => {
     if (!h) return false;
-    const hDate = normalizeDateToISO(h.date || h.holidayDate || h.holiday_date);
-    if (hDate !== dateStr) return false;
+    const hStart = normalizeDateToISO(h.startDate || h.date || h.holidayDate || h.holiday_date);
+    if (!hStart) return false;
+    const hEndRaw = normalizeDateToISO(h.endDate);
+    let matchesDate = false;
+    if (hEndRaw && hEndRaw >= hStart) {
+      matchesDate = dateStr >= hStart && dateStr <= hEndRaw;
+    } else if (Number(h.daysCount) > 1) {
+      const [ys, ms, ds] = hStart.split('-').map(Number);
+      const endObj = new Date(ys, ms - 1, ds + Number(h.daysCount) - 1);
+      const calcEnd = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
+      matchesDate = dateStr >= hStart && dateStr <= calcEnd;
+    } else {
+      matchesDate = hStart === dateStr;
+    }
+    if (!matchesDate) return false;
     if (h.isPaid === false || String(h.type || '').toLowerCase() === 'unpaid') return false;
 
     const loc = String(h.applicableLocation || h.location || 'All Sites').trim().toLowerCase();
-    if (!loc || loc === 'all sites' || loc === 'all locations' || loc === 'company wide' || loc === 'all') {
+    if (
+      !loc ||
+      loc === 'all' ||
+      loc.includes('all sites') ||
+      loc.includes('all locations') ||
+      loc.includes('company wide') ||
+      loc.includes('all branches')
+    ) {
       return true;
     }
-    if (empLoc && (loc.includes(empLoc) || empLoc.includes(loc))) {
+    if (!empLoc || loc.includes(empLoc) || empLoc.includes(loc)) {
       return true;
     }
     return false;
@@ -384,6 +438,14 @@ export interface CalendarDayPayrollBreakdown {
   scheduledWorkingDays: number;
   workingDays: number;
   presentDays: number;
+  fullPresentDays?: number;
+  halfDays?: number;
+  workedDays?: number;
+  elapsedCalendarDays?: number;
+  elapsedHolidays?: number;
+  elapsedScheduledWorkingDays?: number;
+  provisionalInProgressDays?: number;
+  confirmedPaidDays?: number;
   actualPunchedDays: number;
   pendingAttendanceDays: number;
   paidWeekOffDays: number;
@@ -406,6 +468,7 @@ export interface CalendarDayPayrollParams {
   year: number;
   employeeId?: string;
   employeeUuid?: string;
+  employeeName?: string;
   department?: string;
   joiningDate?: string | null;
   exitDate?: string | null;
@@ -421,6 +484,7 @@ export interface CalendarDayPayrollParams {
     requireAdjacentPresenceForHoliday?: boolean;
   };
   autoConvertPendingToLop?: boolean;
+  finalizePayroll?: boolean;
   lopEnabled?: boolean;
   isCeo?: boolean;
   evaluationCutoffDate?: string;
@@ -576,11 +640,19 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
 
   const empIdNorm = String(params.employeeId || '').trim().toLowerCase();
   const empUuidNorm = String(params.employeeUuid || '').trim().toLowerCase();
-  const matchesTargetEmp = (rawId: any): boolean => {
-    if (!empIdNorm && !empUuidNorm) return true;
+  const empNameNorm = String(params.employeeName || '').trim().toLowerCase();
+  const matchesTargetEmp = (rawId: any, rawName?: any): boolean => {
+    if (!empIdNorm && !empUuidNorm && !empNameNorm) return true;
     const idNorm = String(rawId || '').trim().toLowerCase();
-    if (!idNorm) return !empIdNorm;
-    return (Boolean(empIdNorm) && idNorm === empIdNorm) || (Boolean(empUuidNorm) && idNorm === empUuidNorm);
+    const nameNorm = String(rawName || '').trim().toLowerCase();
+    if (idNorm && ((empIdNorm && idNorm === empIdNorm) || (empUuidNorm && idNorm === empUuidNorm))) {
+      return true;
+    }
+    if (nameNorm && empNameNorm && nameNorm === empNameNorm) {
+      return true;
+    }
+    if (!idNorm && !nameNorm) return !empIdNorm && !empUuidNorm && !empNameNorm;
+    return false;
   };
 
   let maxMonthAttDateStr = '';
@@ -593,7 +665,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       if (dIso > maxMonthAttDateStr) {
         maxMonthAttDateStr = dIso;
       }
-      if (!matchesTargetEmp(rec.employeeId || rec.employee_id)) continue;
+      if (!matchesTargetEmp(rec.employeeId || rec.employee_id, rec.employeeName || rec.employee_name)) continue;
       const existing = monthAttMap.get(dIso);
       if (!existing) {
         monthAttMap.set(dIso, rec);
@@ -618,7 +690,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       if (!lr) continue;
       const statusNorm = String(lr.status || '').trim().toLowerCase();
       if (statusNorm !== 'approved') continue;
-      if (!matchesTargetEmp(lr.employeeId || lr.employee_id)) continue;
+      if (!matchesTargetEmp(lr.employeeId || lr.employee_id, lr.employeeName || lr.employee_name)) continue;
       const sIso = normalizeDateToISO(lr.startDate || lr.start_date);
       const eIso = normalizeDateToISO(lr.endDate || lr.end_date || sIso);
       if (!sIso || !eIso) continue;
@@ -677,6 +749,9 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
   const hasDailyRecords = isPunchLogAttendanceMode || monthAttMap.size > 0 || approvedLeavesInMonth.length > 0;
   let actualPunchedDays = 0;
   let pendingAttendanceDays = 0;
+  let fullPresentDaysCount = 0;
+  let halfDaysCount = 0;
+  let provisionalInProgressDays = 0;
 
   for (const dayObj of dayList) {
     if (!dayObj.isEligible || !dayObj.isScheduledWorkingDay) continue;
@@ -695,6 +770,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
     if (leaveInfo) {
       if (leaveInfo.isWfh) {
         dayObj.dayPresent = 1;
+        fullPresentDaysCount += 1;
       } else if (leaveInfo.isHalfDay) {
         if (leaveInfo.isUnpaid && lopEnabled) {
           dayObj.dayLop = 0.5;
@@ -710,6 +786,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
           dayObj.isUnpaidLeaveOrAbsence = true;
         } else if (att || !isPunchLogAttendanceMode) {
           dayObj.dayPresent = 0.5;
+          halfDaysCount += 1;
           if (att) actualPunchedDays += 0.5;
         } else if (lopEnabled) {
           dayObj.dayLop += 0.5;
@@ -732,11 +809,21 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       const statusNorm = String(att.status || '').trim().toLowerCase();
       const rawCheckIn = att.checkIn ?? att.check_in;
       const rawCheckOut = att.checkOut ?? att.check_out;
+      const hasValidIn =
+        Boolean(rawCheckIn) &&
+        String(rawCheckIn).trim() !== '' &&
+        String(rawCheckIn).trim() !== '--:--' &&
+        !String(rawCheckIn).toLowerCase().includes('missed') &&
+        !String(rawCheckIn).toLowerCase().includes('none');
       const hasCompletedOut =
         Boolean(rawCheckOut) &&
         String(rawCheckOut).trim() !== '' &&
         String(rawCheckOut).trim() !== '--:--' &&
-        !String(rawCheckOut).toLowerCase().includes('progress');
+        !String(rawCheckOut).toLowerCase().includes('progress') &&
+        !String(rawCheckOut).toLowerCase().includes('missed') &&
+        !String(rawCheckOut).toLowerCase().includes('none');
+      const isInProgressPunch = hasValidIn && !hasCompletedOut && dayObj.dateStr === evaluationCutoffDate;
+
       let workedHrsForDay = 0;
       if (hasCompletedOut && rawCheckIn) {
         const inM = parseTimeToMinutes(String(rawCheckIn));
@@ -755,12 +842,14 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
       }
       const shiftHrsForDay = Number(att.shiftWorkingHours ?? att.shiftHours ?? 9) || 9;
       const isHalfDayByHours =
+        hasCompletedOut &&
         (statusNorm === 'present' || statusNorm === 'late') &&
         workedHrsForDay > 0 &&
         workedHrsForDay < shiftHrsForDay * 0.7;
 
       if (statusNorm === 'half day' || statusNorm === 'half-day' || statusNorm === 'hd' || isHalfDayByHours) {
         dayObj.dayPresent = 0.5;
+        halfDaysCount += 1;
         actualPunchedDays += 0.5;
         if (lopEnabled) {
           dayObj.dayLop = 0.5;
@@ -775,8 +864,19 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
         statusNorm === 'on duty' ||
         statusNorm === 'field visit'
       ) {
-        dayObj.dayPresent = 1;
-        actualPunchedDays += 1;
+        if (isInProgressPunch && params.finalizePayroll === true) {
+          // Do not finalize payroll on an unfinalized in-progress punch before check-out
+          provisionalInProgressDays += 1;
+          pendingAttendanceDays += 1;
+          dayObj.dayPresent = 0;
+        } else {
+          if (isInProgressPunch) {
+            provisionalInProgressDays += 1;
+          }
+          dayObj.dayPresent = 1;
+          fullPresentDaysCount += 1;
+          actualPunchedDays += 1;
+        }
       } else if (statusNorm === 'on leave' || statusNorm === 'leave') {
         const unpaid = isLeaveTypeUnpaidCheck(att.leaveType || att.reason);
         if (unpaid && lopEnabled) {
@@ -806,6 +906,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
         }
       } else {
         dayObj.dayPresent = 1;
+        fullPresentDaysCount += 1;
       }
     } else if (isPunchLogAttendanceMode) {
       // Elapsed scheduled working day with NO attendance punch and NO approved leave -> Absent / LOP
@@ -970,6 +1071,12 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
     : Math.max(0, Math.round((eligibleDays - lopDays) * 100) / 100);
   const prorationFactor = calendarDays > 0 ? paidDays / calendarDays : 1;
 
+  const elapsedDayList = dayList.filter(d => d.isEligible && d.dateStr <= evaluationCutoffDate);
+  const elapsedCalendarDays = elapsedDayList.length;
+  const elapsedHolidays = elapsedDayList.filter(d => !d.isScheduledWorkingDay).length;
+  const elapsedScheduledWorkingDays = elapsedDayList.filter(d => d.isScheduledWorkingDay).length;
+  const confirmedPaidDays = Math.max(0, Math.round((paidDays - provisionalInProgressDays) * 100) / 100);
+
   return {
     calendarDays,
     eligibleDays,
@@ -977,6 +1084,14 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
     scheduledWorkingDays,
     workingDays: scheduledWorkingDays,
     presentDays,
+    fullPresentDays: fullPresentDaysCount,
+    halfDays: halfDaysCount,
+    workedDays: presentDays,
+    elapsedCalendarDays,
+    elapsedHolidays,
+    elapsedScheduledWorkingDays,
+    provisionalInProgressDays,
+    confirmedPaidDays,
     actualPunchedDays: Math.round(actualPunchedDays * 100) / 100,
     pendingAttendanceDays,
     paidWeekOffDays,
@@ -991,6 +1106,793 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
     activeEndDate,
     prorationFactor,
     isFullMonthEligible: eligibleDays === calendarDays,
+  };
+}
+
+export type CanonicalCalendarDayStatus =
+  | 'Present'
+  | 'Late'
+  | 'Half Day'
+  | 'Paid Leave'
+  | 'Unpaid Leave'
+  | 'Pending Leave'
+  | 'Holiday'
+  | 'Absent'
+  | 'Not Marked';
+
+export interface EmployeeCalendarDayRow {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  designation?: string;
+  avatar?: string;
+  date: string;
+  shiftDate: string;
+  checkIn: string | null;
+  checkOut: string | null;
+  workingHours: number;
+  status: CanonicalCalendarDayStatus;
+  effectiveStatus: CanonicalCalendarDayStatus;
+  isInProgress: boolean;
+  isProvisional: boolean;
+  isHoliday: boolean;
+  isWeeklyOff: boolean;
+  isScheduledWorkingDay: boolean;
+  holidayLabel?: string;
+  leaveRequestId?: string;
+  leaveType?: string;
+  leaveStatus?: string;
+  method?: string;
+  checkInPhoto?: string;
+  checkOutPhoto?: string;
+  lateStatus?: string;
+  lateDurationMinutes?: number;
+  approvedOtHours?: number;
+  otHours?: number;
+  overtimeHours?: number;
+  calculatedOtHours?: number;
+  otStatus?: string;
+  otApprovalStatus?: string;
+  workedDayEquivalent: number;
+  paidDayEquivalent: number;
+  provisionalDayEquivalent: number;
+  lopDayEquivalent: number;
+}
+
+export interface EmployeeMonthlyAttendanceCalendarResult {
+  monthKey: string;
+  monthStart: string;
+  monthEnd: string;
+  cutoffDate: string;
+  calendarDaysInMonth: number;
+  calendarDaysElapsed: number;
+  holidaysCount: number;
+  scheduledWorkingDays: number;
+  fullPresentDays: number;
+  lateDays: number;
+  halfDays: number;
+  paidLeaveDays: number;
+  unpaidLeaveDays: number;
+  pendingLeaveDays: number;
+  absentDays: number;
+  workedDays: number;
+  paidDays: number;
+  confirmedPaidDays: number;
+  provisionalInProgressDays: number;
+  lopDays: number;
+  rows: EmployeeCalendarDayRow[];
+}
+
+export interface BuildEmployeeMonthlyAttendanceCalendarParams {
+  month: string | number;
+  year?: number;
+  todayStr?: string;
+  employee?: Partial<Employee> & Record<string, any>;
+  employeeId?: string;
+  employeeUuid?: string;
+  employeeName?: string;
+  department?: string;
+  joiningDate?: string | null;
+  exitDate?: string | null;
+  weeklyOff?: string | string[] | null;
+  weeklySchedules?: any[];
+  holidays?: any[];
+  employeeLocation?: string;
+  attendanceRecords?: any[];
+  leaveRequests?: any[];
+  stdShiftHours?: number;
+}
+
+/**
+ * Shared Authoritative Month-to-Date / Monthly Attendance Calendar Builder.
+ * Produces one mutually-exclusive display row per calendar date (1st of month through cutoffDate inclusive in Asia/Kolkata)
+ * and computes Full Present Days, Worked Days (with Half Day = 0.5), Paid Leave, Holidays, Scheduled Working Days, and Paid Days.
+ */
+export function buildEmployeeMonthlyAttendanceCalendar(
+  params: BuildEmployeeMonthlyAttendanceCalendarParams
+): EmployeeMonthlyAttendanceCalendarResult {
+  const { monthNum, resolvedYear } = parseMonthAndYear(params.month, params.year);
+  const yearNum = resolvedYear || Number(params.year) || new Date().getFullYear();
+  const calendarDaysInMonth = getCalendarDaysInMonth(monthNum, yearNum);
+  const monthPad = String(monthNum).padStart(2, '0');
+  const monthKey = `${yearNum}-${monthPad}`;
+  const monthStart = `${monthKey}-01`;
+  const monthEnd = `${monthKey}-${String(calendarDaysInMonth).padStart(2, '0')}`;
+
+  const todayIst = normalizeDateToISO(params.todayStr) || getIstTodayDateStr();
+
+  const emp = params.employee || {};
+  const canonicalEmpCode = String(params.employeeId || emp.employeeId || emp.id || '').trim();
+  const canonicalEmpUuid = String(params.employeeUuid || emp.id || '').trim();
+  const canonicalEmpName = String(
+    params.employeeName ||
+      emp.name ||
+      (emp.firstName ? `${emp.firstName} ${emp.lastName || ''}`.trim() : '') ||
+      'Employee'
+  ).trim();
+  const canonicalDept = String(params.department || emp.department || 'General').trim();
+  const canonicalLocation = String(params.employeeLocation || emp.workLocation || emp.branch || '').trim();
+  const weeklyOffRule = params.weeklyOff ?? emp.shiftDetails?.weeklyOff;
+  const stdShiftHours = Number(params.stdShiftHours || 9) || 9;
+
+  const validEmpIds = new Set(
+    [canonicalEmpCode, canonicalEmpUuid, emp.employeeId, emp.id]
+      .filter(Boolean)
+      .map(v => String(v).trim().toLowerCase())
+  );
+  const validEmpNames = new Set(
+    [canonicalEmpName, emp.name, emp.firstName ? `${emp.firstName} ${emp.lastName || ''}`.trim() : '']
+      .filter(Boolean)
+      .map(v => String(v).trim().toLowerCase())
+  );
+
+  const matchesEmployee = (recEmpId?: any, recEmpName?: any): boolean => {
+    if (validEmpIds.size === 0 && validEmpNames.size === 0) return true;
+    const idNorm = String(recEmpId || '').trim().toLowerCase();
+    if (idNorm && validEmpIds.has(idNorm)) return true;
+    const nameNorm = String(recEmpName || '').trim().toLowerCase();
+    if (nameNorm && validEmpNames.has(nameNorm)) return true;
+    return false;
+  };
+
+  // Deduplicate attendance records for this employee in this month by local date
+  const attByDate = new Map<string, any>();
+  const companyHolidayDatesFromAtt = new Map<string, string>();
+  let maxRecordedDate = '';
+
+  if (Array.isArray(params.attendanceRecords)) {
+    for (const rec of params.attendanceRecords) {
+      if (!rec) continue;
+      const dIso = normalizeDateToISO(rec.date || rec.shiftDate || rec.shift_date);
+      if (!dIso || dIso < monthStart || dIso > monthEnd) continue;
+
+      const rawSt = String(rec.status || '').trim().toLowerCase();
+      if (rawSt === 'holiday') {
+        companyHolidayDatesFromAtt.set(dIso, String(rec.method || rec.reason || 'Holiday'));
+      }
+
+      if (!matchesEmployee(rec.employeeId || rec.employee_id, rec.employeeName || rec.employee_name)) {
+        continue;
+      }
+      if (dIso > maxRecordedDate) maxRecordedDate = dIso;
+
+      const existing = attByDate.get(dIso);
+      if (!existing) {
+        attByDate.set(dIso, { ...rec, date: dIso, shiftDate: dIso });
+        continue;
+      }
+
+      const existingIn = existing.checkIn ?? existing.check_in;
+      const existingOut = existing.checkOut ?? existing.check_out;
+      const recIn = rec.checkIn ?? rec.check_in;
+      const recOut = rec.checkOut ?? rec.check_out;
+
+      const existingHasIn = Boolean(existingIn && String(existingIn).trim() !== '' && String(existingIn).trim() !== '--:--');
+      const existingHasOut = Boolean(existingOut && String(existingOut).trim() !== '' && String(existingOut).trim() !== '--:--');
+      const recHasIn = Boolean(recIn && String(recIn).trim() !== '' && String(recIn).trim() !== '--:--');
+      const recHasOut = Boolean(recOut && String(recOut).trim() !== '' && String(recOut).trim() !== '--:--');
+
+      const existingHrs = Number(existing.workingHours ?? existing.working_hours ?? 0);
+      const recHrs = Number(rec.workingHours ?? rec.working_hours ?? 0);
+
+      const isRecManual =
+        String(rec.method || '') === 'Manual Override' ||
+        String(rec.method || '') === 'Manual Punch' ||
+        Boolean(rec.reason);
+      const isExistingManual =
+        String(existing.method || '') === 'Manual Override' ||
+        String(existing.method || '') === 'Manual Punch' ||
+        Boolean(existing.reason);
+
+      const preferRec =
+        (isRecManual && !isExistingManual) ||
+        (!isExistingManual && ((recHasOut && !existingHasOut) || recHrs > existingHrs));
+      const base = preferRec ? { ...rec } : { ...existing };
+      const finalCheckIn =
+        existingHasIn && recHasIn
+          ? preferRec
+            ? recIn
+            : existingIn
+          : existingHasIn
+          ? existingIn
+          : recIn;
+      const finalCheckOut =
+        existingHasOut && recHasOut
+          ? preferRec
+            ? recOut
+            : existingOut
+          : existingHasOut
+          ? existingOut
+          : recOut;
+      const finalHours =
+        isRecManual && !isExistingManual
+          ? recHrs
+          : isExistingManual && !isRecManual
+          ? existingHrs
+          : Math.max(existingHrs, recHrs);
+
+      attByDate.set(dIso, {
+        ...base,
+        date: dIso,
+        shiftDate: dIso,
+        checkIn: finalCheckIn ?? null,
+        checkOut: finalCheckOut ?? null,
+        workingHours: finalHours > 0 ? finalHours : Number(base.workingHours || 0),
+        checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
+        checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto,
+      });
+    }
+  }
+
+  // Index employee's leave requests (Approved and Pending) by calendar date within this month
+  interface LeaveDayEntry {
+    id: string;
+    leaveType: string;
+    status: 'Approved' | 'Pending' | 'Rejected';
+    isUnpaid: boolean;
+    isHalfDay: boolean;
+    isWfh: boolean;
+  }
+  const approvedLeaveByDate = new Map<string, LeaveDayEntry>();
+  const pendingLeaveByDate = new Map<string, LeaveDayEntry>();
+
+  if (Array.isArray(params.leaveRequests)) {
+    for (const lr of params.leaveRequests) {
+      if (!lr) continue;
+      if (!matchesEmployee(lr.employeeId || lr.employee_id, lr.employeeName || lr.employee_name)) continue;
+
+      const rawStatus = String(lr.status || '').trim().toLowerCase();
+      if (rawStatus !== 'approved' && rawStatus !== 'pending') continue;
+
+      const sIso = normalizeDateToISO(lr.startDate || lr.start_date);
+      const eIso = normalizeDateToISO(lr.endDate || lr.end_date || sIso);
+      if (!sIso || !eIso) continue;
+      if (eIso < monthStart || sIso > monthEnd) continue;
+
+      const leaveType = String(lr.leaveType || lr.leave_type || 'Paid Leave').trim();
+      const isUnpaid =
+        isLeaveTypeUnpaidCheck(leaveType) ||
+        (Number(lr.unpaidDaysCount) > 0 && Number(lr.paidDaysCount) === 0);
+      const isWfh = isLeaveTypeWfhOrOnDuty(leaveType);
+      const isHalfDay =
+        Boolean(lr.isHalfDay) ||
+        (sIso === eIso && Number(lr.daysCount ?? lr.days_count) === 0.5) ||
+        String(lr.reason || '').toLowerCase().includes('[half day');
+
+      const rangeStart = sIso > monthStart ? sIso : monthStart;
+      const rangeEnd = eIso < monthEnd ? eIso : monthEnd;
+      const [ys, ms, ds] = rangeStart.split('-').map(Number);
+      const [ye, me, de] = rangeEnd.split('-').map(Number);
+      const cur = new Date(ys, ms - 1, ds);
+      const last = new Date(ye, me - 1, de);
+
+      while (cur <= last) {
+        const dStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+        const entry: LeaveDayEntry = {
+          id: String(lr.id || `LV-${dStr}`),
+          leaveType,
+          status: rawStatus === 'approved' ? 'Approved' : 'Pending',
+          isUnpaid,
+          isHalfDay,
+          isWfh,
+        };
+        if (rawStatus === 'approved') {
+          approvedLeaveByDate.set(dStr, entry);
+          if (dStr > maxRecordedDate) maxRecordedDate = dStr;
+        } else if (!pendingLeaveByDate.has(dStr)) {
+          pendingLeaveByDate.set(dStr, entry);
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+  }
+
+  // Determine cutoff date for month-to-date calendar
+  let cutoffDate = monthEnd;
+  if (todayIst >= monthStart && todayIst <= monthEnd) {
+    cutoffDate = todayIst;
+  } else if (todayIst < monthStart) {
+    cutoffDate = maxRecordedDate >= monthStart && maxRecordedDate <= monthEnd ? maxRecordedDate : '';
+  }
+
+  const joiningIso = normalizeDateToISO(params.joiningDate ?? emp.joiningDate ?? emp.dateOfJoining);
+  const exitIso = normalizeDateToISO(params.exitDate ?? emp.exitDate ?? emp.relievingDate ?? emp.lastWorkingDate);
+
+  const effectiveStart = joiningIso && joiningIso > monthStart ? joiningIso : monthStart;
+  const effectiveEnd = exitIso && exitIso < cutoffDate ? exitIso : cutoffDate;
+
+  if (!cutoffDate || effectiveStart > effectiveEnd) {
+    return {
+      monthKey,
+      monthStart,
+      monthEnd,
+      cutoffDate: cutoffDate || monthStart,
+      calendarDaysInMonth,
+      calendarDaysElapsed: 0,
+      holidaysCount: 0,
+      scheduledWorkingDays: 0,
+      fullPresentDays: 0,
+      lateDays: 0,
+      halfDays: 0,
+      paidLeaveDays: 0,
+      unpaidLeaveDays: 0,
+      pendingLeaveDays: 0,
+      absentDays: 0,
+      workedDays: 0,
+      paidDays: 0,
+      confirmedPaidDays: 0,
+      provisionalInProgressDays: 0,
+      lopDays: 0,
+      rows: [],
+    };
+  }
+
+  const startDayNum = Number(effectiveStart.slice(8, 10)) || 1;
+  const endDayNum = Number(effectiveEnd.slice(8, 10)) || calendarDaysInMonth;
+
+  const rows: EmployeeCalendarDayRow[] = [];
+  let calendarDaysElapsed = 0;
+  let holidaysCount = 0;
+  let scheduledWorkingDays = 0;
+  let fullPresentDays = 0;
+  let lateDays = 0;
+  let halfDays = 0;
+  let paidLeaveDays = 0;
+  let unpaidLeaveDays = 0;
+  let pendingLeaveDays = 0;
+  let absentDays = 0;
+  let workedDays = 0;
+  let paidDays = 0;
+  let provisionalInProgressDays = 0;
+  let lopDays = 0;
+
+  for (let day = startDayNum; day <= endDayNum; day++) {
+    const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`;
+    const localDate = new Date(yearNum, monthNum - 1, day, 12, 0, 0);
+    calendarDaysElapsed += 1;
+
+    const att = attByDate.get(dateStr);
+    const approvedLeave = approvedLeaveByDate.get(dateStr);
+    const pendingLeave = pendingLeaveByDate.get(dateStr);
+
+    const weekOffInfo = isDateEmployeeWeeklyOff(localDate, weeklyOffRule, params.weeklySchedules);
+    const companyHolInfo = isDateCompanyPaidHoliday(dateStr, params.holidays, canonicalLocation);
+    const attStatusNorm = String(att?.status || '').trim().toLowerCase();
+    const isAttMarkedHoliday =
+      attStatusNorm === 'holiday' ||
+      attStatusNorm === 'week off' ||
+      attStatusNorm === 'weekoff' ||
+      attStatusNorm === 'wo';
+    const isCompanyAttHoliday = companyHolidayDatesFromAtt.has(dateStr);
+
+    const isWeeklyOff = weekOffInfo.isWeeklyOff;
+    const isCompanyHoliday = companyHolInfo.isHoliday || isAttMarkedHoliday || isCompanyAttHoliday;
+    const isHoliday = isWeeklyOff || isCompanyHoliday;
+    const isScheduledWorkingDay = !isHoliday;
+
+    if (isHoliday) {
+      holidaysCount += 1;
+    } else {
+      scheduledWorkingDays += 1;
+    }
+
+    const holidayLabel = companyHolInfo.holidayName ||
+      companyHolidayDatesFromAtt.get(dateStr) ||
+      (isAttMarkedHoliday ? String(att?.method || 'Holiday') : undefined) ||
+      (isWeeklyOff ? 'Week Off' : undefined);
+
+    const rawCheckIn = att?.checkIn ?? att?.check_in ?? null;
+    const rawCheckOut = att?.checkOut ?? att?.check_out ?? null;
+    const hasCheckIn =
+      Boolean(rawCheckIn) &&
+      String(rawCheckIn).trim() !== '' &&
+      String(rawCheckIn).trim() !== '--:--' &&
+      !String(rawCheckIn).toLowerCase().includes('missed') &&
+      !String(rawCheckIn).toLowerCase().includes('none') &&
+      !String(rawCheckIn).toLowerCase().includes('absent');
+    const hasCheckOut =
+      Boolean(rawCheckOut) &&
+      String(rawCheckOut).trim() !== '' &&
+      String(rawCheckOut).trim() !== '--:--' &&
+      !String(rawCheckOut).toLowerCase().includes('progress') &&
+      !String(rawCheckOut).toLowerCase().includes('missed') &&
+      !String(rawCheckOut).toLowerCase().includes('none');
+
+    // Case 1: Holiday / Weekly Off (mutually exclusive as Holiday unless worked on holiday)
+    if (isHoliday && !hasCheckIn) {
+      paidDays += 1;
+      rows.push({
+        id: att?.id || `HOL-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+        employeeId: canonicalEmpCode,
+        employeeName: canonicalEmpName,
+        department: canonicalDept,
+        designation: emp.designation || '',
+        avatar: emp.avatar || '',
+        date: dateStr,
+        shiftDate: dateStr,
+        checkIn: null,
+        checkOut: null,
+        workingHours: 0,
+        status: 'Holiday',
+        effectiveStatus: 'Holiday',
+        isInProgress: false,
+        isProvisional: false,
+        isHoliday: true,
+        isWeeklyOff,
+        isScheduledWorkingDay: false,
+        holidayLabel: holidayLabel || 'Holiday',
+        method: holidayLabel || 'Holiday',
+        workedDayEquivalent: 0,
+        paidDayEquivalent: 1,
+        provisionalDayEquivalent: 0,
+        lopDayEquivalent: 0,
+      });
+      continue;
+    }
+
+    // Case 2: Approved Full-Day Leave on a Scheduled Working Day (with no physical punch)
+    if (!hasCheckIn && (approvedLeave || attStatusNorm === 'on leave' || attStatusNorm === 'leave')) {
+      const isWfhLeave =
+        approvedLeave?.isWfh ||
+        attStatusNorm === 'work from home' ||
+        attStatusNorm === 'wfh';
+      const isUnpaidLeave =
+        approvedLeave !== undefined
+          ? approvedLeave.isUnpaid
+          : isLeaveTypeUnpaidCheck(att?.leaveType || att?.reason);
+      const isHalfDayLeave = Boolean(approvedLeave?.isHalfDay);
+
+      if (isWfhLeave) {
+        fullPresentDays += 1;
+        workedDays += 1;
+        paidDays += 1;
+        rows.push({
+          id: att?.id || `WFH-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+          employeeId: canonicalEmpCode,
+          employeeName: canonicalEmpName,
+          department: canonicalDept,
+          designation: emp.designation || '',
+          avatar: emp.avatar || '',
+          date: dateStr,
+          shiftDate: dateStr,
+          checkIn: rawCheckIn || '09:30 AM',
+          checkOut: rawCheckOut || '06:30 PM',
+          workingHours: Number(att?.workingHours || 8),
+          status: 'Present',
+          effectiveStatus: 'Present',
+          isInProgress: false,
+          isProvisional: false,
+          isHoliday: false,
+          isWeeklyOff: false,
+          isScheduledWorkingDay: true,
+          leaveRequestId: approvedLeave?.id,
+          leaveType: approvedLeave?.leaveType || 'Work From Home',
+          leaveStatus: 'Approved',
+          method: 'Work From Home',
+          workedDayEquivalent: 1,
+          paidDayEquivalent: 1,
+          provisionalDayEquivalent: 0,
+          lopDayEquivalent: 0,
+        });
+        continue;
+      }
+
+      if (isUnpaidLeave) {
+        const leaveUnits = isHalfDayLeave ? 0.5 : 1;
+        unpaidLeaveDays += leaveUnits;
+        lopDays += leaveUnits;
+        rows.push({
+          id: att?.id || `LV-UNPAID-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+          employeeId: canonicalEmpCode,
+          employeeName: canonicalEmpName,
+          department: canonicalDept,
+          designation: emp.designation || '',
+          avatar: emp.avatar || '',
+          date: dateStr,
+          shiftDate: dateStr,
+          checkIn: null,
+          checkOut: null,
+          workingHours: 0,
+          status: 'Unpaid Leave',
+          effectiveStatus: 'Unpaid Leave',
+          isInProgress: false,
+          isProvisional: false,
+          isHoliday: false,
+          isWeeklyOff: false,
+          isScheduledWorkingDay: true,
+          leaveRequestId: approvedLeave?.id,
+          leaveType: approvedLeave?.leaveType || att?.leaveType || 'Unpaid Leave',
+          leaveStatus: 'Approved',
+          method: 'Approved Leave',
+          workedDayEquivalent: 0,
+          paidDayEquivalent: 0,
+          provisionalDayEquivalent: 0,
+          lopDayEquivalent: leaveUnits,
+        });
+        continue;
+      }
+
+      // Approved Paid Leave (e.g. Nov 7, 2026) — blank check-in/check-out, 0 working/OT hours, never classified as Present
+      const paidUnits = isHalfDayLeave ? 0.5 : 1;
+      paidLeaveDays += paidUnits;
+      paidDays += paidUnits;
+      if (isHalfDayLeave) {
+        lopDays += 0.5;
+      }
+      rows.push({
+        id: att?.id || `LV-PAID-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+        employeeId: canonicalEmpCode,
+        employeeName: canonicalEmpName,
+        department: canonicalDept,
+        designation: emp.designation || '',
+        avatar: emp.avatar || '',
+        date: dateStr,
+        shiftDate: dateStr,
+        checkIn: null,
+        checkOut: null,
+        workingHours: 0,
+        status: 'Paid Leave',
+        effectiveStatus: 'Paid Leave',
+        isInProgress: false,
+        isProvisional: false,
+        isHoliday: false,
+        isWeeklyOff: false,
+        isScheduledWorkingDay: true,
+        leaveRequestId: approvedLeave?.id,
+        leaveType: approvedLeave?.leaveType || att?.leaveType || 'Paid Leave',
+        leaveStatus: 'Approved',
+        method: 'Approved Paid Leave',
+        workedDayEquivalent: 0,
+        paidDayEquivalent: paidUnits,
+        provisionalDayEquivalent: 0,
+        lopDayEquivalent: isHalfDayLeave ? 0.5 : 0,
+      });
+      continue;
+    }
+
+    // Case 3: Physical Attendance Punch (or Work From Home attendance record)
+    if (att && (hasCheckIn || attStatusNorm === 'work from home' || attStatusNorm === 'wfh')) {
+      const workHrs = Number(att.workingHours ?? att.working_hours ?? 0);
+      const isInProgress = hasCheckIn && !hasCheckOut && dateStr === todayIst;
+      const isHalfDay =
+        !isInProgress &&
+        (attStatusNorm === 'half day' ||
+          attStatusNorm === 'half-day' ||
+          attStatusNorm === 'hd' ||
+          Boolean(approvedLeave?.isHalfDay) ||
+          (hasCheckOut && workHrs > 0 && workHrs < stdShiftHours * 0.7 && (attStatusNorm === 'present' || attStatusNorm === 'late')));
+
+      const isLateArrival =
+        !isHalfDay &&
+        (attStatusNorm === 'late' ||
+          (att.lateStatus && att.lateStatus !== 'On Time' && att.lateStatus !== 'N/A') ||
+          Number(att.lateDurationMinutes || 0) > 0);
+
+      if (isHoliday) {
+        // Worked on a Holiday: holiday is already counted in holidaysCount (paidDays += 1), preserve punch & OT hours
+        paidDays += 1;
+        rows.push({
+          ...att,
+          id: att.id || `ATT-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+          employeeId: canonicalEmpCode,
+          employeeName: canonicalEmpName,
+          department: canonicalDept,
+          date: dateStr,
+          shiftDate: dateStr,
+          checkIn: rawCheckIn,
+          checkOut: rawCheckOut,
+          workingHours: workHrs,
+          status: 'Holiday',
+          effectiveStatus: 'Holiday',
+          isInProgress,
+          isProvisional: isInProgress,
+          isHoliday: true,
+          isWeeklyOff,
+          isScheduledWorkingDay: false,
+          holidayLabel: holidayLabel || 'Holiday',
+          workedDayEquivalent: 0,
+          paidDayEquivalent: 1,
+          provisionalDayEquivalent: 0,
+          lopDayEquivalent: 0,
+        });
+        continue;
+      }
+
+      if (isHalfDay) {
+        halfDays += 1;
+        workedDays += 0.5;
+        const pairedPaidLeave = approvedLeave && !approvedLeave.isUnpaid ? 0.5 : 0;
+        if (pairedPaidLeave > 0) {
+          paidLeaveDays += 0.5;
+        }
+        const dayPaid = 0.5 + pairedPaidLeave;
+        const dayLop = pairedPaidLeave > 0 ? 0 : 0.5;
+        paidDays += dayPaid;
+        lopDays += dayLop;
+
+        rows.push({
+          ...att,
+          id: att.id || `ATT-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+          employeeId: canonicalEmpCode,
+          employeeName: canonicalEmpName,
+          department: canonicalDept,
+          date: dateStr,
+          shiftDate: dateStr,
+          checkIn: rawCheckIn,
+          checkOut: rawCheckOut,
+          workingHours: workHrs,
+          status: 'Half Day',
+          effectiveStatus: 'Half Day',
+          isInProgress: false,
+          isProvisional: false,
+          isHoliday: false,
+          isWeeklyOff: false,
+          isScheduledWorkingDay: true,
+          workedDayEquivalent: 0.5,
+          paidDayEquivalent: dayPaid,
+          provisionalDayEquivalent: 0,
+          lopDayEquivalent: dayLop,
+        });
+        continue;
+      }
+
+      // Full-Day Present (or Late arrival on a full working day)
+      fullPresentDays += 1;
+      workedDays += 1;
+      paidDays += 1;
+      if (isLateArrival) {
+        lateDays += 1;
+      }
+      if (isInProgress) {
+        provisionalInProgressDays += 1;
+      }
+
+      const displayStatus: CanonicalCalendarDayStatus = isLateArrival ? 'Late' : 'Present';
+      rows.push({
+        ...att,
+        id: att.id || `ATT-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+        employeeId: canonicalEmpCode,
+        employeeName: canonicalEmpName,
+        department: canonicalDept,
+        date: dateStr,
+        shiftDate: dateStr,
+        checkIn: rawCheckIn,
+        checkOut: rawCheckOut,
+        workingHours: isInProgress ? 0 : workHrs,
+        status: displayStatus,
+        effectiveStatus: displayStatus,
+        isInProgress,
+        isProvisional: isInProgress,
+        isHoliday: false,
+        isWeeklyOff: false,
+        isScheduledWorkingDay: true,
+        workedDayEquivalent: 1,
+        paidDayEquivalent: 1,
+        provisionalDayEquivalent: isInProgress ? 1 : 0,
+        lopDayEquivalent: 0,
+      });
+      continue;
+    }
+
+    // Case 4: Pending Leave Request (unapproved) on a Scheduled Working Day
+    if (pendingLeave) {
+      pendingLeaveDays += 1;
+      absentDays += 1;
+      lopDays += 1;
+      rows.push({
+        id: `LV-PENDING-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+        employeeId: canonicalEmpCode,
+        employeeName: canonicalEmpName,
+        department: canonicalDept,
+        designation: emp.designation || '',
+        avatar: emp.avatar || '',
+        date: dateStr,
+        shiftDate: dateStr,
+        checkIn: null,
+        checkOut: null,
+        workingHours: 0,
+        status: 'Pending Leave',
+        effectiveStatus: 'Pending Leave',
+        isInProgress: false,
+        isProvisional: false,
+        isHoliday: false,
+        isWeeklyOff: false,
+        isScheduledWorkingDay: true,
+        leaveRequestId: pendingLeave.id,
+        leaveType: pendingLeave.leaveType,
+        leaveStatus: 'Pending',
+        method: 'Pending Approval',
+        workedDayEquivalent: 0,
+        paidDayEquivalent: 0,
+        provisionalDayEquivalent: 0,
+        lopDayEquivalent: 1,
+      });
+      continue;
+    }
+
+    // Case 5: Scheduled Working Day with no punch and no leave -> Absent (or Not Marked if today)
+    const absentStatus: CanonicalCalendarDayStatus = dateStr === todayIst && !att ? 'Not Marked' : 'Absent';
+    absentDays += 1;
+    lopDays += 1;
+    rows.push({
+      id: att?.id || `ABS-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+      employeeId: canonicalEmpCode,
+      employeeName: canonicalEmpName,
+      department: canonicalDept,
+      designation: emp.designation || '',
+      avatar: emp.avatar || '',
+      date: dateStr,
+      shiftDate: dateStr,
+      checkIn: null,
+      checkOut: null,
+      workingHours: 0,
+      status: absentStatus,
+      effectiveStatus: absentStatus,
+      isInProgress: false,
+      isProvisional: false,
+      isHoliday: false,
+      isWeeklyOff: false,
+      isScheduledWorkingDay: true,
+      method: 'System Auto',
+      workedDayEquivalent: 0,
+      paidDayEquivalent: 0,
+      provisionalDayEquivalent: 0,
+      lopDayEquivalent: 1,
+    });
+  }
+
+  // Sort rows descending by date (latest date at top)
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+
+  workedDays = Math.round(workedDays * 100) / 100;
+  paidDays = Math.round(paidDays * 100) / 100;
+  paidLeaveDays = Math.round(paidLeaveDays * 100) / 100;
+  lopDays = Math.round(lopDays * 100) / 100;
+  const confirmedPaidDays = Math.max(0, Math.round((paidDays - provisionalInProgressDays) * 100) / 100);
+
+  return {
+    monthKey,
+    monthStart,
+    monthEnd,
+    cutoffDate: effectiveEnd,
+    calendarDaysInMonth,
+    calendarDaysElapsed,
+    holidaysCount,
+    scheduledWorkingDays,
+    fullPresentDays,
+    lateDays,
+    halfDays,
+    paidLeaveDays,
+    unpaidLeaveDays,
+    pendingLeaveDays,
+    absentDays,
+    workedDays,
+    paidDays,
+    confirmedPaidDays,
+    provisionalInProgressDays,
+    lopDays,
+    rows,
   };
 }
 

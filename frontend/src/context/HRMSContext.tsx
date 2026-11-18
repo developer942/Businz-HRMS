@@ -215,18 +215,18 @@ import {
 } from '../services/shiftAttendanceEngine';
 import { formatTimeDisplay, formatDateDDMMYYYY, formatDateTimeDDMMYYYY, normalizeToYYYYMMDD } from '../utils/dateUtils';
 import { createExpenseClaim, fetchExpenseClaims, approveExpenseApi, rejectExpenseApi } from '../services/expenseService';
-import { 
-  getTodayKolkata, 
-  validateRequestDate, 
-  validateDateRange, 
-  checkDuplicateLeaveRequest, 
+import {
+  getTodayKolkata,
+  validateRequestDate,
+  validateDateRange,
+  checkDuplicateLeaveRequest,
   checkDuplicateShiftRequest,
   checkDuplicateAdvanceRequest,
   checkDuplicateFieldAssignment,
   checkDuplicateMissedPunchRequest,
   checkDuplicateOtRequest,
   checkDuplicateExpense,
-  PAST_DATE_ERROR_MESSAGE, 
+  PAST_DATE_ERROR_MESSAGE,
   DUPLICATE_REQUEST_ERROR_MESSAGE,
   REQUEST_REASON_ERROR_MESSAGE,
   validateRequestReason
@@ -975,9 +975,9 @@ interface HRMSContextType {
   expenses: Expense[];
   addExpense: (exp: Omit<Expense, 'id' | 'status'>) => Promise<{ success: boolean; message?: string }>;
   approveExpense: (
-    id: string, 
-    approvedBy: string, 
-    nextStatus: Expense['status'], 
+    id: string,
+    approvedBy: string,
+    nextStatus: Expense['status'],
     options?: {
       rejectionReason?: string;
       paymentDetails?: {
@@ -1338,18 +1338,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           'vrm_hrms_shared_notifications', 'shared_notifications_data', 'vrm_shared_notifications'
         ];
         for (const k of keysToRemove) {
-          try { localStorage.removeItem(k); } catch {}
+          try { localStorage.removeItem(k); } catch { }
         }
-        try { localStorage.setItem('vrm_hrms_storage_mode', STORAGE_MODE); } catch {}
+        try { localStorage.setItem('vrm_hrms_storage_mode', STORAGE_MODE); } catch { }
       }
-    } catch {}
+    } catch { }
   }
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
     let saved: string | null = null;
     try {
       saved = localStorage.getItem('vrm_hrms_current_user');
-    } catch {}
+    } catch { }
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -1408,7 +1408,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
         window.sessionStorage.removeItem('vrm_task_active_tab');
-      } catch {}
+      } catch { }
     }
   };
   const [workflowFormat, setWorkflowFormat] = useState<ApprovalWorkflowFormat>('HR_ONLY');
@@ -1455,7 +1455,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           googleMapsLink: canonical.googleMapsLink || `https://www.google.com/maps?q=${lat},${lng}`,
         }));
       }
-    }).catch(() => {});
+    }).catch(() => { });
     return () => {
       active = false;
     };
@@ -1470,7 +1470,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         if (Math.abs(updated.centerLat) > 0.0001 || Math.abs(updated.centerLng) > 0.0001) {
           lastServerGeofenceKeyRef.current = geofenceKey(updated);
-          supabaseDirect.saveCompanySetting('geofence_config', updated).catch(() => {});
+          supabaseDirect.saveCompanySetting('geofence_config', updated).catch(() => { });
         }
       } catch (e) {
         console.error('Error saving geofenceConfig to VPS database', e);
@@ -1535,171 +1535,171 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const resolvedUpcomingEffectiveFrom = isUpcomingDue ? null : (rawUpcomingEffectiveFrom || null);
 
     return ({
-    id: d.id,
-    company_id: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
-    companyId: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
-    employeeId: raw?.employee_id || d.employeeId || d.employee_id,
-    rowVersion: Number(raw?.row_version ?? raw?.rowVersion ?? d.row_version ?? d.rowVersion ?? 1),
-    firstName: raw?.first_name || d.firstName || d.first_name || '',
-    lastName: raw?.last_name || d.lastName || d.last_name || '',
-    email: raw?.email || d.email || '',
-    phone: raw?.phone || d.phone || '',
-    dob: (raw?.dob || d.dob) ? String(raw?.dob || d.dob).slice(0, 10) : '',
-    gender: ((raw?.gender || d.gender) as any) || 'Male',
-    personalEmail: d.personalEmail || d.personal_email || raw?.email || d.email || '',
-    maritalStatus: d.maritalStatus || d.marital_status || 'Single',
-    address: raw?.address || d.address || '',
-    currentAddress: {
-      line1: raw?.address_line1 || d.currentAddress?.line1 || d.address_line1 || '',
-      line2: raw?.address_line2 || d.currentAddress?.line2 || d.address_line2 || '',
-      city: raw?.city || d.currentAddress?.city || d.city || '',
-      state: raw?.state || d.currentAddress?.state || d.state || '',
-      country: raw?.country || d.currentAddress?.country || d.country || '',
-      pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
-    },
-    permanentAddress: (d.permanentAddress && (d.permanentAddress.line1 || d.permanentAddress.city)) ? d.permanentAddress : {
-      sameAsCurrent: true,
-      line1: raw?.address_line1 || d.currentAddress?.line1 || d.address_line1 || '',
-      line2: raw?.address_line2 || d.currentAddress?.line2 || d.address_line2 || '',
-      city: raw?.city || d.currentAddress?.city || d.city || '',
-      state: raw?.state || d.currentAddress?.state || d.state || '',
-      country: raw?.country || d.currentAddress?.country || d.country || 'India',
-      pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
-    },
-    emergencyContact: {
-      name: d.emergencyContact?.name || d.emergency_contact_name || (raw?.profile_data?.emergencyContact?.name) || '',
-      relationship: d.emergencyContact?.relationship || d.emergency_contact_relationship || (raw?.profile_data?.emergencyContact?.relationship) || 'Parent',
-      mobile: d.emergencyContact?.mobile || d.emergency_contact_phone || (raw?.profile_data?.emergencyContact?.mobile) || '',
-      alternateMobile: d.emergencyContact?.alternateMobile || (raw?.profile_data?.emergencyContact?.alternateMobile) || ''
-    },
-    educationalDetails: {
-      highestQualification: raw?.highest_qualification || d.educationalDetails?.highestQualification || d.highest_qualification || '',
-      degreeName: raw?.degree_name || d.educationalDetails?.degreeName || d.degree_name || '',
-      specialization: raw?.specialization || d.educationalDetails?.specialization || d.specialization || '',
-      university: raw?.university || d.educationalDetails?.university || d.university || '',
-      yearOfPassing: (raw?.year_of_passing != null ? String(raw.year_of_passing) : '') || d.educationalDetails?.yearOfPassing || (d.year_of_passing != null ? String(d.year_of_passing) : ''),
-      gradePercentage: (raw?.grade_percentage != null ? String(raw.grade_percentage) : '') || d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
-    },
-    experienceDetails: (() => {
-      const expType = raw?.experience_profile || d.experienceDetails?.experienceType || d.experience_profile || (d.previous_company ? 'Experienced' : 'Fresher');
-      const isFresher = expType === 'Fresher';
-      return {
-        experienceType: expType,
-        totalExperience: isFresher ? '0' : ((raw?.total_experience != null ? String(raw.total_experience) : '') || d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : '')),
-        previousCompany: isFresher ? '' : (raw?.previous_company || d.experienceDetails?.previousCompany || d.previous_company || ''),
-        previousDesignation: isFresher ? '' : (raw?.previous_designation || d.experienceDetails?.previousDesignation || d.previous_designation || ''),
-        previousDepartment: isFresher ? '' : (raw?.previous_department || d.experienceDetails?.previousDepartment || d.previous_department || ''),
-        startDate: isFresher ? '' : (raw?.employment_start_date || d.experienceDetails?.startDate || d.employment_start_date || ''),
-        endDate: isFresher ? '' : (raw?.employment_end_date || d.experienceDetails?.endDate || d.employment_end_date || ''),
-        lastDrawnSalary: isFresher ? '' : ((raw?.last_drawn_salary != null ? String(raw.last_drawn_salary) : '') || d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : '')),
-        companyLocation: isFresher ? '' : (raw?.previous_company_location || d.experienceDetails?.companyLocation || d.previous_company_location || ''),
-      };
-    })(),
-    department: resolveEmployeeDepartmentName(d, depts),
-    designation: raw?.designation || d.designation || 'Staff',
-    reportingManagerId: raw?.reporting_manager_id || d.reportingManagerId || d.reporting_manager_id || '',
-    reportingManagerName: raw?.reporting_manager_name || d.reportingManagerName || d.reporting_manager_name || '',
-    joiningDate: String(raw?.joining_date || d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01').slice(0, 10),
-    employmentType: (d.profile_data?.employmentType || raw?.employment_type || d.employmentType || d.employment_type || 'Full-Time') as any,
-    status: (d.profile_data?.status || raw?.status || d.status) === 'Inactive' ? 'Inactive' : ((d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active'),
-    avatar: raw?.avatar_url || d.avatar || d.avatar_url || '',
-    workLocation: raw?.branch || d.workLocation || d.work_location || d.branch || '',
-    basicSalary: (() => {
-      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
-      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
-      return b > 0 ? b : (c > 0 ? Math.round(c * 0.4) : 15000);
-    })(),
-    grossSalary: (() => {
-      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
-      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
-      return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
-    })(),
-    monthlyCtc: (() => {
-      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
-      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
-      return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
-    })(),
-    allowances: (() => {
-      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
-      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
-      const resolvedCtc = c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
-      const hra = Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra ?? d.salaryDetails?.hra) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.35) : 0);
-      const transport = Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport ?? d.salaryDetails?.conveyance) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.05) : 0);
-      const da = Number(d.allowances?.da ?? d.da ?? d.salaryDetails?.da) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.20) : 0);
-      const medical = Number(raw?.allowances_medical ?? d.allowances?.medical ?? d.allowances_medical) || 0;
-      const special = Number(raw?.allowances_special ?? d.allowances?.special ?? d.allowances_special) || 0;
-      return { hra, transport, medical, special, da, conveyance: transport };
-    })(),
-    salaryDetails: (() => {
-      const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
-      const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
-      const resolvedCtc = c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
-      const resolvedBasic = b > 0 ? b : (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.4) : 15000);
-      const hra = Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra ?? d.salaryDetails?.hra) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.35) : 0);
-      const transport = Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport ?? d.salaryDetails?.conveyance) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.05) : 0);
-      const da = Number(d.allowances?.da ?? d.da ?? d.salaryDetails?.da) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.20) : 0);
-      return {
-        ...(d.salaryDetails || d.salary_details || {}),
-        monthlyCtc: resolvedCtc,
-        basicSalary: resolvedBasic,
-        hra,
-        da,
-        conveyance: transport,
-        withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf ?? true,
-        salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme ?? 'WITH_PF',
-        panNumber: raw?.pan_number || d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
-        uanNumber: raw?.uan_number || d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
-      };
-    })(),
-    withPf: resolveEmployeeWithPf({
-      withPf: d.withPf,
-      salaryDetails: {
-        ...(d.salaryDetails || d.salary_details || {}),
-        withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf,
-        salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme
-      }
-    } as Employee),
-    payrollEligible: raw?.payroll_eligible ?? d.payrollEligible ?? d.payroll_eligible ?? true,
-    bankDetails: {
-      bankName: raw?.bank_name || d.bankDetails?.bankName || d.bankName || d.bank_name || '',
-      accountNumber: raw?.account_number || d.bankDetails?.accountNumber || d.accountNumber || d.account_number || '',
-      ifscCode: raw?.ifsc_code || d.bankDetails?.ifscCode || d.ifscCode || d.ifsc_code || '',
-      branch: raw?.branch || d.bankDetails?.branch || d.branch || '',
-    },
-    attendanceMethod: (raw?.attendance_method || d.attendanceMethod || d.attendance_method || (d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan')) as any,
-    gpsAllowed: raw?.gps_allowed ?? d.gpsAllowed ?? d.gps_allowed ?? (d.designation === 'CEO' ? false : true),
-    faceRegistered: d.faceRegistered ?? false,
-    facePhotoUrl: d.facePhotoUrl || d.face_photo_url || '',
-    workShift: resolvedWorkShift,
-    upcomingShift: resolvedUpcomingShift,
-    upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
-    shiftEffectiveFrom: d.shiftEffectiveFrom || d.shiftDetails?.effectiveFrom || undefined,
-    salaryEffectiveFrom: d.salaryEffectiveFrom || d.salaryDetails?.effectiveFrom || undefined,
-    documents: Array.isArray(d.documents) ? d.documents : [],
-    departmentId: raw?.department_id || d.departmentId || d.department_id,
-    designationId: d.designationId || d.designation_id,
-    branchId: d.branchId || d.branch_id,
-    role: (d.role === 'CEO' || d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) || d.role_id === '42a8b0c3-22e5-40a0-bf78-2dd14475c6d6')
-      ? 'CEO'
-      : (d.role || (d.designation === 'HR Manager' ? 'HR Manager' : 'Employee')),
-    mustChangePassword: d.mustChangePassword ?? d.must_change_password ?? false,
-    accountStatus: raw?.account_status || d.accountStatus || d.account_status || 'ACTIVE',
-    credentialEmailStatus: d.credentialEmailStatus || d.credential_email_status || 'SENT',
-    credentialEmailSentAt: d.credentialEmailSentAt || d.credential_email_sent_at || '',
-    authUserId: d.authUserId || d.auth_id || d.id,
-    password: d.password,
-    portalPassword: d.portalPassword || d.portal_password || (raw?.profile_data?.portalPassword) || (raw?.profile_data?.portal_password) || '',
-    profile_data: raw?.profile_data || d.profile_data || {},
-    skills: Array.isArray(d.skills) ? d.skills : (typeof d.skills === 'string' ? d.skills.split(',').map((s: string) => s.trim()) : []),
-    professionalDetails: d.professionalDetails,
-    shiftDetails: {
-      ...(d.shiftDetails || {}),
-      assignedShift: resolvedWorkShift,
-      shiftType: resolvedWorkShift,
+      id: d.id,
+      company_id: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
+      companyId: d.company_id || d.companyId || (d.email?.includes('nexus') || d.employee_id?.startsWith('EMP-B') ? 'company-b' : 'company-a'),
+      employeeId: raw?.employee_id || d.employeeId || d.employee_id,
+      rowVersion: Number(raw?.row_version ?? raw?.rowVersion ?? d.row_version ?? d.rowVersion ?? 1),
+      firstName: raw?.first_name || d.firstName || d.first_name || '',
+      lastName: raw?.last_name || d.lastName || d.last_name || '',
+      email: raw?.email || d.email || '',
+      phone: raw?.phone || d.phone || '',
+      dob: (raw?.dob || d.dob) ? String(raw?.dob || d.dob).slice(0, 10) : '',
+      gender: ((raw?.gender || d.gender) as any) || 'Male',
+      personalEmail: d.personalEmail || d.personal_email || raw?.email || d.email || '',
+      maritalStatus: d.maritalStatus || d.marital_status || 'Single',
+      address: raw?.address || d.address || '',
+      currentAddress: {
+        line1: raw?.address_line1 || d.currentAddress?.line1 || d.address_line1 || '',
+        line2: raw?.address_line2 || d.currentAddress?.line2 || d.address_line2 || '',
+        city: raw?.city || d.currentAddress?.city || d.city || '',
+        state: raw?.state || d.currentAddress?.state || d.state || '',
+        country: raw?.country || d.currentAddress?.country || d.country || '',
+        pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
+      },
+      permanentAddress: (d.permanentAddress && (d.permanentAddress.line1 || d.permanentAddress.city)) ? d.permanentAddress : {
+        sameAsCurrent: true,
+        line1: raw?.address_line1 || d.currentAddress?.line1 || d.address_line1 || '',
+        line2: raw?.address_line2 || d.currentAddress?.line2 || d.address_line2 || '',
+        city: raw?.city || d.currentAddress?.city || d.city || '',
+        state: raw?.state || d.currentAddress?.state || d.state || '',
+        country: raw?.country || d.currentAddress?.country || d.country || 'India',
+        pincode: raw?.pincode || d.currentAddress?.pincode || d.pincode || '',
+      },
+      emergencyContact: {
+        name: d.emergencyContact?.name || d.emergency_contact_name || (raw?.profile_data?.emergencyContact?.name) || '',
+        relationship: d.emergencyContact?.relationship || d.emergency_contact_relationship || (raw?.profile_data?.emergencyContact?.relationship) || 'Parent',
+        mobile: d.emergencyContact?.mobile || d.emergency_contact_phone || (raw?.profile_data?.emergencyContact?.mobile) || '',
+        alternateMobile: d.emergencyContact?.alternateMobile || (raw?.profile_data?.emergencyContact?.alternateMobile) || ''
+      },
+      educationalDetails: {
+        highestQualification: raw?.highest_qualification || d.educationalDetails?.highestQualification || d.highest_qualification || '',
+        degreeName: raw?.degree_name || d.educationalDetails?.degreeName || d.degree_name || '',
+        specialization: raw?.specialization || d.educationalDetails?.specialization || d.specialization || '',
+        university: raw?.university || d.educationalDetails?.university || d.university || '',
+        yearOfPassing: (raw?.year_of_passing != null ? String(raw.year_of_passing) : '') || d.educationalDetails?.yearOfPassing || (d.year_of_passing != null ? String(d.year_of_passing) : ''),
+        gradePercentage: (raw?.grade_percentage != null ? String(raw.grade_percentage) : '') || d.educationalDetails?.gradePercentage || (d.grade_percentage != null ? String(d.grade_percentage) : ''),
+      },
+      experienceDetails: (() => {
+        const expType = raw?.experience_profile || d.experienceDetails?.experienceType || d.experience_profile || (d.previous_company ? 'Experienced' : 'Fresher');
+        const isFresher = expType === 'Fresher';
+        return {
+          experienceType: expType,
+          totalExperience: isFresher ? '0' : ((raw?.total_experience != null ? String(raw.total_experience) : '') || d.experienceDetails?.totalExperience || (d.total_experience != null ? String(d.total_experience) : '')),
+          previousCompany: isFresher ? '' : (raw?.previous_company || d.experienceDetails?.previousCompany || d.previous_company || ''),
+          previousDesignation: isFresher ? '' : (raw?.previous_designation || d.experienceDetails?.previousDesignation || d.previous_designation || ''),
+          previousDepartment: isFresher ? '' : (raw?.previous_department || d.experienceDetails?.previousDepartment || d.previous_department || ''),
+          startDate: isFresher ? '' : (raw?.employment_start_date || d.experienceDetails?.startDate || d.employment_start_date || ''),
+          endDate: isFresher ? '' : (raw?.employment_end_date || d.experienceDetails?.endDate || d.employment_end_date || ''),
+          lastDrawnSalary: isFresher ? '' : ((raw?.last_drawn_salary != null ? String(raw.last_drawn_salary) : '') || d.experienceDetails?.lastDrawnSalary || (d.last_drawn_salary != null ? String(d.last_drawn_salary) : '')),
+          companyLocation: isFresher ? '' : (raw?.previous_company_location || d.experienceDetails?.companyLocation || d.previous_company_location || ''),
+        };
+      })(),
+      department: resolveEmployeeDepartmentName(d, depts),
+      designation: raw?.designation || d.designation || 'Staff',
+      reportingManagerId: raw?.reporting_manager_id || d.reportingManagerId || d.reporting_manager_id || '',
+      reportingManagerName: raw?.reporting_manager_name || d.reportingManagerName || d.reporting_manager_name || '',
+      joiningDate: String(raw?.joining_date || d.joiningDate || d.joining_date || d.created_at?.split('T')[0] || '2026-01-01').slice(0, 10),
+      employmentType: (d.profile_data?.employmentType || raw?.employment_type || d.employmentType || d.employment_type || 'Full-Time') as any,
+      status: (d.profile_data?.status || raw?.status || d.status) === 'Inactive' ? 'Inactive' : ((d.status === 'Active' || d.status === 'Terminated' || d.status === 'On Leave' || d.status === 'Inactive') ? d.status : 'Active'),
+      avatar: raw?.avatar_url || d.avatar || d.avatar_url || '',
+      workLocation: raw?.branch || d.workLocation || d.work_location || d.branch || '',
+      basicSalary: (() => {
+        const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+        const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+        return b > 0 ? b : (c > 0 ? Math.round(c * 0.4) : 15000);
+      })(),
+      grossSalary: (() => {
+        const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+        const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+        return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+      })(),
+      monthlyCtc: (() => {
+        const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+        const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+        return c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+      })(),
+      allowances: (() => {
+        const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+        const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+        const resolvedCtc = c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+        const hra = Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra ?? d.salaryDetails?.hra) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.35) : 0);
+        const transport = Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport ?? d.salaryDetails?.conveyance) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.05) : 0);
+        const da = Number(d.allowances?.da ?? d.da ?? d.salaryDetails?.da) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.20) : 0);
+        const medical = Number(raw?.allowances_medical ?? d.allowances?.medical ?? d.allowances_medical) || 0;
+        const special = Number(raw?.allowances_special ?? d.allowances?.special ?? d.allowances_special) || 0;
+        return { hra, transport, medical, special, da, conveyance: transport };
+      })(),
+      salaryDetails: (() => {
+        const b = Number(raw?.basic_salary ?? d.basicSalary ?? d.basic_salary) || 0;
+        const c = Number(d.salaryDetails?.monthlyCtc ?? d.salary_details?.monthlyCtc ?? d.salary_details?.monthly_ctc ?? d.monthlyCtc ?? d.monthly_ctc ?? raw?.gross_salary ?? d.grossSalary) || 0;
+        const resolvedCtc = c > 0 ? c : (b > 0 ? Math.round(b / 0.4) : 0);
+        const resolvedBasic = b > 0 ? b : (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.4) : 15000);
+        const hra = Number(raw?.allowances_hra ?? d.allowances?.hra ?? d.hra ?? d.allowances_hra ?? d.salaryDetails?.hra) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.35) : 0);
+        const transport = Number(raw?.allowances_transport ?? d.allowances?.transport ?? d.conveyance ?? d.allowances_transport ?? d.salaryDetails?.conveyance) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.05) : 0);
+        const da = Number(d.allowances?.da ?? d.da ?? d.salaryDetails?.da) || (resolvedCtc > 0 ? Math.round(resolvedCtc * 0.20) : 0);
+        return {
+          ...(d.salaryDetails || d.salary_details || {}),
+          monthlyCtc: resolvedCtc,
+          basicSalary: resolvedBasic,
+          hra,
+          da,
+          conveyance: transport,
+          withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf ?? true,
+          salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme ?? 'WITH_PF',
+          panNumber: raw?.pan_number || d.salaryDetails?.panNumber || d.panNumber || d.pan_number || '',
+          uanNumber: raw?.uan_number || d.salaryDetails?.uanNumber || d.uanNumber || d.uan_number || '',
+        };
+      })(),
+      withPf: resolveEmployeeWithPf({
+        withPf: d.withPf,
+        salaryDetails: {
+          ...(d.salaryDetails || d.salary_details || {}),
+          withPf: d.salaryDetails?.withPf ?? d.salary_details?.withPf ?? d.withPf,
+          salaryScheme: d.salaryDetails?.salaryScheme ?? d.salary_details?.salaryScheme ?? d.salary_scheme
+        }
+      } as Employee),
+      payrollEligible: raw?.payroll_eligible ?? d.payrollEligible ?? d.payroll_eligible ?? true,
+      bankDetails: {
+        bankName: raw?.bank_name || d.bankDetails?.bankName || d.bankName || d.bank_name || '',
+        accountNumber: raw?.account_number || d.bankDetails?.accountNumber || d.accountNumber || d.account_number || '',
+        ifscCode: raw?.ifsc_code || d.bankDetails?.ifscCode || d.ifscCode || d.ifsc_code || '',
+        branch: raw?.branch || d.bankDetails?.branch || d.branch || '',
+      },
+      attendanceMethod: (raw?.attendance_method || d.attendanceMethod || d.attendance_method || (d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) ? 'Exempt' : 'Face Scan')) as any,
+      gpsAllowed: raw?.gps_allowed ?? d.gpsAllowed ?? d.gps_allowed ?? (d.designation === 'CEO' ? false : true),
+      faceRegistered: d.faceRegistered ?? false,
+      facePhotoUrl: d.facePhotoUrl || d.face_photo_url || '',
+      workShift: resolvedWorkShift,
       upcomingShift: resolvedUpcomingShift,
       upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
-    },
-    systemAccess: d.systemAccess,
+      shiftEffectiveFrom: d.shiftEffectiveFrom || d.shiftDetails?.effectiveFrom || undefined,
+      salaryEffectiveFrom: d.salaryEffectiveFrom || d.salaryDetails?.effectiveFrom || undefined,
+      documents: Array.isArray(d.documents) ? d.documents : [],
+      departmentId: raw?.department_id || d.departmentId || d.department_id,
+      designationId: d.designationId || d.designation_id,
+      branchId: d.branchId || d.branch_id,
+      role: (d.role === 'CEO' || d.designation === 'CEO' || (d.designation && d.designation.toLowerCase().includes('ceo')) || d.role_id === '42a8b0c3-22e5-40a0-bf78-2dd14475c6d6')
+        ? 'CEO'
+        : (d.role || (d.designation === 'HR Manager' ? 'HR Manager' : 'Employee')),
+      mustChangePassword: d.mustChangePassword ?? d.must_change_password ?? false,
+      accountStatus: raw?.account_status || d.accountStatus || d.account_status || 'ACTIVE',
+      credentialEmailStatus: d.credentialEmailStatus || d.credential_email_status || 'SENT',
+      credentialEmailSentAt: d.credentialEmailSentAt || d.credential_email_sent_at || '',
+      authUserId: d.authUserId || d.auth_id || d.id,
+      password: d.password,
+      portalPassword: d.portalPassword || d.portal_password || (raw?.profile_data?.portalPassword) || (raw?.profile_data?.portal_password) || '',
+      profile_data: raw?.profile_data || d.profile_data || {},
+      skills: Array.isArray(d.skills) ? d.skills : (typeof d.skills === 'string' ? d.skills.split(',').map((s: string) => s.trim()) : []),
+      professionalDetails: d.professionalDetails,
+      shiftDetails: {
+        ...(d.shiftDetails || {}),
+        assignedShift: resolvedWorkShift,
+        shiftType: resolvedWorkShift,
+        upcomingShift: resolvedUpcomingShift,
+        upcomingShiftEffectiveFrom: resolvedUpcomingEffectiveFrom,
+      },
+      systemAccess: d.systemAccess,
     });
   };
 
@@ -1944,7 +1944,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -1956,7 +1956,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         checkOutPhoto: r.checkOutPhoto?.startsWith('data:') ? undefined : r.checkOutPhoto,
       }));
       localStorage.setItem('vrm_hrms_attendance_records_persistent', JSON.stringify(compactRecords));
-    } catch {}
+    } catch { }
   }, [attendanceRecords]);
 
   const [attendanceAuditLogs, setAttendanceAuditLogs] = useState<AttendanceAuditLog[]>(INITIAL_ATTENDANCE_AUDIT_LOGS);
@@ -2006,7 +2006,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else {
         localStorage.removeItem(`vrm_punch_in_epoch_${employeeId}_${cleanDate}`);
       }
-    } catch {}
+    } catch { }
 
     // 2. Sync faceLogs timestamps for this employee & date so Daily Attendance never shows stale punch times
     const normEmpId = String(employeeId || '').trim().toLowerCase();
@@ -2041,8 +2041,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }));
             localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
           }
-        } catch {}
-        supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => {});
+        } catch { }
+        supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => { });
       }
       return changed ? updated : prev;
     });
@@ -2104,8 +2104,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], matchedShift?.id, matchedShift?.shiftName).policy : null;
     const shiftGraceMins = (
-      effectiveLatePolicy?.graceTimeMinutes ?? 
-      effectiveLatePolicy?.gracePeriodMinutes ?? 
+      effectiveLatePolicy?.graceTimeMinutes ??
+      effectiveLatePolicy?.gracePeriodMinutes ??
       (matchedShift as any)?.gracePeriodMinutes ??
       (matchedShift as any)?.gracePeriodMins ??
       (attendanceConfig?.lateGraceMinutes ?? 40)
@@ -2250,12 +2250,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       late_status: finalLateStatus,
       method: 'Manual Override',
       shift_date: String(existingRec.shiftDate || existingRec.date || '').split('T')[0]
-    }).catch(() => {});
+    }).catch(() => { });
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    
+
     const oldSummary = `Status: ${existingRec.status}, CheckIn: ${existingRec.checkIn || 'None'}, CheckOut: ${existingRec.checkOut || 'None'}, Hours: ${existingRec.workingHours}`;
     const newSummary = `Status: ${updatedRecord.status}, CheckIn: ${updatedRecord.checkIn || 'None'}, CheckOut: ${updatedRecord.checkOut || 'None'}, Hours: ${updatedRecord.workingHours}`;
 
@@ -2308,7 +2308,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return INITIAL_DEPARTMENT_OT_POLICIES;
   });
   const [employeeOtPolicies, setEmployeeOtPolicies] = useState<EmployeeOtPolicy[]>(() => {
@@ -2318,7 +2318,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       }
-    } catch {}
+    } catch { }
     return INITIAL_EMPLOYEE_OT_POLICIES;
   });
   const [attendanceGlobalSettings, setAttendanceGlobalSettings] = useState<AttendanceGlobalSettings>(INITIAL_ATTENDANCE_GLOBAL_SETTINGS);
@@ -2331,7 +2331,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return { ...INITIAL_OVERTIME_POLICY, ...parsed };
         }
       }
-    } catch {}
+    } catch { }
     return { ...INITIAL_OVERTIME_POLICY, version: 2 };
   });
   const [attendancePolicyConfig, setAttendancePolicyConfig] = useState<AttendancePolicyConfig>(INITIAL_ATTENDANCE_POLICY_CONFIG);
@@ -2345,8 +2345,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       };
       try {
         localStorage.setItem('vrm_hrms_overtime_policy_persistent', JSON.stringify(next));
-      } catch {}
-      supabaseDirect.saveCompanySetting('overtime_policy_data', next).catch(() => {});
+      } catch { }
+      supabaseDirect.saveCompanySetting('overtime_policy_data', next).catch(() => { });
       return next;
     });
     addNotification({
@@ -2502,7 +2502,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     let rejectedMessage = '';
     setAttendanceRecords(prev => {
-      const existingIdx = prev.findIndex(a => 
+      const existingIdx = prev.findIndex(a =>
         (a.employeeId === empId || a.employeeId === currentUser.id) &&
         (a.shiftDate === targetShiftDate || a.date === targetShiftDate)
       );
@@ -2796,7 +2796,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       late_status: calc.lateStatus,
       method: 'Manual Override',
       shift_date: String(target.date || '').split('T')[0]
-    }).catch(() => {});
+    }).catch(() => { });
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -2998,7 +2998,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       late_status: calc.lateStatus,
       method: 'Manual Override',
       shift_date: String(target.date || '').split('T')[0]
-    }).catch(() => {});
+    }).catch(() => { });
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -3085,18 +3085,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const currentMonthInfo = getMonthInfo();
     const calc = empObj
       ? calculateEnterpriseOvertimeRateAndAmount({
-          employee: empObj,
-          approvedOtHours: requestedHrs,
-          month: Number(String(req.date).split('-')[1]) || currentMonthInfo.monthIndex + 1,
-          year: Number(String(req.date).split('-')[0]) || currentMonthInfo.year,
-          payrollConfig: payrollSettingsConfig,
-          overtimePolicy,
-          departmentOtPolicies,
-          employeeOtPolicies,
-          rateType: req.rateType || (req as any).multiplier,
-          fixedHourlyRate: req.hourlyRate > 0 ? req.hourlyRate : undefined,
-          dateStr: req.date,
-        })
+        employee: empObj,
+        approvedOtHours: requestedHrs,
+        month: Number(String(req.date).split('-')[1]) || currentMonthInfo.monthIndex + 1,
+        year: Number(String(req.date).split('-')[0]) || currentMonthInfo.year,
+        payrollConfig: payrollSettingsConfig,
+        overtimePolicy,
+        departmentOtPolicies,
+        employeeOtPolicies,
+        rateType: req.rateType || (req as any).multiplier,
+        fixedHourlyRate: req.hourlyRate > 0 ? req.hourlyRate : undefined,
+        dateStr: req.date,
+      })
       : null;
 
     const newReq: OvertimeRequest = {
@@ -3119,11 +3119,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isBackdatedArrear: isLockedMonth,
       targetPayrollMonth: isLockedMonth ? currentMonthInfo.monthLong : undefined,
       targetPayrollYear: isLockedMonth ? currentMonthInfo.year : undefined,
-      ...( {
+      ...({
         requestedOtHours: requestedHrs,
         multiplier: req.rateType || (req as any).multiplier || '1x Salary',
         calculatedAmount: calc?.overtimeAmount || req.otAmount || 0,
-      } as any )
+      } as any)
     };
     setOvertimeRequests(prev => [newReq, ...prev]);
 
@@ -3147,9 +3147,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const approveOtRequest = (
-    id: string, 
-    approvedHours: number, 
-    reviewedBy: string, 
+    id: string,
+    approvedHours: number,
+    reviewedBy: string,
     remarks?: string,
     multiplier?: OvertimeRequest['multiplier']
   ) => {
@@ -3253,11 +3253,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isBackdatedArrear: isLockedMonth || r.isBackdatedArrear,
       targetPayrollMonth: isLockedMonth ? currentMonthInfo.monthLong : r.targetPayrollMonth,
       targetPayrollYear: isLockedMonth ? currentMonthInfo.year : r.targetPayrollYear,
-      ...( {
+      ...({
         multiplier: activeMultiplier,
         calculatedAmount: newCalculatedAmount,
         reviewRemarks: remarks || 'Approved'
-      } as any )
+      } as any)
     } : r));
 
     // Update AttendanceRecord
@@ -3367,7 +3367,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       reviewedBy,
       reviewedAt: nowStr,
       remarks: remarks || 'Rejected by HR/CEO',
-      ...( { reviewRemarks: remarks || 'Rejected by HR/CEO', calculatedAmount: 0 } as any )
+      ...({ reviewRemarks: remarks || 'Rejected by HR/CEO', calculatedAmount: 0 } as any)
     } : r));
 
     setAttendanceRecords(prev => prev.map(a => {
@@ -3401,9 +3401,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const editAndApproveOtRequest = (
-    id: string, 
-    approvedHours: number, 
-    reviewedBy: string, 
+    id: string,
+    approvedHours: number,
+    reviewedBy: string,
     remarks?: string,
     multiplier?: OvertimeRequest['multiplier']
   ) => {
@@ -3516,7 +3516,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isBackdatedArrear: isLockedMonth,
       targetPayrollMonth: isLockedMonth ? currentMonthInfo.monthLong : undefined,
       targetPayrollYear: isLockedMonth ? currentMonthInfo.year : undefined,
-      ...( {
+      ...({
         shiftEnd: '06:00 PM',
         potentialOtHours: entry.hours,
         requestedOtHours: entry.hours,
@@ -3524,7 +3524,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         multiplier: entry.multiplier || '1x Salary',
         calculatedAmount,
         reviewRemarks: `Directly credited by ${entry.addedBy}`
-      } as any )
+      } as any)
     };
 
     setOvertimeRequests(prev => [newReq, ...prev]);
@@ -3626,14 +3626,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (result.newRequests.length > 0) {
       const enriched = result.newRequests.map(r => ({
         ...r,
-        ...( {
+        ...({
           shiftEnd: r.shiftEndTime,
           potentialOtHours: r.otHours,
           requestedOtHours: r.otHours,
           workDescription: r.reason,
           multiplier: r.rateType,
           calculatedAmount: r.otAmount,
-        } as any )
+        } as any)
       }));
       setOvertimeRequests(prev => [...enriched, ...prev]);
     }
@@ -3755,8 +3755,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const effectiveLatePolicy = resolveEffectiveLatePolicy(emp, masterAttendancePolicies || [], matchedShift?.id, matchedShift?.shiftName).policy;
     const effectiveGraceMins = (
-      effectiveLatePolicy?.graceTimeMinutes ?? 
-      effectiveLatePolicy?.gracePeriodMinutes ?? 
+      effectiveLatePolicy?.graceTimeMinutes ??
+      effectiveLatePolicy?.gracePeriodMinutes ??
       (matchedShift as any)?.gracePeriodMinutes ??
       (matchedShift as any)?.gracePeriodMins ??
       (attendanceConfig?.lateGraceMinutes ?? 40)
@@ -3828,10 +3828,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       finalStatus === 'Holiday' || finalStatus === 'Week Off'
         ? ('Holiday' as any)
         : reasonLower.includes('field visit')
-        ? 'Field Visit'
-        : reasonLower.includes('unpaid leave')
-        ? ('Unpaid Leave' as any)
-        : 'Manual Punch';
+          ? 'Field Visit'
+          : reasonLower.includes('unpaid leave')
+            ? ('Unpaid Leave' as any)
+            : 'Manual Punch';
 
     const committedRecord: AttendanceRecord = {
       id: `ATT-${Date.now()}`,
@@ -3860,8 +3860,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     recentServerPunchesRef.current.set(compKey, { record: committedRecord, committedAt: Date.now() });
 
     setAttendanceRecords(prev => {
-      const idx = prev.findIndex(a => 
-        (a.employeeId === emp.id || a.employeeId === emp.employeeId || a.employeeId === entry.employeeId) && 
+      const idx = prev.findIndex(a =>
+        (a.employeeId === emp.id || a.employeeId === emp.employeeId || a.employeeId === entry.employeeId) &&
         (a.date === entry.date || a.shiftDate === entry.date)
       );
       if (idx !== -1) {
@@ -4038,8 +4038,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       try {
         localStorage.setItem('vrm_hrms_department_ot_policies_persistent', JSON.stringify(nextList));
-      } catch {}
-      supabaseDirect.saveCompanySetting('department_ot_policies_data', nextList).catch(() => {});
+      } catch { }
+      supabaseDirect.saveCompanySetting('department_ot_policies_data', nextList).catch(() => { });
       return nextList;
     });
   };
@@ -4082,8 +4082,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       try {
         localStorage.setItem('vrm_hrms_employee_ot_policies_persistent', JSON.stringify(next));
-      } catch {}
-      supabaseDirect.saveCompanySetting('employee_ot_policies_data', next).catch(() => {});
+      } catch { }
+      supabaseDirect.saveCompanySetting('employee_ot_policies_data', next).catch(() => { });
       return next;
     });
 
@@ -4106,7 +4106,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         }
       }
-    } catch {}
+    } catch { }
     return INITIAL_FACE_LOGS;
   });
 
@@ -4117,7 +4117,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return [];
   });
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -4135,7 +4135,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return [];
   });
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -4184,7 +4184,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch (e) {}
+    } catch (e) { }
     return [];
   });
 
@@ -4193,7 +4193,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (enhancedTasks && enhancedTasks.length > 0) {
       try {
         localStorage.setItem('vrm_hrms_enhanced_tasks', JSON.stringify(enhancedTasks));
-      } catch (e) {}
+      } catch (e) { }
     }
   }, [enhancedTasks]);
   const [taskMasters, setTaskMasters] = useState<TaskMasterItem[]>(INITIAL_TASK_MASTERS);
@@ -4315,7 +4315,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const raw = localStorage.getItem(getReadNotifStorageKey());
       if (raw) return new Set(JSON.parse(raw));
-    } catch {}
+    } catch { }
     return new Set();
   };
 
@@ -4326,7 +4326,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ids.forEach(id => { if (id) set.add(id); });
       const arr = Array.from(set).slice(-600);
       localStorage.setItem(getReadNotifStorageKey(), JSON.stringify(arr));
-    } catch {}
+    } catch { }
   };
 
   const doesNotificationMatchModule = (n: NotificationItem, mod: string): boolean => {
@@ -4491,7 +4491,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (p.company_id === 'company-b' || p.companyId === 'company-b' || p.email?.includes('nexus') || p.employeeId?.startsWith('EMP-B')) {
           isCompB = true;
         }
-      } catch {}
+      } catch { }
     }
     const defaultProfile = isCompB ? { ...COMPANY_B_PROFILE } : { ...COMPANY_A_PROFILE };
     const savedKey = isCompB ? 'vrm_hrms_company_info_company-b' : 'vrm_hrms_company_info';
@@ -4503,7 +4503,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return { ...defaultProfile, ...parsed };
         }
       }
-    } catch {}
+    } catch { }
     return defaultProfile;
   });
 
@@ -4560,7 +4560,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return DEFAULT_MASTER_ATTENDANCE_POLICIES;
   });
 
@@ -4573,7 +4573,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -4585,7 +4585,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return initialSandwichPolicies;
   });
 
@@ -4635,7 +4635,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('departments_data', departments);
       }
-    } catch {}
+    } catch { }
   }, [departments]);
 
   useEffect(() => {
@@ -4643,7 +4643,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('designations_data', designations);
       }
-    } catch {}
+    } catch { }
   }, [designations]);
 
 
@@ -4652,7 +4652,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('company_branches', companyBranches);
       }
-    } catch {}
+    } catch { }
   }, [companyBranches]);
 
   useEffect(() => {
@@ -4660,7 +4660,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('org_structure', orgStructure);
       }
-    } catch {}
+    } catch { }
   }, [orgStructure]);
 
   useEffect(() => {
@@ -4668,7 +4668,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('master_attendance_policies_data', masterAttendancePolicies);
       }
-    } catch {}
+    } catch { }
   }, [masterAttendancePolicies]);
 
   useEffect(() => {
@@ -4677,7 +4677,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('master_leave_policies_data', masterLeavePolicies);
       }
-    } catch {}
+    } catch { }
   }, [masterLeavePolicies]);
 
   useEffect(() => {
@@ -4685,7 +4685,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('leave_requests_data', leaveRequests);
       }
-    } catch {}
+    } catch { }
   }, [leaveRequests]);
 
   useEffect(() => {
@@ -4693,7 +4693,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('expenses_data', expenses);
       }
-    } catch {}
+    } catch { }
   }, [expenses]);
 
   useEffect(() => {
@@ -4701,7 +4701,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('holiday_policies_data', holidayPolicies);
       }
-    } catch {}
+    } catch { }
   }, [holidayPolicies]);
 
   useEffect(() => {
@@ -4709,7 +4709,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('weekly_schedules_data', weeklySchedules);
       }
-    } catch {}
+    } catch { }
   }, [weeklySchedules]);
 
   useEffect(() => {
@@ -4717,7 +4717,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('attendance_config_data', attendanceConfig);
       }
-    } catch {}
+    } catch { }
   }, [attendanceConfig]);
 
   useEffect(() => {
@@ -4725,7 +4725,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('department_ot_policies_data', departmentOtPolicies);
       }
-    } catch {}
+    } catch { }
   }, [departmentOtPolicies]);
 
   useEffect(() => {
@@ -4733,7 +4733,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('overtime_policy_data', overtimePolicy);
       }
-    } catch {}
+    } catch { }
   }, [overtimePolicy]);
 
   useEffect(() => {
@@ -4741,7 +4741,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('payroll_settings_config', payrollSettingsConfig);
       }
-    } catch {}
+    } catch { }
   }, [payrollSettingsConfig]);
 
   useEffect(() => {
@@ -4749,7 +4749,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('reward_policies_data', rewardPolicies);
       }
-    } catch {}
+    } catch { }
   }, [rewardPolicies]);
 
   useEffect(() => {
@@ -4757,7 +4757,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isCloudInitialized.current && !isSyncingFromCloud.current) {
         supabaseDirect.saveCompanySetting('employee_rewards_data', employeeRewardRecords);
       }
-    } catch {}
+    } catch { }
   }, [employeeRewardRecords]);
 
   const lastLoanPolicyMutationAtRef = React.useRef<number>(0);
@@ -4778,7 +4778,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     const next = [newPolicy, ...loanPolicies];
     setLoanPolicies(next);
-    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => {});
+    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => { });
     addPolicyAuditLog({
       policyCategory: 'Advance Salary / Loan Policy',
       policyId: newPolicy.id,
@@ -4812,7 +4812,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return p;
     });
     setLoanPolicies(next);
-    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => {});
+    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => { });
   };
 
   const deleteLoanPolicy = async (id: string) => {
@@ -4820,7 +4820,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const targetPolicy = loanPolicies.find(p => p.id === id);
     const next = loanPolicies.filter(p => p.id !== id);
     setLoanPolicies(next);
-    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => {});
+    await supabaseDirect.saveCompanySetting('loan_policies_data', next).catch(() => { });
     if (targetPolicy) {
       addPolicyAuditLog({
         policyCategory: 'Advance Salary / Loan Policy',
@@ -4834,7 +4834,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     try {
       localStorage.removeItem('vrm_hrms_loan_policies');
-    } catch {}
+    } catch { }
   };
 
   const [loanRecords, setLoanRecords] = useState<LoanRecord[]>([]);
@@ -4845,14 +4845,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Dynamic Eligibility Calculator (NO HARDCODING)
   const calculateEmployeeLoanEligibility = (employeeId: string, policyId?: string) => {
     let emp = employees.find(e => e.employeeId === employeeId || e.id === employeeId || e.email?.toLowerCase() === employeeId?.toLowerCase());
-    
+
     // Match against current user if relevant
     if (!emp && currentUser && (currentUser.employeeId === employeeId || currentUser.email?.toLowerCase() === employeeId?.toLowerCase())) {
       emp = employees.find(e => e.employeeId === currentUser.employeeId || e.email === currentUser.email);
     }
 
     const rawPolicy = (policyId ? loanPolicies.find(p => p.id === policyId) : activeLoanPolicy);
-    
+
     if (!rawPolicy || rawPolicy.status === 'Inactive') {
       return {
         isEligible: false,
@@ -5031,9 +5031,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const nonRejected = empAllLoans.filter(r => r.status !== 'Rejected');
       const windowMonths =
         policy.requestLimit === 'ONCE_A_MONTH' ? 1 :
-        policy.requestLimit === 'ONCE_IN_3_MONTHS' ? 3 :
-        policy.requestLimit === 'ONCE_IN_6_MONTHS' ? 6 :
-        policy.requestLimit === 'ONCE_A_YEAR' ? 12 : 0;
+          policy.requestLimit === 'ONCE_IN_3_MONTHS' ? 3 :
+            policy.requestLimit === 'ONCE_IN_6_MONTHS' ? 6 :
+              policy.requestLimit === 'ONCE_A_YEAR' ? 12 : 0;
 
       if (windowMonths > 0 && nonRejected.length > 0) {
         const recentConflict = nonRejected.find(r => {
@@ -5051,8 +5051,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (recentConflict && !policy.allowPreviousPending) {
           const limitLabel =
             policy.requestLimit === 'ONCE_A_MONTH' ? 'Once in a Month' :
-            policy.requestLimit === 'ONCE_IN_3_MONTHS' ? 'Once in 3 Months' :
-            policy.requestLimit === 'ONCE_IN_6_MONTHS' ? 'Once in 6 Months' : 'Once a Year';
+              policy.requestLimit === 'ONCE_IN_3_MONTHS' ? 'Once in 3 Months' :
+                policy.requestLimit === 'ONCE_IN_6_MONTHS' ? 'Once in 6 Months' : 'Once a Year';
           return {
             isEligible: false,
             ineligibleReason: `Advance Salary policy restricts requests to "${limitLabel}". You already have a request (${recentConflict.id}) submitted on ${recentConflict.requestedDate}.`,
@@ -5087,9 +5087,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const effectiveLimit = eligibility.maxEligibleAmount;
 
     if (requestData.requestedAmount > effectiveLimit) {
-      return { 
-        success: false, 
-        message: `Requested amount cannot exceed your policy eligible limit of ${formatCurrency(effectiveLimit)}.` 
+      return {
+        success: false,
+        message: `Requested amount cannot exceed your policy eligible limit of ${formatCurrency(effectiveLimit)}.`
       };
     }
 
@@ -5161,7 +5161,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     setLoanRecords(prev => {
       const updated = [newRecord, ...prev];
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
       return updated;
     });
     addNotification({
@@ -5184,8 +5184,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     employeeVisibleNotes?: string;
     rejectionReason?: string;
   }) => {
-    const isCEOApprover = 
-      currentUser.role === 'CEO' || 
+    const isCEOApprover =
+      currentUser.role === 'CEO' ||
       currentUser.role === 'Super Admin' ||
       currentUser.designation === 'CEO' ||
       (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) ||
@@ -5224,128 +5224,128 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     setLoanRecords(prev => {
       const updated = prev.map(rec => {
-      if (rec.id !== id) return rec;
+        if (rec.id !== id) return rec;
 
-      if (options.action === 'Approve') {
-        const approvedAmt = options.approvedAmount ?? rec.requestedAmount;
-        const isFullOnly = activeLoanPolicy?.repaymentType === 'FULL';
-        const approvedM = isFullOnly ? 1 : Math.max(1, toNum(options.approvedMonths ?? rec.installmentMonths) || 1);
-        const emi = approvedM === 1 ? approvedAmt : (toNum(options.monthlyDeduction) || Math.round(approvedAmt / approvedM));
-        const startOffset = activeLoanPolicy?.deductionStart === 'CURRENT_MONTH' ? 0 : 1;
-        const defaultStartDate = new Date(now.getFullYear(), now.getMonth() + startOffset, 1);
-        const defaultDeductionMonth = defaultStartDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
-        const startMonth = options.deductionStartMonth || rec.deductionStartMonth || defaultDeductionMonth;
+        if (options.action === 'Approve') {
+          const approvedAmt = options.approvedAmount ?? rec.requestedAmount;
+          const isFullOnly = activeLoanPolicy?.repaymentType === 'FULL';
+          const approvedM = isFullOnly ? 1 : Math.max(1, toNum(options.approvedMonths ?? rec.installmentMonths) || 1);
+          const emi = approvedM === 1 ? approvedAmt : (toNum(options.monthlyDeduction) || Math.round(approvedAmt / approvedM));
+          const startOffset = activeLoanPolicy?.deductionStart === 'CURRENT_MONTH' ? 0 : 1;
+          const defaultStartDate = new Date(now.getFullYear(), now.getMonth() + startOffset, 1);
+          const defaultDeductionMonth = defaultStartDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+          const startMonth = options.deductionStartMonth || rec.deductionStartMonth || defaultDeductionMonth;
 
-        const parsedStart = new Date(`1 ${startMonth}`);
-        const baseStartDate = !isNaN(parsedStart.getTime()) ? parsedStart : defaultStartDate;
+          const parsedStart = new Date(`1 ${startMonth}`);
+          const baseStartDate = !isNaN(parsedStart.getTime()) ? parsedStart : defaultStartDate;
 
-        const schedule: LoanRepaymentInstallment[] = Array.from({ length: approvedM }).map((_, idx) => {
-          const d = new Date(baseStartDate.getFullYear(), baseStartDate.getMonth() + idx, 1);
-          const periodMonth = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
-          return {
-            installmentNumber: idx + 1,
-            periodMonth,
-            scheduledAmount: idx === approvedM - 1 ? approvedAmt - (emi * (approvedM - 1)) : emi,
-            actualDeducted: 0,
-            remainingBalance: Math.max(0, approvedAmt - (emi * (idx + 1))),
-            status: 'Pending'
+          const schedule: LoanRepaymentInstallment[] = Array.from({ length: approvedM }).map((_, idx) => {
+            const d = new Date(baseStartDate.getFullYear(), baseStartDate.getMonth() + idx, 1);
+            const periodMonth = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            return {
+              installmentNumber: idx + 1,
+              periodMonth,
+              scheduledAmount: idx === approvedM - 1 ? approvedAmt - (emi * (approvedM - 1)) : emi,
+              actualDeducted: 0,
+              remainingBalance: Math.max(0, approvedAmt - (emi * (idx + 1))),
+              status: 'Pending'
+            };
+          });
+
+          const updatedRec: LoanRecord = {
+            ...rec,
+            status: 'Approved',
+            approvedAmount: approvedAmt,
+            approvedMonths: approvedM,
+            monthlyDeduction: emi,
+            outstandingBalance: approvedAmt,
+            deductionStartMonth: startMonth,
+            internalHrNotes: options.internalHrNotes || rec.internalHrNotes,
+            employeeVisibleNotes: options.employeeVisibleNotes || (approvedM === 1
+              ? `Approved for ${formatCurrency(approvedAmt)}. Full amount will be deducted from your ${startMonth} salary.`
+              : `Approved for ${formatCurrency(approvedAmt)} across ${approvedM} months (${formatCurrency(emi)}/mo starting ${startMonth}).`),
+            repaymentSchedule: schedule,
+            ceoApproval: {
+              approvedBy: approverName,
+              approvedAt: timestamp,
+              remarks: options.internalHrNotes,
+              status: 'Approved'
+            },
+            auditLogs: [
+              ...rec.auditLogs,
+              {
+                id: `LOG-${Date.now()}`,
+                loanId: rec.id,
+                action: `Request Approved by ${approverRoleLabel}`,
+                performedBy: approverName,
+                performedByRole: currentUser.role,
+                timestamp,
+                previousValue: `Status: ${rec.status}, Requested: ${formatCurrency(rec.requestedAmount)}`,
+                newValue: `Status: Approved, Sanctioned: ${formatCurrency(approvedAmt)} @ ${formatCurrency(emi)}/mo for ${approvedM} mos. Pending Accounts payment distribution.`
+              }
+            ]
           };
-        });
 
-        const updatedRec: LoanRecord = {
-          ...rec,
-          status: 'Approved',
-          approvedAmount: approvedAmt,
-          approvedMonths: approvedM,
-          monthlyDeduction: emi,
-          outstandingBalance: approvedAmt,
-          deductionStartMonth: startMonth,
-          internalHrNotes: options.internalHrNotes || rec.internalHrNotes,
-          employeeVisibleNotes: options.employeeVisibleNotes || (approvedM === 1
-            ? `Approved for ${formatCurrency(approvedAmt)}. Full amount will be deducted from your ${startMonth} salary.`
-            : `Approved for ${formatCurrency(approvedAmt)} across ${approvedM} months (${formatCurrency(emi)}/mo starting ${startMonth}).`),
-          repaymentSchedule: schedule,
-          ceoApproval: {
-            approvedBy: approverName,
-            approvedAt: timestamp,
-            remarks: options.internalHrNotes,
-            status: 'Approved'
-          },
-          auditLogs: [
-            ...rec.auditLogs,
-            {
-              id: `LOG-${Date.now()}`,
-              loanId: rec.id,
-              action: `Request Approved by ${approverRoleLabel}`,
-              performedBy: approverName,
-              performedByRole: currentUser.role,
-              timestamp,
-              previousValue: `Status: ${rec.status}, Requested: ${formatCurrency(rec.requestedAmount)}`,
-              newValue: `Status: Approved, Sanctioned: ${formatCurrency(approvedAmt)} @ ${formatCurrency(emi)}/mo for ${approvedM} mos. Pending Accounts payment distribution.`
-            }
-          ]
-        };
+          // Notify Accounts to distribute payment
+          addNotification({
+            title: `${approverRoleLabel} Approved Advance Salary`,
+            message: `${approverRoleLabel} approved advance salary request for ${rec.employeeName} (${formatCurrency(approvedAmt)}). Ready for payment distribution.`,
+            priority: 'Important',
+            category: 'Payroll',
+            targetRoles: ['ACCOUNTS', 'Finance Manager']
+          });
 
-        // Notify Accounts to distribute payment
-        addNotification({
-          title: `${approverRoleLabel} Approved Advance Salary`,
-          message: `${approverRoleLabel} approved advance salary request for ${rec.employeeName} (${formatCurrency(approvedAmt)}). Ready for payment distribution.`,
-          priority: 'Important',
-          category: 'Payroll',
-          targetRoles: ['ACCOUNTS', 'Finance Manager']
-        });
+          // Notify Employee
+          addNotification({
+            title: 'Advance Salary Approved',
+            message: `Your advance salary request for ${formatCurrency(approvedAmt)} has been approved by ${approverRoleLabel} and queued for payment distribution.`,
+            priority: 'Normal',
+            category: 'Payroll',
+            targetEmployeeIds: [rec.employeeId]
+          });
 
-        // Notify Employee
-        addNotification({
-          title: 'Advance Salary Approved',
-          message: `Your advance salary request for ${formatCurrency(approvedAmt)} has been approved by ${approverRoleLabel} and queued for payment distribution.`,
-          priority: 'Normal',
-          category: 'Payroll',
-          targetEmployeeIds: [rec.employeeId]
-        });
+          return updatedRec;
+        } else {
+          const rejectionReason = options.rejectionReason || 'Request does not meet current organizational loan criteria.';
+          const updatedRec: LoanRecord = {
+            ...rec,
+            status: 'Rejected',
+            rejectionReason,
+            internalHrNotes: options.internalHrNotes,
+            ceoApproval: {
+              approvedBy: approverName,
+              approvedAt: timestamp,
+              remarks: rejectionReason,
+              status: 'Rejected'
+            },
+            auditLogs: [
+              ...rec.auditLogs,
+              {
+                id: `LOG-${Date.now()}`,
+                loanId: rec.id,
+                action: 'Request Rejected by CEO',
+                performedBy: approverName,
+                performedByRole: 'CEO',
+                timestamp,
+                previousValue: `Status: ${rec.status}`,
+                newValue: `Status: Rejected. Reason: ${rejectionReason}`
+              }
+            ]
+          };
 
-        return updatedRec;
-      } else {
-        const rejectionReason = options.rejectionReason || 'Request does not meet current organizational loan criteria.';
-        const updatedRec: LoanRecord = {
-          ...rec,
-          status: 'Rejected',
-          rejectionReason,
-          internalHrNotes: options.internalHrNotes,
-          ceoApproval: {
-            approvedBy: approverName,
-            approvedAt: timestamp,
-            remarks: rejectionReason,
-            status: 'Rejected'
-          },
-          auditLogs: [
-            ...rec.auditLogs,
-            {
-              id: `LOG-${Date.now()}`,
-              loanId: rec.id,
-              action: 'Request Rejected by CEO',
-              performedBy: approverName,
-              performedByRole: 'CEO',
-              timestamp,
-              previousValue: `Status: ${rec.status}`,
-              newValue: `Status: Rejected. Reason: ${rejectionReason}`
-            }
-          ]
-        };
+          // Notify requesting employee with authorized rejection reason
+          addNotification({
+            title: 'Advance Salary Rejected',
+            message: `Your advance salary request was rejected by CEO. Reason: ${rejectionReason}`,
+            priority: 'Important',
+            category: 'Payroll',
+            targetEmployeeIds: [rec.employeeId]
+          });
 
-        // Notify requesting employee with authorized rejection reason
-        addNotification({
-          title: 'Advance Salary Rejected',
-          message: `Your advance salary request was rejected by CEO. Reason: ${rejectionReason}`,
-          priority: 'Important',
-          category: 'Payroll',
-          targetEmployeeIds: [rec.employeeId]
-        });
-
-        return updatedRec;
-      }
+          return updatedRec;
+        }
       });
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
       return updated;
     });
   };
@@ -5364,58 +5364,58 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       let disbursedEmpName = '';
       let disbursedEmpId = '';
       const updated = prev.map(rec => {
-      if (rec.id !== id) return rec;
+        if (rec.id !== id) return rec;
 
-      disbursedEmpName = rec.employeeName;
-      disbursedEmpId = rec.employeeId;
-      const amt = details.disbursedAmount || rec.approvedAmount || rec.requestedAmount;
-      const months = rec.approvedMonths || rec.installmentMonths || 3;
-      const emi = rec.monthlyDeduction || Math.round(amt / months);
-      const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1);
-      const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
-      const startMonth = rec.deductionStartMonth || defaultDeductionMonth;
+        disbursedEmpName = rec.employeeName;
+        disbursedEmpId = rec.employeeId;
+        const amt = details.disbursedAmount || rec.approvedAmount || rec.requestedAmount;
+        const months = rec.approvedMonths || rec.installmentMonths || 3;
+        const emi = rec.monthlyDeduction || Math.round(amt / months);
+        const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1);
+        const defaultDeductionMonth = nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        const startMonth = rec.deductionStartMonth || defaultDeductionMonth;
 
-      const schedule: LoanRepaymentInstallment[] = Array.from({ length: months }).map((_, idx) => {
+        const schedule: LoanRepaymentInstallment[] = Array.from({ length: months }).map((_, idx) => {
+          return {
+            installmentNumber: idx + 1,
+            periodMonth: `${startMonth} +${idx}`,
+            scheduledAmount: idx === months - 1 ? amt - (emi * (months - 1)) : emi,
+            actualDeducted: 0,
+            remainingBalance: Math.max(0, amt - (emi * (idx + 1))),
+            status: 'Pending'
+          };
+        });
+
         return {
-          installmentNumber: idx + 1,
-          periodMonth: `${startMonth} +${idx}`,
-          scheduledAmount: idx === months - 1 ? amt - (emi * (months - 1)) : emi,
-          actualDeducted: 0,
-          remainingBalance: Math.max(0, amt - (emi * (idx + 1))),
-          status: 'Pending'
+          ...rec,
+          status: 'Active' as const,
+          disbursedAmount: amt,
+          outstandingBalance: amt,
+          disbursementDetails: {
+            disbursedAt: details.disbursedDate,
+            disbursedBy: officer,
+            paymentMode: details.paymentMode,
+            transactionRef: details.transactionRef,
+            notes: details.notes,
+            paymentProofUrl: details.paymentProofUrl
+          },
+          repaymentSchedule: schedule,
+          auditLogs: [
+            ...rec.auditLogs,
+            {
+              id: `LOG-${Date.now()}`,
+              loanId: rec.id,
+              action: 'Loan Disbursed by Accounts',
+              performedBy: officer,
+              performedByRole: currentUser.role,
+              timestamp: `${details.disbursedDate} 12:00 PM`,
+              previousValue: 'Status: Approved',
+              newValue: `Status: Active/Disbursed, Disbursed ${formatCurrency(amt)} via ${details.paymentMode} Ref: ${details.transactionRef || 'N/A'}`
+            }
+          ]
         };
       });
-
-      return {
-        ...rec,
-        status: 'Active' as const,
-        disbursedAmount: amt,
-        outstandingBalance: amt,
-        disbursementDetails: {
-          disbursedAt: details.disbursedDate,
-          disbursedBy: officer,
-          paymentMode: details.paymentMode,
-          transactionRef: details.transactionRef,
-          notes: details.notes,
-          paymentProofUrl: details.paymentProofUrl
-        },
-        repaymentSchedule: schedule,
-        auditLogs: [
-          ...rec.auditLogs,
-          {
-            id: `LOG-${Date.now()}`,
-            loanId: rec.id,
-            action: 'Loan Disbursed by Accounts',
-            performedBy: officer,
-            performedByRole: currentUser.role,
-            timestamp: `${details.disbursedDate} 12:00 PM`,
-            previousValue: 'Status: Approved',
-            newValue: `Status: Active/Disbursed, Disbursed ${formatCurrency(amt)} via ${details.paymentMode} Ref: ${details.transactionRef || 'N/A'}`
-          }
-        ]
-      };
-      });
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
 
       if (disbursedEmpId) {
         // Notify employee
@@ -5451,56 +5451,56 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     setLoanRecords(prev => {
       const updated = prev.map(rec => {
-      if (rec.id !== id) return rec;
+        if (rec.id !== id) return rec;
 
-      const newBalance = Math.max(0, toNum(rec.outstandingBalance) - repayment.amount);
-      const isClosed = newBalance === 0;
+        const newBalance = Math.max(0, toNum(rec.outstandingBalance) - repayment.amount);
+        const isClosed = newBalance === 0;
 
-      const manualEntry: LoanManualRepayment = {
-        id: `PAY-MAN-${Date.now()}`,
-        loanId: rec.id,
-        amount: repayment.amount,
-        repaymentDate: repayment.repaymentDate,
-        paymentMode: repayment.paymentMode,
-        referenceNumber: repayment.referenceNumber,
-        recordedBy: recorder,
-        notes: repayment.notes
-      };
+        const manualEntry: LoanManualRepayment = {
+          id: `PAY-MAN-${Date.now()}`,
+          loanId: rec.id,
+          amount: repayment.amount,
+          repaymentDate: repayment.repaymentDate,
+          paymentMode: repayment.paymentMode,
+          referenceNumber: repayment.referenceNumber,
+          recordedBy: recorder,
+          notes: repayment.notes
+        };
 
-      const updatedSchedule = rec.repaymentSchedule.map(inst => {
-        if (inst.status === 'Pending' && inst.actualDeducted < inst.scheduledAmount) {
-          return {
-            ...inst,
-            actualDeducted: inst.scheduledAmount,
-            status: 'Deducted' as const,
-            deductedAt: repayment.repaymentDate
-          };
-        }
-        return inst;
-      });
-
-      return {
-        ...rec,
-        outstandingBalance: newBalance,
-        status: isClosed ? 'Closed' as const : rec.status,
-        manualRepayments: [...(rec.manualRepayments || []), manualEntry],
-        repaymentSchedule: updatedSchedule,
-        auditLogs: [
-          ...rec.auditLogs,
-          {
-            id: `LOG-${Date.now()}`,
-            loanId: rec.id,
-            action: isClosed ? 'Loan Closed (Manual Repayment)' : 'Manual Repayment Added',
-            performedBy: recorder,
-            performedByRole: currentUser.role,
-            timestamp: `${repayment.repaymentDate} 04:00 PM`,
-            previousValue: `Outstanding: ${formatCurrency(rec.outstandingBalance)}`,
-            newValue: `Outstanding: ${formatCurrency(newBalance)} (Paid ${formatCurrency(repayment.amount)} via ${repayment.paymentMode})`
+        const updatedSchedule = rec.repaymentSchedule.map(inst => {
+          if (inst.status === 'Pending' && inst.actualDeducted < inst.scheduledAmount) {
+            return {
+              ...inst,
+              actualDeducted: inst.scheduledAmount,
+              status: 'Deducted' as const,
+              deductedAt: repayment.repaymentDate
+            };
           }
-        ]
-      };
+          return inst;
+        });
+
+        return {
+          ...rec,
+          outstandingBalance: newBalance,
+          status: isClosed ? 'Closed' as const : rec.status,
+          manualRepayments: [...(rec.manualRepayments || []), manualEntry],
+          repaymentSchedule: updatedSchedule,
+          auditLogs: [
+            ...rec.auditLogs,
+            {
+              id: `LOG-${Date.now()}`,
+              loanId: rec.id,
+              action: isClosed ? 'Loan Closed (Manual Repayment)' : 'Manual Repayment Added',
+              performedBy: recorder,
+              performedByRole: currentUser.role,
+              timestamp: `${repayment.repaymentDate} 04:00 PM`,
+              previousValue: `Outstanding: ${formatCurrency(rec.outstandingBalance)}`,
+              newValue: `Outstanding: ${formatCurrency(newBalance)} (Paid ${formatCurrency(repayment.amount)} via ${repayment.paymentMode})`
+            }
+          ]
+        };
       });
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
       return updated;
     });
   };
@@ -5582,7 +5582,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return;
         }
       }
-    } catch {}
+    } catch { }
     setCompanyInfo(isCompanyB ? { ...COMPANY_B_PROFILE } : { ...COMPANY_A_PROFILE });
   };
 
@@ -5923,7 +5923,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.removeItem('vrm_hrms_payroll_settings_config');
         localStorage.removeItem('vrm_hrms_loan_policies');
         localStorage.removeItem('vrm_hrms_geofence_config');
-      } catch {}
+      } catch { }
     } else {
       const blankCompany: CompanyInfo = {
         logoUrl: '',
@@ -5967,7 +5967,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMasterAttendancePolicies(updated);
     try {
       localStorage.setItem('vrm_hrms_master_attendance_policies_persistent', JSON.stringify(updated));
-    } catch {}
+    } catch { }
     supabaseDirect.saveCompanySetting('master_attendance_policies_data', updated).catch(err => {
       console.warn('[HRMSContext] Failed saving master_attendance_policies_data:', err);
     });
@@ -6126,9 +6126,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const reviewAttendanceCorrection = (
-    id: string, 
-    decision: 'Approved' | 'Rejected', 
-    comment?: string, 
+    id: string,
+    decision: 'Approved' | 'Rejected',
+    comment?: string,
     adjustedTime?: { checkIn?: string; checkOut?: string }
   ) => {
     const target = attendanceCorrections.find(c => c.id === id);
@@ -6242,7 +6242,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         late_status: 'On Time',
         method: 'Manual Override',
         shift_date: String(target.date || '').split('T')[0]
-      }).catch(() => {});
+      }).catch(() => { });
 
       triggerToast(`Correction Approved: Attendance for ${target.employeeName} updated to Check-in ${checkInVal}.`);
     } else {
@@ -6256,7 +6256,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMasterLeavePolicies(updated);
     try {
       localStorage.setItem('vrm_hrms_master_leave_policies_persistent', JSON.stringify(updated));
-    } catch {}
+    } catch { }
     supabaseDirect.saveCompanySetting('master_leave_policies_data', updated).catch(err => {
       console.warn('[HRMSContext] Failed saving master_leave_policies_data:', err);
     });
@@ -6286,7 +6286,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
         changeSummary: `Created master leave policy "${newPolicy.policyName}" with ${newPolicy.monthlyFreeUnpaidLeaves} free unpaid day(s).`
       });
-    } catch {}
+    } catch { }
     triggerToast(`Created leave policy "${newPolicy.policyName}".`);
   };
 
@@ -6315,7 +6315,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             oldValues: p,
             newValues: next
           });
-        } catch {}
+        } catch { }
         return next;
       }
       return p;
@@ -6343,7 +6343,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
             changeSummary: `Archived leave policy "${p.policyName}". Historical records preserved.`
           });
-        } catch {}
+        } catch { }
         return next;
       }
       return p;
@@ -6373,7 +6373,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
             changeSummary: `${nextStatus === 'Active' ? 'Activated' : 'Deactivated'} leave policy "${p.policyName}".`
           });
-        } catch {}
+        } catch { }
         return next;
       }
       return p;
@@ -6389,9 +6389,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const policyToDelete = masterLeavePolicies.find(p => p.id === cleanId || String(p.id).trim() === cleanId || (cleanId && p.policyName.trim().toLowerCase() === cleanId.toLowerCase()));
     const targetName = policyToDelete?.policyName || cleanId;
     const updated = masterLeavePolicies.filter(p => p.id !== cleanId && String(p.id).trim() !== cleanId && (!cleanId || p.policyName.trim().toLowerCase() !== cleanId.toLowerCase()));
-    
+
     syncMasterLeavePoliciesState(updated);
-    
+
     if (policyToDelete) {
       try {
         addPolicyAuditLog({
@@ -6422,7 +6422,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         performedByRole: (currentUser?.role === 'Super Admin' ? 'CEO' : currentUser?.role) || 'Admin',
         changeSummary: 'Reset leave policies to standard Confirmed (1 Day/Month Paid) and Provisional (1 Paid/3 Months) policies.'
       });
-    } catch {}
+    } catch { }
     triggerToast('Reset leave policies to standard defaults.');
   };
 
@@ -6475,8 +6475,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setSandwichPolicies(updated);
     try {
       localStorage.setItem('vrm_hrms_sandwich_policies_persistent', JSON.stringify(updated));
-    } catch {}
-    supabaseDirect.saveCompanySetting('sandwich_policies_data', updated).catch(() => {});
+    } catch { }
+    supabaseDirect.saveCompanySetting('sandwich_policies_data', updated).catch(() => { });
 
     // Dynamically recalculate all pending leave requests to reflect the updated sandwich policy
     setLeaveRequests(prevLeaves => {
@@ -6522,7 +6522,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ) {
           hasChanges = true;
           if (l.id && !l.id.startsWith('LR-')) {
-            supabaseDirect.updateLeaveRequestDaysCount(l.id, newDaysCount).catch(() => {});
+            supabaseDirect.updateLeaveRequestDaysCount(l.id, newDaysCount).catch(() => { });
           }
           return {
             ...l,
@@ -6541,8 +6541,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (hasChanges) {
         try {
           localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(recomputed));
-        } catch {}
-        supabaseDirect.saveCompanySetting('leave_requests_data', recomputed).catch(() => {});
+        } catch { }
+        supabaseDirect.saveCompanySetting('leave_requests_data', recomputed).catch(() => { });
         return recomputed;
       }
       return prevLeaves;
@@ -6700,7 +6700,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (l.id === leaveRequestId) {
         const origSandwichDays = l.sandwichDays || 0;
         const origTotal = l.daysCount;
-        
+
         let newBreakdown = l.sandwichDetails?.breakdown ? [...l.sandwichDetails.breakdown] : [];
         const excluded = overrideData.excludedDates || [];
         const included = overrideData.includedDates || [];
@@ -6825,7 +6825,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Rewards & Recognition Direct Synchronizer
   const syncRewardPoliciesState = (updated: RewardPolicy[]) => {
     setRewardPolicies(updated);
-    supabaseDirect.saveCompanySetting('reward_policies_data', updated).catch(() => {});
+    supabaseDirect.saveCompanySetting('reward_policies_data', updated).catch(() => { });
   };
 
   const addRewardPolicy = (policy: Omit<RewardPolicy, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'createdBy' | 'updatedBy'>) => {
@@ -6941,7 +6941,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setEmployeeRewardRecords(prev => {
       const next = [newRecord, ...prev];
-      supabaseDirect.saveCompanySetting('employee_rewards_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('employee_rewards_data', next).catch(() => { });
       return next;
     });
     triggerToast(`Award granted: "${grant.rewardName}" for ${grant.employeeName}${grant.addToPayroll ? ' (Queued for Next Payroll)' : ''}!`);
@@ -7097,12 +7097,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     // Finance / Accounts staff access
-    const isFinanceStaff = 
+    const isFinanceStaff =
       currentUser.role === 'Finance Manager' ||
       (currentUser.department && (currentUser.department.toLowerCase().includes('finance') || currentUser.department.toLowerCase().includes('accounts'))) ||
       (currentUser.designation && (currentUser.designation.toLowerCase().includes('accounts') || currentUser.designation.toLowerCase().includes('finance')));
 
-    const isCeoAuthority = 
+    const isCeoAuthority =
       currentUser.role === 'CEO' ||
       currentUser.role === 'Super Admin' ||
       currentUser.designation === 'CEO' ||
@@ -7114,10 +7114,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Strictly NO unrestricted access to employee personal records, attendance, company reports, settings, assets, recruitment, or CRM
     if (isFinanceStaff && !isCeoAuthority) {
       if (
-        module === 'employees' || 
-        module === 'attendance' || 
-        module === 'reports' || 
-        module === 'settings' || 
+        module === 'employees' ||
+        module === 'attendance' ||
+        module === 'reports' ||
+        module === 'settings' ||
         module === 'customer_data' ||
         module === 'whatsapp_crm' ||
         module === 'assets' ||
@@ -7149,7 +7149,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       );
     }
 
-    const isHrOrCeo = 
+    const isHrOrCeo =
       isCeoAuthority ||
       currentUser.role === 'Admin' ||
       currentUser.role === 'HR Manager' ||
@@ -7214,24 +7214,24 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 1. Check corporate assets assigned
     const assignedAssets = assets.filter(a => a.assignedEmployeeId === empId || a.assignedEmployeeId === emp.id);
     if (assignedAssets.length > 0) {
-      return { 
-        canDelete: false, 
-        reason: `Cannot delete ${emp.firstName} ${emp.lastName}: Employee has ${assignedAssets.length} active corporate asset(s) assigned (${assignedAssets.map(a => a.name).join(', ')}). Please unassign assets first.` 
+      return {
+        canDelete: false,
+        reason: `Cannot delete ${emp.firstName} ${emp.lastName}: Employee has ${assignedAssets.length} active corporate asset(s) assigned (${assignedAssets.map(a => a.name).join(', ')}). Please unassign assets first.`
       };
     }
 
     // 2. Check pending / open tasks
     const activeTasks = tasks.filter(t => t.assignedEmployeeId === empId && t.status !== 'Completed');
     if (activeTasks.length > 0) {
-      return { 
-        canDelete: false, 
-        reason: `Cannot delete ${emp.firstName} ${emp.lastName}: Employee has ${activeTasks.length} open task(s) assigned. Please reassign or complete tasks first.` 
+      return {
+        canDelete: false,
+        reason: `Cannot delete ${emp.firstName} ${emp.lastName}: Employee has ${activeTasks.length} open task(s) assigned. Please reassign or complete tasks first.`
       };
     }
 
     // 3. Check active advance salary loans
-    const activeAdv = loanRecords.find((a) => 
-      (a.employeeId === empId || a.employeeId === emp.id) && 
+    const activeAdv = loanRecords.find((a) =>
+      (a.employeeId === empId || a.employeeId === emp.id) &&
       (a.status === 'Disbursed' || a.status === 'Approved' || a.status === 'Active')
     );
     if (activeAdv) {
@@ -7522,7 +7522,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const userEmpId = (currentUser.employeeId || '').trim();
     const cleanEmail = (currentUser.email || '').trim().toLowerCase();
 
-    const isAuthorized = 
+    const isAuthorized =
       userRole === 'CEO' ||
       userRole === 'Super Admin' ||
       userRole === 'Admin' ||
@@ -7554,8 +7554,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const cleanId = String(employeeId || '').trim().toLowerCase();
     const matched = employees.find(e => String(e.id || '').toLowerCase() === cleanId || String(e.employeeId || '').toLowerCase() === cleanId);
-    const nextStatus: Employee['status'] = isActivating 
-      ? (matched?.status === 'Inactive' || matched?.status === 'Terminated' ? 'Active' : (matched?.status || 'Active')) 
+    const nextStatus: Employee['status'] = isActivating
+      ? (matched?.status === 'Inactive' || matched?.status === 'Terminated' ? 'Active' : (matched?.status || 'Active'))
       : 'Inactive';
 
     setEmployees(prev => prev.map(e => {
@@ -7611,9 +7611,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({ status: normStatus })
-        }).catch(() => {});
+        }).catch(() => { });
       }
-    } catch {}
+    } catch { }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('hrms:shift-assignments-changed'));
@@ -7821,8 +7821,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         e.id === mergedEmployee.id || e.employeeId === mergedEmployee.employeeId || e.id === id || e.employeeId === id
       ) ? mergedEmployee : e));
       if ((currentUser.employeeId && currentUser.employeeId === mergedEmployee.employeeId) || (currentUser.id && currentUser.id === mergedEmployee.id)) {
-        updateCurrentUser({ name: `${mergedEmployee.firstName} ${mergedEmployee.lastName}`.trim(), email: mergedEmployee.email,
-          department: mergedEmployee.department, designation: mergedEmployee.designation });
+        updateCurrentUser({
+          name: `${mergedEmployee.firstName} ${mergedEmployee.lastName}`.trim(), email: mergedEmployee.email,
+          department: mergedEmployee.department, designation: mergedEmployee.designation
+        });
       }
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('hrms:shift-assignments-changed'));
@@ -7867,7 +7869,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         }
       });
-    } catch {}
+    } catch { }
 
     if (!cloudSuccess) {
       console.error('[HRMSContext] Cloud employee deletion failed:', cloudError);
@@ -7925,7 +7927,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           })
         )
       );
-    } catch {}
+    } catch { }
 
     if (!batchResult.success && batchResult.deletedCount === 0) {
       addNotification({
@@ -8106,8 +8108,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const activePolicies = (masterAttendancePolicies && masterAttendancePolicies.length > 0) ? masterAttendancePolicies : DEFAULT_MASTER_ATTENDANCE_POLICIES;
     const effectiveLatePolicy = emp ? resolveEffectiveLatePolicy(emp, activePolicies, empShift?.id, empShift?.shiftName).policy : activePolicies[0] || null;
     const graceMins = (
-      effectiveLatePolicy?.graceTimeMinutes ?? 
-      effectiveLatePolicy?.gracePeriodMinutes ?? 
+      effectiveLatePolicy?.graceTimeMinutes ??
+      effectiveLatePolicy?.gracePeriodMinutes ??
       (empShift as any)?.gracePeriodMinutes ??
       (empShift as any)?.gracePeriodMins ??
       (attendanceConfig?.lateGraceMinutes ?? 40)
@@ -8133,7 +8135,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let rejectedMessage = '';
 
     setAttendanceRecords(prev => {
-      const existingIdx = prev.findIndex(a => 
+      const existingIdx = prev.findIndex(a =>
         (a.employeeId === empId || (emp && (a.employeeId === emp.id || a.employeeId === emp.employeeId))) &&
         (a.shiftDate === today || a.date === today)
       );
@@ -8165,7 +8167,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (savedEpoch && !isNaN(Number(savedEpoch))) {
               elapsedMins = Math.floor((now.getTime() - Number(savedEpoch)) / 60000);
             }
-          } catch {}
+          } catch { }
           if (elapsedMins >= 0 && elapsedMins < 60) {
             const waitMins = Math.max(1, 60 - elapsedMins);
             rejectedMessage = `Punch In and Punch Out cannot be done at the same time. Please wait ${waitMins} more minute(s) (1-hour minimum delay required).`;
@@ -8174,9 +8176,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } else if (wantsCheckIn) {
           try {
             localStorage.setItem(`vrm_punch_in_epoch_${empId}_${today}`, String(now.getTime()));
-          } catch {}
+          } catch { }
         }
-        const workedHours = existingCheckIn 
+        const workedHours = existingCheckIn
           ? Math.round((diffMins / 60) * 100) / 100
           : (status === 'Present' ? 8 : 4);
 
@@ -8243,7 +8245,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         try {
           localStorage.setItem(`vrm_punch_in_epoch_${empId}_${today}`, String(now.getTime()));
-        } catch {}
+        } catch { }
         const newRecord: AttendanceRecord = {
           id: tempAttId,
           employeeId: empId,
@@ -8364,8 +8366,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }));
           localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
         }
-      } catch {}
-      supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => {});
+      } catch { }
+      supabaseDirect.saveCompanySetting('face_logs_data', updated).catch(() => { });
       supabaseDirect.insertFaceLog({
         employee_id: log.employeeId,
         timestamp: log.timestamp || new Date().toISOString(),
@@ -8373,7 +8375,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         status: log.status,
         photo_url: log.photoUrl,
         confidence_score: log.confidenceScore
-      }).catch(() => {});
+      }).catch(() => { });
       return updated;
     });
   };
@@ -8424,7 +8426,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       shiftDetails: { weeklyOff: 'Sunday' }
     } as any);
 
-    const isWfh = req.leaveType === 'Work From Home' || 
+    const isWfh = req.leaveType === 'Work From Home' ||
       (req.leaveType && req.leaveType.toLowerCase().includes('work from home')) ||
       (req.leaveType && req.leaveType.toLowerCase() === 'wfh');
 
@@ -8477,8 +8479,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setLeaveRequests(newReqList);
     try {
       localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(newReqList));
-    } catch {}
-    supabaseDirect.saveCompanySetting('leave_requests_data', newReqList).catch(() => {});
+    } catch { }
+    supabaseDirect.saveCompanySetting('leave_requests_data', newReqList).catch(() => { });
 
     // Persist to central Supabase PostgreSQL leave_requests table
     supabaseDirect.insertLeaveRequest({
@@ -8495,8 +8497,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const updated = curr.map(l => l.id === tempLeaveId ? { ...l, id: res.data.id } : l);
           try {
             localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(updated));
-          } catch {}
-          supabaseDirect.saveCompanySetting('leave_requests_data', updated).catch(() => {});
+          } catch { }
+          supabaseDirect.saveCompanySetting('leave_requests_data', updated).catch(() => { });
           return updated;
         });
       } else if (!res.success) {
@@ -8526,7 +8528,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 1. Notify approvers (CEO & HR) across accounts on their own login
     pushSharedNotification({
       title: isWfh ? 'New Work From Home Request' : 'New Leave Request',
-      message: isWfh 
+      message: isWfh
         ? `${req.employeeName} (${req.employeeId}) applied for ${finalDaysCount} days Work From Home (${safeStartDate} to ${safeEndDate}). Please review.`
         : `${req.employeeName} (${req.employeeId}) applied for ${finalDaysCount} days ${req.leaveType} (${safeStartDate} to ${safeEndDate}). Please review.`,
       priority: 'Important',
@@ -8593,109 +8595,109 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const approvedAt = new Date().toISOString();
     setLeaveRequests(prevLeaves => {
       const updatedLeaves = prevLeaves.map(l => {
-      if (l.id === id) {
-        const isWfh = l.leaveType === 'Work From Home' || 
-          (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
-          (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+        if (l.id === id) {
+          const isWfh = l.leaveType === 'Work From Home' ||
+            (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+            (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
 
-        // Automatically sync attendance for all dates in range without duplicates
-        const datesToSync: { date: string; isSandwich: boolean }[] = [];
+          // Automatically sync attendance for all dates in range without duplicates
+          const datesToSync: { date: string; isSandwich: boolean }[] = [];
 
-        if (!isWfh && l.sandwichDetails?.breakdown && l.sandwichDetails.breakdown.length > 0) {
-          l.sandwichDetails.breakdown.forEach((b: SandwichCalculationDayDetail) => {
-            datesToSync.push({ date: b.date, isSandwich: b.isSandwich });
-          });
-        } else {
-          const start = new Date(l.startDate);
-          const end = new Date(l.endDate);
-          const cur = new Date(start);
-          while (cur <= end) {
-            datesToSync.push({ date: cur.toISOString().split('T')[0], isSandwich: false });
-            cur.setDate(cur.getDate() + 1);
+          if (!isWfh && l.sandwichDetails?.breakdown && l.sandwichDetails.breakdown.length > 0) {
+            l.sandwichDetails.breakdown.forEach((b: SandwichCalculationDayDetail) => {
+              datesToSync.push({ date: b.date, isSandwich: b.isSandwich });
+            });
+          } else {
+            const start = new Date(l.startDate);
+            const end = new Date(l.endDate);
+            const cur = new Date(start);
+            while (cur <= end) {
+              datesToSync.push({ date: cur.toISOString().split('T')[0], isSandwich: false });
+              cur.setDate(cur.getDate() + 1);
+            }
           }
-        }
 
-        setAttendanceRecords(attPrev => {
-          const updated = [...attPrev];
-          datesToSync.forEach(item => {
-            const idx = updated.findIndex(a => a.employeeId === l.employeeId && a.date === item.date);
-            const statusLabel: AttendanceRecord['status'] = isWfh ? 'Work From Home' : 'On Leave';
-            const locationNote = isWfh 
-              ? 'Work From Home (Approved)' 
-              : item.isSandwich ? 'Sandwich Leave (Policy Enforced)' : 'Approved Leave';
+          setAttendanceRecords(attPrev => {
+            const updated = [...attPrev];
+            datesToSync.forEach(item => {
+              const idx = updated.findIndex(a => a.employeeId === l.employeeId && a.date === item.date);
+              const statusLabel: AttendanceRecord['status'] = isWfh ? 'Work From Home' : 'On Leave';
+              const locationNote = isWfh
+                ? 'Work From Home (Approved)'
+                : item.isSandwich ? 'Sandwich Leave (Policy Enforced)' : 'Approved Leave';
 
-            if (idx >= 0) {
-              updated[idx] = {
-                ...updated[idx],
-                status: statusLabel,
-                workingHours: isWfh ? (updated[idx].workingHours > 0 ? updated[idx].workingHours : 8) : 0,
-                checkIn: isWfh ? (updated[idx].checkIn || '09:00 AM') : null,
-                checkOut: isWfh ? (updated[idx].checkOut || '06:00 PM') : null,
-                lateStatus: 'N/A',
-                wfhSource: isWfh ? 'Approved WFH Request' : undefined,
-                wfhReason: isWfh ? (l.reason || 'Work From Home Approved') : undefined,
-                location: {
-                  lat: updated[idx].location?.lat ?? 13.151968,
-                  lng: updated[idx].location?.lng ?? 80.2086053,
-                  inGeofence: updated[idx].location?.inGeofence ?? true,
-                  address: locationNote
-                }
-              };
-            } else {
-              updated.push({
-                id: `ATT-${isWfh ? 'WFH' : 'LV'}-${Date.now()}-${item.date}`,
-                employeeId: l.employeeId,
-                employeeName: l.employeeName,
-                department: l.department,
-                date: item.date,
-                checkIn: isWfh ? '09:00 AM' : null,
-                checkOut: isWfh ? '06:00 PM' : null,
-                workingHours: isWfh ? 8 : 0,
-                status: statusLabel,
-                lateStatus: 'N/A',
-                wfhSource: isWfh ? 'Approved WFH Request' : undefined,
-                wfhReason: isWfh ? (l.reason || 'Work From Home Approved') : undefined,
-                location: { lat: 13.151968, lng: 80.2086053, address: locationNote, inGeofence: true },
-                faceVerified: false,
-                method: isWfh ? 'Manual Punch' : 'System Auto'
-              });
-            }
+              if (idx >= 0) {
+                updated[idx] = {
+                  ...updated[idx],
+                  status: statusLabel,
+                  workingHours: isWfh ? (updated[idx].workingHours > 0 ? updated[idx].workingHours : 8) : 0,
+                  checkIn: isWfh ? (updated[idx].checkIn || '09:00 AM') : null,
+                  checkOut: isWfh ? (updated[idx].checkOut || '06:00 PM') : null,
+                  lateStatus: 'N/A',
+                  wfhSource: isWfh ? 'Approved WFH Request' : undefined,
+                  wfhReason: isWfh ? (l.reason || 'Work From Home Approved') : undefined,
+                  location: {
+                    lat: updated[idx].location?.lat ?? 13.151968,
+                    lng: updated[idx].location?.lng ?? 80.2086053,
+                    inGeofence: updated[idx].location?.inGeofence ?? true,
+                    address: locationNote
+                  }
+                };
+              } else {
+                updated.push({
+                  id: `ATT-${isWfh ? 'WFH' : 'LV'}-${Date.now()}-${item.date}`,
+                  employeeId: l.employeeId,
+                  employeeName: l.employeeName,
+                  department: l.department,
+                  date: item.date,
+                  checkIn: isWfh ? '09:00 AM' : null,
+                  checkOut: isWfh ? '06:00 PM' : null,
+                  workingHours: isWfh ? 8 : 0,
+                  status: statusLabel,
+                  lateStatus: 'N/A',
+                  wfhSource: isWfh ? 'Approved WFH Request' : undefined,
+                  wfhReason: isWfh ? (l.reason || 'Work From Home Approved') : undefined,
+                  location: { lat: 13.151968, lng: 80.2086053, address: locationNote, inGeofence: true },
+                  faceVerified: false,
+                  method: isWfh ? 'Manual Punch' : 'System Auto'
+                });
+              }
 
-            if (isWfh) {
-              supabaseDirect.upsertAttendanceRecord({
-                employee_id: l.employeeId,
-                date: item.date,
-                status: 'Work From Home',
-                late_status: 'N/A',
-                method: 'Manual Punch'
-              }).catch(() => {});
-            }
+              if (isWfh) {
+                supabaseDirect.upsertAttendanceRecord({
+                  employee_id: l.employeeId,
+                  date: item.date,
+                  status: 'Work From Home',
+                  late_status: 'N/A',
+                  method: 'Manual Punch'
+                }).catch(() => { });
+              }
+            });
+            return updated;
           });
-          return updated;
-        });
 
-        addSandwichAuditLog({
-          action: 'LEAVE_APPROVED',
-          leaveRequestId: l.id,
-          employeeId: l.employeeId,
-          policyId: l.sandwichDetails?.appliedPolicyId,
-          newValue: { approvedBy, approvedAt, daysCount: l.daysCount },
-          reason: comment 
-            ? `Leave request approved by ${approvedBy}. Remarks: ${comment}` 
-            : isWfh 
-              ? `Work From Home request approved by ${approvedBy}. Attendance updated as [WFH] (Present).`
-              : `Leave request approved by ${approvedBy}. Attendance calendar updated.`
-        });
+          addSandwichAuditLog({
+            action: 'LEAVE_APPROVED',
+            leaveRequestId: l.id,
+            employeeId: l.employeeId,
+            policyId: l.sandwichDetails?.appliedPolicyId,
+            newValue: { approvedBy, approvedAt, daysCount: l.daysCount },
+            reason: comment
+              ? `Leave request approved by ${approvedBy}. Remarks: ${comment}`
+              : isWfh
+                ? `Work From Home request approved by ${approvedBy}. Attendance updated as [WFH] (Present).`
+                : `Leave request approved by ${approvedBy}. Attendance calendar updated.`
+          });
 
-        return { ...l, status: 'Approved' as const, approvedBy, approvedAt, comment: comment !== undefined ? comment : l.comment };
-      }
-      return l;
+          return { ...l, status: 'Approved' as const, approvedBy, approvedAt, comment: comment !== undefined ? comment : l.comment };
+        }
+        return l;
       });
 
       try {
         localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(updatedLeaves));
-      } catch {}
-      supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => {});
+      } catch { }
+      supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => { });
       return updatedLeaves;
     });
 
@@ -8729,26 +8731,26 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const approvedAt = new Date().toISOString();
     setLeaveRequests(prevLeaves => {
       const updatedLeaves = prevLeaves.map(l => {
-      if (l.id === id) {
-        const isWfh = l.leaveType === 'Work From Home' || 
-          (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
-          (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+        if (l.id === id) {
+          const isWfh = l.leaveType === 'Work From Home' ||
+            (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+            (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
 
-        addSandwichAuditLog({
-          action: 'LEAVE_REJECTED',
-          leaveRequestId: l.id,
-          employeeId: l.employeeId,
-          reason: comment || `${isWfh ? 'Work From Home' : 'Leave'} request rejected by ${approvedBy}.`
-        });
-        return { ...l, status: 'Rejected' as const, approvedBy, approvedAt, comment };
-      }
-      return l;
+          addSandwichAuditLog({
+            action: 'LEAVE_REJECTED',
+            leaveRequestId: l.id,
+            employeeId: l.employeeId,
+            reason: comment || `${isWfh ? 'Work From Home' : 'Leave'} request rejected by ${approvedBy}.`
+          });
+          return { ...l, status: 'Rejected' as const, approvedBy, approvedAt, comment };
+        }
+        return l;
       });
 
       try {
         localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(updatedLeaves));
-      } catch {}
-      supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => {});
+      } catch { }
+      supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => { });
       return updatedLeaves;
     });
 
@@ -8795,9 +8797,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(updatedLeaves));
       localStorage.setItem('vrm_hrms_leave_requests', JSON.stringify(updatedLeaves));
-    } catch {}
+    } catch { }
 
-    supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => {});
+    supabaseDirect.saveCompanySetting('leave_requests_data', updatedLeaves).catch(() => { });
 
     if (id.length === 36) {
       await supabaseDirect.deleteLeaveRequest(id);
@@ -8972,7 +8974,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setLeavePolicies(prev => {
       const next = [...prev, newPolicy];
-      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -8980,7 +8982,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateLeavePolicy = (id: string, updates: Partial<LeavePolicyItem>) => {
     setLeavePolicies(prev => {
       const next = prev.map(p => p.id === id ? { ...p, ...updates } : p);
-      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -8988,7 +8990,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteLeavePolicy = (id: string) => {
     setLeavePolicies(prev => {
       const next = prev.filter(p => p.id !== id);
-      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('leave_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9000,7 +9002,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setHolidayPolicies(prev => {
       const next = [...prev, newHoliday];
-      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9008,7 +9010,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateHolidayPolicy = (id: string, updates: Partial<HolidayItem>) => {
     setHolidayPolicies(prev => {
       const next = prev.map(h => h.id === id ? { ...h, ...updates } : h);
-      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9016,7 +9018,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteHolidayPolicy = (id: string) => {
     setHolidayPolicies(prev => {
       const next = prev.filter(h => h.id !== id);
-      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('holiday_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9028,7 +9030,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setAttendancePolicies(prev => {
       const next = [...prev, newPolicy];
-      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9036,7 +9038,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateAttendancePolicy = (id: string, updates: Partial<AttendancePolicyItem>) => {
     setAttendancePolicies(prev => {
       const next = prev.map(p => p.id === id ? { ...p, ...updates } : p);
-      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9044,7 +9046,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteAttendancePolicy = (id: string) => {
     setAttendancePolicies(prev => {
       const next = prev.filter(p => p.id !== id);
-      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('attendance_policies_data', next).catch(() => { });
       return next;
     });
   };
@@ -9056,7 +9058,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setWeeklySchedules(prev => {
       const next = [...prev, newSchedule];
-      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => { });
       return next;
     });
   };
@@ -9064,7 +9066,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateWeeklySchedule = (id: string, updates: Partial<WeeklyScheduleItem>) => {
     setWeeklySchedules(prev => {
       const next = prev.map(w => w.id === id ? { ...w, ...updates } : w);
-      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => { });
       return next;
     });
   };
@@ -9072,7 +9074,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteWeeklySchedule = (id: string) => {
     setWeeklySchedules(prev => {
       const next = prev.filter(w => w.id !== id);
-      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('weekly_schedules_data', next).catch(() => { });
       return next;
     });
   };
@@ -9080,7 +9082,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateAttendanceConfig = (updates: Partial<GlobalAttendanceConfig>) => {
     setAttendanceConfig(prev => {
       const next = { ...prev, ...updates };
-      supabaseDirect.saveCompanySetting('attendance_config_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('attendance_config_data', next).catch(() => { });
       return next;
     });
   };
@@ -9092,7 +9094,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setPolicyDocuments(prev => {
       const next = [...prev, newDoc];
-      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => { });
       return next;
     });
   };
@@ -9100,7 +9102,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updatePolicyDocument = (id: string, updates: Partial<PolicyDocumentItem>) => {
     setPolicyDocuments(prev => {
       const next = prev.map(d => d.id === id ? { ...d, ...updates } : d);
-      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => { });
       return next;
     });
   };
@@ -9108,7 +9110,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deletePolicyDocument = (id: string) => {
     setPolicyDocuments(prev => {
       const next = prev.filter(d => d.id !== id);
-      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('policy_documents_data', next).catch(() => { });
       return next;
     });
   };
@@ -9116,7 +9118,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateBusinessSettings = (updates: Partial<BusinessProfileSettings>) => {
     setBusinessSettings(prev => {
       const next = { ...prev, ...updates };
-      supabaseDirect.saveCompanySetting('business_settings_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('business_settings_data', next).catch(() => { });
       return next;
     });
   };
@@ -9135,7 +9137,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         changed.forEach(r => map.set(r.id, r));
         const mergedLocal = Array.from(map.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         localStorage.setItem('vrm_hrms_shift_requests_persistent', JSON.stringify(mergedLocal));
-      } catch {}
+      } catch { }
 
       const remote = await supabaseDirect.getCompanySetting(SHIFT_REQUESTS_KEY);
       const map = new Map<string, ShiftRequest>((Array.isArray(remote) ? remote : []).map((r: ShiftRequest) => [r.id, r]));
@@ -9149,7 +9151,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await supabaseDirect.saveCompanySetting(SHIFT_REQUESTS_KEY, merged);
       try {
         localStorage.setItem('vrm_hrms_shift_requests_persistent', JSON.stringify(merged));
-      } catch {}
+      } catch { }
     } catch (err) {
       console.warn('[HRMSContext] shift request cloud save notice:', err);
     }
@@ -9433,8 +9435,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     const { overallStatus, overallProgress } = computeTaskOverallStatusAndProgress(
-      preparedAssignees, 
-      'OPEN', 
+      preparedAssignees,
+      'OPEN',
       taskData.dueDate
     );
 
@@ -9636,9 +9638,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const empName = String(a.employeeName || '').trim().toLowerCase();
         const empEmail = String(a.employeeEmail || '').trim().toLowerCase();
         return (aId && myKeys.includes(aId)) ||
-               (empId && myKeys.includes(empId)) ||
-               (empName && myKeys.includes(empName)) ||
-               (empEmail && myKeys.includes(empEmail));
+          (empId && myKeys.includes(empId)) ||
+          (empName && myKeys.includes(empName)) ||
+          (empEmail && myKeys.includes(empEmail));
       });
 
       if (!myAssignee) {
@@ -9675,7 +9677,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
 
       // System derives overall task status & overall progress from all assignees!
-      const { overallStatus: newOverallStatus, overallProgress: newOverallProgress } = 
+      const { overallStatus: newOverallStatus, overallProgress: newOverallProgress } =
         computeTaskOverallStatusAndProgress(updatedAssignees, task.overallStatus, task.dueDate);
 
       // Create new progress update log
@@ -9853,7 +9855,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return a;
       });
 
-      const { overallStatus: derivedStatus, overallProgress } = 
+      const { overallStatus: derivedStatus, overallProgress } =
         computeTaskOverallStatusAndProgress(reopenedAssignees, 'REOPENED', t.dueDate);
 
       const newTimeline = {
@@ -9954,8 +9956,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const empName = String(a.employeeName || '').trim().toLowerCase();
         const empEmail = String(a.employeeEmail || '').trim().toLowerCase();
         const isTarget = (empId && myKeys.includes(empId)) ||
-                         (empName && myKeys.includes(empName)) ||
-                         (empEmail && myKeys.includes(empEmail));
+          (empName && myKeys.includes(empName)) ||
+          (empEmail && myKeys.includes(empEmail));
         if (isTarget) {
           return {
             ...a,
@@ -10018,8 +10020,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateTaskProcessStatus = (
-    taskId: string, 
-    newStatus: TaskAssigneeStatus, 
+    taskId: string,
+    newStatus: TaskAssigneeStatus,
     remarks?: string,
     targetAssigneeId?: string
   ) => {
@@ -10045,7 +10047,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // STRICT REQUIREMENT 3: Only the assigned employee can change their own task status!
       // No other person (not even assigner, HR, or CEO) can change another employee's status!
-      const myAssignee = t.assignees.find(a => 
+      const myAssignee = t.assignees.find(a =>
         (currentEmpId && (a.employeeId?.toLowerCase().trim() === currentEmpId || a.id?.toLowerCase().trim() === currentEmpId)) ||
         (currentUser.id && a.employeeId?.toLowerCase().trim() === currentUser.id.toLowerCase().trim()) ||
         (currentEmpName && a.employeeName && (
@@ -10061,8 +10063,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return t;
         }
         if (targetAssigneeId) {
-          const isTargetMine = myAssignee.id === targetAssigneeId || 
-            myAssignee.employeeId === targetAssigneeId || 
+          const isTargetMine = myAssignee.id === targetAssigneeId ||
+            myAssignee.employeeId === targetAssigneeId ||
             myAssignee.employeeName.toLowerCase().trim() === targetAssigneeId.toLowerCase().trim();
           if (!isTargetMine) {
             console.warn('[HRMS] Task status change blocked: Cannot change another employee status.');
@@ -10084,7 +10086,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       const updatedAssignees = t.assignees.map(a => {
-        const isMatch = targetId 
+        const isMatch = targetId
           ? (a.id === targetId || a.employeeId === targetId || a.employeeName.toLowerCase().trim() === targetId.toLowerCase().trim())
           : false;
 
@@ -10103,7 +10105,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const { overallStatus, overallProgress } = computeTaskOverallStatusAndProgress(updatedAssignees, t.overallStatus, t.dueDate);
 
-      const targetAssigneeObj = t.assignees.find(a => 
+      const targetAssigneeObj = t.assignees.find(a =>
         targetId && (a.id === targetId || a.employeeId === targetId || a.employeeName.toLowerCase().trim() === targetId.toLowerCase().trim())
       );
       const actorOrTargetName = targetAssigneeObj ? targetAssigneeObj.employeeName : currentUser.name;
@@ -10112,8 +10114,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         id: `TL-${Date.now()}`,
         taskId,
         title: `${actorOrTargetName} Status: "${newStatus}"`,
-        description: remarks 
-          ? `Status for ${actorOrTargetName} updated to ${newStatus} by ${currentUser.name}: "${remarks}". Overall progress: ${overallProgress}%.` 
+        description: remarks
+          ? `Status for ${actorOrTargetName} updated to ${newStatus} by ${currentUser.name}: "${remarks}". Overall progress: ${overallProgress}%.`
           : `Status for ${actorOrTargetName} updated to ${newStatus} by ${currentUser.name}. Overall progress: ${overallProgress}%.`,
         timestamp: `${today} ${nowTime}`,
         iconType: newStatus === 'Completed' ? 'closed' : 'status_change',
@@ -10151,9 +10153,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const currentTask = enhancedTasks.find(t => t.id === taskId);
       if (currentTask) {
         const notifyRecipients = [
-          currentTask.createdById, 
-          currentTask.responsiblePersonId, 
-          currentTask.createdBy, 
+          currentTask.createdById,
+          currentTask.responsiblePersonId,
+          currentTask.createdBy,
           currentTask.responsiblePersonName
         ].filter(Boolean) as string[];
 
@@ -10509,12 +10511,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateCandidateStage = (candidateId: string, newStage: Candidate['stage']) => {
     setCandidates(prev => {
       const updated = prev.map(c => {
-      if (c.id === candidateId) {
-        return { ...c, stage: newStage };
-      }
-      return c;
+        if (c.id === candidateId) {
+          return { ...c, stage: newStage };
+        }
+        return c;
       });
-      supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => { });
       return updated;
     });
     if (candidateId.length === 36) {
@@ -10533,7 +10535,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setCandidates(prev => {
       const updated = [newCand, ...prev];
-      supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => { });
       return updated;
     });
     supabaseDirect.insertCandidate({
@@ -10549,7 +10551,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (res.data?.id) {
         setCandidates(curr => {
           const updated = curr.map(c => c.id === tempId ? { ...c, id: res.data.id } : c);
-          supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => {});
+          supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => { });
           return updated;
         });
       }
@@ -10565,9 +10567,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const reviewReferral = (
-    candidateId: string, 
-    status: 'Accepted' | 'Rejected', 
-    reviewerName: string, 
+    candidateId: string,
+    status: 'Accepted' | 'Rejected',
+    reviewerName: string,
     notes?: string,
     newStage?: Candidate['stage']
   ) => {
@@ -10575,20 +10577,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const finalStage = newStage || (status === 'Accepted' ? 'Interview' : 'Rejected');
     setCandidates(prev => {
       const updated = prev.map(c => {
-      if (c.id === candidateId) {
-        targetCand = c;
-        return {
-          ...c,
-          referralStatus: status,
-          referralReviewedBy: reviewerName,
-          referralReviewedDate: new Date().toISOString().split('T')[0],
-          referralReviewNotes: notes || c.referralReviewNotes,
-          stage: finalStage
-        };
-      }
-      return c;
+        if (c.id === candidateId) {
+          targetCand = c;
+          return {
+            ...c,
+            referralStatus: status,
+            referralReviewedBy: reviewerName,
+            referralReviewedDate: new Date().toISOString().split('T')[0],
+            referralReviewNotes: notes || c.referralReviewNotes,
+            stage: finalStage
+          };
+        }
+        return c;
       });
-      supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('candidates_data', updated).catch(() => { });
       return updated;
     });
 
@@ -10634,7 +10636,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     setExpenses(prev => [savedExpense, ...prev]);
     if (isCloudInitialized.current && !isSyncingFromCloud.current) {
-      supabaseDirect.saveCompanySetting('expenses_data', [savedExpense, ...expenses]).catch(() => {});
+      supabaseDirect.saveCompanySetting('expenses_data', [savedExpense, ...expenses]).catch(() => { });
     }
 
     addNotification({
@@ -10663,11 +10665,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { ...e, status: nextStatus, approvedBy };
     }));
     if (id.length === 36) {
-      supabaseDirect.updateExpenseStatus(id, nextStatus, approvedBy).catch(() => {});
+      supabaseDirect.updateExpenseStatus(id, nextStatus, approvedBy).catch(() => { });
       if (nextStatus === 'Approved') {
-        approveExpenseApi(id).catch(() => {});
+        approveExpenseApi(id).catch(() => { });
       } else if (nextStatus === 'Rejected') {
-        rejectExpenseApi(id, `Rejected by ${approvedBy}`).catch(() => {});
+        rejectExpenseApi(id, `Rejected by ${approvedBy}`).catch(() => { });
       }
     }
 
@@ -10680,7 +10682,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isApproved || isRejected) {
         pushSharedNotification({
           title: isApproved ? 'Expense Claim Approved' : 'Expense Claim Rejected',
-          message: isApproved 
+          message: isApproved
             ? `Your expense claim of ₹${targetExp.amount} for "${targetExp.description || targetExp.category}" was approved by ${approvedBy} and forwarded to Accounts.`
             : `Your expense claim of ₹${targetExp.amount} for "${targetExp.description || targetExp.category}" was rejected by ${approvedBy}.`,
           priority: isApproved ? 'Normal' : 'Important',
@@ -10705,10 +10707,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setExpenses(prev => prev.filter(e => e.id !== id));
     if (isCloudInitialized.current && !isSyncingFromCloud.current) {
       const updated = expenses.filter(e => e.id !== id);
-      supabaseDirect.saveCompanySetting('expenses_data', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('expenses_data', updated).catch(() => { });
     }
     if (id.length === 36) {
-      supabaseDirect.deleteExpense(id).catch(() => {});
+      supabaseDirect.deleteExpense(id).catch(() => { });
     }
   };
 
@@ -11144,7 +11146,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (run && run.status !== 'PAID') {
         await payrollApi.recalculatePayrollRun(run.id, forceApproved).catch(() => null);
       }
-    } catch {}
+    } catch { }
 
     const recalculatedForPeriod: PayrollRecord[] = employees
       .filter(emp => !isOwnerOrCEO(emp))
@@ -11281,7 +11283,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           )
       );
       const merged = [...otherPeriods, ...recalculatedForPeriod];
-      supabaseDirect.saveCompanySetting('payroll_records_data', merged).catch(() => {});
+      supabaseDirect.saveCompanySetting('payroll_records_data', merged).catch(() => { });
       return merged;
     });
 
@@ -11373,7 +11375,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return rec;
       });
-      supabaseDirect.saveCompanySetting('payroll_records_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('payroll_records_data', next).catch(() => { });
       return next;
     });
 
@@ -11416,7 +11418,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return rec;
       });
-      supabaseDirect.saveCompanySetting('payroll_records_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('payroll_records_data', next).catch(() => { });
       return next;
     });
 
@@ -11452,7 +11454,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const cleanCode = (dept.code || cleanName.substring(0, 4)).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'DEPT';
-    
+
     // 2. Persist to PostgreSQL departments table
     let createdRow: any = null;
     try {
@@ -11480,7 +11482,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 3. Update departments state & departments_data in company_settings
     setDepartments(prev => {
       const next = [...prev.filter(d => d.name.toLowerCase() !== cleanName.toLowerCase()), newDept];
-      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => { });
       return next;
     });
 
@@ -11492,7 +11494,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...prev,
         departments: dedupeStringList([...currentList, cleanName])
       };
-      supabaseDirect.saveCompanySetting('org_structure', updated).catch(() => {});
+      supabaseDirect.saveCompanySetting('org_structure', updated).catch(() => { });
       return updated;
     });
 
@@ -11529,7 +11531,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 2. Update departments state & departments_data
     setDepartments(prev => {
       const next = prev.map(d => (d.id === id || (oldName && d.name.toLowerCase() === oldName.toLowerCase())) ? { ...d, ...updates } : d);
-      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => { });
       return next;
     });
 
@@ -11540,7 +11542,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ...prev,
           departments: dedupeStringList((prev.departments || []).map(d => d.toLowerCase() === oldName.toLowerCase() ? newName : d))
         };
-        supabaseDirect.saveCompanySetting('org_structure', updated).catch(() => {});
+        supabaseDirect.saveCompanySetting('org_structure', updated).catch(() => { });
         return updated;
       });
 
@@ -11583,7 +11585,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 2. Remove from departments state & departments_data
     setDepartments(prev => {
       const next = prev.filter(d => d.id !== id && (!deptName || d.name.toLowerCase() !== deptName.toLowerCase()));
-      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('departments_data', next).catch(() => { });
       return next;
     });
 
@@ -11594,7 +11596,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ...prev,
           departments: dedupeStringList((prev.departments || []).filter(d => d.toLowerCase() !== deptName.toLowerCase()))
         };
-        supabaseDirect.saveCompanySetting('org_structure', next).catch(() => {});
+        supabaseDirect.saveCompanySetting('org_structure', next).catch(() => { });
         return next;
       });
     }
@@ -11620,7 +11622,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let createdRow: any = null;
     supabaseDirect.insertDesignation(cleanTitle, deptId, desig.level)
       .then(res => { if (res.success && res.data) createdRow = res.data; })
-      .catch(() => {});
+      .catch(() => { });
 
     const newDesig: DesignationItem = {
       ...desig,
@@ -11648,7 +11650,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const cleanTitle = updates.title ? updates.title.replace(/[0-9]/g, '').trim() : undefined;
     const oldItem = designations.find(d => d.id === id);
     const oldTitle = oldItem?.title;
-    supabaseDirect.updateDesignation(id, { title: cleanTitle, level: updates.level }, oldTitle).catch(() => {});
+    supabaseDirect.updateDesignation(id, { title: cleanTitle, level: updates.level }, oldTitle).catch(() => { });
 
     setDesignations(prev => {
       const next = prev.map(d => d.id === id ? { ...d, ...updates, ...(cleanTitle ? { title: cleanTitle } : {}) } : d);
@@ -11674,7 +11676,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, message: check.reason };
     }
     const target = designations.find(d => d.id === id);
-    supabaseDirect.deleteDesignation(id).catch(() => {});
+    supabaseDirect.deleteDesignation(id).catch(() => { });
 
     setDesignations(prev => {
       const next = prev.filter(d => d.id !== id);
@@ -11701,8 +11703,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setBranches(prev => {
       const next = [...prev, newBranch];
-      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
-      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => { });
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => { });
       return next;
     });
   };
@@ -11710,8 +11712,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateBranch = (id: string, branchData: Partial<BranchItem>) => {
     setBranches(prev => {
       const next = prev.map(b => b.id === id ? { ...b, ...branchData } : b);
-      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
-      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => { });
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => { });
       return next;
     });
   };
@@ -11719,8 +11721,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteBranch = (id: string) => {
     setBranches(prev => {
       const next = prev.filter(b => b.id !== id);
-      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
-      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => { });
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => { });
       return next;
     });
   };
@@ -11733,7 +11735,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setGrades(prev => {
       const next = [...prev, newGrade];
-      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => { });
       return next;
     });
   };
@@ -11741,7 +11743,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateGrade = (id: string, updates: Partial<GradeItem>) => {
     setGrades(prev => {
       const next = prev.map(g => g.id === id ? { ...g, ...updates } : g);
-      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => { });
       return next;
     });
   };
@@ -11749,7 +11751,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteGrade = (id: string): { success: boolean; message?: string } => {
     setGrades(prev => {
       const next = prev.filter(g => g.id !== id);
-      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('grades_data', next).catch(() => { });
       return next;
     });
     return { success: true };
@@ -11812,7 +11814,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setEmployeeCategories(prev => {
       const next = [...prev, newCat];
-      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => { });
       return next;
     });
   };
@@ -11820,7 +11822,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateEmployeeCategory = (id: string, updates: Partial<EmployeeCategoryItem>) => {
     setEmployeeCategories(prev => {
       const next = prev.map(c => c.id === id ? { ...c, ...updates } : c);
-      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => { });
       return next;
     });
   };
@@ -11828,7 +11830,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteEmployeeCategory = (id: string) => {
     setEmployeeCategories(prev => {
       const next = prev.filter(c => c.id !== id);
-      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('employee_categories_data', next).catch(() => { });
       return next;
     });
   };
@@ -11837,7 +11839,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateEmployeeConfig = (config: Partial<EmployeeConfigSettings>) => {
     setEmployeeConfig(prev => {
       const next = { ...prev, ...config };
-      supabaseDirect.saveCompanySetting('employee_config_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('employee_config_data', next).catch(() => { });
       return next;
     });
   };
@@ -11850,7 +11852,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setApprovalWorkflows(prev => {
       const next = [...prev, newWf];
-      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => { });
       return next;
     });
   };
@@ -11858,7 +11860,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateApprovalWorkflow = (id: string, updates: Partial<ApprovalWorkflowItem>) => {
     setApprovalWorkflows(prev => {
       const next = prev.map(w => w.id === id ? { ...w, ...updates } : w);
-      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => { });
       return next;
     });
   };
@@ -11866,7 +11868,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteApprovalWorkflow = (id: string) => {
     setApprovalWorkflows(prev => {
       const next = prev.filter(w => w.id !== id);
-      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('approval_workflows_data', next).catch(() => { });
       return next;
     });
   };
@@ -11875,7 +11877,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateNotificationTrigger = (id: string, updates: Partial<NotificationTriggerConfig>) => {
     setNotificationTriggers(prev => {
       const next = prev.map(n => n.id === id ? { ...n, ...updates } : n);
-      supabaseDirect.saveCompanySetting('notification_triggers_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('notification_triggers_data', next).catch(() => { });
       return next;
     });
   };
@@ -11884,7 +11886,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateGeneralSystemConfig = (config: Partial<GeneralSystemConfig>) => {
     setGeneralSystemConfig(prev => {
       const next = { ...prev, ...config };
-      supabaseDirect.saveCompanySetting('general_system_config_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('general_system_config_data', next).catch(() => { });
       return next;
     });
   };
@@ -11893,7 +11895,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateIntegrationsConfig = (config: Partial<IntegrationsConfig>) => {
     setIntegrationsConfig(prev => {
       const next = { ...prev, ...config };
-      supabaseDirect.saveCompanySetting('integrations_config_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('integrations_config_data', next).catch(() => { });
       return next;
     });
   };
@@ -11906,8 +11908,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return b;
       });
-      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
-      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => { });
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => { });
       return next;
     });
   };
@@ -11920,8 +11922,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return b;
       });
-      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => {});
-      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => {});
+      supabaseDirect.saveCompanySetting('company_branches', next).catch(() => { });
+      supabaseDirect.saveCompanySetting('branches_data', next).catch(() => { });
       return next;
     });
   };
@@ -12215,7 +12217,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (serverAssignment?.id) {
         setFieldAssignments(prev => prev.map(a => a.id === newAssignment.id ? serverAssignment : a));
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     addNotification({
       title: 'New Field Duty Assigned',
@@ -12228,7 +12230,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateFieldAssignment = (id: string, updates: Partial<FieldAssignment>) => {
     setFieldAssignments(prev => prev.map(a => a.id === id ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a));
-    trackingApiService.updateAssignment(id, updates).catch(() => {});
+    trackingApiService.updateAssignment(id, updates).catch(() => { });
   };
 
   const doesAssignmentBelongToEmployee = (assignment: FieldAssignment, employeeIdOrName: string): boolean => {
@@ -12250,7 +12252,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       tripEndTime: now,
       updatedAt: now
     } : t));
-    trackingApiService.updateAssignment(id, { status: 'Cancelled' }).catch(() => {});
+    trackingApiService.updateAssignment(id, { status: 'Cancelled' }).catch(() => { });
   };
 
   const startTrip = (assignmentId: string, startLat: number, startLng: number, startAddress: string = 'Starting Point'): FieldTripSession => {
@@ -12354,2080 +12356,2084 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       OfflineTrackingStorage.saveOfflinePoint({ ...candidatePoint, uploadStatus: 'pending' });
     }
 
-    let acceptedPointsForRoadMatch: LocationPoint[] | null = null;
+let acceptedPointsForRoadMatch: LocationPoint[] | null = null;
 
-    setTripSessions(prev => prev.map(trip => {
-      if (trip.id !== tripId || trip.status !== 'Active') return trip;
+setTripSessions(prev => prev.map(trip => {
+  if (trip.id !== tripId || trip.status !== 'Active') return trip;
 
-      // Deduplicate by point ID or identical coordinate+timestamp
-      const alreadyExists = trip.locationPoints.some(
-        p =>
-          p.id === pointId ||
-          (p.recordedAt === recordedIso &&
-            Math.abs(p.latitude - point.latitude) < 0.000001 &&
-            Math.abs(p.longitude - point.longitude) < 0.000001)
-      );
-      if (alreadyExists) return trip;
+  // Deduplicate by point ID or identical coordinate+timestamp
+  const alreadyExists = trip.locationPoints.some(
+    p =>
+      p.id === pointId ||
+      (p.recordedAt === recordedIso &&
+        Math.abs(p.latitude - point.latitude) < 0.000001 &&
+        Math.abs(p.longitude - point.longitude) < 0.000001)
+  );
+  if (alreadyExists) return trip;
 
-      const prevPoint = trip.locationPoints[trip.locationPoints.length - 1] || null;
-      const recordedAtMs = new Date(recordedIso).getTime();
-      const validation = isValidMovementPoint(
-        prevPoint,
-        point.latitude,
-        point.longitude,
-        point.accuracy,
-        Number.isFinite(recordedAtMs) ? recordedAtMs : Date.now()
-      );
+  const prevPoint = trip.locationPoints[trip.locationPoints.length - 1] || null;
+  const recordedAtMs = new Date(recordedIso).getTime();
+  const validation = isValidMovementPoint(
+    prevPoint,
+    point.latitude,
+    point.longitude,
+    point.accuracy,
+    Number.isFinite(recordedAtMs) ? recordedAtMs : Date.now()
+  );
 
-      if (!validation.valid && prevPoint) {
-        return {
-          ...trip,
-          gpsStatus: (point.accuracy || 15) > 100 ? 'Low Accuracy' : 'GPS Active',
-          lastGpsUpdate: recordedIso,
-          updatedAt: new Date().toISOString()
-        };
-      }
+  if (!validation.valid && prevPoint) {
+    return {
+      ...trip,
+      gpsStatus: (point.accuracy || 15) > 100 ? 'Low Accuracy' : 'GPS Active',
+      lastGpsUpdate: recordedIso,
+      updatedAt: new Date().toISOString()
+    };
+  }
 
-      const newPt: LocationPoint = {
-        ...candidatePoint,
-        speed: point.speed ?? validation.calculatedSpeedKmh,
-        distanceFromPrevMeters: validation.distanceMeters,
-        qualityFlag: validation.qualityFlag,
-        isRejected: false
-      };
-      const updatedPoints = [...trip.locationPoints, newPt];
-      acceptedPointsForRoadMatch = updatedPoints;
-      const metrics = calculateSequentialRouteMetrics(updatedPoints, trip.segments, trip.tripEndTime);
-
-      return {
-        ...trip,
-        locationPoints: updatedPoints,
-        totalKm: metrics.totalKm,
-        verifiedDistanceMeters: metrics.verifiedDistanceMeters,
-        estimatedDistanceMeters: metrics.estimatedDistanceMeters,
-        recordedDistanceMeters: metrics.recordedDistanceMeters,
-        roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
-        unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
-        gpsDataQuality: metrics.gpsDataQuality,
-        missingIntervalsCount: metrics.missingIntervalsCount,
-        missingDurationSeconds: metrics.missingDurationSeconds,
-        segments: metrics.segments,
-        lastGpsUpdate: newPt.recordedAt,
-        gpsStatus: (newPt.accuracy || 15) > 50 ? 'Low Accuracy' : 'GPS Active',
-        trackingStatus: validation.calculatedSpeedKmh > 3 ? 'Travelling' : 'Stopped',
-        updatedAt: new Date().toISOString()
-      };
-    }));
-
-    // Asynchronously snap contiguous verified segments to OpenStreetMap roads via OSRM
-    if (acceptedPointsForRoadMatch && (acceptedPointsForRoadMatch as LocationPoint[]).length >= 2) {
-      const ptsToMatch = acceptedPointsForRoadMatch as LocationPoint[];
-      matchTripSegmentsToRoads(ptsToMatch).then(matchedMetrics => {
-        setTripSessions(prev => prev.map(t => {
-          if (t.id !== tripId) return t;
-          // Only apply if point count hasn't regressed
-          if (t.locationPoints.length < ptsToMatch.length) return t;
-          return {
-            ...t,
-            totalKm: matchedMetrics.totalKm,
-            verifiedDistanceMeters: matchedMetrics.verifiedDistanceMeters,
-            roadMatchedDistanceMeters: matchedMetrics.roadMatchedDistanceMeters,
-            unverifiedDistanceMeters: matchedMetrics.unverifiedDistanceMeters,
-            gpsDataQuality: matchedMetrics.gpsDataQuality,
-            missingIntervalsCount: matchedMetrics.missingIntervalsCount,
-            missingDurationSeconds: matchedMetrics.missingDurationSeconds,
-            segments: matchedMetrics.segments,
-          };
-        }));
-      }).catch(() => {});
-    }
+  const newPt: LocationPoint = {
+    ...candidatePoint,
+    speed: point.speed ?? validation.calculatedSpeedKmh,
+    distanceFromPrevMeters: validation.distanceMeters,
+    qualityFlag: validation.qualityFlag,
+    isRejected: false
   };
+  const updatedPoints = [...trip.locationPoints, newPt];
+  acceptedPointsForRoadMatch = updatedPoints;
+  const metrics = calculateSequentialRouteMetrics(updatedPoints, trip.segments, trip.tripEndTime);
 
-  const endTrip = (tripId: string, endLat: number, endLng: number, endAddress: string = 'Destination'): void => {
-    const now = new Date().toISOString();
+  return {
+    ...trip,
+    locationPoints: updatedPoints,
+    totalKm: metrics.totalKm,
+    verifiedDistanceMeters: metrics.verifiedDistanceMeters,
+    estimatedDistanceMeters: metrics.estimatedDistanceMeters,
+    recordedDistanceMeters: metrics.recordedDistanceMeters,
+    roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
+    unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
+    gpsDataQuality: metrics.gpsDataQuality,
+    missingIntervalsCount: metrics.missingIntervalsCount,
+    missingDurationSeconds: metrics.missingDurationSeconds,
+    segments: metrics.segments,
+    lastGpsUpdate: newPt.recordedAt,
+    gpsStatus: (newPt.accuracy || 15) > 50 ? 'Low Accuracy' : 'GPS Active',
+    trackingStatus: validation.calculatedSpeedKmh > 3 ? 'Travelling' : 'Stopped',
+    updatedAt: new Date().toISOString()
+  };
+}));
 
-    // Call backend API to finalize trip in PostgreSQL
-    trackingApiService.endTrip(tripId, endLat, endLng, endAddress).catch(() => {});
-
-    let finalPtsForRoadMatch: LocationPoint[] | null = null;
-
+// Asynchronously snap contiguous verified segments to OpenStreetMap roads via OSRM
+if (acceptedPointsForRoadMatch && (acceptedPointsForRoadMatch as LocationPoint[]).length >= 2) {
+  const ptsToMatch = acceptedPointsForRoadMatch as LocationPoint[];
+  matchTripSegmentsToRoads(ptsToMatch).then(matchedMetrics => {
     setTripSessions(prev => prev.map(t => {
       if (t.id !== tripId) return t;
-      const finalPoints = [...t.locationPoints];
-      const lastPt = finalPoints[finalPoints.length - 1];
-      if (endLat && endLng) {
-        const distFromLast = lastPt
-          ? calculateHaversineMeters(lastPt.latitude, lastPt.longitude, endLat, endLng)
-          : 0;
-        // Only append end point if it differs from the last recorded point by >= 3m
-        if (!lastPt || distFromLast >= 3) {
-          finalPoints.push({
-            id: generateTrackingUuid(),
-            tripId,
-            assignmentId: t.assignmentId,
-            employeeId: t.employeeId,
-            recordedAt: now,
-            latitude: endLat,
-            longitude: endLng,
-            accuracy: 10,
-            speed: 0,
-            source: 'destination_arrival',
-            uploadStatus: 'uploaded',
-            qualityFlag: 'high'
-          });
-        }
-      }
-      finalPtsForRoadMatch = finalPoints;
-      const metrics = calculateSequentialRouteMetrics(finalPoints, t.segments, now);
+      // Only apply if point count hasn't regressed
+      if (t.locationPoints.length < ptsToMatch.length) return t;
       return {
         ...t,
-        endLat,
-        endLng,
-        endAddress,
-        tripEndTime: now,
-        totalKm: metrics.totalKm,
-        verifiedDistanceMeters: metrics.verifiedDistanceMeters,
-        estimatedDistanceMeters: metrics.estimatedDistanceMeters,
-        recordedDistanceMeters: metrics.recordedDistanceMeters,
-        roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
-        unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
-        gpsDataQuality: metrics.gpsDataQuality,
-        missingIntervalsCount: metrics.missingIntervalsCount,
-        missingDurationSeconds: metrics.missingDurationSeconds,
-        segments: metrics.segments,
-        status: 'Completed',
-        trackingStatus: 'Completed',
-        locationPoints: finalPoints,
-        lastGpsUpdate: now,
-        updatedAt: now
+        totalKm: matchedMetrics.totalKm,
+        verifiedDistanceMeters: matchedMetrics.verifiedDistanceMeters,
+        roadMatchedDistanceMeters: matchedMetrics.roadMatchedDistanceMeters,
+        unverifiedDistanceMeters: matchedMetrics.unverifiedDistanceMeters,
+        gpsDataQuality: matchedMetrics.gpsDataQuality,
+        missingIntervalsCount: matchedMetrics.missingIntervalsCount,
+        missingDurationSeconds: matchedMetrics.missingDurationSeconds,
+        segments: matchedMetrics.segments,
       };
     }));
-
-    if (finalPtsForRoadMatch && (finalPtsForRoadMatch as LocationPoint[]).length >= 2) {
-      matchTripSegmentsToRoads(finalPtsForRoadMatch as LocationPoint[], now).then(matched => {
-        setTripSessions(prev => prev.map(t => t.id === tripId ? {
-          ...t,
-          totalKm: matched.totalKm,
-          verifiedDistanceMeters: matched.verifiedDistanceMeters,
-          roadMatchedDistanceMeters: matched.roadMatchedDistanceMeters,
-          unverifiedDistanceMeters: matched.unverifiedDistanceMeters,
-          gpsDataQuality: matched.gpsDataQuality,
-          missingIntervalsCount: matched.missingIntervalsCount,
-          missingDurationSeconds: matched.missingDurationSeconds,
-          segments: matched.segments,
-        } : t));
-      }).catch(() => {});
-    }
-
-    setFieldAssignments(prev => prev.map(a => {
-      const trip = tripSessions.find(t => t.id === tripId);
-      return a.id === trip?.assignmentId ? { ...a, status: 'Completed', updatedAt: now } : a;
-    }));
+  }).catch(() => { });
+}
   };
 
-  const fieldCheckIn = (assignmentId: string, lat: number, lng: number, address?: string): { success: boolean; message: string } => {
-    const assignment = fieldAssignments.find(a => a.id === assignmentId);
-    if (!assignment) {
-      return { success: false, message: 'Field assignment not found.' };
-    }
+const endTrip = (tripId: string, endLat: number, endLng: number, endAddress: string = 'Destination'): void => {
+  const now = new Date().toISOString();
 
-    if (assignment.status === 'Cancelled') {
-      return { success: false, message: 'This field duty assignment has been cancelled.' };
-    }
+  // Call backend API to finalize trip in PostgreSQL
+  trackingApiService.endTrip(tripId, endLat, endLng, endAddress).catch(() => { });
 
-    if (assignment.status === 'Completed') {
-      return { success: false, message: 'This field duty assignment is already completed.' };
-    }
+  let finalPtsForRoadMatch: LocationPoint[] | null = null;
 
-    if (!isTrackingScheduleActive(assignment)) {
-      return { success: false, message: 'Field check-in is allowed only during the approved duty schedule.' };
-    }
-
-    if (assignment.attendanceType === 'Site Geofence' && assignment.siteLat && assignment.siteLng) {
-      const distMeters = calculateHaversineMeters(lat, lng, assignment.siteLat, assignment.siteLng);
-      if (distMeters > assignment.allowedRadiusMeters) {
-        return {
-          success: false,
-          message: `You are outside the assigned site location (${Math.round(distMeters)}m away, allowed radius is ${assignment.allowedRadiusMeters}m).`
-        };
+  setTripSessions(prev => prev.map(t => {
+    if (t.id !== tripId) return t;
+    const finalPoints = [...t.locationPoints];
+    const lastPt = finalPoints[finalPoints.length - 1];
+    if (endLat && endLng) {
+      const distFromLast = lastPt
+        ? calculateHaversineMeters(lastPt.latitude, lastPt.longitude, endLat, endLng)
+        : 0;
+      // Only append end point if it differs from the last recorded point by >= 3m
+      if (!lastPt || distFromLast >= 3) {
+        finalPoints.push({
+          id: generateTrackingUuid(),
+          tripId,
+          assignmentId: t.assignmentId,
+          employeeId: t.employeeId,
+          recordedAt: now,
+          latitude: endLat,
+          longitude: endLng,
+          accuracy: 10,
+          speed: 0,
+          source: 'destination_arrival',
+          uploadStatus: 'uploaded',
+          qualityFlag: 'high'
+        });
       }
     }
+    finalPtsForRoadMatch = finalPoints;
+    const metrics = calculateSequentialRouteMetrics(finalPoints, t.segments, now);
+    return {
+      ...t,
+      endLat,
+      endLng,
+      endAddress,
+      tripEndTime: now,
+      totalKm: metrics.totalKm,
+      verifiedDistanceMeters: metrics.verifiedDistanceMeters,
+      estimatedDistanceMeters: metrics.estimatedDistanceMeters,
+      recordedDistanceMeters: metrics.recordedDistanceMeters,
+      roadMatchedDistanceMeters: metrics.roadMatchedDistanceMeters,
+      unverifiedDistanceMeters: metrics.unverifiedDistanceMeters,
+      gpsDataQuality: metrics.gpsDataQuality,
+      missingIntervalsCount: metrics.missingIntervalsCount,
+      missingDurationSeconds: metrics.missingDurationSeconds,
+      segments: metrics.segments,
+      status: 'Completed',
+      trackingStatus: 'Completed',
+      locationPoints: finalPoints,
+      lastGpsUpdate: now,
+      updatedAt: now
+    };
+  }));
 
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const empId = assignment.employeeId || currentUser.employeeId || currentUser.id;
+  if (finalPtsForRoadMatch && (finalPtsForRoadMatch as LocationPoint[]).length >= 2) {
+    matchTripSegmentsToRoads(finalPtsForRoadMatch as LocationPoint[], now).then(matched => {
+      setTripSessions(prev => prev.map(t => t.id === tripId ? {
+        ...t,
+        totalKm: matched.totalKm,
+        verifiedDistanceMeters: matched.verifiedDistanceMeters,
+        roadMatchedDistanceMeters: matched.roadMatchedDistanceMeters,
+        unverifiedDistanceMeters: matched.unverifiedDistanceMeters,
+        gpsDataQuality: matched.gpsDataQuality,
+        missingIntervalsCount: matched.missingIntervalsCount,
+        missingDurationSeconds: matched.missingDurationSeconds,
+        segments: matched.segments,
+      } : t));
+    }).catch(() => { });
+  }
 
-    markAttendance(empId, 'Present', 'GPS Check-In', {
-      lat,
-      lng,
-      address: address || assignment.siteAddress || assignment.customerSiteName,
-      inGeofence: true
-    });
+  setFieldAssignments(prev => prev.map(a => {
+    const trip = tripSessions.find(t => t.id === tripId);
+    return a.id === trip?.assignmentId ? { ...a, status: 'Completed', updatedAt: now } : a;
+  }));
+};
 
-    setFieldAssignments(prev => prev.map(a => a.id === assignmentId ? {
-      ...a,
-      status: 'Active',
-      updatedAt: nowIso
-    } : a));
+const fieldCheckIn = (assignmentId: string, lat: number, lng: number, address?: string): { success: boolean; message: string } => {
+  const assignment = fieldAssignments.find(a => a.id === assignmentId);
+  if (!assignment) {
+    return { success: false, message: 'Field assignment not found.' };
+  }
 
+  if (assignment.status === 'Cancelled') {
+    return { success: false, message: 'This field duty assignment has been cancelled.' };
+  }
+
+  if (assignment.status === 'Completed') {
+    return { success: false, message: 'This field duty assignment is already completed.' };
+  }
+
+  if (!isTrackingScheduleActive(assignment)) {
+    return { success: false, message: 'Field check-in is allowed only during the approved duty schedule.' };
+  }
+
+  if (assignment.attendanceType === 'Site Geofence' && assignment.siteLat && assignment.siteLng) {
+    const distMeters = calculateHaversineMeters(lat, lng, assignment.siteLat, assignment.siteLng);
+    if (distMeters > assignment.allowedRadiusMeters) {
+      return {
+        success: false,
+        message: `You are outside the assigned site location (${Math.round(distMeters)}m away, allowed radius is ${assignment.allowedRadiusMeters}m).`
+      };
+    }
+  }
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const empId = assignment.employeeId || currentUser.employeeId || currentUser.id;
+
+  markAttendance(empId, 'Present', 'GPS Check-In', {
+    lat,
+    lng,
+    address: address || assignment.siteAddress || assignment.customerSiteName,
+    inGeofence: true
+  });
+
+  setFieldAssignments(prev => prev.map(a => a.id === assignmentId ? {
+    ...a,
+    status: 'Active',
+    updatedAt: nowIso
+  } : a));
+
+  setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? {
+    ...t,
+    checkInTime: nowIso,
+    updatedAt: nowIso
+  } : t));
+
+  return { success: true, message: 'Field check-in verified successfully.' };
+};
+
+const fieldCheckOut = (assignmentId: string): void => {
+  const nowIso = new Date().toISOString();
+  const activeTrip = tripSessions.find(t => t.assignmentId === assignmentId && t.status === 'Active');
+
+  setFieldAssignments(prev => prev.map(a => a.id === assignmentId ? {
+    ...a,
+    status: 'Completed',
+    updatedAt: nowIso
+  } : a));
+
+  trackingApiService.updateAssignment(assignmentId, { status: 'Completed' }).catch(() => { });
+
+  // Request a final live GPS fix on Field Check-Out so the trip completion coordinate is fresh
+  defaultLocationProvider.getCurrentPosition().then(pos => {
+    if (activeTrip) {
+      endTrip(activeTrip.id, pos.lat, pos.lng, 'Field Duty Check-Out');
+    }
     setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? {
       ...t,
-      checkInTime: nowIso,
+      checkOutTime: nowIso,
+      tripEndTime: t.tripEndTime || nowIso,
+      endLat: pos.lat,
+      endLng: pos.lng,
+      endAddress: t.endAddress || 'Field Duty Check-Out',
+      status: 'Completed',
+      trackingStatus: 'Completed',
       updatedAt: nowIso
     } : t));
-
-    return { success: true, message: 'Field check-in verified successfully.' };
-  };
-
-  const fieldCheckOut = (assignmentId: string): void => {
-    const nowIso = new Date().toISOString();
-    const activeTrip = tripSessions.find(t => t.assignmentId === assignmentId && t.status === 'Active');
-
-    setFieldAssignments(prev => prev.map(a => a.id === assignmentId ? {
-      ...a,
+  }).catch(() => {
+    const lastPt = activeTrip?.locationPoints[activeTrip.locationPoints.length - 1];
+    const fallbackLat = lastPt?.latitude || activeTrip?.startLat || 13.0827;
+    const fallbackLng = lastPt?.longitude || activeTrip?.startLng || 80.2707;
+    if (activeTrip) {
+      endTrip(activeTrip.id, fallbackLat, fallbackLng, 'Field Duty Check-Out');
+    }
+    setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? normalizeTripSessionMetrics({
+      ...t,
+      checkOutTime: nowIso,
+      tripEndTime: t.tripEndTime || nowIso,
+      endLat: t.endLat ?? fallbackLat,
+      endLng: t.endLng ?? fallbackLng,
+      endAddress: t.endAddress || 'Field Duty Check-Out',
       status: 'Completed',
+      trackingStatus: 'Completed',
+      gpsStatus: t.gpsStatus === 'GPS Active' ? 'GPS Active' : t.gpsStatus,
       updatedAt: nowIso
-    } : a));
+    }) : t));
+  });
+};
 
-    trackingApiService.updateAssignment(assignmentId, { status: 'Completed' }).catch(() => {});
+// Global Active-Trip Foreground GPS Watcher & Offline Queue Sync
+// Keeps active trip tracking alive even when the employee switches tabs inside BUSINZ HRMS.
+const activeEmployeeTrip = useMemo(() => {
+  const keys = [currentUser.employeeId, currentUser.id, currentUser.name]
+    .filter(Boolean)
+    .map(v => String(v).trim().toLowerCase());
+  return tripSessions.find(t => {
+    if (t.status !== 'Active') return false;
+    const tKeys = [t.employeeId, t.employeeName].map(v => String(v || '').trim().toLowerCase());
+    return tKeys.some(k => keys.includes(k));
+  });
+}, [tripSessions, currentUser.employeeId, currentUser.id, currentUser.name]);
 
-    // Request a final live GPS fix on Field Check-Out so the trip completion coordinate is fresh
-    defaultLocationProvider.getCurrentPosition().then(pos => {
-      if (activeTrip) {
-        endTrip(activeTrip.id, pos.lat, pos.lng, 'Field Duty Check-Out');
+useEffect(() => {
+  if (!activeEmployeeTrip || activeEmployeeTrip.status !== 'Active') return;
+  const tripId = activeEmployeeTrip.id;
+  const assignmentId = activeEmployeeTrip.assignmentId;
+  const employeeId = activeEmployeeTrip.employeeId;
+
+  const watchId = defaultLocationProvider.watchPosition(
+    pos => {
+      recordLocationPoint(tripId, {
+        assignmentId,
+        employeeId,
+        recordedAt: new Date(pos.timestamp).toISOString(),
+        latitude: pos.lat,
+        longitude: pos.lng,
+        accuracy: pos.accuracy,
+        speed: pos.speed,
+        speedMps: pos.speedMps,
+        heading: pos.heading,
+        altitude: pos.altitude,
+        batteryLevel: pos.batteryLevel,
+        source: 'browser_watch'
+      });
+    },
+    err => {
+      console.warn('[HRMSContext] Active trip GPS watch warning:', err);
+    },
+    { activePollIntervalMs: 10000, lowBatteryPollIntervalMs: 20000, minMovementMeters: 10 }
+  );
+
+  const handleOnlineSync = () => {
+    const offlinePts = OfflineTrackingStorage.getOfflinePoints();
+    if (offlinePts.length > 0) {
+      const forThisTrip = offlinePts.filter(p => p.tripId === tripId);
+      if (forThisTrip.length > 0) {
+        trackingApiService.recordLocationPoints(forThisTrip).then(res => {
+          if (res) {
+            OfflineTrackingStorage.clearOfflinePoints(forThisTrip.map(p => p.id));
+          }
+        }).catch(() => { });
+        forThisTrip.forEach(pt => recordLocationPoint(tripId, pt));
       }
-      setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? {
-        ...t,
-        checkOutTime: nowIso,
-        tripEndTime: t.tripEndTime || nowIso,
-        endLat: pos.lat,
-        endLng: pos.lng,
-        endAddress: t.endAddress || 'Field Duty Check-Out',
-        status: 'Completed',
-        trackingStatus: 'Completed',
-        updatedAt: nowIso
-      } : t));
-    }).catch(() => {
-      const lastPt = activeTrip?.locationPoints[activeTrip.locationPoints.length - 1];
-      const fallbackLat = lastPt?.latitude || activeTrip?.startLat || 13.0827;
-      const fallbackLng = lastPt?.longitude || activeTrip?.startLng || 80.2707;
-      if (activeTrip) {
-        endTrip(activeTrip.id, fallbackLat, fallbackLng, 'Field Duty Check-Out');
-      }
-      setTripSessions(prev => prev.map(t => t.assignmentId === assignmentId ? normalizeTripSessionMetrics({
-        ...t,
-        checkOutTime: nowIso,
-        tripEndTime: t.tripEndTime || nowIso,
-        endLat: t.endLat ?? fallbackLat,
-        endLng: t.endLng ?? fallbackLng,
-        endAddress: t.endAddress || 'Field Duty Check-Out',
-        status: 'Completed',
-        trackingStatus: 'Completed',
-        gpsStatus: t.gpsStatus === 'GPS Active' ? 'GPS Active' : t.gpsStatus,
-        updatedAt: nowIso
-      }) : t));
-    });
+    }
   };
 
-  // Global Active-Trip Foreground GPS Watcher & Offline Queue Sync
-  // Keeps active trip tracking alive even when the employee switches tabs inside BUSINZ HRMS.
-  const activeEmployeeTrip = useMemo(() => {
-    const keys = [currentUser.employeeId, currentUser.id, currentUser.name]
-      .filter(Boolean)
-      .map(v => String(v).trim().toLowerCase());
-    return tripSessions.find(t => {
-      if (t.status !== 'Active') return false;
-      const tKeys = [t.employeeId, t.employeeName].map(v => String(v || '').trim().toLowerCase());
-      return tKeys.some(k => keys.includes(k));
-    });
-  }, [tripSessions, currentUser.employeeId, currentUser.id, currentUser.name]);
-
-  useEffect(() => {
-    if (!activeEmployeeTrip || activeEmployeeTrip.status !== 'Active') return;
-    const tripId = activeEmployeeTrip.id;
-    const assignmentId = activeEmployeeTrip.assignmentId;
-    const employeeId = activeEmployeeTrip.employeeId;
-
-    const watchId = defaultLocationProvider.watchPosition(
-      pos => {
-        recordLocationPoint(tripId, {
-          assignmentId,
-          employeeId,
-          recordedAt: new Date(pos.timestamp).toISOString(),
-          latitude: pos.lat,
-          longitude: pos.lng,
-          accuracy: pos.accuracy,
-          speed: pos.speed,
-          speedMps: pos.speedMps,
-          heading: pos.heading,
-          altitude: pos.altitude,
-          batteryLevel: pos.batteryLevel,
-          source: 'browser_watch'
-        });
-      },
-      err => {
-        console.warn('[HRMSContext] Active trip GPS watch warning:', err);
-      },
-      { activePollIntervalMs: 10000, lowBatteryPollIntervalMs: 20000, minMovementMeters: 10 }
-    );
-
-    const handleOnlineSync = () => {
-      const offlinePts = OfflineTrackingStorage.getOfflinePoints();
-      if (offlinePts.length > 0) {
-        const forThisTrip = offlinePts.filter(p => p.tripId === tripId);
-        if (forThisTrip.length > 0) {
-          trackingApiService.recordLocationPoints(forThisTrip).then(res => {
-            if (res) {
-              OfflineTrackingStorage.clearOfflinePoints(forThisTrip.map(p => p.id));
-            }
-          }).catch(() => {});
-          forThisTrip.forEach(pt => recordLocationPoint(tripId, pt));
-        }
-      }
-    };
-
-    window.addEventListener('online', handleOnlineSync);
-    return () => {
-      defaultLocationProvider.clearWatch(watchId);
-      window.removeEventListener('online', handleOnlineSync);
-    };
-  }, [activeEmployeeTrip?.id, activeEmployeeTrip?.status]);
-
-  const resolveTrackingAlert = (alertId: string) => {
-    const now = new Date();
-    setTrackingAlerts(prev => prev.map(alt => {
-      if (alt.id !== alertId) return alt;
-      const startMs = new Date(alt.issueStartTime).getTime();
-      const durationMin = Math.max(1, Math.round((now.getTime() - startMs) / 60000));
-      return {
-        ...alt,
-        status: 'Resolved',
-        issueEndTime: now.toISOString(),
-        durationMinutes: durationMin,
-        updatedAt: now.toISOString()
-      };
-    }));
+  window.addEventListener('online', handleOnlineSync);
+  return () => {
+    defaultLocationProvider.clearWatch(watchId);
+    window.removeEventListener('online', handleOnlineSync);
   };
+}, [activeEmployeeTrip?.id, activeEmployeeTrip?.status]);
 
-  const getTodayFieldAssignment = (employeeId: string): FieldAssignment | undefined => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    return fieldAssignments.find(a => {
-      if (!doesAssignmentBelongToEmployee(a, employeeId)) return false;
-      if (a.status === 'Cancelled') return false;
-      if (a.scheduleType === 'One Day') {
-        return a.startDate === todayStr;
-      } else if (a.scheduleType === 'Date Range') {
-        return todayStr >= a.startDate && todayStr <= a.endDate;
-      } else if (a.scheduleType === 'Weekly') {
-        const startDayOfWeek = new Date(a.startDate).getDay();
-        return now.getDay() === startDayOfWeek && todayStr >= a.startDate && todayStr <= a.endDate;
-      }
+const resolveTrackingAlert = (alertId: string) => {
+  const now = new Date();
+  setTrackingAlerts(prev => prev.map(alt => {
+    if (alt.id !== alertId) return alt;
+    const startMs = new Date(alt.issueStartTime).getTime();
+    const durationMin = Math.max(1, Math.round((now.getTime() - startMs) / 60000));
+    return {
+      ...alt,
+      status: 'Resolved',
+      issueEndTime: now.toISOString(),
+      durationMinutes: durationMin,
+      updatedAt: now.toISOString()
+    };
+  }));
+};
+
+const getTodayFieldAssignment = (employeeId: string): FieldAssignment | undefined => {
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  return fieldAssignments.find(a => {
+    if (!doesAssignmentBelongToEmployee(a, employeeId)) return false;
+    if (a.status === 'Cancelled') return false;
+    if (a.scheduleType === 'One Day') {
+      return a.startDate === todayStr;
+    } else if (a.scheduleType === 'Date Range') {
       return todayStr >= a.startDate && todayStr <= a.endDate;
-    });
-  };
+    } else if (a.scheduleType === 'Weekly') {
+      const startDayOfWeek = new Date(a.startDate).getDay();
+      return now.getDay() === startDayOfWeek && todayStr >= a.startDate && todayStr <= a.endDate;
+    }
+    return todayStr >= a.startDate && todayStr <= a.endDate;
+  });
+};
 
 
-  // ============================================================================
-  // MASTER SUPABASE CLOUD SYNCHRONIZATION ENGINE
-  // Connects and synchronizes all HRM modules across all devices and browsers
-  // ============================================================================
-  const syncAllModulesFromDatabase = async (isInitial = false) => {
-    if (isSyncingFromCloud.current) {
-      pendingCloudSyncRef.current = true;
+// ============================================================================
+// MASTER SUPABASE CLOUD SYNCHRONIZATION ENGINE
+// Connects and synchronizes all HRM modules across all devices and browsers
+// ============================================================================
+const syncAllModulesFromDatabase = async (isInitial = false) => {
+  if (isSyncingFromCloud.current) {
+    pendingCloudSyncRef.current = true;
+    return;
+  }
+  try {
+    isSyncingFromCloud.current = true;
+
+    // Parallel batch fetch directly from VPS database
+    const [
+      rawEmployees,
+      rawTasks,
+      rawAttendance,
+      rawLeaves,
+      rawShifts,
+      rawAssets,
+      rawExpenses,
+      rawJobs,
+      rawCandidates,
+      rawPayroll,
+      cloudSettings,
+      cloudDepts
+    ] = await Promise.all([
+      supabaseDirect.getEmployees().catch(() => []),
+      supabaseDirect.getTasks().catch(() => []),
+      supabaseDirect.getAttendanceRecords().catch(() => []),
+      supabaseDirect.getLeaveRequests().catch(() => []),
+      supabaseDirect.getShifts(currentUser.company_id || currentUser.companyId || 'company-a').catch(() => []),
+      supabaseDirect.getAssets().catch(() => []),
+      fetchExpenseClaims().catch(() => supabaseDirect.getExpenses().catch(() => [])),
+      supabaseDirect.getJobOpenings().catch(() => []),
+      supabaseDirect.getCandidates().catch(() => []),
+      supabaseDirect.getPayrollRecords().catch(() => []),
+      supabaseDirect.getAllCompanySettings().catch(() => ({})),
+      supabaseDirect.getDepartments().catch(() => [])
+    ]);
+    const settings: Record<string, any> = (cloudSettings || {}) as Record<string, any>;
+
+    // If PostgREST / cloud database is offline in local dev, preserve all existing local state
+    if (!supabaseDirect.isRestAvailable()) {
       return;
     }
-    try {
-      isSyncingFromCloud.current = true;
 
-      // Parallel batch fetch directly from VPS database
-      const [
-        rawEmployees, 
-        rawTasks, 
-        rawAttendance, 
-        rawLeaves, 
-        rawShifts, 
-        rawAssets, 
-        rawExpenses, 
-        rawJobs, 
-        rawCandidates, 
-        rawPayroll,
-        cloudSettings, 
-        cloudDepts
-      ] = await Promise.all([
-        supabaseDirect.getEmployees().catch(() => []),
-        supabaseDirect.getTasks().catch(() => []),
-        supabaseDirect.getAttendanceRecords().catch(() => []),
-        supabaseDirect.getLeaveRequests().catch(() => []),
-        supabaseDirect.getShifts(currentUser.company_id || currentUser.companyId || 'company-a').catch(() => []),
-        supabaseDirect.getAssets().catch(() => []),
-        fetchExpenseClaims().catch(() => supabaseDirect.getExpenses().catch(() => [])),
-        supabaseDirect.getJobOpenings().catch(() => []),
-        supabaseDirect.getCandidates().catch(() => []),
-        supabaseDirect.getPayrollRecords().catch(() => []),
-        supabaseDirect.getAllCompanySettings().catch(() => ({})),
-        supabaseDirect.getDepartments().catch(() => [])
-      ]);
-      const settings: Record<string, any> = (cloudSettings || {}) as Record<string, any>;
-
-      // If PostgREST / cloud database is offline in local dev, preserve all existing local state
-      if (!supabaseDirect.isRestAvailable()) {
-        return;
-      }
-
-      // 1. Synchronize Employees
-      let mappedEmployees: Employee[] = [];
-      if (Array.isArray(rawEmployees) && rawEmployees.length > 0) {
-        const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
-        const profileExtensions = settings[EMPLOYEE_PROFILES_SETTING_KEY] || {};
-        const mapped = rawEmployees.map(e => {
-          const empCodeKey = e.employee_id || e.employeeId;
-          const extByCode = (empCodeKey && profileExtensions[empCodeKey]) || {};
-          const extById = (e.id && profileExtensions[e.id]) || {};
-          const extension = { ...extById, ...extByCode };
-          const rawProfileData = typeof e.profile_data === 'object' && e.profile_data !== null ? e.profile_data : {};
-          const mergedRaw = {
+    // 1. Synchronize Employees
+    let mappedEmployees: Employee[] = [];
+    if (Array.isArray(rawEmployees) && rawEmployees.length > 0) {
+      const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
+      const profileExtensions = settings[EMPLOYEE_PROFILES_SETTING_KEY] || {};
+      const mapped = rawEmployees.map(e => {
+        const empCodeKey = e.employee_id || e.employeeId;
+        const extByCode = (empCodeKey && profileExtensions[empCodeKey]) || {};
+        const extById = (e.id && profileExtensions[e.id]) || {};
+        const extension = { ...extById, ...extByCode };
+        const rawProfileData = typeof e.profile_data === 'object' && e.profile_data !== null ? e.profile_data : {};
+        const mergedRaw = {
+          ...extension,
+          ...rawProfileData,
+          ...e,
+          row_version: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
+          rowVersion: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
+          work_shift: e.work_shift || rawProfileData.workShift || extension.workShift,
+          workShift: e.work_shift || rawProfileData.workShift || extension.workShift,
+          profile_data: {
             ...extension,
             ...rawProfileData,
-            ...e,
-            row_version: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
-            rowVersion: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
-            work_shift: e.work_shift || rawProfileData.workShift || extension.workShift,
-            workShift: e.work_shift || rawProfileData.workShift || extension.workShift,
-            profile_data: {
-              ...extension,
-              ...rawProfileData,
-            },
-          };
-          const base = mapEmployeeFromDb(mergedRaw, currentDepts);
-
-          // Authoritative accountStatus resolution:
-          // e.account_status from database is authoritative over stale extension
-          const resolvedAccountStatus: 'ACTIVE' | 'DEACTIVATED' | 'DISABLED' = 
-            (e.account_status as any) || (e.accountStatus as any) || base.accountStatus || extension.accountStatus || 'ACTIVE';
-          const resolvedStatus: Employee['status'] =
-            resolvedAccountStatus === 'DEACTIVATED' || resolvedAccountStatus === 'DISABLED'
-              ? (rawProfileData.status === 'Terminated' || e.status === 'Terminated' ? 'Terminated' : 'Inactive')
-              : (rawProfileData.status || e.status || base.status || extension.status || 'Active');
-
-          // Authoritative password & change flag resolution
-          const isDbPasswordChanged = base.mustChangePassword === false;
-          const resolvedMustChange = isDbPasswordChanged ? false : Boolean(extension.mustChangePassword ?? base.mustChangePassword);
-
-          const candidatePortalPass =
-            (rawProfileData.portalPassword && !String(rawProfileData.portalPassword).startsWith('$2') ? String(rawProfileData.portalPassword) : '') ||
-            (base.portalPassword && !String(base.portalPassword).startsWith('$2') ? String(base.portalPassword) : '') ||
-            ((extension as any).portalPassword && !String((extension as any).portalPassword).startsWith('$2') ? String((extension as any).portalPassword) : '') ||
-            (base.password && !String(base.password).startsWith('$2') ? String(base.password) : '') ||
-            (extension.password && !String(extension.password).startsWith('$2') ? String(extension.password) : '');
-
-          const resolvedPortalPassword = candidatePortalPass || 'Password@123';
-          let resolvedPassword = candidatePortalPass || 'Password@123';
-          if (!candidatePortalPass && base.password) {
-            resolvedPassword = base.password;
-          }
-
-          return {
-            ...extension,
-            ...base,
-            id: base.id,
-            employeeId: base.employeeId,
-            accountStatus: resolvedAccountStatus,
-            status: resolvedStatus,
-            department: (base.department && base.department !== 'General') ? base.department : (rawProfileData.department || extension.department || base.department || 'General'),
-            mustChangePassword: resolvedMustChange,
-            portalPassword: resolvedPortalPassword,
-            password: resolvedPassword
-          };
-        });
-        mappedEmployees = mapped;
-        setEmployees(mapped);
-      } else {
-        setEmployees([]);
-      }
-
-
-      // 2. Synchronize Enterprise Tasks
-      if (Array.isArray(rawTasks) && rawTasks.length > 0) {
-        const sanitized = rawTasks.map(sanitizeSelfAssignedTask);
-        setEnhancedTasks(sanitized);
-        try {
-          localStorage.setItem('vrm_hrms_enhanced_tasks', JSON.stringify(sanitized));
-        } catch (e) {}
-      } else {
-        setEnhancedTasks([]);
-        try { localStorage.removeItem('vrm_hrms_enhanced_tasks'); } catch (e) {}
-      }
-
-      // 3. Synchronize All Company Settings & Core Modules
-      // Synchronize Shifts (DB table primary, settings fallback)
-      if (Array.isArray(rawShifts) && rawShifts.length > 0) {
-        const todayIso = getTodayKolkata();
-        setShifts(rawShifts.map((s: any) => {
-          const activeAssignments = (s.assignments || []).map((assignment: any) => ({
-            id: assignment.id,
-            shiftId: assignment.shift_id || assignment.shiftId || s.id,
-            employeeId: assignment.employee?.employee_id || assignment.employee_id || assignment.employeeId,
-            effectiveFrom: assignment.effective_from || assignment.effectiveFrom || '',
-            effectiveTo: assignment.effective_to || assignment.effectiveTo || null,
-            status: assignment.status || 'ACTIVE',
-            assignedById: assignment.assigned_by_id || '',
-            createdAt: assignment.created_at || '',
-            updatedAt: assignment.updated_at || ''
-          })).filter((assignment: any) => {
-            if (!assignment.employeeId) return false;
-            const effFrom = assignment.effectiveFrom ? String(assignment.effectiveFrom).slice(0, 10) : '';
-            const effTo = assignment.effectiveTo ? String(assignment.effectiveTo).slice(0, 10) : '';
-            if (effFrom && effFrom > todayIso) return false;
-            if (effTo && effTo < todayIso) return false;
-            return true;
-          });
-          return {
-            id: s.id,
-            shiftName: s.shift_name,
-            startTime: (s.start_time || '').slice(0, 5) || '09:00',
-            endTime: (s.end_time || '').slice(0, 5) || '18:00',
-            breakDurationMins: s.break_duration_mins ?? 60,
-            workingHours: s.working_hours ?? 8,
-            gracePeriodMins: s.grace_period_mins ?? 15,
-            color: s.color || '#0E7490',
-            assignments: activeAssignments,
-            assignedEmployeeCount: activeAssignments.length
-          };
-        }));
-      } else if (Array.isArray(settings?.shifts_data)) {
-        setShifts(settings.shifts_data.filter((s: Shift) => s && s.id !== 'SH-01' && s.id !== 'SH-02' && s.id !== 'SH-03'));
-      } else {
-        setShifts([]);
-      }
-
-      // Synchronize Leaves. In Hostinger VPS mode the leave_requests table is the source of truth.
-      const empPool = mappedEmployees.length > 0 ? mappedEmployees : employees;
-      let hydratedLeaves: LeaveRequest[] = [];
-      if (Array.isArray(rawLeaves) && rawLeaves.length > 0) {
-        const cachedLeavesMap = new Map<string, LeaveRequest>();
-        try {
-          const cachedSaved = localStorage.getItem('vrm_hrms_leave_requests_persistent');
-          if (cachedSaved) {
-            const parsed = JSON.parse(cachedSaved);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((l: LeaveRequest) => { if (l?.id) cachedLeavesMap.set(l.id, l); });
-            }
-          }
-          if (Array.isArray(settings.leave_requests_data)) {
-            settings.leave_requests_data.forEach((l: LeaveRequest) => { if (l?.id) cachedLeavesMap.set(l.id, l); });
-          }
-        } catch {}
-
-        const activeSandwichRules = (Array.isArray(settings.sandwich_policies_data) && settings.sandwich_policies_data.length > 0)
-          ? settings.sandwich_policies_data
-          : sandwichPolicies;
-
-        const mappedLeaves = rawLeaves.map((l: any) => {
-          const emp = empPool.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id) || empPool[0] || ({
-            id: l.employee_id,
-            employeeId: l.employee?.employee_id || l.employee_id,
-            firstName: l.employee?.first_name || 'Staff',
-            lastName: l.employee?.last_name || '',
-            department: 'General',
-            designation: 'Staff',
-            workLocation: 'Plant HQ',
-            shiftDetails: { weeklyOff: 'Sunday' }
-          } as any);
-
-          const fullName = l.employee ? `${l.employee.first_name || ''} ${l.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
-          const cached = cachedLeavesMap.get(l.id);
-          const normStart = normalizeToYYYYMMDD(l.start_date) || l.start_date;
-          const normEnd = normalizeToYYYYMMDD(l.end_date) || l.end_date;
-          const isWfh = l.leave_type === 'Work From Home' || 
-            (l.leave_type && l.leave_type.toLowerCase().includes('work from home')) ||
-            (l.leave_type && l.leave_type.toLowerCase() === 'wfh');
-
-          // Dynamically calculate sandwich breakdown
-          const effectiveSandwichCalc: SandwichCalculationResult | undefined = isWfh ? undefined : (cached?.sandwichDetails || calculateSandwichLeave({
-            employee: emp,
-            leaveType: l.leave_type || 'Casual Leave',
-            startDate: normStart,
-            endDate: normEnd,
-            policies: activeSandwichRules,
-            holidays: holidayPolicies,
-            existingLeaves: rawLeaves.filter((r: any) => r.id !== l.id).map(r => ({ ...r, employeeId: r.employee_id, startDate: normalizeToYYYYMMDD(r.start_date) || r.start_date, endDate: normalizeToYYYYMMDD(r.end_date) || r.end_date })),
-            weeklyOffSchedule: emp?.shiftDetails?.weeklyOff,
-            weeklySchedules: Array.isArray(settings.weekly_schedules_data) ? settings.weekly_schedules_data : weeklySchedules
-          }));
-
-          const sandwichDays = isWfh ? 0 : (cached?.sandwichDays ?? effectiveSandwichCalc?.sandwichDays ?? 0);
-          const isSandwichApplied = isWfh ? false : (cached?.isSandwichApplied ?? effectiveSandwichCalc?.isSandwichApplied ?? false);
-          const isExplicitUnpaid = !isLeaveTypePaid(l.leave_type || '');
-          const finalDays = isWfh 
-            ? (Number(l.days_count) || 1) 
-            : (effectiveSandwichCalc?.totalDays ?? (Number(l.days_count) || 1));
-
-          const mappedLeave: LeaveRequest = {
-            id: l.id,
-            employeeId: l.employee?.employee_id || emp?.employeeId || l.employee_id,
-            employeeName: fullName || 'Staff',
-            department: emp?.department || 'General',
-            leaveType: l.leave_type || 'Casual Leave',
-            startDate: normStart,
-            endDate: normEnd,
-            daysCount: finalDays,
-            reason: l.reason || '',
-            status: l.status || 'Pending',
-            appliedDate: l.applied_date || l.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-            approvedBy: l.approved_by || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : l.status === 'Rejected' ? 'Pavithra R (HR Manager)' : undefined),
-            approvedAt: l.approved_at || (l.status !== 'Pending' ? (l.updated_at || l.created_at) : undefined),
-            comment: l.comment,
-            sandwichDetails: effectiveSandwichCalc,
-            isSandwichApplied,
-            sandwichDays,
-            unpaidSandwichDays: effectiveSandwichCalc?.breakdown?.filter(b => b.isSandwich && !b.isPaid).length || 0,
-            paidDaysCount: isWfh ? finalDays : (cached?.paidDaysCount !== undefined ? cached.paidDaysCount : (isExplicitUnpaid ? 0 : (effectiveSandwichCalc?.paidDays ?? finalDays))),
-            unpaidDaysCount: isWfh ? 0 : (cached?.unpaidDaysCount !== undefined ? cached.unpaidDaysCount : (isExplicitUnpaid ? finalDays : (effectiveSandwichCalc?.unpaidDays ?? 0))),
-            hrOverride: cached?.hrOverride
-          };
-          return mappedLeave;
-        });
-        hydratedLeaves = mappedLeaves;
-        setLeaveRequests(mappedLeaves);
-        try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(mappedLeaves)); } catch {}
-      } else if (Array.isArray(settings.leave_requests_data) && settings.leave_requests_data.length > 0) {
-        hydratedLeaves = settings.leave_requests_data;
-        setLeaveRequests(settings.leave_requests_data);
-      } else {
-        setLeaveRequests([]);
-        try { localStorage.removeItem('vrm_hrms_leave_requests_persistent'); } catch {}
-      }
-
-      // Synchronize Attendance (DB table primary, settings fallback) — respecting Approved WFH requests
-      if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
-        const mappedAttendance: AttendanceRecord[] = rawAttendance.map((a: any) => {
-          const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
-          const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
-          const empCode = a.employee?.employee_id || emp?.employeeId || a.employee_id;
-          const recDate = normalizeToYYYYMMDD(a.date) || a.date;
-          const recShiftDate = normalizeToYYYYMMDD(a.shift_date || recDate) || recDate;
-
-          const approvedWfh = hydratedLeaves.find(l => {
-            if (l.status !== 'Approved') return false;
-            const isWfh = l.leaveType === 'Work From Home' ||
-              (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
-              (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
-            if (!isWfh) return false;
-            const matchEmp = l.employeeId === empCode || (emp?.id && l.employeeId === emp.id) || (fullName && l.employeeName?.toLowerCase() === fullName.toLowerCase());
-            return matchEmp && recDate >= l.startDate && recDate <= l.endDate;
-          });
-
-          return {
-            id: a.id,
-            employeeId: empCode,
-            employeeName: fullName,
-            department: emp?.department || 'General',
-            date: recDate,
-            shiftId: a.shift_id,
-            shiftDate: recShiftDate,
-            checkIn: dbTimestampToLocalHHMM(a.check_in),
-            checkOut: dbTimestampToLocalHHMM(a.check_out),
-            workingHours: a.working_hours ?? 0,
-            status: approvedWfh ? 'Work From Home' : (a.status || 'Present'),
-            wfhSource: approvedWfh ? 'Approved WFH Request' : undefined,
-            wfhReason: approvedWfh ? (approvedWfh.reason || 'Work From Home Approved') : undefined,
-            lateStatus: a.late_status || 'On Time',
-            method: a.method || 'Face Scan',
-            location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: approvedWfh ? 'Work From Home (Approved)' : (a.location_address || 'Plant HQ'), inGeofence: a.in_geofence ?? true },
-            faceVerified: a.face_verified ?? false,
-            checkInPhoto: a.check_in_photo || undefined,
-            checkOutPhoto: a.check_out_photo || undefined,
-          };
-        });
-
-        setAttendanceRecords(prev => {
-          const prevById = new Map<string, AttendanceRecord>();
-          const prevByKey = new Map<string, AttendanceRecord>();
-          prev.forEach(p => {
-            if (p.id) prevById.set(p.id, p);
-            const k = `${String(p.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(p.shiftDate || p.date) || p.shiftDate || p.date}`;
-            if (k) prevByKey.set(k, p);
-          });
-
-          const nowMs = Date.now();
-          const RECENT_TTL_MS = 10 * 60 * 1000;
-          const seenRecentKeys = new Set<string>();
-
-          const merged = mappedAttendance.map(rec => {
-            const empLower = String(rec.employeeId || '').trim().toLowerCase();
-            const dKey = normalizeToYYYYMMDD(rec.shiftDate || rec.date) || rec.shiftDate || rec.date;
-            const compKey = `${empLower}_${dKey}`;
-            const prevRec = (rec.id && prevById.get(rec.id)) || prevByKey.get(compKey);
-            const recentEntry = (rec.id && recentServerPunchesRef.current.get(rec.id)) || recentServerPunchesRef.current.get(compKey);
-            const isRecentValid = Boolean(recentEntry && (nowMs - recentEntry.committedAt) < RECENT_TTL_MS);
-            if (isRecentValid) {
-              if (rec.id) seenRecentKeys.add(rec.id);
-              seenRecentKeys.add(compKey);
-            }
-            const recentRec = isRecentValid ? recentEntry!.record : undefined;
-
-            return {
-              ...rec,
-              status: recentRec?.status || rec.status,
-              method: recentRec?.method || rec.method,
-              reason: recentRec?.reason || prevRec?.reason || rec.reason,
-              checkIn: recentRec ? recentRec.checkIn : (rec.checkIn || null),
-              checkOut: recentRec ? recentRec.checkOut : (rec.checkOut || null),
-              checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
-              checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
-              workingHours: recentRec ? recentRec.workingHours : (rec.workingHours || 0),
-            };
-          });
-
-          // Also prepend any recently committed punches that were not yet present in the in-flight DB snapshot
-          const extraRecent: AttendanceRecord[] = [];
-          const addedIds = new Set(merged.map(m => m.id));
-          const addedCompKeys = new Set(
-            merged.map(m => `${String(m.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(m.shiftDate || m.date) || m.shiftDate || m.date}`)
-          );
-          recentServerPunchesRef.current.forEach((entry, key) => {
-            if ((nowMs - entry.committedAt) >= RECENT_TTL_MS) {
-              recentServerPunchesRef.current.delete(key);
-              return;
-            }
-            const r = entry.record;
-            const compKey = `${String(r.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(r.shiftDate || r.date) || r.shiftDate || r.date}`;
-            if ((r.id && addedIds.has(r.id)) || addedCompKeys.has(compKey) || seenRecentKeys.has(compKey)) {
-              return;
-            }
-            if (r.id) addedIds.add(r.id);
-            addedCompKeys.add(compKey);
-            extraRecent.push(r);
-          });
-
-          return extraRecent.length > 0 ? [...extraRecent, ...merged] : merged;
-        });
-      } else {
-        setAttendanceRecords(prev => {
-          const nowMs = Date.now();
-          const RECENT_TTL_MS = 10 * 60 * 1000;
-          const preserved: AttendanceRecord[] = [];
-          const seen = new Set<string>();
-          recentServerPunchesRef.current.forEach(entry => {
-            if ((nowMs - entry.committedAt) < RECENT_TTL_MS) {
-              const k = entry.record.id || `${entry.record.employeeId}_${entry.record.shiftDate || entry.record.date}`;
-              if (!seen.has(k)) {
-                seen.add(k);
-                preserved.push(entry.record);
-              }
-            }
-          });
-          return preserved.length > 0 ? preserved : (prev.length > 0 ? prev : []);
-        });
-      }
-
-      // Synchronize Assets (DB table primary, settings fallback)
-      if (Array.isArray(rawAssets) && rawAssets.length > 0) {
-        const pool = mappedEmployees.length > 0 ? mappedEmployees : employees;
-        setAssets(rawAssets.map((ast: any) => {
-          const emp = pool.find((e: any) => 
-            (e.id && e.id === ast.assigned_employee_id) || 
-            (e.employeeId && e.employeeId === ast.assigned_employee_id)
-          );
-          const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (ast.assigned_employee_name || '');
-          const empDept = emp ? (emp.department || '') : (ast.assigned_department || '');
-          const empDisplayId = emp ? emp.employeeId : (ast.assigned_employee_id || '');
-          const empAvatar = emp ? emp.avatar : undefined;
-
-          return {
-            id: ast.id,
-            assetTag: ast.asset_tag,
-            name: ast.name,
-            category: ast.category,
-            serialNumber: ast.serial_number || '',
-            purchaseDate: ast.purchase_date || ast.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-            purchaseCost: Number(ast.purchase_cost) || 0,
-            warrantyExpiry: ast.warranty_expiry || '',
-            status: ast.status || (ast.assigned_employee_id ? 'Assigned' : 'Available'),
-            condition: ast.condition || 'Good',
-            ownership: (ast.ownership === 'Rental' || String(ast.notes || '').toLowerCase().includes('rent') || String(ast.name || '').toLowerCase().includes('rent')) ? 'Rental' : (ast.ownership || 'Owned'),
-            assignedEmployeeId: empDisplayId || ast.assigned_employee_id || '',
-            assignedEmployeeDbId: ast.assigned_employee_id || emp?.id || '',
-            assignedEmployeeName: empName,
-            assignedDepartment: empDept,
-            assignedEmployeeAvatar: empAvatar,
-            assignedDate: ast.assigned_date || '',
-            notes: ast.notes || '',
-          };
-        }));
-      } else {
-        setAssets([]);
-      }
-
-      // Synchronize Expenses (DB table primary, company settings fallback)
-      const rawSavedExpenses = Array.isArray(settings.expenses_data) ? settings.expenses_data : [];
-      const savedExpenses = rawSavedExpenses.map((exp: any) => ({
-        ...exp,
-        amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0))
-      }));
-      const expenseKey = (exp: Expense) => [
-        exp.employeeId,
-        exp.category,
-        exp.amount,
-        exp.date,
-        exp.description || '',
-        exp.status || 'Pending Manager'
-      ].join('|').toLowerCase();
-
-      if (Array.isArray(rawExpenses) && rawExpenses.length > 0) {
-        const mappedExpenses = rawExpenses.map((exp: any) => ({
-          id: exp.id,
-          employeeId: exp.employeeId || exp.employee?.employee_id || exp.employee_id,
-          employeeName: exp.employeeName || (exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff'),
-          department: exp.department || exp.employee?.department_id || 'General',
-          category: exp.category || 'Travel',
-          amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0)),
-          date: exp.date,
-          description: exp.description || '',
-          receiptUrl: exp.receiptUrl || exp.receipt_url || '',
-          status: exp.status || 'Pending'
-        }));
-        const savedOnlyExpenses = savedExpenses.filter((exp: Expense) => (
-          exp?.id &&
-          !mappedExpenses.some((dbExp: Expense) => dbExp.id === exp.id || expenseKey(dbExp) === expenseKey(exp))
-        ));
-        setExpenses(prev => {
-          const mergedCloudExpenses = [...savedOnlyExpenses, ...mappedExpenses];
-          const cloudIds = new Set(mergedCloudExpenses.map((exp: Expense) => exp.id));
-          const cloudKeys = new Set(mergedCloudExpenses.map((exp: Expense) => expenseKey(exp)));
-          const localOnlyExpenses = prev.filter((exp: Expense) => (
-            String(exp.id).startsWith('EXP-') &&
-            !cloudIds.has(exp.id) &&
-            !cloudKeys.has(expenseKey(exp))
-          ));
-          return [...localOnlyExpenses, ...mergedCloudExpenses];
-        });
-      } else if (savedExpenses.length > 0) {
-        setExpenses(savedExpenses);
-      } else {
-        setExpenses(prev => (isInitial ? [] : prev));
-      }
-
-      // Synchronize Recruitment: Jobs & Candidates
-      if (Array.isArray(rawJobs) && rawJobs.length > 0) {
-        setJobOpenings(rawJobs.map((j: any) => ({
-          id: j.id,
-          title: j.title,
-          department: j.department_id || 'General',
-          location: j.location || 'Headquarters',
-          type: j.type || 'Full-Time',
-          experience: j.experience || '1-3 years',
-          positions: Number(j.positions) || 1,
-          status: j.status || 'Active',
-          postedDate: j.posted_date || j.created_at?.split('T')[0],
-          salaryRange: j.salary_range || '',
-          description: j.description || '',
-          applicantsCount: 0
-        })));
-      } else {
-        setJobOpenings([]);
-      }
-
-      const isTestCandidate = (c: any) => {
-        if (!c) return true;
-        const email = String(c.email || '').toLowerCase().trim();
-        const name = String(c.name || '').toLowerCase().trim();
-        if (email === 'mdbilaly029@gmail.com') return true;
-        if (name.includes('noorisha')) return true;
-        return false;
-      };
-
-      const savedCandidates = (Array.isArray(settings.candidates_data) ? settings.candidates_data : [])
-        .filter((c: Candidate) => !isTestCandidate(c));
-      const candidateKey = (c: Candidate) => [
-        c.email || '',
-        c.phone || '',
-        c.name || '',
-        c.appliedDate || ''
-      ].join('|').toLowerCase();
-
-      const validRawCandidates = (Array.isArray(rawCandidates) ? rawCandidates : [])
-        .filter((c: any) => !isTestCandidate(c));
-
-      if (validRawCandidates.length > 0) {
-        const mappedCandidates: Candidate[] = validRawCandidates.map((c: any) => {
-          const mapped: Candidate = {
-            id: c.id,
-            jobId: c.job_id,
-            jobTitle: 'Applicant',
-            name: c.name,
-            email: c.email,
-            phone: c.phone || '',
-            stage: c.stage || 'Applied',
-            appliedDate: c.applied_date || c.created_at?.split('T')[0],
-            referrerName: c.referrer_name || '',
-            resumeUrl: c.resume_url || '',
-            rating: Number(c.rating) || 4.0,
-            notes: c.notes || ''
-          };
-          const saved = savedCandidates.find((s: Candidate) => (
-            String(s.id) === String(mapped.id) || candidateKey(s) === candidateKey(mapped)
-          ));
-          return saved ? { ...mapped, ...saved, id: mapped.id || saved.id, stage: mapped.stage || saved.stage } : mapped;
-        });
-        const mappedIds = new Set(mappedCandidates.map(c => String(c.id)));
-        const mappedKeys = new Set(mappedCandidates.map(candidateKey));
-        const savedOnlyCandidates = savedCandidates.filter((c: Candidate) => (
-          c?.id &&
-          !mappedIds.has(String(c.id)) &&
-          !mappedKeys.has(candidateKey(c))
-        ));
-        const result = [...savedOnlyCandidates, ...mappedCandidates];
-        setCandidates(result);
-        supabaseDirect.saveCompanySetting('candidates_data', result).catch(() => {});
-      } else if (savedCandidates.length > 0) {
-        setCandidates(savedCandidates);
-        if (savedCandidates.length !== (settings.candidates_data?.length || 0)) {
-          supabaseDirect.saveCompanySetting('candidates_data', savedCandidates).catch(() => {});
-        }
-      } else {
-        setCandidates([]);
-        if (Array.isArray(settings.candidates_data) && settings.candidates_data.length > 0) {
-          supabaseDirect.saveCompanySetting('candidates_data', []).catch(() => {});
-        }
-      }
-
-      // Synchronize Payroll Records
-      if (Array.isArray(rawPayroll) && rawPayroll.length > 0) {
-        const savedPayrollRows = Array.isArray(settings.payroll_records_data) ? settings.payroll_records_data : [];
-        const MONTH_NAMES = [
-          'January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'
-        ];
-
-        const mappedRecords: PayrollRecord[] = rawPayroll.map((p: any) => {
-          const employeeId = p.employee?.employee_id || p.employee_id;
-          const rawMonthStr = String(p.payroll_month || '');
-          let year = 2026;
-          let monthName = 'October';
-
-          if (rawMonthStr) {
-            const parts = rawMonthStr.split('-');
-            if (parts.length >= 2) {
-              year = Number(parts[0]) || 2026;
-              const mIdx = Number(parts[1]) - 1;
-              if (mIdx >= 0 && mIdx < 12) {
-                monthName = MONTH_NAMES[mIdx];
-              }
-            }
-          }
-
-          const saved = savedPayrollRows.find((row: PayrollRecord) => (
-            (row.employeeId === employeeId || row.id === p.id) &&
-            row.month?.toLowerCase() === monthName.toLowerCase() &&
-            Number(row.year) === year
-          ));
-          const employeeForScheme = employees.find(e => e.employeeId === employeeId || e.id === employeeId);
-          const withPf = saved?.withPf ?? resolveEmployeeWithPf(employeeForScheme || {
-            withPf: p.withPf ?? p.with_pf,
-            salaryDetails: {
-              withPf: p.employee?.withPf ?? p.employee?.with_pf,
-              salaryScheme: p.employee?.salaryScheme ?? p.employee?.salary_scheme
-            }
-          } as Employee);
-          const compId = p.company_id || p.companyId || (p.employee?.email?.includes('nexus') || employeeId?.startsWith('EMP-B') ? 'company-b' : 'company-a');
-          const rawDept = p.employee?.department_id || p.employee?.department || saved?.department || 'General';
-          const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
-          const matchedDept = currentDepts.find((d: any) => 
-            d.id === rawDept || 
-            d.name?.toLowerCase() === String(rawDept).toLowerCase() || 
-            d.code?.toLowerCase() === String(rawDept).toLowerCase()
-          );
-          const resolvedDept = matchedDept?.name || (rawDept === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || String(rawDept).toLowerCase().includes('hr') ? 'HR' : (rawDept.length >= 32 && rawDept.includes('-') ? 'General' : rawDept));
-
-          return {
-            id: p.id,
-            company_id: compId,
-            companyId: compId,
-            employeeId,
-            employeeName: p.employee ? `${p.employee.first_name || ''} ${p.employee.last_name || ''}`.trim() : 'Staff',
-            department: resolvedDept,
-            designation: p.employee?.designation || saved?.designation || 'Staff',
-            month: monthName,
-            year,
-            basicSalary: Number(p.basic_salary) || saved?.basicSalary || 0,
-            allowances: Number(p.allowances) || saved?.allowances || 0,
-            da: saved?.da,
-            conveyance: saved?.conveyance,
-            hra: saved?.hra,
-            withPf,
-            bonus: Number(p.bonus) || saved?.bonus || 0,
-            attendanceBonus: saved?.attendanceBonus || 0,
-            rewardEarnings: saved?.rewardEarnings || 0,
-            grossSalary: saved?.grossSalary,
-            taxDeduction: Number(p.tax_deduction) || saved?.taxDeduction || 0,
-            leaveDeduction: Number(p.leave_deduction) || saved?.leaveDeduction || 0,
-            advanceDeduction: saved?.advanceDeduction || 0,
-            epfDeduction: saved?.epfDeduction || 0,
-            esiDeduction: saved?.esiDeduction || 0,
-            professionalTax: saved?.professionalTax || 0,
-            workingDays: Number(p.working_days) || saved?.workingDays || 30,
-            presentDays: Number(p.present_days) || saved?.presentDays || 30,
-            paidLeaves: Number(p.paid_leaves) || saved?.paidLeaves || 0,
-            unpaidLeaves: Number(p.unpaid_leaves) || saved?.unpaidLeaves || 0,
-            paidDays: saved?.paidDays,
-            lopDays: saved?.lopDays,
-            totalDeductions: saved?.totalDeductions,
-            earningsBreakdown: saved?.earningsBreakdown || [],
-            deductionsBreakdown: saved?.deductionsBreakdown || [],
-            netSalary: Number(p.net_salary) || saved?.netSalary || 0,
-            status: p.status || saved?.status || 'Processed',
-          };
-        });
-
-        // Strict deduplication by (employeeId, month, year)
-        const dedupedMap = new Map<string, PayrollRecord>();
-        for (const rec of mappedRecords) {
-          const key = `${rec.employeeId}_${rec.month}_${rec.year}`;
-          if (!dedupedMap.has(key)) {
-            dedupedMap.set(key, rec);
-          } else {
-            const existing = dedupedMap.get(key)!;
-            if ((Number(rec.netSalary) > 0 && Number(existing.netSalary) === 0) || String(rec.id) > String(existing.id)) {
-              dedupedMap.set(key, rec);
-            }
-          }
-        }
-        setPayrollRecords(Array.from(dedupedMap.values()));
-      } else if (Array.isArray(settings.payroll_records_data) && settings.payroll_records_data.length > 0) {
-        const dedupedMap = new Map<string, PayrollRecord>();
-        for (const rec of settings.payroll_records_data) {
-          const key = `${rec.employeeId}_${rec.month}_${rec.year}`;
-          if (!dedupedMap.has(key)) {
-            dedupedMap.set(key, rec);
-          }
-        }
-        setPayrollRecords(Array.from(dedupedMap.values()));
-      } else {
-        setPayrollRecords([]);
-      }
-
-      if (settings) {
-        const hasSetting = (key: string) => Object.prototype.hasOwnProperty.call(settings, key);
-
-        // Organization Structure & Departments
-        const cloudOrg = settings.org_structure;
-        if (hasSetting('org_structure') && cloudOrg && typeof cloudOrg === 'object') {
-          const deptNames = dedupeStringList(cloudOrg.departments).filter(n => n.trim().toLowerCase() !== 'general');
-          const mergedOrg: OrganizationStructure = {
-            departments: deptNames,
-            designations: dedupeStringList(cloudOrg.designations),
-            employmentTypes: dedupeStringList(cloudOrg.employmentTypes),
-            workLocations: dedupeStringList(cloudOrg.workLocations),
-            reportingManagers: Array.isArray(cloudOrg.reportingManagers) ? cloudOrg.reportingManagers : [],
-            teams: Array.isArray(cloudOrg.teams) ? cloudOrg.teams : []
-          };
-          setOrgStructure(mergedOrg);
-
-          setDepartments(mergedOrg.departments.map(name => {
-            const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === name.toLowerCase()) : null;
-            return {
-              id: liveMatch?.id || `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-              name,
-              code: liveMatch?.code || name.substring(0, 4).toUpperCase(),
-              headName: 'Unassigned',
-              headId: liveMatch?.head_id || '',
-              employeeCount: 0,
-              budget: liveMatch?.budget || 0
-            };
-          }));
-        } else if (Array.isArray(cloudDepts) && cloudDepts.length > 0) {
-          const loadedNames = dedupeStringList(cloudDepts.map(d => d.name)).filter(n => n.trim().toLowerCase() !== 'general');
-          setOrgStructure(prev => ({ ...prev, departments: loadedNames }));
-          setDepartments(loadedNames.map(name => {
-            const match = cloudDepts.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
-            return {
-              id: match?.id || `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-              name,
-              code: match?.code || name.substring(0, 4).toUpperCase(),
-              headName: 'Unassigned',
-              headId: match?.head_id || '',
-              employeeCount: 0,
-              budget: match?.budget || 0
-            };
-          }));
-        }
-
-        // Company Details & Branches
-        const activeCId = currentUser.company_id || currentUser.companyId || 'company-a';
-        if (activeCId === 'company-b') {
-          if (hasSetting('company_info_company-b') && settings['company_info_company-b'] && typeof settings['company_info_company-b'] === 'object') {
-            const dbInfoB = settings['company_info_company-b'];
-            if (dbInfoB && (dbInfoB.companyName || dbInfoB.companyCode)) {
-              setCompanyInfo({ ...COMPANY_B_PROFILE, ...dbInfoB });
-            }
-          }
-        } else {
-          if (hasSetting('company_info') && settings.company_info && typeof settings.company_info === 'object') {
-            const dbInfo = settings.company_info;
-            const isCompBData = dbInfo.company_id === 'company-b' || dbInfo.companyName?.toLowerCase().includes('nexus');
-            if (!isCompBData && (dbInfo.companyName || dbInfo.companyCode)) {
-              const merged = { ...COMPANY_A_PROFILE, ...dbInfo };
-              setCompanyInfo(merged);
-              try {
-                localStorage.setItem('vrm_hrms_company_info', JSON.stringify(merged));
-                localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(merged));
-              } catch {}
-            } else {
-              // If DB was empty/blank for company_info, check if localStorage has valid saved data to preserve and restore to DB!
-              try {
-                const localCached = localStorage.getItem('vrm_hrms_company_info') || localStorage.getItem('vrm_hrms_company_info_company-a');
-                if (localCached) {
-                  const parsed = JSON.parse(localCached);
-                  if (parsed && (parsed.companyName || parsed.companyCode)) {
-                    const merged = { ...COMPANY_A_PROFILE, ...parsed };
-                    setCompanyInfo(merged);
-                    supabaseDirect.saveCompanySetting('company_info', merged).catch(() => {});
-                  }
-                }
-              } catch {}
-            }
-          }
-        }
-
-        if (hasSetting('company_branches') && Array.isArray(settings.company_branches)) {
-          setCompanyBranches(settings.company_branches);
-        }
-
-        // Shift Requests. Use the VPS-only setting key so old Supabase shift_requests_data does not reappear.
-        const vpsShiftRequests = Array.isArray(settings[SHIFT_REQUESTS_KEY]) ? settings[SHIFT_REQUESTS_KEY] as ShiftRequest[] : [];
-        if (vpsShiftRequests.length > 0) {
-          setShiftRequests(vpsShiftRequests);
-          try { localStorage.setItem('vrm_hrms_shift_requests_persistent', JSON.stringify(vpsShiftRequests)); } catch {}
-          applyApprovedShiftsToEmployees(vpsShiftRequests);
-        } else {
-          setShiftRequests([]);
-          try { localStorage.removeItem('vrm_hrms_shift_requests_persistent'); } catch {}
-        }
-
-        // Shared cross-user notifications
-        if (Array.isArray(settings.shared_notifications_data)) {
-          const cloudNotes = (settings.shared_notifications_data as NotificationItem[]).map(n => ({
-            ...n,
-            title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
-            message: (n.message || '').replace(/⚠️\s*/g, '').trim()
-          }));
-          setSharedNotifications(prev => {
-            const cloudIds = new Set(cloudNotes.map(n => n.id));
-            const recentCutoff = Date.now() - 2 * 60 * 1000;
-            const localOnly = prev.filter(n => !cloudIds.has(n.id) && n.createdAt && new Date(n.createdAt).getTime() >= recentCutoff);
-            const localMap = new Map(prev.map(n => [n.id, n]));
-            const merged = cloudNotes.map(n => {
-              const local = localMap.get(n.id);
-              return local
-                ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), ...(local.readBy || [])])) }
-                : n;
-            });
-            return [...localOnly, ...merged];
-          });
-        }
-
-        // Face Logs sync (cloud settings take precedence over stale local logs when HR updates punch times)
-        if (Array.isArray(settings.face_logs_data) && settings.face_logs_data.length > 0) {
-          setFaceLogs(prev => {
-            const map = new Map<string, FaceLog>();
-            prev.forEach(l => map.set(l.id, l));
-            settings.face_logs_data.forEach((l: FaceLog) => map.set(l.id, l));
-            const merged = Array.from(map.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 200);
-            try {
-              if (typeof window !== 'undefined') {
-                const compactLogs = merged.slice(0, 40).map(l => ({
-                  ...l,
-                  photoUrl: l.photoUrl?.startsWith('data:') ? '' : l.photoUrl
-                }));
-                localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
-              }
-            } catch {}
-            return merged;
-          });
-        }
-
-        // Holiday Policies
-        if (Array.isArray(settings.holiday_policies_data)) {
-          setHolidayPolicies(settings.holiday_policies_data);
-        }
-
-        if (hasSetting('weekly_schedules_data') && Array.isArray(settings.weekly_schedules_data)) {
-          setWeeklySchedules(settings.weekly_schedules_data);
-        }
-
-        if (hasSetting('attendance_config_data') && settings.attendance_config_data && typeof settings.attendance_config_data === 'object') {
-          setAttendanceConfig(prev => ({ ...prev, ...settings.attendance_config_data }));
-        }
-
-        if (hasSetting('overtime_policy_data') && settings.overtime_policy_data && typeof settings.overtime_policy_data === 'object') {
-          const rawOtPol = settings.overtime_policy_data;
-          const isLegacyV1 = Number(rawOtPol.version || 1) < 2;
-          const upgradedOtPol: OvertimePolicy = isLegacyV1
-            ? {
-                ...INITIAL_OVERTIME_POLICY,
-                ...rawOtPol,
-                wageBase: rawOtPol.wageBase && rawOtPol.wageBase !== 'FIXED_HOURLY' ? rawOtPol.wageBase : 'GROSS',
-                divisorMode: rawOtPol.divisorMode && rawOtPol.divisorMode !== 'COMPANY_DIVISOR' ? rawOtPol.divisorMode : 'CALENDAR_DAYS',
-                rateMethod: 'Daily Salary Based',
-                fixedRatePerHour: 0,
-                defaultDailyPaidHours: Number(rawOtPol.defaultDailyPaidHours) || 9,
-                defaultMultiplier: rawOtPol.defaultMultiplier || '2x Salary',
-                version: 2,
-              }
-            : { ...INITIAL_OVERTIME_POLICY, ...rawOtPol };
-          setOvertimePolicy(upgradedOtPol);
-          try {
-            localStorage.setItem('vrm_hrms_overtime_policy_persistent', JSON.stringify(upgradedOtPol));
-          } catch {}
-          if (isLegacyV1) {
-            supabaseDirect.saveCompanySetting('overtime_policy_data', upgradedOtPol).catch(() => {});
-          }
-        }
-
-        // Loan Policies
-        if (Date.now() - lastLoanPolicyMutationAtRef.current >= 12000) {
-          if (Array.isArray(settings.loan_policies_data)) {
-            const normalizedPolicies = settings.loan_policies_data
-              .filter((p: any) => !DEPRECATED_DEFAULT_LOAN_POLICY_NAMES.has(String(p.policyName || p.name || '').trim().toLowerCase()) || p.updatedBy)
-              .map((p: any) => {
-                const allowPending = Boolean(p.allowPreviousPending ?? (toNum(p.maxActiveLoans) > 1));
-                return {
-                  ...p,
-                  policyName: p.policyName || p.name || 'Advance Salary Policy',
-                  applicableEmployees: p.applicableEmployees || 'ALL',
-                  minRepaymentMonths: Math.max(1, toNum(p.minRepaymentMonths) || 1),
-                  maxRepaymentMonths: Math.max(1, toNum(p.maxRepaymentMonths) || 6),
-                  minLoanAmount: toNum(p.minLoanAmount) || 1000,
-                  maxLoanAmount: toNum(p.maxLoanAmount ?? p.maxEligibleFixedAmount) || 500000,
-                  maxSalaryPercent: toNum(p.maxSalaryPercent ?? (p.maxLoanLimitType === 'PERCENTAGE_SALARY' ? p.maxLoanLimitValue : 100)) || 100,
-                  minimumEmploymentMonths: toNum(p.minimumEmploymentMonths ?? p.minTenureMonthsRequired ?? 3),
-                  allowPreviousPending: allowPending,
-                  maxActiveLoans: allowPending ? Math.max(toNum(p.maxActiveLoans) || 10, 10) : 1,
-                  repaymentType: p.repaymentType || 'MONTHLY_EMI',
-                  deductionStart: p.deductionStart || (p.deductionStartRule === 'SPECIFIED_MONTH' ? 'CURRENT_MONTH' : 'NEXT_MONTH'),
-                  requestLimit: p.requestLimit || 'ONCE_A_MONTH',
-                  approvalBy: p.approvalBy || 'HR_OR_CEO',
-                  reasonRequired: p.reasonRequired ?? true,
-                  status: p.status || (p.active === false ? 'Inactive' : 'Active')
-                };
-              });
-            setLoanPolicies(normalizedPolicies);
-          } else {
-            setLoanPolicies([]);
-          }
-        }
-
-        // Loan Records: strictly filter to only active employees
-        if (Array.isArray(settings.loan_records_data)) {
-          const activeEmpMap = new Map<string, any>();
-          if (Array.isArray(rawEmployees)) {
-            rawEmployees.forEach((e: any) => {
-              if (e.id) activeEmpMap.set(String(e.id).toLowerCase(), e);
-              if (e.employee_id) activeEmpMap.set(String(e.employee_id).toLowerCase(), e);
-            });
-          }
-          const validLoans = settings.loan_records_data.filter((r: LoanRecord) => {
-            if (!r || !r.employeeId) return false;
-            const emp = activeEmpMap.get(String(r.employeeId).toLowerCase());
-            if (!emp) return false;
-            if (r.employeeName && emp.first_name) {
-              const rName = r.employeeName.trim().toLowerCase();
-              const empFullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim().toLowerCase();
-              const empFirstName = (emp.first_name || '').trim().toLowerCase();
-              if (!empFullName.includes(rName) && !rName.includes(empFirstName)) {
-                return false;
-              }
-            }
-            return true;
-          });
-          setLoanRecords(validLoans);
-          if (validLoans.length !== settings.loan_records_data.length) {
-            supabaseDirect.saveCompanySetting('loan_records_data', validLoans).catch(() => {});
-          }
-        } else {
-          setLoanRecords([]);
-        }
-
-        // Geofence Config: Only apply if coordinates are valid (non-zero)
-        if (hasSetting('geofence_config') && settings.geofence_config && typeof settings.geofence_config === 'object') {
-          const gf = settings.geofence_config;
-          const lat = Number(gf.centerLat ?? gf.latitude ?? 0);
-          const lng = Number(gf.centerLng ?? gf.longitude ?? 0);
-          if (Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001) {
-            lastServerGeofenceKeyRef.current = geofenceKey({
-              ...gf,
-              centerLat: lat,
-              centerLng: lng,
-              radiusMeters: Number(gf.radiusMeters) || 500,
-            });
-            setGeofenceConfig({
-              ...gf,
-              centerLat: lat,
-              centerLng: lng,
-              radiusMeters: Number(gf.radiusMeters) || 500,
-            });
-          }
-        }
-
-        // Field Duty & Tracking: Load from real PostgreSQL database tables first
-        trackingApiService.getAssignments().then(dbAssignments => {
-          if (dbAssignments && dbAssignments.length > 0) {
-            setFieldAssignments(dbAssignments);
-          } else if (Array.isArray(settings.field_assignments_data)) {
-            setFieldAssignments(settings.field_assignments_data);
-          }
-        }).catch(() => {
-          if (Array.isArray(settings.field_assignments_data)) {
-            setFieldAssignments(settings.field_assignments_data);
-          }
-        });
-
-        const applyNormalizedTrips = (incomingTrips: FieldTripSession[]) => {
-          setTripSessions(prev => {
-            // Merge any active local trip points so cloud poll never overwrites newer local points
-            const merged = incomingTrips.map(inc => {
-              const localMatch = prev.find(p => p.id === inc.id);
-              if (localMatch && localMatch.locationPoints?.length > (inc.locationPoints?.length || 0)) {
-                return normalizeTripSessionMetrics({
-                  ...inc,
-                  locationPoints: localMatch.locationPoints,
-                  segments: localMatch.segments || inc.segments,
-                  lastGpsUpdate: localMatch.lastGpsUpdate || inc.lastGpsUpdate,
-                });
-              }
-              return normalizeTripSessionMetrics(inc);
-            });
-            // Preserve any brand-new local Active trip not yet in cloud
-            prev.forEach(localTrip => {
-              if (localTrip.status === 'Active' && !merged.some(m => m.id === localTrip.id)) {
-                merged.unshift(normalizeTripSessionMetrics(localTrip));
-              }
-            });
-            return merged;
-          });
-
-          // Asynchronously snap contiguous verified segments to OpenStreetMap roads via OSRM
-          incomingTrips.forEach(tr => {
-            if (Array.isArray(tr.locationPoints) && tr.locationPoints.length >= 2) {
-              const alreadyRoadMatched = Array.isArray(tr.segments) && tr.segments.some(
-                s => s.segmentType === 'road_matched' && Array.isArray(s.coordinates) && s.coordinates.length > 2
-              );
-              if (!alreadyRoadMatched) {
-                matchTripSegmentsToRoads(tr.locationPoints, tr.tripEndTime || tr.checkOutTime).then(matched => {
-                  setTripSessions(curr => curr.map(c => c.id === tr.id ? {
-                    ...c,
-                    totalKm: matched.totalKm,
-                    verifiedDistanceMeters: matched.verifiedDistanceMeters,
-                    roadMatchedDistanceMeters: matched.roadMatchedDistanceMeters,
-                    unverifiedDistanceMeters: matched.unverifiedDistanceMeters,
-                    gpsDataQuality: matched.gpsDataQuality,
-                    missingIntervalsCount: matched.missingIntervalsCount,
-                    missingDurationSeconds: matched.missingDurationSeconds,
-                    segments: matched.segments,
-                  } : c));
-                }).catch(() => {});
-              }
-            }
-          });
+          },
         };
+        const base = mapEmployeeFromDb(mergedRaw, currentDepts);
 
-        trackingApiService.getTrips().then(dbTrips => {
-          const settingsTrips = Array.isArray(settings.trip_sessions_data) ? settings.trip_sessions_data : [];
-          if (dbTrips && dbTrips.length > 0) {
-            // Combine DB trips and any legacy company_settings trips not yet in DB
-            const combined = [...dbTrips];
-            settingsTrips.forEach((st: FieldTripSession) => {
-              if (!combined.some(d => d.id === st.id || d.assignmentId === st.assignmentId)) {
-                combined.push(st);
-              }
-            });
-            applyNormalizedTrips(combined);
-          } else if (settingsTrips.length > 0) {
-            applyNormalizedTrips(settingsTrips);
-          }
-        }).catch(() => {
-          if (Array.isArray(settings.trip_sessions_data)) {
-            applyNormalizedTrips(settings.trip_sessions_data);
-          }
-        });
+        // Authoritative accountStatus resolution:
+        // e.account_status from database is authoritative over stale extension
+        const resolvedAccountStatus: 'ACTIVE' | 'DEACTIVATED' | 'DISABLED' =
+          (e.account_status as any) || (e.accountStatus as any) || base.accountStatus || extension.accountStatus || 'ACTIVE';
+        const resolvedStatus: Employee['status'] =
+          resolvedAccountStatus === 'DEACTIVATED' || resolvedAccountStatus === 'DISABLED'
+            ? (rawProfileData.status === 'Terminated' || e.status === 'Terminated' ? 'Terminated' : 'Inactive')
+            : (rawProfileData.status || e.status || base.status || extension.status || 'Active');
 
-        if (Array.isArray(settings.tracking_alerts_data)) {
-          setTrackingAlerts(settings.tracking_alerts_data);
+        // Authoritative password & change flag resolution
+        const isDbPasswordChanged = base.mustChangePassword === false;
+        const resolvedMustChange = isDbPasswordChanged ? false : Boolean(extension.mustChangePassword ?? base.mustChangePassword);
+
+        const candidatePortalPass =
+          (rawProfileData.portalPassword && !String(rawProfileData.portalPassword).startsWith('$2') ? String(rawProfileData.portalPassword) : '') ||
+          (base.portalPassword && !String(base.portalPassword).startsWith('$2') ? String(base.portalPassword) : '') ||
+          ((extension as any).portalPassword && !String((extension as any).portalPassword).startsWith('$2') ? String((extension as any).portalPassword) : '') ||
+          (base.password && !String(base.password).startsWith('$2') ? String(base.password) : '') ||
+          (extension.password && !String(extension.password).startsWith('$2') ? String(extension.password) : '');
+
+        const resolvedPortalPassword = candidatePortalPass || 'Password@123';
+        let resolvedPassword = candidatePortalPass || 'Password@123';
+        if (!candidatePortalPass && base.password) {
+          resolvedPassword = base.password;
         }
-
-        // Payroll Settings Config (Salary Components, PF, ESIC, Tax, etc.)
-        if (hasSetting('payroll_settings_config') && settings.payroll_settings_config && typeof settings.payroll_settings_config === 'object') {
-          setPayrollSettingsConfig(settings.payroll_settings_config);
-        }
-
-        // Master Attendance Policies
-        const dbLatePolicies = Array.isArray(settings.master_attendance_policies_data) && settings.master_attendance_policies_data.length > 0
-          ? settings.master_attendance_policies_data
-          : (Array.isArray(settings.master_attendance_policies) && settings.master_attendance_policies.length > 0 ? settings.master_attendance_policies : null);
-        if (dbLatePolicies) {
-          setMasterAttendancePolicies(dbLatePolicies);
-          try {
-            localStorage.setItem('vrm_hrms_master_attendance_policies_persistent', JSON.stringify(dbLatePolicies));
-          } catch {}
-        }
-
-        // Master Leave Policies
-        if (hasSetting('master_leave_policies_data') && Array.isArray(settings.master_leave_policies_data)) {
-          const timeSinceLocalUpdate = Date.now() - lastLocalLeavePolicyUpdate.current;
-          if (timeSinceLocalUpdate > 4000) {
-            setMasterLeavePolicies(settings.master_leave_policies_data);
-            try {
-              localStorage.setItem('vrm_hrms_master_leave_policies_persistent', JSON.stringify(settings.master_leave_policies_data));
-            } catch {}
-          }
-        }
-
-        // Sandwich Leave Policies
-        if (hasSetting('sandwich_policies_data') && Array.isArray(settings.sandwich_policies_data) && settings.sandwich_policies_data.length > 0) {
-          setSandwichPolicies(settings.sandwich_policies_data);
-          try {
-            localStorage.setItem('vrm_hrms_sandwich_policies_persistent', JSON.stringify(settings.sandwich_policies_data));
-          } catch {}
-        }
-
-        // Department OT Policies
-        if (hasSetting('department_ot_policies_data') && Array.isArray(settings.department_ot_policies_data)) {
-          const normalizedDepts = settings.department_ot_policies_data.map(normalizeDepartmentOtPolicy);
-          setDepartmentOtPolicies(normalizedDepts);
-          try {
-            localStorage.setItem('vrm_hrms_department_ot_policies_persistent', JSON.stringify(normalizedDepts));
-          } catch {}
-        }
-
-        // Employee OT Policies
-        if (hasSetting('employee_ot_policies_data') && Array.isArray(settings.employee_ot_policies_data)) {
-          const validEmpOt = settings.employee_ot_policies_data.filter((p: any) => !isOwnerOrCEO(p));
-          setEmployeeOtPolicies(validEmpOt);
-          try {
-            localStorage.setItem('vrm_hrms_employee_ot_policies_persistent', JSON.stringify(validEmpOt));
-          } catch {}
-        }
-
-        // Designations
-        if (hasSetting('designations_data') && Array.isArray(settings.designations_data)) {
-          const seenDesig = new Set<string>();
-          const dedupedDesigs: any[] = [];
-          for (const d of settings.designations_data) {
-            const key = (d?.title || '').trim().toLowerCase();
-            if (key && !seenDesig.has(key)) {
-              seenDesig.add(key);
-              dedupedDesigs.push(d);
-            }
-          }
-          setDesignations(dedupedDesigs);
-        }
-
-        // Departments
-        if (hasSetting('departments_data') && Array.isArray(settings.departments_data)) {
-          const seenDept = new Set<string>();
-          const dedupedDepts: any[] = [];
-          for (const d of settings.departments_data) {
-            const key = (d?.name || '').trim().toLowerCase();
-            if (key && key !== 'general' && !seenDept.has(key)) {
-              seenDept.add(key);
-              const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === key) : null;
-              dedupedDepts.push({
-                ...d,
-                id: liveMatch?.id || d.id
-              });
-            }
-          }
-          setDepartments(dedupedDepts);
-        }
-
-        // Rewards & Recognition
-        if (Array.isArray(settings.reward_policies_data)) {
-          setRewardPolicies(settings.reward_policies_data);
-        }
-        if (Array.isArray(settings.employee_rewards_data)) {
-          setEmployeeRewardRecords(settings.employee_rewards_data);
-        }
-
-        // Enterprise System Config
-        if (hasSetting('grades_data') && Array.isArray(settings.grades_data)) setGrades(settings.grades_data);
-        if (hasSetting('employment_types_data') && Array.isArray(settings.employment_types_data)) setEmploymentTypes(settings.employment_types_data);
-        if (hasSetting('employee_categories_data') && Array.isArray(settings.employee_categories_data)) setEmployeeCategories(settings.employee_categories_data);
-        if (hasSetting('employee_config_data') && settings.employee_config_data) setEmployeeConfig(settings.employee_config_data);
-        if (hasSetting('general_system_config_data') && settings.general_system_config_data) setGeneralSystemConfig(settings.general_system_config_data);
-        if (hasSetting('integrations_config_data') && settings.integrations_config_data) setIntegrationsConfig(settings.integrations_config_data);
-      }
-    } catch (err) {
-      console.warn('[HRMSContext] syncAllModulesFromDatabase notice:', err);
-    } finally {
-      setTimeout(() => {
-        isSyncingFromCloud.current = false;
-        isCloudInitialized.current = true;
-        if (pendingCloudSyncRef.current) {
-          pendingCloudSyncRef.current = false;
-          void syncAllModulesFromDatabase(false);
-        }
-      }, 150);
-      isCloudInitialized.current = true;
-    }
-  };
-
-  useEffect(() => {
-    let isCancelled = false;
-    let lastFocusSyncAt = Date.now();
-    syncAllModulesFromDatabase(true);
-
-    // Live Supabase auto-sync poll (every 30 seconds) across all devices
-    const syncInterval = setInterval(() => {
-      if (!isCancelled) {
-        syncAllModulesFromDatabase(false);
-      }
-    }, 30000);
-
-    // Throttled sync on window focus (prevents UI lag after closing mobile camera/GPS dialogs)
-    const onFocusWindow = () => {
-      if (!isCancelled && Date.now() - lastFocusSyncAt > 45000) {
-        lastFocusSyncAt = Date.now();
-        syncAllModulesFromDatabase(false);
-      }
-    };
-    window.addEventListener('focus', onFocusWindow);
-
-    return () => {
-      isCancelled = true;
-      clearInterval(syncInterval);
-      window.removeEventListener('focus', onFocusWindow);
-    };
-  }, []);
-
-  const refreshEmployees = async () => {
-    await syncAllModulesFromDatabase(false);
-  };
-
-  const refreshSettings = async () => {
-    await syncAllModulesFromDatabase(false);
-  };
-
-  const refreshTasks = async () => {
-    await syncAllModulesFromDatabase(false);
-  };
-
-  const syncAllWithCloud = async () => {
-    await syncAllModulesFromDatabase(false);
-  };
-
-  const activeCompanyId = currentUser.company_id || currentUser.companyId || 'company-a';
-
-  const visibleEmployees = useMemo(() => {
-    return employees.filter(emp => {
-      const empCId = emp.company_id || emp.companyId;
-      if (activeCompanyId === 'company-b') {
-        return empCId === 'company-b' || emp.email?.toLowerCase().includes('nexus') || emp.employeeId?.startsWith('EMP-B');
-      }
-      return empCId === 'company-a' || (!empCId && !emp.email?.toLowerCase().includes('nexus') && !emp.employeeId?.startsWith('EMP-B'));
-    });
-  }, [employees, activeCompanyId]);
-
-  const visiblePayrollRecords = useMemo(() => {
-    const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
-    return payrollRecords
-      .filter(rec => {
-        const recCId = rec.company_id || rec.companyId;
-        if (activeCompanyId === 'company-b') {
-          return recCId === 'company-b';
-        }
-        return recCId === 'company-a' || !recCId;
-      })
-      .map(rec => {
-        const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
-        const recMonthNum = resolveMonthNumber(rec.month);
-        const recYearNum = Number(rec.year) || 2026;
-
-        // Preserve Paid and Locked payroll records without modifying their financial amounts
-        if (rec.status === 'Paid' || rec.isLocked) {
-          if (rec.calendarDays !== undefined && rec.paidWeekOffDays !== undefined) {
-            return rec;
-          }
-          const calInfo = calculateCalendarDayPayrollAttendance({
-            month: recMonthNum,
-            year: recYearNum,
-            joiningDate: emp?.joiningDate || emp?.dateOfJoining,
-            exitDate: emp?.exitDate || emp?.relievingDate || emp?.lastWorkingDate || emp?.terminationDate,
-            weeklyOff: emp?.shiftDetails?.weeklyOff,
-            weeklySchedules,
-            employeeId: rec.employeeId,
-            department: emp?.department || rec.department,
-            holidays: holidayPolicies,
-            attendanceRecords,
-            leaveRequests,
-            sandwichPolicies,
-            explicitLopDays: rec.lopDays ?? rec.unpaidLeaves,
-            explicitPaidLeaveDays: rec.paidLeaveDays ?? rec.paidLeaves,
-          });
-          return {
-            ...rec,
-            calendarDays: rec.calendarDays ?? calInfo.calendarDays,
-            calendarDaysInMonth: rec.calendarDaysInMonth ?? calInfo.calendarDays,
-            eligibleDays: rec.eligibleDays ?? calInfo.eligibleDays,
-            scheduledWorkingDays: rec.scheduledWorkingDays ?? calInfo.scheduledWorkingDays,
-            paidWeekOffDays: rec.paidWeekOffDays ?? calInfo.paidWeekOffDays,
-            paidHolidayDays: rec.paidHolidayDays ?? calInfo.paidHolidayDays,
-            overlappingHolidayDays: rec.overlappingHolidayDays ?? calInfo.overlappingHolidayDays,
-            paidLeaveDays: rec.paidLeaveDays ?? calInfo.paidLeaveDays,
-            lopDays: rec.lopDays ?? calInfo.lopDays,
-            paidDays: rec.paidDays ?? calInfo.paidDays,
-            totalPaidDays: rec.totalPaidDays ?? (rec.paidDays ?? calInfo.totalPaidDays),
-          };
-        }
-
-        // For all non-Paid, non-Locked records, dynamically recalculate from live attendance,
-        // leaves, holidays, weekly schedules, and salary policies so current/elapsed month
-        // attendance is always reflected accurately for every employee.
-        if (!emp) {
-          return rec;
-        }
-
-        const isEmpProvisional =
-          (emp.employmentType as string) === 'Provisional' ||
-          (emp.employmentType as string) === 'Probation' ||
-          (emp as any).status === 'Probation';
-        const empLeavePolicy =
-          masterLeavePolicies.find(p => {
-            if (p.status !== 'Active') return false;
-            if (isEmpProvisional) {
-              return (
-                p.applicableEmploymentType === 'Provisional' ||
-                p.id === 'LP-MASTER-PROVISIONAL' ||
-                p.policyName.toLowerCase().includes('provisional') ||
-                p.policyName.toLowerCase().includes('probation')
-              );
-            }
-            return (
-              p.applicableEmploymentType === 'Confirmed' ||
-              p.id === 'LP-MASTER-CONFIRMED' ||
-              (!p.policyName.toLowerCase().includes('provisional') &&
-                !p.policyName.toLowerCase().includes('probation'))
-            );
-          }) || masterLeavePolicies.find(p => p.status === 'Active');
-
-        const resolvedAttPolicy =
-          resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
-
-        const calc = calculateEmployeePayroll(
-          emp,
-          attendanceRecords,
-          leaveRequests,
-          loanRecords,
-          employeeRewardRecords,
-          resolvedAttPolicy,
-          empLeavePolicy,
-          payrollSettingsConfig,
-          rec.month || 'November',
-          recYearNum,
-          shifts,
-          {
-            overtimeRequests,
-            departmentOtPolicies,
-            employeeOtPolicies,
-            overtimePolicy,
-            holidays: holidayPolicies,
-            weeklySchedules,
-            sandwichPolicies,
-            includePaidRequests: true,
-          }
-        );
 
         return {
-          ...rec,
-          basicSalary: calc.basicSalary,
-          allowances: calc.allowances,
-          da: calc.da,
-          conveyance: calc.conveyance,
-          hra: calc.hra,
-          withPf: calc.withPf,
-          bonus: calc.bonus,
-          attendanceBonus: calc.attendanceBonus || 0,
-          rewardEarnings: calc.rewardEarnings,
-          overtimeHours: calc.overtimeHours,
-          overtimeAmount: calc.overtimeAmount,
-          overtimeRate: calc.overtimeRate,
-          calendarDays: calc.calendarDays,
-          calendarDaysInMonth: calc.calendarDaysInMonth,
-          eligibleDays: calc.eligibleDays,
-          salaryDivisorUsed: calc.salaryDivisorUsed,
-          salaryDivisorMode: calc.salaryDivisorMode,
-          grossSalary: calc.grossSalary,
-          taxDeduction: calc.statutoryDeductions,
-          leaveDeduction: calc.unpaidLeaveDeduction,
-          advanceDeduction: calc.advanceDeduction,
-          lateAttendanceDeduction: calc.lateAttendanceDeduction,
-          epfDeduction: calc.epfDeduction,
-          esiDeduction: calc.esiDeduction,
-          professionalTax: calc.professionalTax,
-          workingDays: calc.workingDays,
-          scheduledWorkingDays: calc.scheduledWorkingDays,
-          presentDays: calc.presentDays,
-          paidWeekOffDays: calc.paidWeekOffDays,
-          paidHolidayDays: calc.paidHolidayDays,
-          overlappingHolidayDays: calc.overlappingHolidayDays,
-          paidLeaveDays: calc.paidLeaveDays,
-          lopDays: calc.lopDays,
-          paidDays: calc.paidDays,
-          totalPaidDays: calc.totalPaidDays,
-          pendingAttendanceDays: calc.pendingAttendanceDays,
-          paidLeaves: calc.paidLeaves,
-          unpaidLeaves: calc.unpaidLeaves,
-          totalDeductions: calc.totalDeductions,
-          earningsBreakdown: calc.earningsBreakdown,
-          deductionsBreakdown: calc.deductionsBreakdown,
-          netSalary: calc.netSalary,
+          ...extension,
+          ...base,
+          id: base.id,
+          employeeId: base.employeeId,
+          accountStatus: resolvedAccountStatus,
+          status: resolvedStatus,
+          department: (base.department && base.department !== 'General') ? base.department : (rawProfileData.department || extension.department || base.department || 'General'),
+          mustChangePassword: resolvedMustChange,
+          portalPassword: resolvedPortalPassword,
+          password: resolvedPassword
         };
       });
-  }, [
-    payrollRecords,
-    activeCompanyId,
-    employees,
-    attendanceRecords,
-    leaveRequests,
-    loanRecords,
-    employeeRewardRecords,
-    masterAttendancePolicies,
-    masterLeavePolicies,
-    payrollSettingsConfig,
-    shifts,
-    overtimeRequests,
-    departmentOtPolicies,
-    employeeOtPolicies,
-    overtimePolicy,
-    holidayPolicies,
-    weeklySchedules,
-    sandwichPolicies,
-  ]);
+      mappedEmployees = mapped;
+      setEmployees(mapped);
+    } else {
+      setEmployees([]);
+    }
 
-  // Bell feed: shared notifications addressed to this user + this session's local notifications
-  const combinedNotifications = useMemo(() => {
-    const myKeys = getUserNotificationKeys();
-    const persistedRead = getPersistedReadNotifIds();
-    const shared = sharedNotifications
-      .filter(isSharedNotificationForMe)
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-      .map(n => ({
-        ...n,
-        title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
-        message: (n.message || '').replace(/⚠️\s*/g, '').trim(),
-        read: persistedRead.has(n.id) || (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())),
-        timestamp: formatNotificationTime(n.createdAt)
+
+    // 2. Synchronize Enterprise Tasks
+    if (Array.isArray(rawTasks) && rawTasks.length > 0) {
+      const sanitized = rawTasks.map(sanitizeSelfAssignedTask);
+      setEnhancedTasks(sanitized);
+      try {
+        localStorage.setItem('vrm_hrms_enhanced_tasks', JSON.stringify(sanitized));
+      } catch (e) { }
+    } else {
+      setEnhancedTasks([]);
+      try { localStorage.removeItem('vrm_hrms_enhanced_tasks'); } catch (e) { }
+    }
+
+    // 3. Synchronize All Company Settings & Core Modules
+    // Synchronize Shifts (DB table primary, settings fallback)
+    if (Array.isArray(rawShifts) && rawShifts.length > 0) {
+      const todayIso = getTodayKolkata();
+      setShifts(rawShifts.map((s: any) => {
+        const activeAssignments = (s.assignments || []).map((assignment: any) => ({
+          id: assignment.id,
+          shiftId: assignment.shift_id || assignment.shiftId || s.id,
+          employeeId: assignment.employee?.employee_id || assignment.employee_id || assignment.employeeId,
+          effectiveFrom: assignment.effective_from || assignment.effectiveFrom || '',
+          effectiveTo: assignment.effective_to || assignment.effectiveTo || null,
+          status: assignment.status || 'ACTIVE',
+          assignedById: assignment.assigned_by_id || '',
+          createdAt: assignment.created_at || '',
+          updatedAt: assignment.updated_at || ''
+        })).filter((assignment: any) => {
+          if (!assignment.employeeId) return false;
+          const effFrom = assignment.effectiveFrom ? String(assignment.effectiveFrom).slice(0, 10) : '';
+          const effTo = assignment.effectiveTo ? String(assignment.effectiveTo).slice(0, 10) : '';
+          if (effFrom && effFrom > todayIso) return false;
+          if (effTo && effTo < todayIso) return false;
+          return true;
+        });
+        return {
+          id: s.id,
+          shiftName: s.shift_name,
+          startTime: (s.start_time || '').slice(0, 5) || '09:00',
+          endTime: (s.end_time || '').slice(0, 5) || '18:00',
+          breakDurationMins: s.break_duration_mins ?? 60,
+          workingHours: s.working_hours ?? 8,
+          gracePeriodMins: s.grace_period_mins ?? 15,
+          color: s.color || '#0E7490',
+          assignments: activeAssignments,
+          assignedEmployeeCount: activeAssignments.length
+        };
       }));
-    const local = notifications.map(n => ({
+    } else if (Array.isArray(settings?.shifts_data)) {
+      setShifts(settings.shifts_data.filter((s: Shift) => s && s.id !== 'SH-01' && s.id !== 'SH-02' && s.id !== 'SH-03'));
+    } else {
+      setShifts([]);
+    }
+
+    // Synchronize Leaves. In Hostinger VPS mode the leave_requests table is the source of truth.
+    const empPool = mappedEmployees.length > 0 ? mappedEmployees : employees;
+    let hydratedLeaves: LeaveRequest[] = [];
+    if (Array.isArray(rawLeaves) && rawLeaves.length > 0) {
+      const cachedLeavesMap = new Map<string, LeaveRequest>();
+      try {
+        const cachedSaved = localStorage.getItem('vrm_hrms_leave_requests_persistent');
+        if (cachedSaved) {
+          const parsed = JSON.parse(cachedSaved);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((l: LeaveRequest) => { if (l?.id) cachedLeavesMap.set(l.id, l); });
+          }
+        }
+        if (Array.isArray(settings.leave_requests_data)) {
+          settings.leave_requests_data.forEach((l: LeaveRequest) => { if (l?.id) cachedLeavesMap.set(l.id, l); });
+        }
+      } catch { }
+
+      const activeSandwichRules = (Array.isArray(settings.sandwich_policies_data) && settings.sandwich_policies_data.length > 0)
+        ? settings.sandwich_policies_data
+        : sandwichPolicies;
+
+      const mappedLeaves = rawLeaves.map((l: any) => {
+        const emp = empPool.find(e => e.id === l.employee_id || e.employeeId === l.employee?.employee_id || e.employeeId === l.employee_id) || empPool[0] || ({
+          id: l.employee_id,
+          employeeId: l.employee?.employee_id || l.employee_id,
+          firstName: l.employee?.first_name || 'Staff',
+          lastName: l.employee?.last_name || '',
+          department: 'General',
+          designation: 'Staff',
+          workLocation: 'Plant HQ',
+          shiftDetails: { weeklyOff: 'Sunday' }
+        } as any);
+
+        const fullName = l.employee ? `${l.employee.first_name || ''} ${l.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
+        const cached = cachedLeavesMap.get(l.id);
+        const normStart = normalizeToYYYYMMDD(l.start_date) || l.start_date;
+        const normEnd = normalizeToYYYYMMDD(l.end_date) || l.end_date;
+        const isWfh = l.leave_type === 'Work From Home' ||
+          (l.leave_type && l.leave_type.toLowerCase().includes('work from home')) ||
+          (l.leave_type && l.leave_type.toLowerCase() === 'wfh');
+
+        // Dynamically calculate sandwich breakdown
+        const effectiveSandwichCalc: SandwichCalculationResult | undefined = isWfh ? undefined : (cached?.sandwichDetails || calculateSandwichLeave({
+          employee: emp,
+          leaveType: l.leave_type || 'Casual Leave',
+          startDate: normStart,
+          endDate: normEnd,
+          policies: activeSandwichRules,
+          holidays: holidayPolicies,
+          existingLeaves: rawLeaves.filter((r: any) => r.id !== l.id).map(r => ({ ...r, employeeId: r.employee_id, startDate: normalizeToYYYYMMDD(r.start_date) || r.start_date, endDate: normalizeToYYYYMMDD(r.end_date) || r.end_date })),
+          weeklyOffSchedule: emp?.shiftDetails?.weeklyOff,
+          weeklySchedules: Array.isArray(settings.weekly_schedules_data) ? settings.weekly_schedules_data : weeklySchedules
+        }));
+
+        const sandwichDays = isWfh ? 0 : (cached?.sandwichDays ?? effectiveSandwichCalc?.sandwichDays ?? 0);
+        const isSandwichApplied = isWfh ? false : (cached?.isSandwichApplied ?? effectiveSandwichCalc?.isSandwichApplied ?? false);
+        const isExplicitUnpaid = !isLeaveTypePaid(l.leave_type || '');
+        const finalDays = isWfh
+          ? (Number(l.days_count) || 1)
+          : (effectiveSandwichCalc?.totalDays ?? (Number(l.days_count) || 1));
+
+        const mappedLeave: LeaveRequest = {
+          id: l.id,
+          employeeId: l.employee?.employee_id || emp?.employeeId || l.employee_id,
+          employeeName: fullName || 'Staff',
+          department: emp?.department || 'General',
+          leaveType: l.leave_type || 'Casual Leave',
+          startDate: normStart,
+          endDate: normEnd,
+          daysCount: finalDays,
+          reason: l.reason || '',
+          status: l.status || 'Pending',
+          appliedDate: l.applied_date || l.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          approvedBy: l.approved_by || (l.status === 'Approved' ? 'Velmurugan R (CEO)' : l.status === 'Rejected' ? 'Pavithra R (HR Manager)' : undefined),
+          approvedAt: l.approved_at || (l.status !== 'Pending' ? (l.updated_at || l.created_at) : undefined),
+          comment: l.comment,
+          sandwichDetails: effectiveSandwichCalc,
+          isSandwichApplied,
+          sandwichDays,
+          unpaidSandwichDays: effectiveSandwichCalc?.breakdown?.filter(b => b.isSandwich && !b.isPaid).length || 0,
+          paidDaysCount: isWfh ? finalDays : (cached?.paidDaysCount !== undefined ? cached.paidDaysCount : (isExplicitUnpaid ? 0 : (effectiveSandwichCalc?.paidDays ?? finalDays))),
+          unpaidDaysCount: isWfh ? 0 : (cached?.unpaidDaysCount !== undefined ? cached.unpaidDaysCount : (isExplicitUnpaid ? finalDays : (effectiveSandwichCalc?.unpaidDays ?? 0))),
+          hrOverride: cached?.hrOverride
+        };
+        return mappedLeave;
+      });
+      const seenLeaveIds = new Set(mappedLeaves.map(l => String(l.id)));
+      const extraCachedLeaves = (Array.isArray(settings.leave_requests_data) ? settings.leave_requests_data : []).filter(
+        (cl: any) => cl && cl.id && !seenLeaveIds.has(String(cl.id))
+      );
+      hydratedLeaves = [...mappedLeaves, ...extraCachedLeaves];
+      setLeaveRequests(hydratedLeaves);
+      try { localStorage.setItem('vrm_hrms_leave_requests_persistent', JSON.stringify(hydratedLeaves)); } catch { }
+    } else if (Array.isArray(settings.leave_requests_data) && settings.leave_requests_data.length > 0) {
+      hydratedLeaves = settings.leave_requests_data;
+      setLeaveRequests(settings.leave_requests_data);
+    } else {
+      setLeaveRequests([]);
+      try { localStorage.removeItem('vrm_hrms_leave_requests_persistent'); } catch { }
+    }
+
+    // Synchronize Attendance (DB table primary, settings fallback) — respecting Approved WFH requests
+    if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
+      const mappedAttendance: AttendanceRecord[] = rawAttendance.map((a: any) => {
+        const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
+        const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
+        const empCode = a.employee?.employee_id || emp?.employeeId || a.employee_id;
+        const recDate = normalizeToYYYYMMDD(a.date) || a.date;
+        const recShiftDate = normalizeToYYYYMMDD(a.shift_date || recDate) || recDate;
+
+        const approvedWfh = hydratedLeaves.find(l => {
+          if (l.status !== 'Approved') return false;
+          const isWfh = l.leaveType === 'Work From Home' ||
+            (l.leaveType && l.leaveType.toLowerCase().includes('work from home')) ||
+            (l.leaveType && l.leaveType.toLowerCase() === 'wfh');
+          if (!isWfh) return false;
+          const matchEmp = l.employeeId === empCode || (emp?.id && l.employeeId === emp.id) || (fullName && l.employeeName?.toLowerCase() === fullName.toLowerCase());
+          return matchEmp && recDate >= l.startDate && recDate <= l.endDate;
+        });
+
+        return {
+          id: a.id,
+          employeeId: empCode,
+          employeeName: fullName,
+          department: emp?.department || 'General',
+          date: recDate,
+          shiftId: a.shift_id,
+          shiftDate: recShiftDate,
+          checkIn: dbTimestampToLocalHHMM(a.check_in),
+          checkOut: dbTimestampToLocalHHMM(a.check_out),
+          workingHours: a.working_hours ?? 0,
+          status: approvedWfh ? 'Work From Home' : (a.status || 'Present'),
+          wfhSource: approvedWfh ? 'Approved WFH Request' : undefined,
+          wfhReason: approvedWfh ? (approvedWfh.reason || 'Work From Home Approved') : undefined,
+          lateStatus: a.late_status || 'On Time',
+          method: a.method || 'Face Scan',
+          location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: approvedWfh ? 'Work From Home (Approved)' : (a.location_address || 'Plant HQ'), inGeofence: a.in_geofence ?? true },
+          faceVerified: a.face_verified ?? false,
+          checkInPhoto: a.check_in_photo || undefined,
+          checkOutPhoto: a.check_out_photo || undefined,
+        };
+      });
+
+      setAttendanceRecords(prev => {
+        const prevById = new Map<string, AttendanceRecord>();
+        const prevByKey = new Map<string, AttendanceRecord>();
+        prev.forEach(p => {
+          if (p.id) prevById.set(p.id, p);
+          const k = `${String(p.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(p.shiftDate || p.date) || p.shiftDate || p.date}`;
+          if (k) prevByKey.set(k, p);
+        });
+
+        const nowMs = Date.now();
+        const RECENT_TTL_MS = 10 * 60 * 1000;
+        const seenRecentKeys = new Set<string>();
+
+        const merged = mappedAttendance.map(rec => {
+          const empLower = String(rec.employeeId || '').trim().toLowerCase();
+          const dKey = normalizeToYYYYMMDD(rec.shiftDate || rec.date) || rec.shiftDate || rec.date;
+          const compKey = `${empLower}_${dKey}`;
+          const prevRec = (rec.id && prevById.get(rec.id)) || prevByKey.get(compKey);
+          const recentEntry = (rec.id && recentServerPunchesRef.current.get(rec.id)) || recentServerPunchesRef.current.get(compKey);
+          const isRecentValid = Boolean(recentEntry && (nowMs - recentEntry.committedAt) < RECENT_TTL_MS);
+          if (isRecentValid) {
+            if (rec.id) seenRecentKeys.add(rec.id);
+            seenRecentKeys.add(compKey);
+          }
+          const recentRec = isRecentValid ? recentEntry!.record : undefined;
+
+          return {
+            ...rec,
+            status: recentRec?.status || rec.status,
+            method: recentRec?.method || rec.method,
+            reason: recentRec?.reason || prevRec?.reason || rec.reason,
+            checkIn: recentRec ? recentRec.checkIn : (rec.checkIn || null),
+            checkOut: recentRec ? recentRec.checkOut : (rec.checkOut || null),
+            checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
+            checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
+            workingHours: recentRec ? recentRec.workingHours : (rec.workingHours || 0),
+          };
+        });
+
+        // Also prepend any recently committed punches that were not yet present in the in-flight DB snapshot
+        const extraRecent: AttendanceRecord[] = [];
+        const addedIds = new Set(merged.map(m => m.id));
+        const addedCompKeys = new Set(
+          merged.map(m => `${String(m.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(m.shiftDate || m.date) || m.shiftDate || m.date}`)
+        );
+        recentServerPunchesRef.current.forEach((entry, key) => {
+          if ((nowMs - entry.committedAt) >= RECENT_TTL_MS) {
+            recentServerPunchesRef.current.delete(key);
+            return;
+          }
+          const r = entry.record;
+          const compKey = `${String(r.employeeId || '').trim().toLowerCase()}_${normalizeToYYYYMMDD(r.shiftDate || r.date) || r.shiftDate || r.date}`;
+          if ((r.id && addedIds.has(r.id)) || addedCompKeys.has(compKey) || seenRecentKeys.has(compKey)) {
+            return;
+          }
+          if (r.id) addedIds.add(r.id);
+          addedCompKeys.add(compKey);
+          extraRecent.push(r);
+        });
+
+        return extraRecent.length > 0 ? [...extraRecent, ...merged] : merged;
+      });
+    } else {
+      setAttendanceRecords(prev => {
+        const nowMs = Date.now();
+        const RECENT_TTL_MS = 10 * 60 * 1000;
+        const preserved: AttendanceRecord[] = [];
+        const seen = new Set<string>();
+        recentServerPunchesRef.current.forEach(entry => {
+          if ((nowMs - entry.committedAt) < RECENT_TTL_MS) {
+            const k = entry.record.id || `${entry.record.employeeId}_${entry.record.shiftDate || entry.record.date}`;
+            if (!seen.has(k)) {
+              seen.add(k);
+              preserved.push(entry.record);
+            }
+          }
+        });
+        return preserved.length > 0 ? preserved : (prev.length > 0 ? prev : []);
+      });
+    }
+
+    // Synchronize Assets (DB table primary, settings fallback)
+    if (Array.isArray(rawAssets) && rawAssets.length > 0) {
+      const pool = mappedEmployees.length > 0 ? mappedEmployees : employees;
+      setAssets(rawAssets.map((ast: any) => {
+        const emp = pool.find((e: any) =>
+          (e.id && e.id === ast.assigned_employee_id) ||
+          (e.employeeId && e.employeeId === ast.assigned_employee_id)
+        );
+        const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : (ast.assigned_employee_name || '');
+        const empDept = emp ? (emp.department || '') : (ast.assigned_department || '');
+        const empDisplayId = emp ? emp.employeeId : (ast.assigned_employee_id || '');
+        const empAvatar = emp ? emp.avatar : undefined;
+
+        return {
+          id: ast.id,
+          assetTag: ast.asset_tag,
+          name: ast.name,
+          category: ast.category,
+          serialNumber: ast.serial_number || '',
+          purchaseDate: ast.purchase_date || ast.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          purchaseCost: Number(ast.purchase_cost) || 0,
+          warrantyExpiry: ast.warranty_expiry || '',
+          status: ast.status || (ast.assigned_employee_id ? 'Assigned' : 'Available'),
+          condition: ast.condition || 'Good',
+          ownership: (ast.ownership === 'Rental' || String(ast.notes || '').toLowerCase().includes('rent') || String(ast.name || '').toLowerCase().includes('rent')) ? 'Rental' : (ast.ownership || 'Owned'),
+          assignedEmployeeId: empDisplayId || ast.assigned_employee_id || '',
+          assignedEmployeeDbId: ast.assigned_employee_id || emp?.id || '',
+          assignedEmployeeName: empName,
+          assignedDepartment: empDept,
+          assignedEmployeeAvatar: empAvatar,
+          assignedDate: ast.assigned_date || '',
+          notes: ast.notes || '',
+        };
+      }));
+    } else {
+      setAssets([]);
+    }
+
+    // Synchronize Expenses (DB table primary, company settings fallback)
+    const rawSavedExpenses = Array.isArray(settings.expenses_data) ? settings.expenses_data : [];
+    const savedExpenses = rawSavedExpenses.map((exp: any) => ({
+      ...exp,
+      amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0))
+    }));
+    const expenseKey = (exp: Expense) => [
+      exp.employeeId,
+      exp.category,
+      exp.amount,
+      exp.date,
+      exp.description || '',
+      exp.status || 'Pending Manager'
+    ].join('|').toLowerCase();
+
+    if (Array.isArray(rawExpenses) && rawExpenses.length > 0) {
+      const mappedExpenses = rawExpenses.map((exp: any) => ({
+        id: exp.id,
+        employeeId: exp.employeeId || exp.employee?.employee_id || exp.employee_id,
+        employeeName: exp.employeeName || (exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff'),
+        department: exp.department || exp.employee?.department_id || 'General',
+        category: exp.category || 'Travel',
+        amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0)),
+        date: exp.date,
+        description: exp.description || '',
+        receiptUrl: exp.receiptUrl || exp.receipt_url || '',
+        status: exp.status || 'Pending'
+      }));
+      const savedOnlyExpenses = savedExpenses.filter((exp: Expense) => (
+        exp?.id &&
+        !mappedExpenses.some((dbExp: Expense) => dbExp.id === exp.id || expenseKey(dbExp) === expenseKey(exp))
+      ));
+      setExpenses(prev => {
+        const mergedCloudExpenses = [...savedOnlyExpenses, ...mappedExpenses];
+        const cloudIds = new Set(mergedCloudExpenses.map((exp: Expense) => exp.id));
+        const cloudKeys = new Set(mergedCloudExpenses.map((exp: Expense) => expenseKey(exp)));
+        const localOnlyExpenses = prev.filter((exp: Expense) => (
+          String(exp.id).startsWith('EXP-') &&
+          !cloudIds.has(exp.id) &&
+          !cloudKeys.has(expenseKey(exp))
+        ));
+        return [...localOnlyExpenses, ...mergedCloudExpenses];
+      });
+    } else if (savedExpenses.length > 0) {
+      setExpenses(savedExpenses);
+    } else {
+      setExpenses(prev => (isInitial ? [] : prev));
+    }
+
+    // Synchronize Recruitment: Jobs & Candidates
+    if (Array.isArray(rawJobs) && rawJobs.length > 0) {
+      setJobOpenings(rawJobs.map((j: any) => ({
+        id: j.id,
+        title: j.title,
+        department: j.department_id || 'General',
+        location: j.location || 'Headquarters',
+        type: j.type || 'Full-Time',
+        experience: j.experience || '1-3 years',
+        positions: Number(j.positions) || 1,
+        status: j.status || 'Active',
+        postedDate: j.posted_date || j.created_at?.split('T')[0],
+        salaryRange: j.salary_range || '',
+        description: j.description || '',
+        applicantsCount: 0
+      })));
+    } else {
+      setJobOpenings([]);
+    }
+
+    const isTestCandidate = (c: any) => {
+      if (!c) return true;
+      const email = String(c.email || '').toLowerCase().trim();
+      const name = String(c.name || '').toLowerCase().trim();
+      if (email === 'mdbilaly029@gmail.com') return true;
+      if (name.includes('noorisha')) return true;
+      return false;
+    };
+
+    const savedCandidates = (Array.isArray(settings.candidates_data) ? settings.candidates_data : [])
+      .filter((c: Candidate) => !isTestCandidate(c));
+    const candidateKey = (c: Candidate) => [
+      c.email || '',
+      c.phone || '',
+      c.name || '',
+      c.appliedDate || ''
+    ].join('|').toLowerCase();
+
+    const validRawCandidates = (Array.isArray(rawCandidates) ? rawCandidates : [])
+      .filter((c: any) => !isTestCandidate(c));
+
+    if (validRawCandidates.length > 0) {
+      const mappedCandidates: Candidate[] = validRawCandidates.map((c: any) => {
+        const mapped: Candidate = {
+          id: c.id,
+          jobId: c.job_id,
+          jobTitle: 'Applicant',
+          name: c.name,
+          email: c.email,
+          phone: c.phone || '',
+          stage: c.stage || 'Applied',
+          appliedDate: c.applied_date || c.created_at?.split('T')[0],
+          referrerName: c.referrer_name || '',
+          resumeUrl: c.resume_url || '',
+          rating: Number(c.rating) || 4.0,
+          notes: c.notes || ''
+        };
+        const saved = savedCandidates.find((s: Candidate) => (
+          String(s.id) === String(mapped.id) || candidateKey(s) === candidateKey(mapped)
+        ));
+        return saved ? { ...mapped, ...saved, id: mapped.id || saved.id, stage: mapped.stage || saved.stage } : mapped;
+      });
+      const mappedIds = new Set(mappedCandidates.map(c => String(c.id)));
+      const mappedKeys = new Set(mappedCandidates.map(candidateKey));
+      const savedOnlyCandidates = savedCandidates.filter((c: Candidate) => (
+        c?.id &&
+        !mappedIds.has(String(c.id)) &&
+        !mappedKeys.has(candidateKey(c))
+      ));
+      const result = [...savedOnlyCandidates, ...mappedCandidates];
+      setCandidates(result);
+      supabaseDirect.saveCompanySetting('candidates_data', result).catch(() => { });
+    } else if (savedCandidates.length > 0) {
+      setCandidates(savedCandidates);
+      if (savedCandidates.length !== (settings.candidates_data?.length || 0)) {
+        supabaseDirect.saveCompanySetting('candidates_data', savedCandidates).catch(() => { });
+      }
+    } else {
+      setCandidates([]);
+      if (Array.isArray(settings.candidates_data) && settings.candidates_data.length > 0) {
+        supabaseDirect.saveCompanySetting('candidates_data', []).catch(() => { });
+      }
+    }
+
+    // Synchronize Payroll Records
+    if (Array.isArray(rawPayroll) && rawPayroll.length > 0) {
+      const savedPayrollRows = Array.isArray(settings.payroll_records_data) ? settings.payroll_records_data : [];
+      const MONTH_NAMES = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+
+      const mappedRecords: PayrollRecord[] = rawPayroll.map((p: any) => {
+        const employeeId = p.employee?.employee_id || p.employee_id;
+        const rawMonthStr = String(p.payroll_month || '');
+        let year = 2026;
+        let monthName = 'October';
+
+        if (rawMonthStr) {
+          const parts = rawMonthStr.split('-');
+          if (parts.length >= 2) {
+            year = Number(parts[0]) || 2026;
+            const mIdx = Number(parts[1]) - 1;
+            if (mIdx >= 0 && mIdx < 12) {
+              monthName = MONTH_NAMES[mIdx];
+            }
+          }
+        }
+
+        const saved = savedPayrollRows.find((row: PayrollRecord) => (
+          (row.employeeId === employeeId || row.id === p.id) &&
+          row.month?.toLowerCase() === monthName.toLowerCase() &&
+          Number(row.year) === year
+        ));
+        const employeeForScheme = employees.find(e => e.employeeId === employeeId || e.id === employeeId);
+        const withPf = saved?.withPf ?? resolveEmployeeWithPf(employeeForScheme || {
+          withPf: p.withPf ?? p.with_pf,
+          salaryDetails: {
+            withPf: p.employee?.withPf ?? p.employee?.with_pf,
+            salaryScheme: p.employee?.salaryScheme ?? p.employee?.salary_scheme
+          }
+        } as Employee);
+        const compId = p.company_id || p.companyId || (p.employee?.email?.includes('nexus') || employeeId?.startsWith('EMP-B') ? 'company-b' : 'company-a');
+        const rawDept = p.employee?.department_id || p.employee?.department || saved?.department || 'General';
+        const currentDepts = Array.isArray(cloudDepts) && cloudDepts.length > 0 ? cloudDepts : departments;
+        const matchedDept = currentDepts.find((d: any) =>
+          d.id === rawDept ||
+          d.name?.toLowerCase() === String(rawDept).toLowerCase() ||
+          d.code?.toLowerCase() === String(rawDept).toLowerCase()
+        );
+        const resolvedDept = matchedDept?.name || (rawDept === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || String(rawDept).toLowerCase().includes('hr') ? 'HR' : (rawDept.length >= 32 && rawDept.includes('-') ? 'General' : rawDept));
+
+        return {
+          id: p.id,
+          company_id: compId,
+          companyId: compId,
+          employeeId,
+          employeeName: p.employee ? `${p.employee.first_name || ''} ${p.employee.last_name || ''}`.trim() : 'Staff',
+          department: resolvedDept,
+          designation: p.employee?.designation || saved?.designation || 'Staff',
+          month: monthName,
+          year,
+          basicSalary: Number(p.basic_salary) || saved?.basicSalary || 0,
+          allowances: Number(p.allowances) || saved?.allowances || 0,
+          da: saved?.da,
+          conveyance: saved?.conveyance,
+          hra: saved?.hra,
+          withPf,
+          bonus: Number(p.bonus) || saved?.bonus || 0,
+          attendanceBonus: saved?.attendanceBonus || 0,
+          rewardEarnings: saved?.rewardEarnings || 0,
+          grossSalary: saved?.grossSalary,
+          taxDeduction: Number(p.tax_deduction) || saved?.taxDeduction || 0,
+          leaveDeduction: Number(p.leave_deduction) || saved?.leaveDeduction || 0,
+          advanceDeduction: saved?.advanceDeduction || 0,
+          epfDeduction: saved?.epfDeduction || 0,
+          esiDeduction: saved?.esiDeduction || 0,
+          professionalTax: saved?.professionalTax || 0,
+          workingDays: Number(p.working_days) || saved?.workingDays || 30,
+          presentDays: Number(p.present_days) || saved?.presentDays || 30,
+          paidLeaves: Number(p.paid_leaves) || saved?.paidLeaves || 0,
+          unpaidLeaves: Number(p.unpaid_leaves) || saved?.unpaidLeaves || 0,
+          paidDays: saved?.paidDays,
+          lopDays: saved?.lopDays,
+          totalDeductions: saved?.totalDeductions,
+          earningsBreakdown: saved?.earningsBreakdown || [],
+          deductionsBreakdown: saved?.deductionsBreakdown || [],
+          netSalary: Number(p.net_salary) || saved?.netSalary || 0,
+          status: p.status || saved?.status || 'Processed',
+        };
+      });
+
+      // Strict deduplication by (employeeId, month, year)
+      const dedupedMap = new Map<string, PayrollRecord>();
+      for (const rec of mappedRecords) {
+        const key = `${rec.employeeId}_${rec.month}_${rec.year}`;
+        if (!dedupedMap.has(key)) {
+          dedupedMap.set(key, rec);
+        } else {
+          const existing = dedupedMap.get(key)!;
+          if ((Number(rec.netSalary) > 0 && Number(existing.netSalary) === 0) || String(rec.id) > String(existing.id)) {
+            dedupedMap.set(key, rec);
+          }
+        }
+      }
+      setPayrollRecords(Array.from(dedupedMap.values()));
+    } else if (Array.isArray(settings.payroll_records_data) && settings.payroll_records_data.length > 0) {
+      const dedupedMap = new Map<string, PayrollRecord>();
+      for (const rec of settings.payroll_records_data) {
+        const key = `${rec.employeeId}_${rec.month}_${rec.year}`;
+        if (!dedupedMap.has(key)) {
+          dedupedMap.set(key, rec);
+        }
+      }
+      setPayrollRecords(Array.from(dedupedMap.values()));
+    } else {
+      setPayrollRecords([]);
+    }
+
+    if (settings) {
+      const hasSetting = (key: string) => Object.prototype.hasOwnProperty.call(settings, key);
+
+      // Organization Structure & Departments
+      const cloudOrg = settings.org_structure;
+      if (hasSetting('org_structure') && cloudOrg && typeof cloudOrg === 'object') {
+        const deptNames = dedupeStringList(cloudOrg.departments).filter(n => n.trim().toLowerCase() !== 'general');
+        const mergedOrg: OrganizationStructure = {
+          departments: deptNames,
+          designations: dedupeStringList(cloudOrg.designations),
+          employmentTypes: dedupeStringList(cloudOrg.employmentTypes),
+          workLocations: dedupeStringList(cloudOrg.workLocations),
+          reportingManagers: Array.isArray(cloudOrg.reportingManagers) ? cloudOrg.reportingManagers : [],
+          teams: Array.isArray(cloudOrg.teams) ? cloudOrg.teams : []
+        };
+        setOrgStructure(mergedOrg);
+
+        setDepartments(mergedOrg.departments.map(name => {
+          const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === name.toLowerCase()) : null;
+          return {
+            id: liveMatch?.id || `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            name,
+            code: liveMatch?.code || name.substring(0, 4).toUpperCase(),
+            headName: 'Unassigned',
+            headId: liveMatch?.head_id || '',
+            employeeCount: 0,
+            budget: liveMatch?.budget || 0
+          };
+        }));
+      } else if (Array.isArray(cloudDepts) && cloudDepts.length > 0) {
+        const loadedNames = dedupeStringList(cloudDepts.map(d => d.name)).filter(n => n.trim().toLowerCase() !== 'general');
+        setOrgStructure(prev => ({ ...prev, departments: loadedNames }));
+        setDepartments(loadedNames.map(name => {
+          const match = cloudDepts.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
+          return {
+            id: match?.id || `dept-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            name,
+            code: match?.code || name.substring(0, 4).toUpperCase(),
+            headName: 'Unassigned',
+            headId: match?.head_id || '',
+            employeeCount: 0,
+            budget: match?.budget || 0
+          };
+        }));
+      }
+
+      // Company Details & Branches
+      const activeCId = currentUser.company_id || currentUser.companyId || 'company-a';
+      if (activeCId === 'company-b') {
+        if (hasSetting('company_info_company-b') && settings['company_info_company-b'] && typeof settings['company_info_company-b'] === 'object') {
+          const dbInfoB = settings['company_info_company-b'];
+          if (dbInfoB && (dbInfoB.companyName || dbInfoB.companyCode)) {
+            setCompanyInfo({ ...COMPANY_B_PROFILE, ...dbInfoB });
+          }
+        }
+      } else {
+        if (hasSetting('company_info') && settings.company_info && typeof settings.company_info === 'object') {
+          const dbInfo = settings.company_info;
+          const isCompBData = dbInfo.company_id === 'company-b' || dbInfo.companyName?.toLowerCase().includes('nexus');
+          if (!isCompBData && (dbInfo.companyName || dbInfo.companyCode)) {
+            const merged = { ...COMPANY_A_PROFILE, ...dbInfo };
+            setCompanyInfo(merged);
+            try {
+              localStorage.setItem('vrm_hrms_company_info', JSON.stringify(merged));
+              localStorage.setItem('vrm_hrms_company_info_company-a', JSON.stringify(merged));
+            } catch { }
+          } else {
+            // If DB was empty/blank for company_info, check if localStorage has valid saved data to preserve and restore to DB!
+            try {
+              const localCached = localStorage.getItem('vrm_hrms_company_info') || localStorage.getItem('vrm_hrms_company_info_company-a');
+              if (localCached) {
+                const parsed = JSON.parse(localCached);
+                if (parsed && (parsed.companyName || parsed.companyCode)) {
+                  const merged = { ...COMPANY_A_PROFILE, ...parsed };
+                  setCompanyInfo(merged);
+                  supabaseDirect.saveCompanySetting('company_info', merged).catch(() => { });
+                }
+              }
+            } catch { }
+          }
+        }
+      }
+
+      if (hasSetting('company_branches') && Array.isArray(settings.company_branches)) {
+        setCompanyBranches(settings.company_branches);
+      }
+
+      // Shift Requests. Use the VPS-only setting key so old Supabase shift_requests_data does not reappear.
+      const vpsShiftRequests = Array.isArray(settings[SHIFT_REQUESTS_KEY]) ? settings[SHIFT_REQUESTS_KEY] as ShiftRequest[] : [];
+      if (vpsShiftRequests.length > 0) {
+        setShiftRequests(vpsShiftRequests);
+        try { localStorage.setItem('vrm_hrms_shift_requests_persistent', JSON.stringify(vpsShiftRequests)); } catch { }
+        applyApprovedShiftsToEmployees(vpsShiftRequests);
+      } else {
+        setShiftRequests([]);
+        try { localStorage.removeItem('vrm_hrms_shift_requests_persistent'); } catch { }
+      }
+
+      // Shared cross-user notifications
+      if (Array.isArray(settings.shared_notifications_data)) {
+        const cloudNotes = (settings.shared_notifications_data as NotificationItem[]).map(n => ({
+          ...n,
+          title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
+          message: (n.message || '').replace(/⚠️\s*/g, '').trim()
+        }));
+        setSharedNotifications(prev => {
+          const cloudIds = new Set(cloudNotes.map(n => n.id));
+          const recentCutoff = Date.now() - 2 * 60 * 1000;
+          const localOnly = prev.filter(n => !cloudIds.has(n.id) && n.createdAt && new Date(n.createdAt).getTime() >= recentCutoff);
+          const localMap = new Map(prev.map(n => [n.id, n]));
+          const merged = cloudNotes.map(n => {
+            const local = localMap.get(n.id);
+            return local
+              ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), ...(local.readBy || [])])) }
+              : n;
+          });
+          return [...localOnly, ...merged];
+        });
+      }
+
+      // Face Logs sync (cloud settings take precedence over stale local logs when HR updates punch times)
+      if (Array.isArray(settings.face_logs_data) && settings.face_logs_data.length > 0) {
+        setFaceLogs(prev => {
+          const map = new Map<string, FaceLog>();
+          prev.forEach(l => map.set(l.id, l));
+          settings.face_logs_data.forEach((l: FaceLog) => map.set(l.id, l));
+          const merged = Array.from(map.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 200);
+          try {
+            if (typeof window !== 'undefined') {
+              const compactLogs = merged.slice(0, 40).map(l => ({
+                ...l,
+                photoUrl: l.photoUrl?.startsWith('data:') ? '' : l.photoUrl
+              }));
+              localStorage.setItem('vrm_hrms_face_logs', JSON.stringify(compactLogs));
+            }
+          } catch { }
+          return merged;
+        });
+      }
+
+      // Holiday Policies
+      if (Array.isArray(settings.holiday_policies_data)) {
+        setHolidayPolicies(settings.holiday_policies_data);
+      }
+
+      if (hasSetting('weekly_schedules_data') && Array.isArray(settings.weekly_schedules_data)) {
+        setWeeklySchedules(settings.weekly_schedules_data);
+      }
+
+      if (hasSetting('attendance_config_data') && settings.attendance_config_data && typeof settings.attendance_config_data === 'object') {
+        setAttendanceConfig(prev => ({ ...prev, ...settings.attendance_config_data }));
+      }
+
+      if (hasSetting('overtime_policy_data') && settings.overtime_policy_data && typeof settings.overtime_policy_data === 'object') {
+        const rawOtPol = settings.overtime_policy_data;
+        const isLegacyV1 = Number(rawOtPol.version || 1) < 2;
+        const upgradedOtPol: OvertimePolicy = isLegacyV1
+          ? {
+            ...INITIAL_OVERTIME_POLICY,
+            ...rawOtPol,
+            wageBase: rawOtPol.wageBase && rawOtPol.wageBase !== 'FIXED_HOURLY' ? rawOtPol.wageBase : 'GROSS',
+            divisorMode: rawOtPol.divisorMode && rawOtPol.divisorMode !== 'COMPANY_DIVISOR' ? rawOtPol.divisorMode : 'CALENDAR_DAYS',
+            rateMethod: 'Daily Salary Based',
+            fixedRatePerHour: 0,
+            defaultDailyPaidHours: Number(rawOtPol.defaultDailyPaidHours) || 9,
+            defaultMultiplier: rawOtPol.defaultMultiplier || '2x Salary',
+            version: 2,
+          }
+          : { ...INITIAL_OVERTIME_POLICY, ...rawOtPol };
+        setOvertimePolicy(upgradedOtPol);
+        try {
+          localStorage.setItem('vrm_hrms_overtime_policy_persistent', JSON.stringify(upgradedOtPol));
+        } catch { }
+        if (isLegacyV1) {
+          supabaseDirect.saveCompanySetting('overtime_policy_data', upgradedOtPol).catch(() => { });
+        }
+      }
+
+      // Loan Policies
+      if (Date.now() - lastLoanPolicyMutationAtRef.current >= 12000) {
+        if (Array.isArray(settings.loan_policies_data)) {
+          const normalizedPolicies = settings.loan_policies_data
+            .filter((p: any) => !DEPRECATED_DEFAULT_LOAN_POLICY_NAMES.has(String(p.policyName || p.name || '').trim().toLowerCase()) || p.updatedBy)
+            .map((p: any) => {
+              const allowPending = Boolean(p.allowPreviousPending ?? (toNum(p.maxActiveLoans) > 1));
+              return {
+                ...p,
+                policyName: p.policyName || p.name || 'Advance Salary Policy',
+                applicableEmployees: p.applicableEmployees || 'ALL',
+                minRepaymentMonths: Math.max(1, toNum(p.minRepaymentMonths) || 1),
+                maxRepaymentMonths: Math.max(1, toNum(p.maxRepaymentMonths) || 6),
+                minLoanAmount: toNum(p.minLoanAmount) || 1000,
+                maxLoanAmount: toNum(p.maxLoanAmount ?? p.maxEligibleFixedAmount) || 500000,
+                maxSalaryPercent: toNum(p.maxSalaryPercent ?? (p.maxLoanLimitType === 'PERCENTAGE_SALARY' ? p.maxLoanLimitValue : 100)) || 100,
+                minimumEmploymentMonths: toNum(p.minimumEmploymentMonths ?? p.minTenureMonthsRequired ?? 3),
+                allowPreviousPending: allowPending,
+                maxActiveLoans: allowPending ? Math.max(toNum(p.maxActiveLoans) || 10, 10) : 1,
+                repaymentType: p.repaymentType || 'MONTHLY_EMI',
+                deductionStart: p.deductionStart || (p.deductionStartRule === 'SPECIFIED_MONTH' ? 'CURRENT_MONTH' : 'NEXT_MONTH'),
+                requestLimit: p.requestLimit || 'ONCE_A_MONTH',
+                approvalBy: p.approvalBy || 'HR_OR_CEO',
+                reasonRequired: p.reasonRequired ?? true,
+                status: p.status || (p.active === false ? 'Inactive' : 'Active')
+              };
+            });
+          setLoanPolicies(normalizedPolicies);
+        } else {
+          setLoanPolicies([]);
+        }
+      }
+
+      // Loan Records: strictly filter to only active employees
+      if (Array.isArray(settings.loan_records_data)) {
+        const activeEmpMap = new Map<string, any>();
+        if (Array.isArray(rawEmployees)) {
+          rawEmployees.forEach((e: any) => {
+            if (e.id) activeEmpMap.set(String(e.id).toLowerCase(), e);
+            if (e.employee_id) activeEmpMap.set(String(e.employee_id).toLowerCase(), e);
+          });
+        }
+        const validLoans = settings.loan_records_data.filter((r: LoanRecord) => {
+          if (!r || !r.employeeId) return false;
+          const emp = activeEmpMap.get(String(r.employeeId).toLowerCase());
+          if (!emp) return false;
+          if (r.employeeName && emp.first_name) {
+            const rName = r.employeeName.trim().toLowerCase();
+            const empFullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim().toLowerCase();
+            const empFirstName = (emp.first_name || '').trim().toLowerCase();
+            if (!empFullName.includes(rName) && !rName.includes(empFirstName)) {
+              return false;
+            }
+          }
+          return true;
+        });
+        setLoanRecords(validLoans);
+        if (validLoans.length !== settings.loan_records_data.length) {
+          supabaseDirect.saveCompanySetting('loan_records_data', validLoans).catch(() => { });
+        }
+      } else {
+        setLoanRecords([]);
+      }
+
+      // Geofence Config: Only apply if coordinates are valid (non-zero)
+      if (hasSetting('geofence_config') && settings.geofence_config && typeof settings.geofence_config === 'object') {
+        const gf = settings.geofence_config;
+        const lat = Number(gf.centerLat ?? gf.latitude ?? 0);
+        const lng = Number(gf.centerLng ?? gf.longitude ?? 0);
+        if (Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001) {
+          lastServerGeofenceKeyRef.current = geofenceKey({
+            ...gf,
+            centerLat: lat,
+            centerLng: lng,
+            radiusMeters: Number(gf.radiusMeters) || 500,
+          });
+          setGeofenceConfig({
+            ...gf,
+            centerLat: lat,
+            centerLng: lng,
+            radiusMeters: Number(gf.radiusMeters) || 500,
+          });
+        }
+      }
+
+      // Field Duty & Tracking: Load from real PostgreSQL database tables first
+      trackingApiService.getAssignments().then(dbAssignments => {
+        if (dbAssignments && dbAssignments.length > 0) {
+          setFieldAssignments(dbAssignments);
+        } else if (Array.isArray(settings.field_assignments_data)) {
+          setFieldAssignments(settings.field_assignments_data);
+        }
+      }).catch(() => {
+        if (Array.isArray(settings.field_assignments_data)) {
+          setFieldAssignments(settings.field_assignments_data);
+        }
+      });
+
+      const applyNormalizedTrips = (incomingTrips: FieldTripSession[]) => {
+        setTripSessions(prev => {
+          // Merge any active local trip points so cloud poll never overwrites newer local points
+          const merged = incomingTrips.map(inc => {
+            const localMatch = prev.find(p => p.id === inc.id);
+            if (localMatch && localMatch.locationPoints?.length > (inc.locationPoints?.length || 0)) {
+              return normalizeTripSessionMetrics({
+                ...inc,
+                locationPoints: localMatch.locationPoints,
+                segments: localMatch.segments || inc.segments,
+                lastGpsUpdate: localMatch.lastGpsUpdate || inc.lastGpsUpdate,
+              });
+            }
+            return normalizeTripSessionMetrics(inc);
+          });
+          // Preserve any brand-new local Active trip not yet in cloud
+          prev.forEach(localTrip => {
+            if (localTrip.status === 'Active' && !merged.some(m => m.id === localTrip.id)) {
+              merged.unshift(normalizeTripSessionMetrics(localTrip));
+            }
+          });
+          return merged;
+        });
+
+        // Asynchronously snap contiguous verified segments to OpenStreetMap roads via OSRM
+        incomingTrips.forEach(tr => {
+          if (Array.isArray(tr.locationPoints) && tr.locationPoints.length >= 2) {
+            const alreadyRoadMatched = Array.isArray(tr.segments) && tr.segments.some(
+              s => s.segmentType === 'road_matched' && Array.isArray(s.coordinates) && s.coordinates.length > 2
+            );
+            if (!alreadyRoadMatched) {
+              matchTripSegmentsToRoads(tr.locationPoints, tr.tripEndTime || tr.checkOutTime).then(matched => {
+                setTripSessions(curr => curr.map(c => c.id === tr.id ? {
+                  ...c,
+                  totalKm: matched.totalKm,
+                  verifiedDistanceMeters: matched.verifiedDistanceMeters,
+                  roadMatchedDistanceMeters: matched.roadMatchedDistanceMeters,
+                  unverifiedDistanceMeters: matched.unverifiedDistanceMeters,
+                  gpsDataQuality: matched.gpsDataQuality,
+                  missingIntervalsCount: matched.missingIntervalsCount,
+                  missingDurationSeconds: matched.missingDurationSeconds,
+                  segments: matched.segments,
+                } : c));
+              }).catch(() => { });
+            }
+          }
+        });
+      };
+
+      trackingApiService.getTrips().then(dbTrips => {
+        const settingsTrips = Array.isArray(settings.trip_sessions_data) ? settings.trip_sessions_data : [];
+        if (dbTrips && dbTrips.length > 0) {
+          // Combine DB trips and any legacy company_settings trips not yet in DB
+          const combined = [...dbTrips];
+          settingsTrips.forEach((st: FieldTripSession) => {
+            if (!combined.some(d => d.id === st.id || d.assignmentId === st.assignmentId)) {
+              combined.push(st);
+            }
+          });
+          applyNormalizedTrips(combined);
+        } else if (settingsTrips.length > 0) {
+          applyNormalizedTrips(settingsTrips);
+        }
+      }).catch(() => {
+        if (Array.isArray(settings.trip_sessions_data)) {
+          applyNormalizedTrips(settings.trip_sessions_data);
+        }
+      });
+
+      if (Array.isArray(settings.tracking_alerts_data)) {
+        setTrackingAlerts(settings.tracking_alerts_data);
+      }
+
+      // Payroll Settings Config (Salary Components, PF, ESIC, Tax, etc.)
+      if (hasSetting('payroll_settings_config') && settings.payroll_settings_config && typeof settings.payroll_settings_config === 'object') {
+        setPayrollSettingsConfig(settings.payroll_settings_config);
+      }
+
+      // Master Attendance Policies
+      const dbLatePolicies = Array.isArray(settings.master_attendance_policies_data) && settings.master_attendance_policies_data.length > 0
+        ? settings.master_attendance_policies_data
+        : (Array.isArray(settings.master_attendance_policies) && settings.master_attendance_policies.length > 0 ? settings.master_attendance_policies : null);
+      if (dbLatePolicies) {
+        setMasterAttendancePolicies(dbLatePolicies);
+        try {
+          localStorage.setItem('vrm_hrms_master_attendance_policies_persistent', JSON.stringify(dbLatePolicies));
+        } catch { }
+      }
+
+      // Master Leave Policies
+      if (hasSetting('master_leave_policies_data') && Array.isArray(settings.master_leave_policies_data)) {
+        const timeSinceLocalUpdate = Date.now() - lastLocalLeavePolicyUpdate.current;
+        if (timeSinceLocalUpdate > 4000) {
+          setMasterLeavePolicies(settings.master_leave_policies_data);
+          try {
+            localStorage.setItem('vrm_hrms_master_leave_policies_persistent', JSON.stringify(settings.master_leave_policies_data));
+          } catch { }
+        }
+      }
+
+      // Sandwich Leave Policies
+      if (hasSetting('sandwich_policies_data') && Array.isArray(settings.sandwich_policies_data) && settings.sandwich_policies_data.length > 0) {
+        setSandwichPolicies(settings.sandwich_policies_data);
+        try {
+          localStorage.setItem('vrm_hrms_sandwich_policies_persistent', JSON.stringify(settings.sandwich_policies_data));
+        } catch { }
+      }
+
+      // Department OT Policies
+      if (hasSetting('department_ot_policies_data') && Array.isArray(settings.department_ot_policies_data)) {
+        const normalizedDepts = settings.department_ot_policies_data.map(normalizeDepartmentOtPolicy);
+        setDepartmentOtPolicies(normalizedDepts);
+        try {
+          localStorage.setItem('vrm_hrms_department_ot_policies_persistent', JSON.stringify(normalizedDepts));
+        } catch { }
+      }
+
+      // Employee OT Policies
+      if (hasSetting('employee_ot_policies_data') && Array.isArray(settings.employee_ot_policies_data)) {
+        const validEmpOt = settings.employee_ot_policies_data.filter((p: any) => !isOwnerOrCEO(p));
+        setEmployeeOtPolicies(validEmpOt);
+        try {
+          localStorage.setItem('vrm_hrms_employee_ot_policies_persistent', JSON.stringify(validEmpOt));
+        } catch { }
+      }
+
+      // Designations
+      if (hasSetting('designations_data') && Array.isArray(settings.designations_data)) {
+        const seenDesig = new Set<string>();
+        const dedupedDesigs: any[] = [];
+        for (const d of settings.designations_data) {
+          const key = (d?.title || '').trim().toLowerCase();
+          if (key && !seenDesig.has(key)) {
+            seenDesig.add(key);
+            dedupedDesigs.push(d);
+          }
+        }
+        setDesignations(dedupedDesigs);
+      }
+
+      // Departments
+      if (hasSetting('departments_data') && Array.isArray(settings.departments_data)) {
+        const seenDept = new Set<string>();
+        const dedupedDepts: any[] = [];
+        for (const d of settings.departments_data) {
+          const key = (d?.name || '').trim().toLowerCase();
+          if (key && key !== 'general' && !seenDept.has(key)) {
+            seenDept.add(key);
+            const liveMatch = Array.isArray(cloudDepts) ? cloudDepts.find((cd: any) => cd.name?.toLowerCase() === key) : null;
+            dedupedDepts.push({
+              ...d,
+              id: liveMatch?.id || d.id
+            });
+          }
+        }
+        setDepartments(dedupedDepts);
+      }
+
+      // Rewards & Recognition
+      if (Array.isArray(settings.reward_policies_data)) {
+        setRewardPolicies(settings.reward_policies_data);
+      }
+      if (Array.isArray(settings.employee_rewards_data)) {
+        setEmployeeRewardRecords(settings.employee_rewards_data);
+      }
+
+      // Enterprise System Config
+      if (hasSetting('grades_data') && Array.isArray(settings.grades_data)) setGrades(settings.grades_data);
+      if (hasSetting('employment_types_data') && Array.isArray(settings.employment_types_data)) setEmploymentTypes(settings.employment_types_data);
+      if (hasSetting('employee_categories_data') && Array.isArray(settings.employee_categories_data)) setEmployeeCategories(settings.employee_categories_data);
+      if (hasSetting('employee_config_data') && settings.employee_config_data) setEmployeeConfig(settings.employee_config_data);
+      if (hasSetting('general_system_config_data') && settings.general_system_config_data) setGeneralSystemConfig(settings.general_system_config_data);
+      if (hasSetting('integrations_config_data') && settings.integrations_config_data) setIntegrationsConfig(settings.integrations_config_data);
+    }
+  } catch (err) {
+    console.warn('[HRMSContext] syncAllModulesFromDatabase notice:', err);
+  } finally {
+    setTimeout(() => {
+      isSyncingFromCloud.current = false;
+      isCloudInitialized.current = true;
+      if (pendingCloudSyncRef.current) {
+        pendingCloudSyncRef.current = false;
+        void syncAllModulesFromDatabase(false);
+      }
+    }, 150);
+    isCloudInitialized.current = true;
+  }
+};
+
+useEffect(() => {
+  let isCancelled = false;
+  let lastFocusSyncAt = Date.now();
+  syncAllModulesFromDatabase(true);
+
+  // Live Supabase auto-sync poll (every 30 seconds) across all devices
+  const syncInterval = setInterval(() => {
+    if (!isCancelled) {
+      syncAllModulesFromDatabase(false);
+    }
+  }, 30000);
+
+  // Throttled sync on window focus (prevents UI lag after closing mobile camera/GPS dialogs)
+  const onFocusWindow = () => {
+    if (!isCancelled && Date.now() - lastFocusSyncAt > 45000) {
+      lastFocusSyncAt = Date.now();
+      syncAllModulesFromDatabase(false);
+    }
+  };
+  window.addEventListener('focus', onFocusWindow);
+
+  return () => {
+    isCancelled = true;
+    clearInterval(syncInterval);
+    window.removeEventListener('focus', onFocusWindow);
+  };
+}, []);
+
+const refreshEmployees = async () => {
+  await syncAllModulesFromDatabase(false);
+};
+
+const refreshSettings = async () => {
+  await syncAllModulesFromDatabase(false);
+};
+
+const refreshTasks = async () => {
+  await syncAllModulesFromDatabase(false);
+};
+
+const syncAllWithCloud = async () => {
+  await syncAllModulesFromDatabase(false);
+};
+
+const activeCompanyId = currentUser.company_id || currentUser.companyId || 'company-a';
+
+const visibleEmployees = useMemo(() => {
+  return employees.filter(emp => {
+    const empCId = emp.company_id || emp.companyId;
+    if (activeCompanyId === 'company-b') {
+      return empCId === 'company-b' || emp.email?.toLowerCase().includes('nexus') || emp.employeeId?.startsWith('EMP-B');
+    }
+    return empCId === 'company-a' || (!empCId && !emp.email?.toLowerCase().includes('nexus') && !emp.employeeId?.startsWith('EMP-B'));
+  });
+}, [employees, activeCompanyId]);
+
+const visiblePayrollRecords = useMemo(() => {
+  const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
+  return payrollRecords
+    .filter(rec => {
+      const recCId = rec.company_id || rec.companyId;
+      if (activeCompanyId === 'company-b') {
+        return recCId === 'company-b';
+      }
+      return recCId === 'company-a' || !recCId;
+    })
+    .map(rec => {
+      const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
+      const recMonthNum = resolveMonthNumber(rec.month);
+      const recYearNum = Number(rec.year) || 2026;
+
+      // Preserve Paid and Locked payroll records without modifying their financial amounts
+      if (rec.status === 'Paid' || rec.isLocked) {
+        if (rec.calendarDays !== undefined && rec.paidWeekOffDays !== undefined) {
+          return rec;
+        }
+        const calInfo = calculateCalendarDayPayrollAttendance({
+          month: recMonthNum,
+          year: recYearNum,
+          joiningDate: emp?.joiningDate || emp?.dateOfJoining,
+          exitDate: emp?.exitDate || emp?.relievingDate || emp?.lastWorkingDate || emp?.terminationDate,
+          weeklyOff: emp?.shiftDetails?.weeklyOff,
+          weeklySchedules,
+          employeeId: rec.employeeId,
+          department: emp?.department || rec.department,
+          holidays: holidayPolicies,
+          attendanceRecords,
+          leaveRequests,
+          sandwichPolicies,
+          explicitLopDays: rec.lopDays ?? rec.unpaidLeaves,
+          explicitPaidLeaveDays: rec.paidLeaveDays ?? rec.paidLeaves,
+        });
+        return {
+          ...rec,
+          calendarDays: rec.calendarDays ?? calInfo.calendarDays,
+          calendarDaysInMonth: rec.calendarDaysInMonth ?? calInfo.calendarDays,
+          eligibleDays: rec.eligibleDays ?? calInfo.eligibleDays,
+          scheduledWorkingDays: rec.scheduledWorkingDays ?? calInfo.scheduledWorkingDays,
+          paidWeekOffDays: rec.paidWeekOffDays ?? calInfo.paidWeekOffDays,
+          paidHolidayDays: rec.paidHolidayDays ?? calInfo.paidHolidayDays,
+          overlappingHolidayDays: rec.overlappingHolidayDays ?? calInfo.overlappingHolidayDays,
+          paidLeaveDays: rec.paidLeaveDays ?? calInfo.paidLeaveDays,
+          lopDays: rec.lopDays ?? calInfo.lopDays,
+          paidDays: rec.paidDays ?? calInfo.paidDays,
+          totalPaidDays: rec.totalPaidDays ?? (rec.paidDays ?? calInfo.totalPaidDays),
+        };
+      }
+
+      // For all non-Paid, non-Locked records, dynamically recalculate from live attendance,
+      // leaves, holidays, weekly schedules, and salary policies so current/elapsed month
+      // attendance is always reflected accurately for every employee.
+      if (!emp) {
+        return rec;
+      }
+
+      const isEmpProvisional =
+        (emp.employmentType as string) === 'Provisional' ||
+        (emp.employmentType as string) === 'Probation' ||
+        (emp as any).status === 'Probation';
+      const empLeavePolicy =
+        masterLeavePolicies.find(p => {
+          if (p.status !== 'Active') return false;
+          if (isEmpProvisional) {
+            return (
+              p.applicableEmploymentType === 'Provisional' ||
+              p.id === 'LP-MASTER-PROVISIONAL' ||
+              p.policyName.toLowerCase().includes('provisional') ||
+              p.policyName.toLowerCase().includes('probation')
+            );
+          }
+          return (
+            p.applicableEmploymentType === 'Confirmed' ||
+            p.id === 'LP-MASTER-CONFIRMED' ||
+            (!p.policyName.toLowerCase().includes('provisional') &&
+              !p.policyName.toLowerCase().includes('probation'))
+          );
+        }) || masterLeavePolicies.find(p => p.status === 'Active');
+
+      const resolvedAttPolicy =
+        resolveEffectiveLatePolicy(emp, masterAttendancePolicies).policy || activeAttPolicy;
+
+      const calc = calculateEmployeePayroll(
+        emp,
+        attendanceRecords,
+        leaveRequests,
+        loanRecords,
+        employeeRewardRecords,
+        resolvedAttPolicy,
+        empLeavePolicy,
+        payrollSettingsConfig,
+        rec.month || 'November',
+        recYearNum,
+        shifts,
+        {
+          overtimeRequests,
+          departmentOtPolicies,
+          employeeOtPolicies,
+          overtimePolicy,
+          holidays: holidayPolicies,
+          weeklySchedules,
+          sandwichPolicies,
+          includePaidRequests: true,
+        }
+      );
+
+      return {
+        ...rec,
+        basicSalary: calc.basicSalary,
+        allowances: calc.allowances,
+        da: calc.da,
+        conveyance: calc.conveyance,
+        hra: calc.hra,
+        withPf: calc.withPf,
+        bonus: calc.bonus,
+        attendanceBonus: calc.attendanceBonus || 0,
+        rewardEarnings: calc.rewardEarnings,
+        overtimeHours: calc.overtimeHours,
+        overtimeAmount: calc.overtimeAmount,
+        overtimeRate: calc.overtimeRate,
+        calendarDays: calc.calendarDays,
+        calendarDaysInMonth: calc.calendarDaysInMonth,
+        eligibleDays: calc.eligibleDays,
+        salaryDivisorUsed: calc.salaryDivisorUsed,
+        salaryDivisorMode: calc.salaryDivisorMode,
+        grossSalary: calc.grossSalary,
+        taxDeduction: calc.statutoryDeductions,
+        leaveDeduction: calc.unpaidLeaveDeduction,
+        advanceDeduction: calc.advanceDeduction,
+        lateAttendanceDeduction: calc.lateAttendanceDeduction,
+        epfDeduction: calc.epfDeduction,
+        esiDeduction: calc.esiDeduction,
+        professionalTax: calc.professionalTax,
+        workingDays: calc.workingDays,
+        scheduledWorkingDays: calc.scheduledWorkingDays,
+        presentDays: calc.presentDays,
+        paidWeekOffDays: calc.paidWeekOffDays,
+        paidHolidayDays: calc.paidHolidayDays,
+        overlappingHolidayDays: calc.overlappingHolidayDays,
+        paidLeaveDays: calc.paidLeaveDays,
+        lopDays: calc.lopDays,
+        paidDays: calc.paidDays,
+        totalPaidDays: calc.totalPaidDays,
+        pendingAttendanceDays: calc.pendingAttendanceDays,
+        paidLeaves: calc.paidLeaves,
+        unpaidLeaves: calc.unpaidLeaves,
+        totalDeductions: calc.totalDeductions,
+        earningsBreakdown: calc.earningsBreakdown,
+        deductionsBreakdown: calc.deductionsBreakdown,
+        netSalary: calc.netSalary,
+      };
+    });
+}, [
+  payrollRecords,
+  activeCompanyId,
+  employees,
+  attendanceRecords,
+  leaveRequests,
+  loanRecords,
+  employeeRewardRecords,
+  masterAttendancePolicies,
+  masterLeavePolicies,
+  payrollSettingsConfig,
+  shifts,
+  overtimeRequests,
+  departmentOtPolicies,
+  employeeOtPolicies,
+  overtimePolicy,
+  holidayPolicies,
+  weeklySchedules,
+  sandwichPolicies,
+]);
+
+// Bell feed: shared notifications addressed to this user + this session's local notifications
+const combinedNotifications = useMemo(() => {
+  const myKeys = getUserNotificationKeys();
+  const persistedRead = getPersistedReadNotifIds();
+  const shared = sharedNotifications
+    .filter(isSharedNotificationForMe)
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .map(n => ({
       ...n,
       title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
       message: (n.message || '').replace(/⚠️\s*/g, '').trim(),
-      read: Boolean(n.read || persistedRead.has(n.id))
+      read: persistedRead.has(n.id) || (n.readBy || []).some(k => myKeys.includes(String(k).toLowerCase())),
+      timestamp: formatNotificationTime(n.createdAt)
     }));
-    return [...shared, ...local];
-  }, [sharedNotifications, notifications, currentUser]);
+  const local = notifications.map(n => ({
+    ...n,
+    title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
+    message: (n.message || '').replace(/⚠️\s*/g, '').trim(),
+    read: Boolean(n.read || persistedRead.has(n.id))
+  }));
+  return [...shared, ...local];
+}, [sharedNotifications, notifications, currentUser]);
 
-  return (
-    <HRMSContext.Provider value={{
-      currentUser,
-      updateCurrentUser,
-      switchRole,
-      hasPermission,
-      permissionMatrix,
-      updatePermission,
-      activeCompanyId,
-      switchCompany,
-      employees: visibleEmployees,
-      allEmployees: employees,
-      addEmployee,
-      updateEmployee,
-      deleteEmployee,
-      deleteMultipleEmployees,
-      refreshEmployees,
-      refreshSettings,
-      syncAllWithCloud,
-      resetEmployeeLogin,
-      updateEmployeeLoginStatus,
-      changeEmployeePassword,
-      attendanceRecords,
-      markAttendance,
-      applyServerAttendanceRecord,
-      attendanceAuditLogs,
-      correctAttendanceRecord,
-      missedPunchRequests,
-      submitMissedPunchRequest,
-      approveMissedPunchRequest,
-      rejectMissedPunchRequest,
-      editAndApproveMissedPunchRequest,
-      overtimeRequests,
-      submitOtRequest,
-      approveOtRequest,
-      rejectOtRequest,
-      editAndApproveOtRequest,
-      deleteOtRequest,
-      addManualOtEntry,
-      identifyAttendanceOvertime,
-      addManualAttendanceRecord,
-      departmentOtPolicies,
-      updateDepartmentOtPolicy,
-      employeeOtPolicies,
-      updateEmployeeOtPolicy,
-      overtimePolicy,
-      updateOvertimePolicy,
-      attendancePolicyConfig,
-      updateAttendancePolicyConfig,
-      attendanceGlobalSettings,
-      updateAttendanceGlobalSettings,
-      recordEmployeePunch,
-      getEmployeeShiftAttendanceState,
-      faceLogs,
-      addFaceLog,
-      leaveRequests,
-      applyLeave,
-      approveLeave,
-      rejectLeave,
-      deleteLeaveRequest,
-      shifts,
-      shiftRequests,
-      addShift,
-      updateShift,
-      deleteShift,
-      bulkAssignShift,
-      requestShiftChange,
-      approveShiftRequest,
-      rejectShiftRequest,
-      tasks,
-      addTask,
-      updateTaskStatus,
-      deleteTask,
-      enhancedTasks,
-      refreshTasks,
-      createEnhancedTask,
-      updateEnhancedTask,
-      markTaskViewed,
-      markTaskDailyReportsSeen,
-      updateAssigneeProgress,
-      closeTask,
-      reopenTask,
-      addTaskDailyReport,
-      updateTaskProcessStatus,
-      addTaskComment,
-      addTaskAttachment,
-      addTaskLink,
-      deleteTaskLink,
-      convertMOMActionToTask,
-      syncMOMTask,
-      deleteEnhancedTask,
-      taskMasters,
-      addTaskMaster,
-      updateTaskMaster,
-      deleteTaskMaster,
-      momMeetings,
-      addMOMMeeting,
-      escalationRules,
-      updateEscalationRule,
-      taskWeights,
-      updateTaskWeights,
-      performanceScores,
-      jobOpenings,
-      candidates,
-      addJobOpening,
-      updateCandidateStage,
-      referCandidate,
-      reviewReferral,
-      expenses,
-      addExpense,
-      approveExpense,
-      deleteExpense,
-      notifications: combinedNotifications,
-      markNotificationRead,
-      markAllNotificationsRead,
-      markModuleNotificationsRead,
-      addNotification,
-      pushSharedNotification,
-      sendLeaveReminder,
-      payrollRecords: visiblePayrollRecords,
-      allPayrollRecords: payrollRecords,
-      processPayrollBatch,
-      recalculatePayrollBatch,
-      updateEmployeeSalaryScheme,
-      updatePayrollRecordAdvanceDeduction,
-      sendPayrollRecordsToAccounts,
-      markPayrollRecordsPaid,
-      departments,
-      addDepartment,
-      updateDepartment,
-      deleteDepartment,
-      designations,
-      addDesignation,
-      updateDesignation,
-      deleteDesignation,
-      canDeleteEmployee,
-      canDeleteDepartment,
-      canDeleteBranch,
-      canDeleteShift,
-      canDeleteDesignation,
-      branches,
-      addBranch,
-      updateBranch,
-      deleteBranch,
-      addDepartmentToBranch,
-      removeDepartmentFromBranch,
-      assets,
-      addAsset,
-      updateAsset,
-      assignAsset,
-      deleteAsset,
-      searchQuery,
-      setSearchQuery,
-      activeModule,
-      setActiveModule,
-      activeSettingsTab,
-      setActiveSettingsTab,
-      resetToDashboard,
-      workflowFormat,
-      setWorkflowFormat,
-      geofenceConfig,
-      updateGeofenceConfig,
-      isGeofenceAdmin,
-      leavePolicies,
-      addLeavePolicy,
-      updateLeavePolicy,
-      deleteLeavePolicy,
-      holidayPolicies,
-      addHolidayPolicy,
-      updateHolidayPolicy,
-      deleteHolidayPolicy,
-      attendancePolicies,
-      addAttendancePolicy,
-      updateAttendancePolicy,
-      deleteAttendancePolicy,
-      weeklySchedules,
-      addWeeklySchedule,
-      updateWeeklySchedule,
-      deleteWeeklySchedule,
-      attendanceConfig,
-      updateAttendanceConfig,
-      policyDocuments,
-      addPolicyDocument,
-      updatePolicyDocument,
-      deletePolicyDocument,
-      businessSettings,
-      updateBusinessSettings,
-      grades,
-      addGrade,
-      updateGrade,
-      deleteGrade,
-      employmentTypes,
-      addEmploymentType,
-      updateEmploymentType,
-      deleteEmploymentType,
-      employeeCategories,
-      addEmployeeCategory,
-      updateEmployeeCategory,
-      deleteEmployeeCategory,
-      employeeConfig,
-      updateEmployeeConfig,
-      approvalWorkflows,
-      addApprovalWorkflow,
-      updateApprovalWorkflow,
-      deleteApprovalWorkflow,
-      notificationTriggers,
-      updateNotificationTrigger,
-      generalSystemConfig,
-      updateGeneralSystemConfig,
-      integrationsConfig,
-      updateIntegrationsConfig,
+return (
+  <HRMSContext.Provider value={{
+    currentUser,
+    updateCurrentUser,
+    switchRole,
+    hasPermission,
+    permissionMatrix,
+    updatePermission,
+    activeCompanyId,
+    switchCompany,
+    employees: visibleEmployees,
+    allEmployees: employees,
+    addEmployee,
+    updateEmployee,
+    deleteEmployee,
+    deleteMultipleEmployees,
+    refreshEmployees,
+    refreshSettings,
+    syncAllWithCloud,
+    resetEmployeeLogin,
+    updateEmployeeLoginStatus,
+    changeEmployeePassword,
+    attendanceRecords,
+    markAttendance,
+    applyServerAttendanceRecord,
+    attendanceAuditLogs,
+    correctAttendanceRecord,
+    missedPunchRequests,
+    submitMissedPunchRequest,
+    approveMissedPunchRequest,
+    rejectMissedPunchRequest,
+    editAndApproveMissedPunchRequest,
+    overtimeRequests,
+    submitOtRequest,
+    approveOtRequest,
+    rejectOtRequest,
+    editAndApproveOtRequest,
+    deleteOtRequest,
+    addManualOtEntry,
+    identifyAttendanceOvertime,
+    addManualAttendanceRecord,
+    departmentOtPolicies,
+    updateDepartmentOtPolicy,
+    employeeOtPolicies,
+    updateEmployeeOtPolicy,
+    overtimePolicy,
+    updateOvertimePolicy,
+    attendancePolicyConfig,
+    updateAttendancePolicyConfig,
+    attendanceGlobalSettings,
+    updateAttendanceGlobalSettings,
+    recordEmployeePunch,
+    getEmployeeShiftAttendanceState,
+    faceLogs,
+    addFaceLog,
+    leaveRequests,
+    applyLeave,
+    approveLeave,
+    rejectLeave,
+    deleteLeaveRequest,
+    shifts,
+    shiftRequests,
+    addShift,
+    updateShift,
+    deleteShift,
+    bulkAssignShift,
+    requestShiftChange,
+    approveShiftRequest,
+    rejectShiftRequest,
+    tasks,
+    addTask,
+    updateTaskStatus,
+    deleteTask,
+    enhancedTasks,
+    refreshTasks,
+    createEnhancedTask,
+    updateEnhancedTask,
+    markTaskViewed,
+    markTaskDailyReportsSeen,
+    updateAssigneeProgress,
+    closeTask,
+    reopenTask,
+    addTaskDailyReport,
+    updateTaskProcessStatus,
+    addTaskComment,
+    addTaskAttachment,
+    addTaskLink,
+    deleteTaskLink,
+    convertMOMActionToTask,
+    syncMOMTask,
+    deleteEnhancedTask,
+    taskMasters,
+    addTaskMaster,
+    updateTaskMaster,
+    deleteTaskMaster,
+    momMeetings,
+    addMOMMeeting,
+    escalationRules,
+    updateEscalationRule,
+    taskWeights,
+    updateTaskWeights,
+    performanceScores,
+    jobOpenings,
+    candidates,
+    addJobOpening,
+    updateCandidateStage,
+    referCandidate,
+    reviewReferral,
+    expenses,
+    addExpense,
+    approveExpense,
+    deleteExpense,
+    notifications: combinedNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    markModuleNotificationsRead,
+    addNotification,
+    pushSharedNotification,
+    sendLeaveReminder,
+    payrollRecords: visiblePayrollRecords,
+    allPayrollRecords: payrollRecords,
+    processPayrollBatch,
+    recalculatePayrollBatch,
+    updateEmployeeSalaryScheme,
+    updatePayrollRecordAdvanceDeduction,
+    sendPayrollRecordsToAccounts,
+    markPayrollRecordsPaid,
+    departments,
+    addDepartment,
+    updateDepartment,
+    deleteDepartment,
+    designations,
+    addDesignation,
+    updateDesignation,
+    deleteDesignation,
+    canDeleteEmployee,
+    canDeleteDepartment,
+    canDeleteBranch,
+    canDeleteShift,
+    canDeleteDesignation,
+    branches,
+    addBranch,
+    updateBranch,
+    deleteBranch,
+    addDepartmentToBranch,
+    removeDepartmentFromBranch,
+    assets,
+    addAsset,
+    updateAsset,
+    assignAsset,
+    deleteAsset,
+    searchQuery,
+    setSearchQuery,
+    activeModule,
+    setActiveModule,
+    activeSettingsTab,
+    setActiveSettingsTab,
+    resetToDashboard,
+    workflowFormat,
+    setWorkflowFormat,
+    geofenceConfig,
+    updateGeofenceConfig,
+    isGeofenceAdmin,
+    leavePolicies,
+    addLeavePolicy,
+    updateLeavePolicy,
+    deleteLeavePolicy,
+    holidayPolicies,
+    addHolidayPolicy,
+    updateHolidayPolicy,
+    deleteHolidayPolicy,
+    attendancePolicies,
+    addAttendancePolicy,
+    updateAttendancePolicy,
+    deleteAttendancePolicy,
+    weeklySchedules,
+    addWeeklySchedule,
+    updateWeeklySchedule,
+    deleteWeeklySchedule,
+    attendanceConfig,
+    updateAttendanceConfig,
+    policyDocuments,
+    addPolicyDocument,
+    updatePolicyDocument,
+    deletePolicyDocument,
+    businessSettings,
+    updateBusinessSettings,
+    grades,
+    addGrade,
+    updateGrade,
+    deleteGrade,
+    employmentTypes,
+    addEmploymentType,
+    updateEmploymentType,
+    deleteEmploymentType,
+    employeeCategories,
+    addEmployeeCategory,
+    updateEmployeeCategory,
+    deleteEmployeeCategory,
+    employeeConfig,
+    updateEmployeeConfig,
+    approvalWorkflows,
+    addApprovalWorkflow,
+    updateApprovalWorkflow,
+    deleteApprovalWorkflow,
+    notificationTriggers,
+    updateNotificationTrigger,
+    generalSystemConfig,
+    updateGeneralSystemConfig,
+    integrationsConfig,
+    updateIntegrationsConfig,
 
-      // 5 New Settings Modules & Dynamic Policy Engine
-      companyInfo,
-      updateCompanyInfo,
-      companyBranches,
-      addCompanyBranch,
-      updateCompanyBranch,
-      deleteCompanyBranch,
-      orgStructure,
-      updateOrgStructure,
-      editDepartment,
-      removeOrgDepartment,
-      editDesignation,
-      removeOrgDesignation,
-      editEmploymentType,
-      removeOrgEmploymentType,
-      editWorkLocation,
-      removeOrgWorkLocation,
-      loadCompanyPreset,
-      masterAttendancePolicies,
-      addMasterAttendancePolicy,
-      updateMasterAttendancePolicy,
-      archiveMasterAttendancePolicy,
-      toggleMasterAttendancePolicyStatus,
-      deleteMasterAttendancePolicy,
-      attendanceCorrections,
-      submitAttendanceCorrection,
-      reviewAttendanceCorrection,
-      masterLeavePolicies,
-      addMasterLeavePolicy,
-      updateMasterLeavePolicy,
-      archiveMasterLeavePolicy,
-      toggleMasterLeavePolicyStatus,
-      deleteMasterLeavePolicy,
-      resetMasterLeavePoliciesToDefault,
-      sandwichPolicies,
-      sandwichAuditLogs,
-      createSandwichPolicy,
-      updateSandwichPolicy,
-      archiveSandwichPolicy,
-      toggleSandwichPolicyStatus,
-      deleteSandwichPolicy,
-      overrideSandwichCalculation,
-      computeSandwichCalculation,
-      addSandwichAuditLog,
-      payrollSettingsConfig,
-      updatePayrollSettingsConfig,
-      toggleSalaryComponent,
-      rewardPolicies,
-      addRewardPolicy,
-      updateRewardPolicy,
-      archiveRewardPolicy,
-      toggleRewardPolicyStatus,
-      employeeRewardRecords,
-      grantRewardToEmployee,
-      policyAuditLogs,
-      addPolicyAuditLog,
+    // 5 New Settings Modules & Dynamic Policy Engine
+    companyInfo,
+    updateCompanyInfo,
+    companyBranches,
+    addCompanyBranch,
+    updateCompanyBranch,
+    deleteCompanyBranch,
+    orgStructure,
+    updateOrgStructure,
+    editDepartment,
+    removeOrgDepartment,
+    editDesignation,
+    removeOrgDesignation,
+    editEmploymentType,
+    removeOrgEmploymentType,
+    editWorkLocation,
+    removeOrgWorkLocation,
+    loadCompanyPreset,
+    masterAttendancePolicies,
+    addMasterAttendancePolicy,
+    updateMasterAttendancePolicy,
+    archiveMasterAttendancePolicy,
+    toggleMasterAttendancePolicyStatus,
+    deleteMasterAttendancePolicy,
+    attendanceCorrections,
+    submitAttendanceCorrection,
+    reviewAttendanceCorrection,
+    masterLeavePolicies,
+    addMasterLeavePolicy,
+    updateMasterLeavePolicy,
+    archiveMasterLeavePolicy,
+    toggleMasterLeavePolicyStatus,
+    deleteMasterLeavePolicy,
+    resetMasterLeavePoliciesToDefault,
+    sandwichPolicies,
+    sandwichAuditLogs,
+    createSandwichPolicy,
+    updateSandwichPolicy,
+    archiveSandwichPolicy,
+    toggleSandwichPolicyStatus,
+    deleteSandwichPolicy,
+    overrideSandwichCalculation,
+    computeSandwichCalculation,
+    addSandwichAuditLog,
+    payrollSettingsConfig,
+    updatePayrollSettingsConfig,
+    toggleSalaryComponent,
+    rewardPolicies,
+    addRewardPolicy,
+    updateRewardPolicy,
+    archiveRewardPolicy,
+    toggleRewardPolicyStatus,
+    employeeRewardRecords,
+    grantRewardToEmployee,
+    policyAuditLogs,
+    addPolicyAuditLog,
 
-      // Advance Salary / Loan Management
-      loanPolicies,
-      activeLoanPolicy,
-      createLoanPolicy,
-      updateLoanPolicy,
-      deleteLoanPolicy,
-      loanRecords,
-      submitLoanRequest,
-      reviewLoanRequest,
-      disburseLoan,
-      recordManualRepayment,
-      calculateEmployeeLoanEligibility,
+    // Advance Salary / Loan Management
+    loanPolicies,
+    activeLoanPolicy,
+    createLoanPolicy,
+    updateLoanPolicy,
+    deleteLoanPolicy,
+    loanRecords,
+    submitLoanRequest,
+    reviewLoanRequest,
+    disburseLoan,
+    recordManualRepayment,
+    calculateEmployeeLoanEligibility,
 
-      // Field Duty & GPS Live Tracking
-      fieldAssignments,
-      tripSessions,
-      trackingAlerts,
-      createFieldAssignment,
-      updateFieldAssignment,
-      cancelFieldAssignment,
-      startTrip,
-      recordLocationPoint,
-      endTrip,
-      fieldCheckIn,
-      fieldCheckOut,
-      resolveTrackingAlert,
-      getTodayFieldAssignment
-    }}>
-      {children}
-    </HRMSContext.Provider>
-  );
+    // Field Duty & GPS Live Tracking
+    fieldAssignments,
+    tripSessions,
+    trackingAlerts,
+    createFieldAssignment,
+    updateFieldAssignment,
+    cancelFieldAssignment,
+    startTrip,
+    recordLocationPoint,
+    endTrip,
+    fieldCheckIn,
+    fieldCheckOut,
+    resolveTrackingAlert,
+    getTodayFieldAssignment
+  }}>
+    {children}
+  </HRMSContext.Provider>
+);
 };
 
 export const useHRMS = () => {
@@ -14437,4 +14443,3 @@ export const useHRMS = () => {
   }
   return context;
 };
-

@@ -43,7 +43,8 @@ import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../.
 import {
   parseTimeToMinutes,
   buildEmployeeMonthlyAttendanceOtReport,
-  calculateEnterpriseOvertimeRateAndAmount
+  calculateEnterpriseOvertimeRateAndAmount,
+  buildEmployeeMonthlyAttendanceCalendar
 } from '../../services/attendanceCalculationEngine';
 import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { formatCurrency } from '../../utils/numbers';
@@ -141,7 +142,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     employeeOtPolicies,
     payrollSettingsConfig,
     shifts,
-    holidayPolicies
+    holidayPolicies,
+    leaveRequests,
+    weeklySchedules
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -2185,143 +2188,88 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     return null;
   }, [myTodayAttendance, myTodayFaceLogs]);
 
-  // Elapsed Week Off (Sunday) & Company Holiday dates in the selected month (up to today)
-  const elapsedMonthHolidayDates = useMemo(() => {
-    const result: Array<{ dateStr: string; label: string }> = [];
-    if (!selectedMonth) return result;
-    const [year, month] = selectedMonth.split('-').map(Number);
-    if (!year || !month) return result;
-    const daysInMonth = new Date(year, month, 0).getDate();
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      if (dateStr > todayStr) continue;
-      const dateObj = new Date(year, month - 1, day, 12, 0, 0);
-      const isSunday = dateObj.getDay() === 0;
-      const matchedHoliday = (holidayPolicies || []).find(h => normalizeToYYYYMMDD(h.date) === dateStr);
-      if (isSunday || matchedHoliday) {
-        result.push({
-          dateStr,
-          label: matchedHoliday ? ((matchedHoliday as any).name || (matchedHoliday as any).holidayName || 'Holiday') : 'Week Off'
-        });
-      }
+  // Authoritative Month-to-Date / Monthly Calendar for current user (Shared calculation source)
+  const myMonthlyCalendar = useMemo(() => {
+    if (isCEO || isOwnerOrCEO(currentUserEmp)) {
+      return buildEmployeeMonthlyAttendanceCalendar({
+        month: selectedMonth,
+        todayStr,
+        employee: {},
+        attendanceRecords: [],
+        leaveRequests: [],
+        holidays: holidayPolicies,
+        weeklySchedules,
+      });
     }
-    return result;
-  }, [selectedMonth, todayStr, holidayPolicies]);
+    const empTarget = currentUserEmp || currentUser;
+    const empCode = currentUserEmp?.employeeId || currentUser.employeeId || currentUser.id || '';
+    const empUuid = currentUserEmp?.id || currentUser.id || '';
+    const empName = currentUserEmp
+      ? `${currentUserEmp.firstName} ${currentUserEmp.lastName}`.trim()
+      : currentUser.name || 'Employee';
 
-  // Current user's monthly attendance records (Consolidated & deduplicated per date, including Week Off / Holiday rows)
-  const myMonthlyRecords = useMemo(() => {
-    if (isCEO || isOwnerOrCEO(currentUserEmp)) return [];
-    const rawList = attendanceRecords
-      .filter(a => {
-        const d = normalizeToYYYYMMDD(a.date);
-        const sd = normalizeToYYYYMMDD(a.shiftDate);
-        const matchesMonth = (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
-        return matchesMonth && isLogForCurrentUser(a);
-      });
-
-    const byDate = new Map<string, any>();
-    rawList.forEach(rec => {
-      const dateKey = normalizeToYYYYMMDD(rec.date || rec.shiftDate);
-      if (!dateKey) return;
-
-      const existing = byDate.get(dateKey);
-      if (!existing) {
-        byDate.set(dateKey, { ...rec });
-        return;
-      }
-
-      // Consolidate duplicate punches for the same day
-      const existingHasIn = existing.checkIn && existing.checkIn !== '--:--' && existing.checkIn.trim() !== '';
-      const existingHasOut = existing.checkOut && existing.checkOut !== '--:--' && existing.checkOut.trim() !== '';
-      const recHasIn = rec.checkIn && rec.checkIn !== '--:--' && rec.checkIn.trim() !== '';
-      const recHasOut = rec.checkOut && rec.checkOut !== '--:--' && rec.checkOut.trim() !== '';
-
-      const existingHours = Number(existing.workingHours || 0);
-      const recHours = Number(rec.workingHours || 0);
-
-      const isRecManual = (rec.method as string) === 'Manual Override' || rec.method === 'Manual Punch' || Boolean(rec.reason);
-      const isExistingManual = (existing.method as string) === 'Manual Override' || existing.method === 'Manual Punch' || Boolean(existing.reason);
-
-      // Prefer HR manual override record, or record that has complete check-out / higher worked hours
-      const preferRec = (isRecManual && !isExistingManual) || (!isExistingManual && ((recHasOut && !existingHasOut) || (recHours > existingHours)));
-      const base = preferRec ? { ...rec } : { ...existing };
-
-      let finalCheckIn = base.checkIn;
-      if (existingHasIn && recHasIn) {
-        if (isRecManual && !isExistingManual) {
-          finalCheckIn = rec.checkIn;
-        } else if (isExistingManual && !isRecManual) {
-          finalCheckIn = existing.checkIn;
-        } else {
-          finalCheckIn = base.checkIn;
-        }
-      } else {
-        finalCheckIn = existingHasIn ? existing.checkIn : rec.checkIn;
-      }
-
-      let finalCheckOut = base.checkOut;
-      if (existingHasOut && recHasOut) {
-        if (isRecManual && !isExistingManual) {
-          finalCheckOut = rec.checkOut;
-        } else if (isExistingManual && !isRecManual) {
-          finalCheckOut = existing.checkOut;
-        } else {
-          finalCheckOut = base.checkOut;
-        }
-      } else {
-        finalCheckOut = existingHasOut ? existing.checkOut : rec.checkOut;
-      }
-
-      const finalHours = (isRecManual && !isExistingManual) ? recHours : (isExistingManual && !isRecManual) ? existingHours : Math.max(existingHours, recHours);
-
-      byDate.set(dateKey, {
-        ...base,
-        checkIn: finalCheckIn,
-        checkOut: finalCheckOut,
-        workingHours: finalHours > 0 ? finalHours : base.workingHours,
-        checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
-        checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto
-      });
+    return buildEmployeeMonthlyAttendanceCalendar({
+      month: selectedMonth,
+      todayStr,
+      employee: empTarget as any,
+      employeeId: empCode,
+      employeeUuid: empUuid,
+      employeeName: empName,
+      department: currentUserEmp?.department || currentUser.department || 'General',
+      joiningDate: currentUserEmp?.joiningDate || currentUserEmp?.dateOfJoining,
+      exitDate: currentUserEmp?.exitDate || currentUserEmp?.relievingDate,
+      weeklyOff: currentUserEmp?.shiftDetails?.weeklyOff,
+      weeklySchedules,
+      holidays: holidayPolicies,
+      employeeLocation: currentUserEmp?.workLocation || (currentUserEmp as any)?.branch,
+      attendanceRecords,
+      leaveRequests,
     });
+  }, [
+    isCEO,
+    currentUserEmp,
+    currentUser,
+    selectedMonth,
+    todayStr,
+    holidayPolicies,
+    weeklySchedules,
+    attendanceRecords,
+    leaveRequests,
+  ]);
 
-    const myJoiningDate = normalizeToYYYYMMDD(currentUserEmp?.joiningDate || currentUserEmp?.dateOfJoining);
-    elapsedMonthHolidayDates.forEach(({ dateStr, label }) => {
-      if (myJoiningDate && dateStr < myJoiningDate) return;
-      if (!byDate.has(dateStr)) {
-        const empCode = currentUserEmp?.employeeId || currentUser.employeeId || '';
-        byDate.set(dateStr, {
-          id: `HOL-${empCode || 'ME'}-${dateStr}`,
-          employeeId: empCode,
-          employeeName: currentUser.name || 'Employee',
-          department: currentUserEmp?.department || currentUser.department || 'General',
-          date: dateStr,
-          shiftDate: dateStr,
-          checkIn: null,
-          checkOut: null,
-          workingHours: 0,
-          status: 'Holiday',
-          method: label
-        });
-      }
-    });
-
-    return Array.from(byDate.values()).sort((a, b) => {
-      const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
-      const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
-      return String(db).localeCompare(String(da));
-    });
-  }, [attendanceRecords, selectedMonth, isLogForCurrentUser, elapsedMonthHolidayDates, currentUserEmp, currentUser]);
+  const myMonthlyRecords = myMonthlyCalendar.rows;
 
   const resolveEffectiveRecordStatus = (rec: any): string => {
-    const rawStatus = String(rec?.status || 'Present').trim();
+    const rawStatus = String(rec?.effectiveStatus || rec?.status || 'Present').trim();
     const statusNorm = rawStatus.toLowerCase();
     if (statusNorm === 'holiday' || statusNorm === 'week off' || statusNorm === 'weekoff' || statusNorm === 'wo') {
       return 'Holiday';
     }
+    if (statusNorm === 'paid leave') {
+      return 'Paid Leave';
+    }
+    if (statusNorm === 'unpaid leave') {
+      return 'Unpaid Leave';
+    }
+    if (statusNorm === 'pending leave') {
+      return 'Pending Leave';
+    }
+    if (statusNorm === 'on leave' || statusNorm === 'leave') {
+      const lt = String(rec?.leaveType || rec?.reason || '').toLowerCase();
+      if (lt.includes('unpaid') || lt.includes('lop') || lt.includes('loss of pay')) {
+        return 'Unpaid Leave';
+      }
+      return 'Paid Leave';
+    }
     if (statusNorm === 'half day' || statusNorm === 'half-day' || statusNorm === 'hd') {
       return 'Half Day';
     }
-    const hasOut = Boolean(rec?.checkOut && rec.checkOut !== '--:--' && String(rec.checkOut).trim() !== '');
+    const hasOut = Boolean(
+      rec?.checkOut &&
+      rec.checkOut !== '--:--' &&
+      String(rec.checkOut).trim() !== '' &&
+      !String(rec.checkOut).toLowerCase().includes('progress')
+    );
     const hrs = Number(rec?.workingHours || 0);
     if (hasOut && hrs > 0 && hrs < 9 * 0.7 && (statusNorm === 'present' || statusNorm === 'late')) {
       return 'Half Day';
@@ -2416,77 +2364,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     };
   }, [myMonthlyRecords, employees, currentUserEmp, currentUser, overtimeRequests, selectedMonth, payrollSettingsConfig, overtimePolicy, departmentOtPolicies, employeeOtPolicies]);
 
-  // All Staff Monthly records (Consolidated & deduplicated per employee per date)
+  // All Staff Monthly records (Consolidated & deduplicated per employee per date using shared calendar engine)
   const allStaffMonthlyRecords = useMemo(() => {
-    const rawList = attendanceRecords
-      .filter(a => {
-        if (isOwnerOrCEO(a)) return false;
-        const empMatch = employees.find(
-          e =>
-            String(e.employeeId || '').toLowerCase() === String(a.employeeId || '').toLowerCase() ||
-            String(e.id || '').toLowerCase() === String(a.employeeId || '').toLowerCase()
-        );
-        if (empMatch && isOwnerOrCEO(empMatch)) return false;
-        const d = normalizeToYYYYMMDD(a.date);
-        const sd = normalizeToYYYYMMDD(a.shiftDate);
-        return (d && d.startsWith(selectedMonth)) || (sd && sd.startsWith(selectedMonth));
-      });
-
-    const byEmpDate = new Map<string, any>();
-    rawList.forEach(rec => {
-      const dateKey = normalizeToYYYYMMDD(rec.date || rec.shiftDate);
-      const empMatch = employees.find(
-        e =>
-          String(e.employeeId || '').toLowerCase() === String(rec.employeeId || '').toLowerCase() ||
-          String(e.id || '').toLowerCase() === String(rec.employeeId || '').toLowerCase()
-      );
-      const canonicalEmpId = empMatch?.employeeId || rec.employeeId || '';
-      const empName = empMatch ? `${empMatch.firstName} ${empMatch.lastName}`.trim() : (rec.employeeName || 'Employee');
-      const empDept = empMatch?.department || rec.department || 'General';
-      const empKey = String(canonicalEmpId || empName).toLowerCase();
-      if (!dateKey || !empKey) return;
-      const uniqueKey = `${empKey}_${dateKey}`;
-
-      const enrichedRec = {
-        ...rec,
-        employeeId: canonicalEmpId || rec.employeeId,
-        employeeName: empName,
-        department: empDept,
-        designation: empMatch?.designation || '',
-        avatar: empMatch?.avatar || ''
-      };
-
-      const existing = byEmpDate.get(uniqueKey);
-      if (!existing) {
-        byEmpDate.set(uniqueKey, enrichedRec);
-        return;
-      }
-
-      const existingHasIn = existing.checkIn && existing.checkIn !== '--:--' && existing.checkIn.trim() !== '';
-      const recHasIn = enrichedRec.checkIn && enrichedRec.checkIn !== '--:--' && enrichedRec.checkIn.trim() !== '';
-      const existingHasOut = existing.checkOut && existing.checkOut !== '--:--' && existing.checkOut.trim() !== '';
-      const recHasOut = enrichedRec.checkOut && enrichedRec.checkOut !== '--:--' && enrichedRec.checkOut.trim() !== '';
-      const existingHours = Number(existing.workingHours || 0);
-      const recHours = Number(enrichedRec.workingHours || 0);
-
-      const isRecManual = (enrichedRec.method as string) === 'Manual Override' || enrichedRec.method === 'Manual Punch' || Boolean(enrichedRec.reason);
-      const isExistingManual = (existing.method as string) === 'Manual Override' || existing.method === 'Manual Punch' || Boolean(existing.reason);
-
-      const preferRec = (isRecManual && !isExistingManual) || (!isExistingManual && ((recHasOut && !existingHasOut) || (recHours > existingHours)));
-      const base = preferRec ? { ...enrichedRec } : { ...existing };
-      const finalHours = (isRecManual && !isExistingManual) ? recHours : (isExistingManual && !isRecManual) ? existingHours : Math.max(existingHours, recHours);
-
-      byEmpDate.set(uniqueKey, {
-        ...base,
-        checkIn: (existingHasIn && recHasIn) ? (preferRec ? enrichedRec.checkIn : existing.checkIn) : (existingHasIn ? existing.checkIn : enrichedRec.checkIn),
-        checkOut: (existingHasOut && recHasOut) ? (preferRec ? enrichedRec.checkOut : existing.checkOut) : (existingHasOut ? existing.checkOut : enrichedRec.checkOut),
-        workingHours: finalHours > 0 ? finalHours : base.workingHours,
-        checkInPhoto: existing.checkInPhoto || enrichedRec.checkInPhoto,
-        checkOutPhoto: enrichedRec.checkOutPhoto || existing.checkOutPhoto
-      });
-    });
-
-    // Also include Week Off / Company Holiday rows for active employees on elapsed dates in the month
     const activeEmps = employees.filter(e => {
       if (isOwnerOrCEO(e) || isAttendanceExemptEmployee(e)) return false;
       const st = String(e.status || '').toLowerCase().trim();
@@ -2498,44 +2377,39 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       return true;
     });
 
+    const combinedRows: any[] = [];
     activeEmps.forEach(emp => {
-      const canonicalEmpId = emp.employeeId || emp.id || '';
+      const empCode = emp.employeeId || emp.id || '';
+      const empUuid = emp.id || '';
       const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee';
-      const empKey = String(canonicalEmpId || empName).toLowerCase();
-      if (!empKey) return;
-      const joinDate = normalizeToYYYYMMDD(emp.joiningDate || emp.dateOfJoining);
-
-      elapsedMonthHolidayDates.forEach(({ dateStr, label }) => {
-        if (joinDate && dateStr < joinDate) return;
-        const uniqueKey = `${empKey}_${dateStr}`;
-        if (!byEmpDate.has(uniqueKey)) {
-          byEmpDate.set(uniqueKey, {
-            id: `HOL-${canonicalEmpId}-${dateStr}`,
-            employeeId: canonicalEmpId,
-            employeeName: empName,
-            department: emp.department || 'General',
-            designation: emp.designation || '',
-            avatar: emp.avatar || '',
-            date: dateStr,
-            shiftDate: dateStr,
-            checkIn: null,
-            checkOut: null,
-            workingHours: 0,
-            status: 'Holiday',
-            method: label
-          });
-        }
+      const cal = buildEmployeeMonthlyAttendanceCalendar({
+        month: selectedMonth,
+        todayStr,
+        employee: emp,
+        employeeId: empCode,
+        employeeUuid: empUuid,
+        employeeName: empName,
+        department: emp.department || 'General',
+        joiningDate: emp.joiningDate || emp.dateOfJoining,
+        exitDate: emp.exitDate || emp.relievingDate,
+        weeklyOff: emp.shiftDetails?.weeklyOff,
+        weeklySchedules,
+        holidays: holidayPolicies,
+        employeeLocation: emp.workLocation || (emp as any).branch,
+        attendanceRecords,
+        leaveRequests,
       });
+      combinedRows.push(...cal.rows);
     });
 
-    return Array.from(byEmpDate.values()).sort((a, b) => {
+    return combinedRows.sort((a, b) => {
       const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
       const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
       const cmp = String(db).localeCompare(String(da));
       if (cmp !== 0) return cmp;
       return String(a.employeeName || '').localeCompare(String(b.employeeName || ''));
     });
-  }, [attendanceRecords, selectedMonth, employees, elapsedMonthHolidayDates]);
+  }, [attendanceRecords, leaveRequests, selectedMonth, todayStr, employees, holidayPolicies, weeklySchedules]);
 
   const availableDepartments = useMemo(() => {
     const depts = new Set<string>();
@@ -2583,26 +2457,84 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const totalScopeEmployees = availableFilterEmployees.length;
 
   const activeSummaryStats = useMemo(() => {
-    let presentCount = 0;
+    // When viewing an individual employee ("My Attendance" or single filtered employee), use the authoritative shared calendar summary directly
+    if (!showAllEmployeesView) {
+      return {
+        totalRecords: myMonthlyCalendar.calendarDaysElapsed,
+        calendarDaysElapsed: myMonthlyCalendar.calendarDaysElapsed,
+        scheduledWorkingDays: myMonthlyCalendar.scheduledWorkingDays,
+        fullPresentDays: myMonthlyCalendar.fullPresentDays,
+        presentCount: myMonthlyCalendar.fullPresentDays,
+        workedDays: myMonthlyCalendar.workedDays,
+        lateCount: myMonthlyCalendar.lateDays,
+        halfDayCount: myMonthlyCalendar.halfDays,
+        paidLeaveCount: myMonthlyCalendar.paidLeaveDays,
+        holidaysCount: myMonthlyCalendar.holidaysCount,
+        paidDays: myMonthlyCalendar.paidDays,
+        confirmedPaidDays: myMonthlyCalendar.confirmedPaidDays,
+        provisionalInProgressDays: myMonthlyCalendar.provisionalInProgressDays,
+      };
+    }
+
+    let fullPresentDays = 0;
     let lateCount = 0;
     let halfDayCount = 0;
+    let paidLeaveCount = 0;
+    let holidaysCount = 0;
+    let scheduledWorkingDays = 0;
+    let workedDays = 0;
+    let paidDays = 0;
+    let provisionalInProgressDays = 0;
+
     activeLogRecords.forEach(r => {
       const effStatus = resolveEffectiveRecordStatus(r);
-      if (effStatus === 'Half Day') {
-        halfDayCount++;
-      } else if (effStatus === 'Late') {
-        lateCount++;
-      } else if (effStatus === 'Present') {
-        presentCount++;
+      if (effStatus === 'Holiday') {
+        holidaysCount += 1;
+        paidDays += 1;
+      } else {
+        scheduledWorkingDays += 1;
+        if (effStatus === 'Half Day') {
+          halfDayCount += 1;
+          workedDays += 0.5;
+          paidDays += Number(r.paidDayEquivalent ?? 0.5);
+        } else if (effStatus === 'Paid Leave') {
+          paidLeaveCount += 1;
+          paidDays += 1;
+        } else if (effStatus === 'Late') {
+          fullPresentDays += 1;
+          lateCount += 1;
+          workedDays += 1;
+          paidDays += 1;
+        } else if (effStatus === 'Present') {
+          fullPresentDays += 1;
+          workedDays += 1;
+          paidDays += 1;
+        }
+        if (r.isInProgress) {
+          provisionalInProgressDays += 1;
+        }
       }
     });
+
+    workedDays = Math.round(workedDays * 100) / 100;
+    paidDays = Math.round(paidDays * 100) / 100;
+
     return {
       totalRecords: activeLogRecords.length,
-      presentCount,
+      calendarDaysElapsed: activeLogRecords.length,
+      scheduledWorkingDays,
+      fullPresentDays,
+      presentCount: fullPresentDays,
+      workedDays,
       lateCount,
-      halfDayCount
+      halfDayCount,
+      paidLeaveCount,
+      holidaysCount,
+      paidDays,
+      confirmedPaidDays: Math.max(0, Math.round((paidDays - provisionalInProgressDays) * 100) / 100),
+      provisionalInProgressDays,
     };
-  }, [activeLogRecords]);
+  }, [showAllEmployeesView, myMonthlyCalendar, activeLogRecords]);
 
   const draftFilterEmployees = useMemo(() => {
     return employees
@@ -2623,6 +2555,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     if (statusStr === 'Present') return '#16a34a';
     if (statusStr === 'Late') return '#d97706';
     if (statusStr === 'Half Day') return '#d97706';
+    if (statusStr === 'Paid Leave') return '#7c3aed';
+    if (statusStr === 'Unpaid Leave' || statusStr === 'Pending Leave') return '#d97706';
     if (statusStr === 'Holiday') return '#2563eb';
     return '#dc2626';
   };
@@ -3365,87 +3299,170 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         )}
       </div>
 
-      {/* Unified Summary Section (1 Horizontal Row on Desktop, 2x2 Grid on Mobile) */}
+      {/* Unified Summary Section (6 Unambiguous Metrics on Desktop, 2x3 Grid on Mobile) */}
       <div
         data-testid="attendance-log-summary"
         style={{
           display: 'grid',
-          gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+          gridTemplateColumns: isMobileViewport ? 'repeat(2, 1fr)' : 'repeat(6, 1fr)',
           backgroundColor: '#ffffff',
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           overflow: 'hidden'
         }}
       >
+        {/* 1. Scheduled Working Days & Calendar Days */}
         <div
           style={{
-            padding: isMobileViewport ? '12px 14px' : '14px 20px',
+            padding: isMobileViewport ? '12px 14px' : '14px 16px',
             borderRight: '1px solid #f1f5f9',
             borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px'
-          }}
-        >
-          {!isMobileViewport && <Users size={18} color="#64748b" />}
-          <div>
-            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Total Records</div>
-            <div data-testid="summary-total-records" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-              {activeSummaryStats.totalRecords}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: isMobileViewport ? '12px 14px' : '14px 20px',
-            borderRight: isMobileViewport ? 'none' : '1px solid #f1f5f9',
-            borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}
-        >
-          {!isMobileViewport && <CheckCircle2 size={18} color="#64748b" />}
-          <div>
-            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Present</div>
-            <div data-testid="summary-present" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-              {activeSummaryStats.presentCount}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: isMobileViewport ? '12px 14px' : '14px 20px',
-            borderRight: '1px solid #f1f5f9',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}
-        >
-          {!isMobileViewport && <Clock size={18} color="#64748b" />}
-          <div>
-            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Late</div>
-            <div data-testid="summary-late" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-              {activeSummaryStats.lateCount}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: isMobileViewport ? '12px 14px' : '14px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
+            gap: '10px'
           }}
         >
           {!isMobileViewport && <Calendar size={18} color="#64748b" />}
           <div>
-            <div style={{ fontSize: '0.74rem', fontWeight: 500, color: '#64748b' }}>Half Day</div>
-            <div data-testid="summary-halfday" style={{ fontSize: isMobileViewport ? '1.15rem' : '1.35rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-              {activeSummaryStats.halfDayCount}
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Scheduled Working Days</div>
+            <div
+              data-testid="summary-scheduled-working-days"
+              style={{ fontSize: isMobileViewport ? '1.15rem' : '1.3rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}
+            >
+              {activeSummaryStats.scheduledWorkingDays}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
+              Calendar Days: <strong data-testid="summary-total-records">{activeSummaryStats.calendarDaysElapsed}</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Full Present Days & Half Day */}
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 16px',
+            borderRight: isMobileViewport ? 'none' : '1px solid #f1f5f9',
+            borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {!isMobileViewport && <CheckCircle2 size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Full Present Days</div>
+            <div
+              data-testid="summary-present"
+              style={{ fontSize: isMobileViewport ? '1.15rem' : '1.3rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}
+            >
+              {activeSummaryStats.fullPresentDays}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
+              Half Day: <strong data-testid="summary-halfday">{activeSummaryStats.halfDayCount}</strong>
+              {activeSummaryStats.lateCount > 0 && (
+                <span> · Late: <strong data-testid="summary-late">{activeSummaryStats.lateCount}</strong></span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Worked Days (Worked-day equivalent) */}
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 16px',
+            borderRight: '1px solid #f1f5f9',
+            borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {!isMobileViewport && <Clock size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Worked Days</div>
+            <div
+              data-testid="summary-worked-days"
+              style={{ fontSize: isMobileViewport ? '1.15rem' : '1.3rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}
+            >
+              {activeSummaryStats.workedDays} <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#64748b' }}>/ {activeSummaryStats.scheduledWorkingDays}</span>
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
+              {activeSummaryStats.fullPresentDays} Full + {activeSummaryStats.halfDayCount * 0.5} Half
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Paid Leave */}
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 16px',
+            borderRight: isMobileViewport ? 'none' : '1px solid #f1f5f9',
+            borderBottom: isMobileViewport ? '1px solid #f1f5f9' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {!isMobileViewport && <Calendar size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Paid Leave</div>
+            <div
+              data-testid="summary-paid-leave"
+              style={{ fontSize: isMobileViewport ? '1.15rem' : '1.3rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}
+            >
+              {activeSummaryStats.paidLeaveCount}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
+              Approved Leave
+            </div>
+          </div>
+        </div>
+
+        {/* 5. Holidays */}
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 16px',
+            borderRight: '1px solid #f1f5f9',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {!isMobileViewport && <Calendar size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Holidays</div>
+            <div
+              data-testid="summary-holidays"
+              style={{ fontSize: isMobileViewport ? '1.15rem' : '1.3rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}
+            >
+              {activeSummaryStats.holidaysCount}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
+              Week Off &amp; Holidays
+            </div>
+          </div>
+        </div>
+
+        {/* 6. Paid Days */}
+        <div
+          style={{
+            padding: isMobileViewport ? '12px 14px' : '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {!isMobileViewport && <Users size={18} color="#64748b" />}
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Paid Days</div>
+            <div
+              data-testid="summary-paid-days"
+              style={{ fontSize: isMobileViewport ? '1.15rem' : '1.3rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}
+            >
+              {activeSummaryStats.paidDays} <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#64748b' }}>/ {activeSummaryStats.calendarDaysElapsed}</span>
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
+              {activeSummaryStats.provisionalInProgressDays > 0 ? 'Provisional (In Progress)' : 'Eligible Paid Days'}
             </div>
           </div>
         </div>
@@ -3624,8 +3641,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               <option value="all">All Status</option>
               <option value="Present">Present</option>
               <option value="Half Day">Half Day</option>
+              <option value="Paid Leave">Paid Leave</option>
               <option value="Late">Late</option>
               <option value="Holiday">Holiday</option>
+              <option value="Absent">Absent</option>
             </select>
           </div>
         )
@@ -3763,8 +3782,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 <option value="all">All Status</option>
                 <option value="Present">Present</option>
                 <option value="Half Day">Half Day</option>
+                <option value="Paid Leave">Paid Leave</option>
                 <option value="Late">Late</option>
                 <option value="Holiday">Holiday</option>
+                <option value="Absent">Absent</option>
               </select>
             </div>
 

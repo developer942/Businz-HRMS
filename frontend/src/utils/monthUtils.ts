@@ -1,16 +1,21 @@
 /**
- * Current-month helpers (local time, not UTC) so dashboards/labels always follow
+ * Current-month helpers (Asia/Kolkata local time, not UTC) so dashboards/labels always follow
  * the real calendar month instead of a hard-coded month.
  */
+
+import {
+  getIstTodayDateStr,
+  isDateCompanyPaidHoliday,
+  isDateEmployeeWeeklyOff,
+} from '../services/attendanceCalculationEngine';
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** Local "YYYY-MM-DD" (avoids the UTC shift of toISOString()). */
-export const getLocalDateStr = (d: Date = new Date()): string =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** Local "YYYY-MM-DD" in Asia/Kolkata timezone (avoids the UTC shift of toISOString()). */
+export const getLocalDateStr = (d: Date = new Date()): string => getIstTodayDateStr(d);
 
 export interface MonthInfo {
   year: number;
@@ -35,35 +40,55 @@ export interface MonthInfo {
   /** "October 2026" */
   fullLabel: string;
   daysInMonth: number;
-  /** Working days in the whole month (Sundays = weekly off) */
+  /** Working days in the whole month (excluding weekly offs & company holidays) */
   workingDays: number;
-  /** Working days from the 1st up to and including today (Sundays excluded) */
+  /** Working days from the 1st up to and including today (excluding weekly offs & company holidays) */
   elapsedWorkingDays: number;
+  /** Elapsed calendar days up to today */
+  elapsedCalendarDays: number;
+  /** Elapsed holidays & weekly offs up to today */
+  elapsedHolidays: number;
 }
 
-export const getMonthInfo = (ref: Date = new Date()): MonthInfo => {
-  const year = ref.getFullYear();
-  const monthIndex = ref.getMonth();
+export interface GetMonthInfoOptions {
+  holidays?: any[];
+  weeklyOff?: string | string[] | null;
+  weeklySchedules?: any[];
+  employeeLocation?: string;
+}
+
+export const getMonthInfo = (ref: Date = new Date(), options?: GetMonthInfoOptions): MonthInfo => {
+  const istToday = getIstTodayDateStr(ref);
+  const [istYear, istMonthNum, istDay] = istToday.split('-').map(Number);
+  const year = istYear || ref.getFullYear();
+  const monthIndex = istMonthNum ? istMonthNum - 1 : ref.getMonth();
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-  const today = ref.getDate();
+  const today = istDay || ref.getDate();
+  const monthKey = `${year}-${pad(monthIndex + 1)}`;
 
   let workingDays = 0;
   let elapsedWorkingDays = 0;
+  let elapsedHolidays = 0;
   for (let day = 1; day <= daysInMonth; day++) {
-    const isSunday = new Date(year, monthIndex, day).getDay() === 0;
-    if (isSunday) continue;
+    const dateStr = `${monthKey}-${pad(day)}`;
+    const localDate = new Date(year, monthIndex, day, 12, 0, 0);
+    const isWeeklyOff = isDateEmployeeWeeklyOff(localDate, options?.weeklyOff, options?.weeklySchedules).isWeeklyOff;
+    const isHoliday = isDateCompanyPaidHoliday(dateStr, options?.holidays, options?.employeeLocation).isHoliday;
+    if (isWeeklyOff || isHoliday) {
+      if (day <= today) elapsedHolidays++;
+      continue;
+    }
     workingDays++;
     if (day <= today) elapsedWorkingDays++;
   }
 
-  const monthKey = `${year}-${pad(monthIndex + 1)}`;
   return {
     year,
     monthIndex,
     monthKey,
     monthStart: `${monthKey}-01`,
     monthEnd: `${monthKey}-${pad(daysInMonth)}`,
-    todayStr: getLocalDateStr(ref),
+    todayStr: istToday,
     monthShort: MONTH_SHORT[monthIndex],
     monthLong: MONTH_LONG[monthIndex],
     label: `${MONTH_SHORT[monthIndex]} ${year}`,
@@ -71,7 +96,9 @@ export const getMonthInfo = (ref: Date = new Date()): MonthInfo => {
     fullLabel: `${MONTH_LONG[monthIndex]} ${year}`,
     daysInMonth,
     workingDays,
-    elapsedWorkingDays
+    elapsedWorkingDays,
+    elapsedCalendarDays: Math.min(today, daysInMonth),
+    elapsedHolidays,
   };
 };
 

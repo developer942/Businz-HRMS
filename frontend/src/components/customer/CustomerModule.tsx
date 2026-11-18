@@ -5,16 +5,9 @@ import { CustomerRecordsView } from './CustomerRecordsView';
 import { SendWhatsAppModal } from './SendWhatsAppModal';
 import { customerService } from '../../services/customerService';
 import { useHRMS } from '../../context/HRMSContext';
-import { 
-  Users, 
-  UserPlus, 
-  Table, 
-  MessageSquare, 
-  ShieldCheck, 
-  CheckCircle2, 
-  AlertCircle,
-  ExternalLink,
-  Settings,
+import {
+  Table,
+  CheckCircle2,
   Camera,
   Contact2
 } from 'lucide-react';
@@ -28,8 +21,9 @@ interface CustomerModuleProps {
 export const CustomerModule: React.FC<CustomerModuleProps> = ({
   initialTab = 'records'
 }) => {
-  const { currentUser, setActiveModule } = useHRMS();
+  const { currentUser } = useHRMS();
   const [activeTab, setActiveTab] = useState<CustomerModuleTab>(initialTab);
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
 
   // Send WhatsApp modal trigger from anywhere
   const [activeSendCustomer, setActiveSendCustomer] = useState<CustomerContact | null>(null);
@@ -59,32 +53,39 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
     { id: 'add_customer', label: 'Scan Visiting Card', icon: Camera }
   ];
 
+  const handleTabSwitch = (nextTab: CustomerModuleTab) => {
+    setActiveTab(nextTab);
+    if (nextTab === 'records') {
+      setRefreshTrigger(prev => prev + 1);
+    }
+  };
+
   return (
     <div className="customer-module-wrapper">
-      {/* Sleek Page Header with Integrated Pill Tabs */}
+      {/* Compact Apple-Inspired Page Header with Segmented Tabs */}
       <div className="customer-unified-header">
         <div className="customer-header-left">
-          <div className="customer-header-icon-box">
-            <Contact2 size={22} />
+          <div className="customer-header-icon-box" aria-hidden="true">
+            <Contact2 size={20} />
           </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <h1 className="customer-header-title">Contact Card Scanner</h1>
               {isWhatsAppConfigured && (
                 <span className="customer-whatsapp-badge">
-                  <CheckCircle2 size={13} />
+                  <CheckCircle2 size={12} />
                   <span>WhatsApp Connected {configuredSender ? `(${configuredSender})` : ''}</span>
                 </span>
               )}
             </div>
             <p className="customer-header-subtitle">
-              Digitize visiting cards with AI OCR, manage verified customer contacts, and initiate direct communications
+              Digitize visiting cards with AI OCR
             </p>
           </div>
         </div>
 
-        {/* Modern Segmented Navigation Tabs */}
-        <div className="customer-segmented-tabs">
+        {/* Segmented Navigation Tabs */}
+        <div className="customer-segmented-tabs" role="tablist" aria-label="Contact Card Scanner Views">
           {tabs.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -92,10 +93,12 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => handleTabSwitch(tab.id)}
                 className={`customer-segment-tab ${isActive ? 'active' : ''}`}
               >
-                <Icon size={16} />
+                <Icon size={15} />
                 <span>{tab.label}</span>
               </button>
             );
@@ -103,23 +106,32 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
         </div>
       </div>
 
-      {/* Render Active View */}
-      <div>
-        {activeTab === 'add_customer' && (
-          <AddCustomerView
-            onCustomerSaved={() => {
-              // Trigger reload in records
-            }}
-            onNavigateToRecords={() => setActiveTab('records')}
-          />
-        )}
+      {/* Keep AddCustomerView mounted so switching tabs never discards entered form state */}
+      <div
+        style={{
+          display: activeTab === 'add_customer' ? 'block' : 'none',
+          width: '100%'
+        }}
+      >
+        <AddCustomerView
+          onCustomerSaved={() => {
+            setRefreshTrigger(prev => prev + 1);
+          }}
+          onNavigateToRecords={() => handleTabSwitch('records')}
+        />
+      </div>
 
-        {activeTab === 'records' && (
-          <CustomerRecordsView
-            onOpenSendWhatsApp={(c) => setActiveSendCustomer(c)}
-            onNavigateToAddCustomer={() => setActiveTab('add_customer')}
-          />
-        )}
+      <div
+        style={{
+          display: activeTab === 'records' ? 'block' : 'none',
+          width: '100%'
+        }}
+      >
+        <CustomerRecordsView
+          refreshTrigger={refreshTrigger}
+          onOpenSendWhatsApp={c => setActiveSendCustomer(c)}
+          onNavigateToAddCustomer={() => handleTabSwitch('add_customer')}
+        />
       </div>
 
       {/* Send WhatsApp Modal from Records */}
@@ -131,6 +143,7 @@ export const CustomerModule: React.FC<CustomerModuleProps> = ({
           onSuccess={() => {
             setActiveSendCustomer(null);
             checkConnectionStatus();
+            setRefreshTrigger(prev => prev + 1);
           }}
         />
       )}

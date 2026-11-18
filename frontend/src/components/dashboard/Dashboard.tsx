@@ -10,7 +10,10 @@ import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { getEmployeeTotalLeaveSummary } from '../../services/leaveQuotaService';
-import { buildEmployeeMonthlyAttendanceOtReport } from '../../services/attendanceCalculationEngine';
+import {
+  buildEmployeeMonthlyAttendanceOtReport,
+  buildEmployeeMonthlyAttendanceCalendar,
+} from '../../services/attendanceCalculationEngine';
 import { formatCurrency } from '../../utils/numbers';
 import { pettyCashService } from '../../services/pettyCashService';
 import { 
@@ -253,41 +256,37 @@ export const Dashboard: React.FC = () => {
       todayCandidates.find(a => Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--')) ||
       todayCandidates[0];
 
-    // Match leaves
-    const userLeaves = leaveRequests.filter(l => {
-      return matchesCurrentUser(l.employeeId, l.employeeName) && l.status === 'Approved';
+    // Authoritative shared Month-to-Date Calendar calculation (matches Attendance Log & Payroll 100%)
+    const monthlyCalendar = buildEmployeeMonthlyAttendanceCalendar({
+      month: month.monthKey,
+      todayStr,
+      employee: (currentEmpObj || currentUser) as any,
+      employeeId: currentEmpObj?.employeeId || currentUser.employeeId || currentUser.id,
+      employeeUuid: currentEmpObj?.id || currentUser.id,
+      employeeName: currentEmpObj
+        ? `${currentEmpObj.firstName} ${currentEmpObj.lastName}`.trim()
+        : currentUser.name,
+      department: currentEmpObj?.department || currentUser.department || 'General',
+      joiningDate: currentEmpObj?.joiningDate || currentEmpObj?.dateOfJoining,
+      exitDate: currentEmpObj?.exitDate || currentEmpObj?.relievingDate,
+      weeklyOff: currentEmpObj?.shiftDetails?.weeklyOff,
+      weeklySchedules,
+      holidays: holidayPolicies,
+      employeeLocation: currentEmpObj?.workLocation || (currentEmpObj as any)?.branch,
+      attendanceRecords,
+      leaveRequests,
     });
 
-    // Current month attendance records deduplicated by date (YYYY-MM-DD)
-    const byDate = new Map<string, AttendanceRecord>();
-    for (const a of attendanceRecords) {
-      const dateKey = attendanceRecordDate(a);
-      if (!dateKey || !isDateInMonth(dateKey, month)) continue;
-      if (!matchesCurrentUser(a.employeeId, a.employeeName)) continue;
-      const existing = byDate.get(dateKey);
-      if (!existing) {
-        byDate.set(dateKey, a);
-      } else {
-        const isManual = String(a.method || '') === 'Manual Punch' || String(a.method || '') === 'Manual Override';
-        const existingIsManual = String(existing.method || '') === 'Manual Punch' || String(existing.method || '') === 'Manual Override';
-        if (isManual && !existingIsManual) {
-          byDate.set(dateKey, a);
-        } else if (Boolean(a.checkOut) && !existing.checkOut) {
-          byDate.set(dateKey, a);
-        }
-      }
-    }
-    const userRecords = Array.from(byDate.values());
-
-    const totalWorkingDays = month.elapsedWorkingDays;
-    const userPresentCount = userRecords.filter(r => r.status === 'Present' || r.status === 'Work From Home' || (r.status === 'Late' && r.lateStatus === 'On Time')).length;
-    const userLateCount = userRecords.filter(r => (r.status === 'Late' && r.lateStatus !== 'On Time') || r.status === 'Half Day').length;
-    const userLeaveCount = userLeaves.reduce((acc, l) => acc + countLeaveDaysInMonth(l.startDate, l.endDate, month), 0);
-
-    const realPresent = userPresentCount;
-    const realLeave = userLeaveCount;
-    const realLate = userLateCount;
-    const attendanceRate = totalWorkingDays > 0 ? Math.min(100, Math.round(((realPresent + (realLate * 0.5)) / totalWorkingDays) * 100)) : 0;
+    const totalWorkingDays = monthlyCalendar.scheduledWorkingDays;
+    const workedDays = monthlyCalendar.workedDays;
+    const fullPresentDays = monthlyCalendar.fullPresentDays;
+    const halfDays = monthlyCalendar.halfDays;
+    const paidLeaveDays = monthlyCalendar.paidLeaveDays;
+    const holidaysCount = monthlyCalendar.holidaysCount;
+    const paidDays = monthlyCalendar.paidDays;
+    const calendarDaysElapsed = monthlyCalendar.calendarDaysElapsed;
+    const attendanceRate =
+      totalWorkingDays > 0 ? Math.min(100, Math.round((workedDays / totalWorkingDays) * 100)) : 0;
 
     // Resolve assigned shift: check employee profile workShift first, then shift assignments, then default shift
     const rawEmpWorkShift = (currentEmpObj?.workShift || '').trim();
@@ -359,8 +358,16 @@ export const Dashboard: React.FC = () => {
       checkInTime,
       checkOutTime,
       attendanceRate,
-      adjPresent: realPresent,
+      adjPresent: workedDays,
+      workedDays,
+      fullPresentDays,
+      halfDays,
+      paidLeaveDays,
+      holidaysCount,
+      paidDays,
+      calendarDaysElapsed,
       totalWorkingDays,
+      scheduledWorkingDays: totalWorkingDays,
       adjLeave: leaveSummary.totalPaidUsed,
       remainingLeaves: leaveSummary.totalPaidRemaining,
       annualQuota: leaveSummary.totalAnnualQuota,
@@ -369,7 +376,7 @@ export const Dashboard: React.FC = () => {
       shiftTimes: resolvedShiftTimes,
       monthLabel: month.label
     };
-  }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies, employees]);
+  }, [currentUser, attendanceRecords, leaveRequests, faceLogs, shifts, todayStr, masterLeavePolicies, leavePolicies, employees, holidayPolicies, weeklySchedules]);
 
   // Dynamically calculate upcoming holidays from holiday policies (strictly from today onwards, NO past holidays)
   const upcomingHolidaysList = useMemo(() => {
@@ -801,7 +808,7 @@ export const Dashboard: React.FC = () => {
 
             {/* 2. 2x2 Personal KPI Metric Cards (Uniform 3-Tier Layout, Identical Height & Alignment) */}
             <div className="mobile-kpi-grid" data-testid="mobile-personal-kpi-grid">
-                {/* 1. Top-Left: Present Days */}
+                {/* 1. Top-Left: Worked Days */}
                 <div
                   className="mobile-kpi-card"
                   data-testid="mobile-kpi-present-days"
@@ -811,15 +818,18 @@ export const Dashboard: React.FC = () => {
                     <div className="mobile-kpi-icon-box green">
                       <CheckCircle2 size={14} color="#16A34A" />
                     </div>
-                    <span className="mobile-kpi-label">Present Days</span>
+                    <span className="mobile-kpi-label">Worked Days</span>
                   </div>
                   <div className="mobile-kpi-metric-main">
                     <span className="mobile-kpi-value">
-                      {employeeAttendanceStats.adjPresent} / {employeeAttendanceStats.totalWorkingDays}
+                      {employeeAttendanceStats.workedDays} / {employeeAttendanceStats.scheduledWorkingDays}
                     </span>
                   </div>
                   <div className="mobile-kpi-badge-wrap">
-                    <span className="mobile-kpi-trend green">Days On Duty</span>
+                    <span className="mobile-kpi-trend green">
+                      Full: {employeeAttendanceStats.fullPresentDays}
+                      {employeeAttendanceStats.halfDays > 0 ? ` · Half: ${employeeAttendanceStats.halfDays}` : ''}
+                    </span>
                   </div>
                 </div>
 
@@ -1502,24 +1512,28 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* 3. Present Days */}
+            {/* 3. Worked Days */}
             <div 
               className="kpi-card compact"
               data-testid="desktop-kpi-present-days"
               onClick={() => setActiveModule('attendance_log')}
               style={{ cursor: 'pointer' }}
+              title={`Full Present Days: ${employeeAttendanceStats.fullPresentDays} | Half Day: ${employeeAttendanceStats.halfDays} | Paid Leave: ${employeeAttendanceStats.paidLeaveDays} | Holidays: ${employeeAttendanceStats.holidaysCount} | Paid Days: ${employeeAttendanceStats.paidDays}/${employeeAttendanceStats.calendarDaysElapsed}`}
             >
               <div className="kpi-card-header">
-                <span>PRESENT DAYS</span>
+                <span>WORKED DAYS</span>
                 <CheckCircle2 size={15} color="#10B981" />
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: '#0F172A' }}>
-                  {employeeAttendanceStats.adjPresent} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>/ {employeeAttendanceStats.totalWorkingDays}</span>
+                  {employeeAttendanceStats.workedDays} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>/ {employeeAttendanceStats.scheduledWorkingDays}</span>
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green" style={{ border: 'none' }}>Days On Duty</span>
-                  <span>This Month</span>
+                  <span className="kpi-trend-badge green" style={{ border: 'none' }}>
+                    Full: {employeeAttendanceStats.fullPresentDays}
+                    {employeeAttendanceStats.halfDays > 0 ? ` · Half: ${employeeAttendanceStats.halfDays}` : ''}
+                  </span>
+                  <span>Paid: {employeeAttendanceStats.paidDays}/{employeeAttendanceStats.calendarDaysElapsed}</span>
                 </div>
               </div>
             </div>

@@ -5,51 +5,47 @@ import { useHRMS } from '../../context/HRMSContext';
 import { downloadExcel, ExportColumn } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { SendWhatsAppModal } from './SendWhatsAppModal';
-import { 
-  Search, 
-  Filter, 
-  Download, 
-  Eye, 
-  Edit3, 
-  CreditCard, 
-  Send, 
-  ShieldCheck, 
-  ShieldAlert, 
-  HelpCircle, 
-  ChevronLeft, 
-  ChevronRight, 
-  ChevronsLeft, 
-  ChevronsRight, 
+import {
+  Search,
+  Download,
+  Eye,
+  Edit3,
+  CreditCard,
+  Send,
+  ShieldCheck,
+  ShieldAlert,
+  HelpCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   X,
-  UserCheck,
-  Building,
+  Users,
   Phone,
   Mail,
-  MapPin,
-  Calendar,
   Camera,
-  User,
-  Check,
-  AlertCircle
+  User
 } from 'lucide-react';
 
 interface CustomerRecordsViewProps {
+  refreshTrigger?: number;
   onOpenSendWhatsApp?: (customer: CustomerContact) => void;
   onNavigateToAddCustomer?: () => void;
 }
 
 export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
+  refreshTrigger = 0,
   onOpenSendWhatsApp,
   onNavigateToAddCustomer
 }) => {
-  const { currentUser, hasPermission } = useHRMS();
+  const { currentUser } = useHRMS();
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [employeeFilter, setEmployeeFilter] = useState('');
+  const [employeeFilter] = useState('');
   const [consentFilter, setConsentFilter] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom] = useState('');
+  const [dateTo] = useState('');
 
   // Pagination (Strictly [5, 10] per design system spec)
   const [page, setPage] = useState(1);
@@ -106,7 +102,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
 
   useEffect(() => {
     fetchRecords();
-  }, [searchQuery, employeeFilter, consentFilter, dateFrom, dateTo, page, pageSize]);
+  }, [searchQuery, employeeFilter, consentFilter, dateFrom, dateTo, page, pageSize, refreshTrigger]);
 
   // Checkbox Selection
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -217,49 +213,58 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
     switch (status) {
       case 'Opted In':
         return (
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '3px 9px',
-            borderRadius: '9999px',
-            backgroundColor: '#DCFCE7',
-            color: '#15803D',
-            fontSize: '0.75rem',
-            fontWeight: 600
-          }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '9999px',
+              backgroundColor: '#DCFCE7',
+              color: '#15803D',
+              fontSize: '0.73rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap'
+            }}
+          >
             <ShieldCheck size={12} /> Opted In
           </span>
         );
       case 'Not Opted In':
         return (
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '3px 9px',
-            borderRadius: '9999px',
-            backgroundColor: '#FEE2E2',
-            color: '#B91C1C',
-            fontSize: '0.75rem',
-            fontWeight: 600
-          }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '9999px',
+              backgroundColor: '#FEE2E2',
+              color: '#B91C1C',
+              fontSize: '0.73rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap'
+            }}
+          >
             <ShieldAlert size={12} /> Not Opted In
           </span>
         );
       default:
         return (
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '3px 9px',
-            borderRadius: '9999px',
-            backgroundColor: '#FEF3C7',
-            color: '#B45309',
-            fontSize: '0.75rem',
-            fontWeight: 600
-          }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '9999px',
+              backgroundColor: '#FEF3C7',
+              color: '#B45309',
+              fontSize: '0.73rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap'
+            }}
+          >
             <HelpCircle size={12} /> Unknown
           </span>
         );
@@ -269,7 +274,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
   // Message status badge
   const renderMessageStatusBadge = (status?: string) => {
     if (!status) {
-      return <span style={{ color: '#94A3B8', fontSize: '0.8rem' }}>None</span>;
+      return <span style={{ color: '#94A3B8', fontSize: '0.78rem' }}>None</span>;
     }
     const colors: Record<string, { bg: string; text: string }> = {
       read: { bg: '#DBEAFE', text: '#1D4ED8' },
@@ -281,16 +286,19 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
     };
     const c = colors[status.toLowerCase()] || { bg: '#F1F5F9', text: '#475569' };
     return (
-      <span style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: '9999px',
-        backgroundColor: c.bg,
-        color: c.text,
-        fontSize: '0.75rem',
-        fontWeight: 600,
-        textTransform: 'capitalize'
-      }}>
+      <span
+        style={{
+          display: 'inline-block',
+          padding: '2px 8px',
+          borderRadius: '9999px',
+          backgroundColor: c.bg,
+          color: c.text,
+          fontSize: '0.73rem',
+          fontWeight: 600,
+          textTransform: 'capitalize',
+          whiteSpace: 'nowrap'
+        }}
+      >
         {status}
       </span>
     );
@@ -299,36 +307,38 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
   const isAllSelected = customers.length > 0 && customers.every(c => selectedIds.has(c.id));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
-      {/* Unified Table Card Housing Search, Filters, Record Actions & Directory Table */}
+    <div className="customer-directory-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
+      {/* Unified Table & Directory Card */}
       <div className="customer-unified-table-card">
-        {/* Integrated Card Header Toolbar */}
+        {/* Clean Toolbar: Search, Consent Filter, Total Contacts, Export Excel, Scan/Add Card */}
         <div className="customer-card-toolbar">
           <div className="customer-toolbar-left">
             <div className="customer-search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={16} className="customer-search-icon" style={{ position: 'absolute', left: '13px', color: '#64748B', pointerEvents: 'none', zIndex: 1 }} />
+              <Search
+                size={16}
+                className="customer-search-icon"
+                style={{ position: 'absolute', left: '13px', color: '#64748B', pointerEvents: 'none', zIndex: 1 }}
+              />
               <input
                 type="text"
-                placeholder="Search by Name, Company, Phone, or Email..."
+                placeholder="Search by Name, Company, Phone..."
                 value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-                className="customer-search-input"
-                style={{
-                  width: '100%',
-                  paddingLeft: '40px',
-                  paddingRight: searchQuery ? '36px' : '14px',
-                  paddingTop: '9px',
-                  paddingBottom: '9px',
-                  boxSizing: 'border-box'
+                onChange={e => {
+                  setSearchQuery(e.target.value);
+                  setPage(1);
                 }}
+                className="customer-search-input"
               />
               {searchQuery && (
                 <button
                   type="button"
-                  onClick={() => { setSearchQuery(''); setPage(1); }}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setPage(1);
+                  }}
                   className="customer-search-clear"
                   title="Clear search"
-                  style={{ position: 'absolute', right: '10px', zIndex: 2 }}
+                  aria-label="Clear search"
                 >
                   <X size={14} />
                 </button>
@@ -338,78 +348,94 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
             {/* Consent Filter */}
             <select
               value={consentFilter}
-              onChange={e => { setConsentFilter(e.target.value); setPage(1); }}
+              onChange={e => {
+                setConsentFilter(e.target.value);
+                setPage(1);
+              }}
+              aria-label="Filter by consent status"
               className="customer-filter-select"
             >
               <option value="">All Consent Status</option>
               <option value="Opted In">Opted In</option>
               <option value="Not Opted In">Not Opted In</option>
+              <option value="Unknown">Unknown</option>
             </select>
           </div>
 
           <div className="customer-toolbar-right">
             <div className="customer-count-pill">
-              <UserCheck size={14} />
-              <span>{totalRecords} {totalRecords === 1 ? 'Contact' : 'Contacts'}</span>
+              <Users size={14} />
+              <span>
+                {totalRecords} {totalRecords === 1 ? 'Contact' : 'Contacts'}
+              </span>
             </div>
 
             <button
+              type="button"
               onClick={handleExportExcel}
-              className="customer-btn-secondary"
+              className="customer-btn-secondary customer-export-btn"
+              title="Export Excel"
+              aria-label="Export Excel"
             >
-              <Download size={15} /> Export Excel
+              <Download size={15} />
+              <span className="customer-export-btn-label">Export Excel</span>
             </button>
 
             {onNavigateToAddCustomer && (
               <button
+                type="button"
                 onClick={onNavigateToAddCustomer}
-                className="customer-btn-primary"
+                className="customer-btn-primary customer-scan-cta-btn"
               >
-                <Camera size={15} /> Scan / Add Card
+                <Camera size={15} />
+                <span>Scan / Add Card</span>
               </button>
             )}
           </div>
         </div>
+
+        {/* Desktop Professional Table (>= 768px) */}
         <div className="customer-desktop-table" style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.84rem' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E7ECF3' }}>
-                <th style={{ padding: '14px 16px', width: '40px' }}>
+                <th style={{ padding: '12px 14px', width: '40px' }}>
                   <input
                     type="checkbox"
                     checked={isAllSelected}
                     onChange={handleSelectAll}
+                    aria-label="Select all contacts on page"
                     style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
                   />
                 </th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Customer ID</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Customer Name</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Company</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Designation</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Contact Number</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Email</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Collected By</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Date</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>Consent</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600 }}>WhatsApp Status</th>
-                <th style={{ padding: '14px 16px', color: '#64748B', fontWeight: 600, textAlign: 'center' }}>Actions</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600, whiteSpace: 'nowrap' }}>Customer ID</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600 }}>Customer Name</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600 }}>Company</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600 }}>Designation</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600, whiteSpace: 'nowrap' }}>Contact Number</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600 }}>Email</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600 }}>Collected By</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600, whiteSpace: 'nowrap' }}>Date</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600, whiteSpace: 'nowrap' }}>Consent</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600, whiteSpace: 'nowrap' }}>WhatsApp Status</th>
+                <th style={{ padding: '12px 14px', color: '#64748B', fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: '40px', textAlign: 'center', color: '#64748B' }}>
+                  <td colSpan={12} style={{ padding: '44px 20px', textAlign: 'center', color: '#64748B' }}>
                     Loading customer records...
                   </td>
                 </tr>
               ) : customers.length === 0 ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: '60px 20px', textAlign: 'center', color: '#64748B' }}>
-                    <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1E293B', marginBottom: '4px' }}>
+                  <td colSpan={12} style={{ padding: '56px 20px', textAlign: 'center', color: '#64748B' }}>
+                    <div style={{ fontSize: '0.96rem', fontWeight: 600, color: '#1E293B', marginBottom: '4px' }}>
                       No Customer Records Found
                     </div>
-                    <div style={{ fontSize: '0.85rem' }}>
-                      Try adjusting your search filters or click "+ Add Customer" to capture a new record.
+                    <div style={{ fontSize: '0.84rem' }}>
+                      Try adjusting your search filters or click &ldquo;Scan / Add Card&rdquo; to add a contact.
                     </div>
                   </td>
                 </tr>
@@ -426,102 +452,124 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                         transition: 'background-color 0.15s ease'
                       }}
                     >
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '13px 14px', verticalAlign: 'middle' }}>
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => handleSelectRow(c.id)}
+                          aria-label={`Select ${c.customerName}`}
                           style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
                         />
                       </td>
 
-                      <td style={{ padding: '14px 16px', fontWeight: 600, color: '#0E7490' }}>
+                      <td style={{ padding: '13px 14px', fontWeight: 600, color: '#0E7490', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                         {c.customerId}
                       </td>
 
-                      <td style={{ padding: '14px 16px', fontWeight: 600, color: '#1E293B' }}>
+                      <td style={{ padding: '13px 14px', fontWeight: 600, color: '#1E293B', verticalAlign: 'middle', maxWidth: '200px', overflowWrap: 'break-word' }}>
                         {c.customerName}
                       </td>
 
-                      <td style={{ padding: '14px 16px', color: '#475569' }}>
+                      <td style={{ padding: '13px 14px', color: '#475569', verticalAlign: 'middle', maxWidth: '220px', overflowWrap: 'break-word' }}>
                         {c.companyName || '-'}
                       </td>
 
-                      <td style={{ padding: '14px 16px', color: '#64748B' }}>
+                      <td style={{ padding: '13px 14px', color: '#64748B', verticalAlign: 'middle', maxWidth: '180px', overflowWrap: 'break-word' }}>
                         {c.designation || '-'}
                       </td>
 
-                      <td style={{ padding: '14px 16px', fontWeight: 500, color: '#0F172A' }}>
+                      <td style={{ padding: '13px 14px', fontWeight: 500, color: '#0F172A', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                         {c.contactNumber}
                       </td>
 
-                      <td style={{ padding: '14px 16px', color: '#64748B' }}>
+                      <td style={{ padding: '13px 14px', color: '#64748B', verticalAlign: 'middle', maxWidth: '220px', overflowWrap: 'anywhere' }}>
                         {c.email || '-'}
                       </td>
 
-                      <td style={{ padding: '14px 16px', color: '#475569' }}>
+                      <td style={{ padding: '13px 14px', color: '#475569', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                         {c.collectedByName}
                       </td>
 
-                      <td style={{ padding: '14px 16px', color: '#64748B', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '13px 14px', color: '#64748B', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                         {formatDateDDMMYYYY(c.collectedDate) || c.collectedDate || '-'}
                       </td>
 
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '13px 14px', verticalAlign: 'middle' }}>
                         {renderConsentBadge(c.consentStatus)}
                       </td>
 
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '13px 14px', verticalAlign: 'middle' }}>
                         {renderMessageStatusBadge(c.lastMessageStatus)}
                       </td>
 
                       {/* Row Actions */}
-                      <td style={{ padding: '14px 16px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '13px 14px', textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                           <button
+                            type="button"
                             onClick={() => setViewCustomer(c)}
                             title="View Customer"
                             style={{
-                              border: 'none',
-                              backgroundColor: '#F1F5F9',
-                              color: '#475569',
-                              padding: '6px',
+                              border: '1px solid #E2E8F0',
+                              backgroundColor: '#F8FAFC',
+                              color: '#334155',
+                              padding: '6px 9px',
                               borderRadius: '8px',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontSize: '0.76rem',
+                              fontWeight: 600
                             }}
                           >
-                            <Eye size={15} />
+                            <Eye size={14} />
+                            <span>View</span>
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => openEditModal(c)}
                             title="Edit Customer"
                             style={{
-                              border: 'none',
-                              backgroundColor: '#F1F5F9',
-                              color: '#475569',
-                              padding: '6px',
+                              border: '1px solid #E2E8F0',
+                              backgroundColor: '#F8FAFC',
+                              color: '#334155',
+                              padding: '6px 9px',
                               borderRadius: '8px',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontSize: '0.76rem',
+                              fontWeight: 600
                             }}
                           >
-                            <Edit3 size={15} />
+                            <Edit3 size={14} />
+                            <span>Edit</span>
                           </button>
 
                           {c.visitingCardUrl && (
                             <button
+                              type="button"
                               onClick={() => setCardModalUrl(c.visitingCardUrl || null)}
                               title="View Visiting Card"
                               style={{
-                                border: 'none',
+                                border: '1px solid #BAE6FD',
                                 backgroundColor: '#ECFEFF',
                                 color: '#0E7490',
-                                padding: '6px',
+                                padding: '6px 9px',
                                 borderRadius: '8px',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '0.76rem',
+                                fontWeight: 600
                               }}
                             >
-                              <CreditCard size={15} />
+                              <CreditCard size={14} />
+                              <span>Card</span>
                             </button>
                           )}
                         </div>
@@ -534,19 +582,19 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
           </table>
         </div>
 
-        {/* Mobile-Only Contact Card List View (< 768px) */}
+        {/* Mobile Native Contact Card List (< 768px) */}
         <div className="customer-mobile-list">
           {loading ? (
-            <div style={{ padding: '30px 16px', textAlign: 'center', color: '#64748B' }}>
+            <div style={{ padding: '32px 16px', textAlign: 'center', color: '#64748B', fontSize: '0.88rem' }}>
               Loading customer records...
             </div>
           ) : customers.length === 0 ? (
-            <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748B' }}>
-              <div style={{ fontSize: '0.95rem', fontWeight: 750, color: '#1E293B', marginBottom: '4px' }}>
+            <div style={{ padding: '36px 16px', textAlign: 'center', color: '#64748B' }}>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1E293B', marginBottom: '4px' }}>
                 No Customer Records Found
               </div>
-              <div style={{ fontSize: '0.8rem' }}>
-                Try adjusting your search filters or tap "+ Scan / Add Card" to capture a new record.
+              <div style={{ fontSize: '0.8rem', lineHeight: 1.45 }}>
+                Try adjusting your search filters or tap &ldquo;Scan / Add Card&rdquo; to add a contact.
               </div>
             </div>
           ) : (
@@ -557,41 +605,51 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                   key={c.id}
                   className={`customer-mobile-card ${isSelected ? 'selected' : ''}`}
                 >
+                  {/* Top Row: Checkbox + Customer ID on Left, Consent & WhatsApp Status on Right */}
                   <div className="customer-mobile-card-top">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        minHeight: '28px'
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => handleSelectRow(c.id)}
-                        style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                        style={{ accentColor: '#0E7490', cursor: 'pointer', width: '17px', height: '17px', margin: 0 }}
                       />
                       <span className="customer-mobile-id">{c.customerId}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {renderConsentBadge(c.consentStatus)}
-                      {renderMessageStatusBadge(c.lastMessageStatus)}
+                      {c.lastMessageStatus && renderMessageStatusBadge(c.lastMessageStatus)}
                     </div>
                   </div>
 
+                  {/* Body: Name, Company/Designation, Phone & Email, Collected By & Date */}
                   <div className="customer-mobile-card-body">
                     <div className="customer-mobile-name">{c.customerName}</div>
                     {(c.companyName || c.designation) && (
                       <div className="customer-mobile-sub">
-                        {c.designation ? c.designation : ''}
-                        {c.designation && c.companyName ? ' • ' : ''}
                         {c.companyName ? c.companyName : ''}
+                        {c.companyName && c.designation ? ' • ' : ''}
+                        {c.designation ? c.designation : ''}
                       </div>
                     )}
 
                     <div className="customer-mobile-contact-row">
                       <div className="customer-mobile-contact-item">
-                        <Phone size={13} color="#0E7490" />
+                        <Phone size={13} color="#0E7490" style={{ flexShrink: 0 }} />
                         <span style={{ fontWeight: 600, color: '#0F172A' }}>{c.contactNumber}</span>
                       </div>
                       {c.email && (
                         <div className="customer-mobile-contact-item">
-                          <Mail size={13} color="#64748B" />
-                          <span style={{ color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</span>
+                          <Mail size={13} color="#64748B" style={{ flexShrink: 0 }} />
+                          <span style={{ color: '#475569', overflowWrap: 'anywhere' }}>{c.email}</span>
                         </div>
                       )}
                     </div>
@@ -602,6 +660,7 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                     </div>
                   </div>
 
+                  {/* Touch-Friendly Action Buttons (42-44px height) */}
                   <div className="customer-mobile-card-actions">
                     <button
                       type="button"
@@ -609,7 +668,8 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                       className="customer-mobile-action-btn"
                       title="View Details"
                     >
-                      <Eye size={14} /> View
+                      <Eye size={14} />
+                      <span>View</span>
                     </button>
                     <button
                       type="button"
@@ -617,7 +677,8 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                       className="customer-mobile-action-btn"
                       title="Edit Customer"
                     >
-                      <Edit3 size={14} /> Edit
+                      <Edit3 size={14} />
+                      <span>Edit</span>
                     </button>
                     {c.visitingCardUrl && (
                       <button
@@ -626,7 +687,8 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                         className="customer-mobile-action-btn card"
                         title="View Visiting Card"
                       >
-                        <CreditCard size={14} /> Card
+                        <CreditCard size={14} />
+                        <span>Card</span>
                       </button>
                     )}
                   </div>
@@ -636,122 +698,148 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
           )}
         </div>
 
-        {/* Standardized Pagination Footer (Phase 4 & AGENTS.md) */}
-        <div style={{
-          padding: '16px 24px',
-          borderTop: '1px solid #E7ECF3',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '16px',
-          backgroundColor: '#FFFFFF'
-        }}>
-          {/* Left: Rows Per Page [5, 10] */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '0.85rem', color: '#64748B' }}>Rows per page:</span>
-            <select
-              value={pageSize}
-              onChange={e => {
-                setPageSize(Number(e.target.value));
-                setPage(1);
-              }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '8px',
-                border: '1px solid #CBD5E1',
-                fontSize: '0.85rem',
-                backgroundColor: '#FFFFFF',
-                color: '#1E293B',
-                cursor: 'pointer'
-              }}
-            >
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-            </select>
-            <span style={{ fontSize: '0.85rem', color: '#64748B' }}>
+        {/* Responsive Pagination Footer (Visible on both Desktop and Mobile) */}
+        <div className="customer-pagination-footer">
+          {/* Left: Rows Per Page [5, 10] + Entry Summary */}
+          <div className="customer-pagination-left">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '0.82rem', color: '#64748B' }}>Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={e => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                aria-label="Rows per page"
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '0.82rem',
+                  backgroundColor: '#FFFFFF',
+                  color: '#1E293B',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+              </select>
+            </div>
+            <span style={{ fontSize: '0.82rem', color: '#64748B' }}>
               Showing {totalRecords === 0 ? 0 : (page - 1) * pageSize + 1} to{' '}
               {Math.min(page * pageSize, totalRecords)} of {totalRecords} entries
             </span>
           </div>
 
           {/* Right: Page Navigation Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              onClick={() => setPage(1)}
-              disabled={page <= 1}
-              style={{
-                padding: '6px',
-                borderRadius: '8px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: page <= 1 ? '#CBD5E1' : '#475569',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <ChevronsLeft size={16} />
-            </button>
+          <div className="customer-pagination-right">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setPage(1)}
+                disabled={page <= 1}
+                aria-label="First page"
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#FFFFFF',
+                  color: page <= 1 ? '#CBD5E1' : '#475569',
+                  cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronsLeft size={15} />
+              </button>
 
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              style={{
-                padding: '6px',
-                borderRadius: '8px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: page <= 1 ? '#CBD5E1' : '#475569',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <ChevronLeft size={16} />
-            </button>
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                aria-label="Previous page"
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#FFFFFF',
+                  color: page <= 1 ? '#CBD5E1' : '#475569',
+                  cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronLeft size={15} />
+              </button>
 
-            {/* Page number pill */}
-            <span style={{
-              padding: '6px 12px',
-              borderRadius: '8px',
-              backgroundColor: '#0E7490',
-              color: '#FFFFFF',
-              fontWeight: 700,
-              fontSize: '0.85rem'
-            }}>
-              {page}
-            </span>
+              <span
+                style={{
+                  minWidth: '34px',
+                  height: '34px',
+                  padding: '0 10px',
+                  borderRadius: '8px',
+                  backgroundColor: '#0E7490',
+                  color: '#FFFFFF',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                {page}
+              </span>
 
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              style={{
-                padding: '6px',
-                borderRadius: '8px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: page >= totalPages ? '#CBD5E1' : '#475569',
-                cursor: page >= totalPages ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <ChevronRight size={16} />
-            </button>
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                aria-label="Next page"
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#FFFFFF',
+                  color: page >= totalPages ? '#CBD5E1' : '#475569',
+                  cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronRight size={15} />
+              </button>
 
-            <button
-              onClick={() => setPage(totalPages)}
-              disabled={page >= totalPages}
-              style={{
-                padding: '6px',
-                borderRadius: '8px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: page >= totalPages ? '#CBD5E1' : '#475569',
-                cursor: page >= totalPages ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <ChevronsRight size={16} />
-            </button>
+              <button
+                type="button"
+                onClick={() => setPage(totalPages)}
+                disabled={page >= totalPages}
+                aria-label="Last page"
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#FFFFFF',
+                  color: page >= totalPages ? '#CBD5E1' : '#475569',
+                  cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronsRight size={15} />
+              </button>
+            </div>
 
             {/* Go to page input */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '12px' }}>
-              <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Go to:</span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.78rem', color: '#64748B' }}>Go to:</span>
               <input
                 type="number"
                 min={1}
@@ -765,26 +853,29 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                   }
                 }}
                 style={{
-                  width: '50px',
-                  padding: '5px 8px',
-                  borderRadius: '6px',
+                  width: '48px',
+                  height: '34px',
+                  padding: '0 6px',
+                  borderRadius: '8px',
                   border: '1px solid #CBD5E1',
                   fontSize: '0.8rem',
                   textAlign: 'center'
                 }}
               />
               <button
+                type="button"
                 onClick={() => {
                   const p = parseInt(goToPageInput, 10);
                   if (p >= 1 && p <= totalPages) setPage(p);
                 }}
                 style={{
-                  padding: '5px 10px',
-                  borderRadius: '6px',
+                  height: '34px',
+                  padding: '0 10px',
+                  borderRadius: '8px',
                   border: 'none',
                   backgroundColor: '#0E7490',
                   color: '#FFFFFF',
-                  fontSize: '0.75rem',
+                  fontSize: '0.76rem',
                   fontWeight: 600,
                   cursor: 'pointer'
                 }}
@@ -796,129 +887,135 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
         </div>
       </div>
 
-      {/* Floating Action Bar (Fixed at bottom center per Design System) */}
+      {/* Floating Action Bar (Fixed above bottom nav) */}
       {selectedIds.size > 0 && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: '#0F172A',
-          color: '#FFFFFF',
-          padding: '12px 24px',
-          borderRadius: '50px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)',
-          zIndex: 900,
-          border: '1px solid rgba(255, 255, 255, 0.15)'
-        }}>
-          <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+        <div className="customer-floating-action-bar">
+          <span style={{ fontSize: '0.84rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
             {selectedIds.size} Selected
           </span>
 
           <div style={{ width: '1px', height: '18px', backgroundColor: '#334155' }} />
 
           <button
+            type="button"
             onClick={() => {
               const first = customers.find(c => selectedIds.has(c.id));
-              if (first) setSendWhatsAppCustomer(first);
+              if (first) {
+                if (onOpenSendWhatsApp) {
+                  onOpenSendWhatsApp(first);
+                } else {
+                  setSendWhatsAppCustomer(first);
+                }
+              }
             }}
             style={{
               backgroundColor: 'transparent',
               border: 'none',
               color: '#38BDF8',
-              fontSize: '0.875rem',
+              fontSize: '0.84rem',
               fontWeight: 600,
               cursor: 'pointer',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '6px',
+              whiteSpace: 'nowrap'
             }}
           >
-            <Send size={15} /> Send WhatsApp
+            <Send size={14} /> Send WhatsApp
           </button>
 
           <div style={{ width: '1px', height: '18px', backgroundColor: '#334155' }} />
 
           <button
+            type="button"
             onClick={handleExportExcel}
             style={{
               backgroundColor: 'transparent',
               border: 'none',
               color: '#4ADE80',
-              fontSize: '0.875rem',
+              fontSize: '0.84rem',
               fontWeight: 600,
               cursor: 'pointer',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '6px',
+              whiteSpace: 'nowrap'
             }}
           >
-            <Download size={15} /> Export Selected
+            <Download size={14} /> Export
           </button>
 
           <div style={{ width: '1px', height: '18px', backgroundColor: '#334155' }} />
 
           <button
+            type="button"
             onClick={() => setSelectedIds(new Set())}
             title="Deselect All"
+            aria-label="Deselect All"
             style={{
               backgroundColor: 'transparent',
               border: 'none',
               color: '#94A3B8',
               cursor: 'pointer',
               padding: '2px',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center'
             }}
           >
-            <X size={18} />
+            <X size={17} />
           </button>
         </div>
       )}
 
       {/* View Customer Details Modal */}
       {viewCustomer && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '16px'
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '20px',
-            width: '100%',
-            maxWidth: '640px',
-            padding: '28px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  backgroundColor: '#ECFEFF',
-                  color: '#0E7490',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
+        <div
+          className="modal-overlay"
+          onClick={() => setViewCustomer(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              width: '100%',
+              maxWidth: '600px',
+              padding: '24px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              border: '1px solid #E7ECF3'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                <div
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '12px',
+                    backgroundColor: '#ECFEFF',
+                    color: '#0E7490',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
                   <User size={20} />
                 </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B' }}>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#1E293B', overflowWrap: 'break-word' }}>
                     {viewCustomer.customerName}
                   </h3>
                   <div style={{ fontSize: '0.8rem', color: '#0E7490', fontWeight: 600 }}>
@@ -928,65 +1025,81 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
               </div>
 
               <button
+                type="button"
                 onClick={() => setViewCustomer(null)}
-                style={{ border: 'none', background: 'transparent', color: '#94A3B8', cursor: 'pointer' }}
+                aria-label="Close"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  color: '#64748B',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '0.875rem' }}>
+            <div className="customer-modal-detail-grid">
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Company Name</span>
-                <strong>{viewCustomer.companyName || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Company Name</span>
+                <strong style={{ color: '#0F172A', overflowWrap: 'break-word' }}>{viewCustomer.companyName || '-'}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Designation</span>
-                <strong>{viewCustomer.designation || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Designation</span>
+                <strong style={{ color: '#0F172A', overflowWrap: 'break-word' }}>{viewCustomer.designation || '-'}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Contact Number</span>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Contact Number</span>
                 <strong style={{ color: '#0E7490' }}>{viewCustomer.contactNumber}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Alternate Number</span>
-                <strong>{viewCustomer.alternateContactNumber || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Alternate Number</span>
+                <strong style={{ color: '#0F172A' }}>{viewCustomer.alternateContactNumber || '-'}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Email Address</span>
-                <strong>{viewCustomer.email || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Email Address</span>
+                <strong style={{ color: '#0F172A', overflowWrap: 'anywhere' }}>{viewCustomer.email || '-'}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Website</span>
-                <strong>{viewCustomer.website || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Website</span>
+                <strong style={{ color: '#0F172A', overflowWrap: 'anywhere' }}>{viewCustomer.website || '-'}</strong>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Full Address</span>
-                <strong>{viewCustomer.address || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Full Address</span>
+                <strong style={{ color: '#0F172A', overflowWrap: 'break-word' }}>{viewCustomer.address || '-'}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Collected By</span>
-                <strong>{viewCustomer.collectedByName}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Collected By</span>
+                <strong style={{ color: '#0F172A' }}>{viewCustomer.collectedByName}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Collected Date</span>
-                <strong>{formatDateDDMMYYYY(viewCustomer.collectedDate) || viewCustomer.collectedDate || '-'}</strong>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '2px' }}>Collected Date</span>
+                <strong style={{ color: '#0F172A' }}>{formatDateDDMMYYYY(viewCustomer.collectedDate) || viewCustomer.collectedDate || '-'}</strong>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>WhatsApp Consent</span>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '4px' }}>WhatsApp Consent</span>
                 {renderConsentBadge(viewCustomer.consentStatus)}
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>Last Message Status</span>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginBottom: '4px' }}>Last Message Status</span>
                 {renderMessageStatusBadge(viewCustomer.lastMessageStatus)}
               </div>
             </div>
 
             <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
+                type="button"
                 onClick={() => setViewCustomer(null)}
                 style={{
-                  padding: '9px 18px',
+                  minHeight: '42px',
+                  padding: '0 20px',
                   borderRadius: '10px',
                   border: '1px solid #CBD5E1',
                   backgroundColor: '#FFFFFF',
@@ -1004,119 +1117,142 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
 
       {/* Edit Customer Modal */}
       {editCustomer && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '16px'
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '20px',
-            width: '100%',
-            maxWidth: '640px',
-            padding: '28px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1E293B' }}>
-                Edit Customer Info ({editCustomer.customerId})
+        <div
+          className="modal-overlay"
+          onClick={() => setEditCustomer(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              width: '100%',
+              maxWidth: '600px',
+              padding: '24px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              border: '1px solid #E7ECF3'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', gap: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#1E293B' }}>
+                Edit Customer ({editCustomer.customerId})
               </h3>
               <button
+                type="button"
                 onClick={() => setEditCustomer(null)}
-                style={{ border: 'none', background: 'transparent', color: '#94A3B8', cursor: 'pointer' }}
+                aria-label="Close"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  color: '#64748B',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="customer-modal-detail-grid">
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                   Customer Name *
                 </label>
                 <input
                   type="text"
                   value={editName}
                   onChange={e => setEditName(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                  style={{ width: '100%', minHeight: '44px', padding: '8px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.88rem', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                   Company Name
                 </label>
                 <input
                   type="text"
                   value={editCompany}
                   onChange={e => setEditCompany(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                  style={{ width: '100%', minHeight: '44px', padding: '8px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.88rem', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                   Designation
                 </label>
                 <input
                   type="text"
                   value={editDesignation}
                   onChange={e => setEditDesignation(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                  style={{ width: '100%', minHeight: '44px', padding: '8px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.88rem', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                   Contact Number *
                 </label>
                 <input
-                  type="text"
+                  type="tel"
+                  inputMode="tel"
                   value={editPhone}
                   onChange={e => setEditPhone(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                  style={{ width: '100%', minHeight: '44px', padding: '8px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.88rem', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                   Email Address
                 </label>
                 <input
                   type="email"
                   value={editEmail}
                   onChange={e => setEditEmail(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                  style={{ width: '100%', minHeight: '44px', padding: '8px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.88rem', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                   Full Address
                 </label>
                 <input
                   type="text"
                   value={editAddress}
                   onChange={e => setEditAddress(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                  style={{ width: '100%', minHeight: '44px', padding: '8px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.88rem', boxSizing: 'border-box' }}
                 />
               </div>
             </div>
 
             <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
+                type="button"
                 onClick={() => setEditCustomer(null)}
                 style={{
-                  padding: '9px 18px',
+                  minHeight: '44px',
+                  padding: '0 18px',
                   borderRadius: '10px',
                   border: '1px solid #CBD5E1',
                   backgroundColor: '#FFFFFF',
@@ -1128,10 +1264,12 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleSaveEdit}
                 disabled={savingEdit}
                 style={{
-                  padding: '9px 20px',
+                  minHeight: '44px',
+                  padding: '0 22px',
                   borderRadius: '10px',
                   border: 'none',
                   backgroundColor: '#0E7490',
@@ -1149,54 +1287,62 @@ export const CustomerRecordsView: React.FC<CustomerRecordsViewProps> = ({
 
       {/* Visiting Card Image Preview Modal */}
       {cardModalUrl && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.75)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10000,
-          padding: '16px'
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '20px',
-            padding: '20px',
-            maxWidth: '600px',
-            width: '100%',
-            position: 'relative',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
-          }}>
-            <button
-              onClick={() => setCardModalUrl(null)}
-              style={{
-                position: 'absolute',
-                top: '14px',
-                right: '14px',
-                border: 'none',
-                background: '#F1F5F9',
-                borderRadius: '50%',
-                padding: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <X size={18} />
-            </button>
-            <h4 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 600, color: '#1E293B' }}>
-              Original Visiting Card Image
-            </h4>
+        <div
+          className="modal-overlay"
+          onClick={() => setCardModalUrl(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.78)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              padding: '20px',
+              maxWidth: '600px',
+              width: '100%',
+              position: 'relative',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#1E293B' }}>
+                Visiting Card Preview
+              </h4>
+              <button
+                type="button"
+                onClick={() => setCardModalUrl(null)}
+                aria-label="Close card preview"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  border: '1px solid #E2E8F0',
+                  background: '#F8FAFC',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#64748B'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
             <img
               src={cardModalUrl}
               alt="Visiting Card"
-              style={{ width: '100%', borderRadius: '12px', display: 'block', objectFit: 'contain', maxHeight: '70vh' }}
+              style={{ width: '100%', borderRadius: '12px', display: 'block', objectFit: 'contain', maxHeight: '72vh', backgroundColor: '#F8FAFC' }}
             />
           </div>
         </div>

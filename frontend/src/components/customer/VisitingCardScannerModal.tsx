@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import {
   Camera,
   Upload,
@@ -11,10 +12,9 @@ import {
   AlertTriangle,
   Zap,
   Maximize2,
-  ZoomIn,
-  Sliders,
   ShieldCheck,
-  Info
+  Image as ImageIcon,
+  ChevronLeft
 } from 'lucide-react';
 import {
   CardCorners,
@@ -65,6 +65,19 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
       setCameraError(null);
     }
   }, [isOpen, initialMode, initialStep]);
+
+  // Lock browser body scroll while full-screen scanner is open; restore on close
+  useEffect(() => {
+    if (!isOpen || typeof document === 'undefined') return;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, [isOpen]);
 
   // Camera states (Detect if device is truly mobile - on desktop/laptop default to 'user' webcam)
   const isMobile = typeof navigator !== 'undefined' && (
@@ -133,7 +146,7 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
   const [loupeVisible, setLoupeVisible] = useState<boolean>(false);
 
   // Cropped Preview states
-  const [croppedCanvas, setCroppedCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [, setCroppedCanvas] = useState<HTMLCanvasElement | null>(null);
   const [croppedBase64, setCroppedBase64] = useState<string | null>(null);
   const [qualityReport, setQualityReport] = useState<ImageQualityReport | null>(null);
 
@@ -199,13 +212,13 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
           { video: { facingMode: { exact: facing }, width: { ideal: 3840 }, height: { ideal: 2160 } } },
           // 2. Exact facing mode with full HD
           { video: { facingMode: { exact: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
-          // 2. Ideal facing mode with high resolution
+          // 3. Ideal facing mode with high resolution
           { video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
-          // 3. Ideal facing mode with standard resolution
+          // 4. Ideal facing mode with standard resolution
           { video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-          // 4. Loose facing
+          // 5. Loose facing
           { video: { facingMode: facing } },
-          // 5. Basic video fallback
+          // 6. Basic video fallback
           { video: true }
         ];
 
@@ -312,11 +325,11 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
 
       let errMsg = 'Could not start video source. Camera may be busy or permissions not granted.';
       if (isNotAllowed) {
-        errMsg = 'Camera permission was denied. Please allow camera access in your browser address bar.';
+        errMsg = 'Camera permission was denied. Please allow camera access in your browser address bar or upload an image from your gallery.';
       } else if (isNotFound) {
-        errMsg = 'No camera found on your computer or device. Please attach a camera or use "Upload Image" instead.';
+        errMsg = 'No camera found on your device. Please attach a camera or choose a photo from your gallery.';
       } else if (isNotReadable) {
-        errMsg = 'Camera is currently locked by another application (Microsoft Teams, Windows Camera, or another browser window). Close other camera apps, select another camera in the dropdown, or choose a photo file.';
+        errMsg = 'Camera is currently in use by another application. Close other camera apps or choose a photo from your gallery.';
       } else if (err.message) {
         errMsg = err.message;
       }
@@ -426,24 +439,19 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
   };
 
   const toggleCameraFacing = async () => {
-    // Determine actual current facing from active stream track if possible
     const track = streamRef.current?.getVideoTracks()[0];
     const settings: any = track?.getSettings?.() || {};
     const currentTrackFacing = settings.facingMode as 'environment' | 'user' | undefined;
     const currentFacing = currentTrackFacing || cameraFacingRef.current;
     const nextFacing: 'environment' | 'user' = currentFacing === 'environment' ? 'user' : 'environment';
 
-    // Clear pinned deviceId to prevent overriding the facingMode on mobile
     selectedDeviceIdRef.current = '';
     setSelectedDeviceId('');
     setCameraFacing(nextFacing);
     cameraFacingRef.current = nextFacing;
 
-    // Fully stop current tracks so hardware lock is released on iOS Safari
     stopCamera();
     await new Promise(r => setTimeout(r, 120));
-
-    // Start with the toggled facing
     await startCamera(undefined, nextFacing);
   };
 
@@ -454,7 +462,6 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     if (isFinishingRef.current) return;
     isFinishingRef.current = true;
     try {
-      // Whole frame, EXIF-upright, <= 2000px: fastest upload and nothing can be cropped away
       const prepared = await prepareImageForOcr(source);
       const report = analyzeImageQuality(prepared.canvas);
       stopCamera();
@@ -566,11 +573,9 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     const imgEl = cropImageRef.current;
     const rect = imgEl.getBoundingClientRect();
 
-    // Clamp pointer to image bounds on screen
     const clampedX = Math.max(0, Math.min(rect.width, clientX - rect.left));
     const clampedY = Math.max(0, Math.min(rect.height, clientY - rect.top));
 
-    // Convert screen coordinates to natural image pixel coordinates
     const scaleX = imageNaturalSize.width / rect.width;
     const scaleY = imageNaturalSize.height / rect.height;
 
@@ -580,22 +585,18 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     setCorners(prev => (prev ? { ...prev, [cornerKey]: { x: natX, y: natY } } : null));
     setLoupePoint({ x: clampedX, y: clampedY });
 
-    // Render 2.2x Magnifying Loupe
     if (loupeCanvasRef.current && cropImageRef.current) {
       const lCanvas = loupeCanvasRef.current;
       const lCtx = lCanvas.getContext('2d');
       if (lCtx) {
         lCtx.clearRect(0, 0, lCanvas.width, lCanvas.height);
-        const zoom = 2.2;
-        const cropBox = 60; // Natural pixels around handle
+        const cropBox = 60;
 
         lCtx.save();
-        // Circular clipping
         lCtx.beginPath();
         lCtx.arc(lCanvas.width / 2, lCanvas.height / 2, lCanvas.width / 2, 0, Math.PI * 2);
         lCtx.clip();
 
-        // Draw zoomed region from source image
         lCtx.drawImage(
           cropImageRef.current,
           natX - cropBox / 2,
@@ -608,7 +609,6 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
           lCanvas.height
         );
 
-        // Reticle / Crosshair in brand teal
         lCtx.strokeStyle = '#0E7490';
         lCtx.lineWidth = 2;
         lCtx.beginPath();
@@ -639,7 +639,6 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     setOriginalImageBase64(newBase64);
     setImageNaturalSize({ width: rotated.width, height: rotated.height });
 
-    // Reset corners to new bounds
     const detected = detectCardCorners(rotated, rotated.width, rotated.height);
     setCorners(detected);
   };
@@ -668,15 +667,12 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
     if (!originalImageBase64 || !corners) return;
     const img = await loadImage(originalImageBase64);
 
-    // Unwarp perspective
     const warped = warpPerspective(img, corners);
     setCroppedCanvas(warped);
 
-    // High quality JPEG compressed to ~150KB for fast 1-2s Gemini OCR transfer
     const dataUrl = warped.toDataURL('image/jpeg', 0.85);
     setCroppedBase64(dataUrl);
 
-    // Run quality analyzer
     const report = analyzeImageQuality(warped);
     setQualityReport(report);
 
@@ -710,449 +706,721 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
 
   if (!isOpen) return null;
 
-  return (
+  const isLiveCameraFullscreen = step === 'capture' && captureTab === 'camera';
+
+  const scannerContent = (
     <div
+      className="visiting-card-scanner-fullscreen-root"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Scan Visiting Card"
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 9999,
-        backgroundColor: 'rgba(15, 23, 42, 0.85)',
-        backdropFilter: 'blur(8px)',
+        width: '100vw',
+        height: '100dvh',
+        minHeight: '-webkit-fill-available',
+        zIndex: 999999,
+        backgroundColor: '#000000',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        animation: 'fadeIn 0.2s ease-out'
+        flexDirection: 'column',
+        overflow: 'hidden',
+        userSelect: 'none',
+        WebkitUserSelect: 'none'
       }}
     >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: '920px',
-          maxHeight: '92vh',
-          backgroundColor: '#FFFFFF',
-          borderRadius: '20px',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          border: '1px solid #E2E8F0'
-        }}
-      >
-        {/* Header */}
+      {/* Shared Hidden File Input for Gallery / File Selection */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+
+      {/* ====================================================================
+          MODE A: FULL-VIEWPORT NATIVE CAMERA SCANNER
+          ==================================================================== */}
+      {isLiveCameraFullscreen ? (
         <div
           style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            flex: 1,
             display: 'flex',
-            alignItems: 'center',
+            flexDirection: 'column',
             justifyContent: 'space-between',
-            padding: '18px 24px',
-            borderBottom: '1px solid #E2E8F0',
-            backgroundColor: '#F8FAFC'
+            overflow: 'hidden',
+            backgroundColor: '#000000'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
+          {/* Full-Bleed Live Camera Feed */}
+          {!cameraError && (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
               style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                backgroundColor: '#ECFEFF',
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                zIndex: 1,
+                backgroundColor: '#000000'
+              }}
+            />
+          )}
+
+          {/* Subtle Business Card Alignment Frame Overlay */}
+          {!cameraError && (
+            <div
+              className="scanner-viewfinder-layer"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 5,
+                pointerEvents: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '76px 20px 136px 20px',
+                boxSizing: 'border-box'
+              }}
+            >
+              <div
+                className="scanner-card-guide-frame"
+                style={{
+                  width: 'min(86vw, 460px)',
+                  aspectRatio: '1.586 / 1',
+                  maxHeight: '46dvh',
+                  borderRadius: '18px',
+                  border: '1.5px solid rgba(255, 255, 255, 0.38)',
+                  boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.48)',
+                  position: 'relative',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {/* Top-Left Corner Bracket */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '-2px',
+                    left: '-2px',
+                    width: '28px',
+                    height: '28px',
+                    borderTop: '3.5px solid #22D3EE',
+                    borderLeft: '3.5px solid #22D3EE',
+                    borderTopLeftRadius: '18px'
+                  }}
+                />
+                {/* Top-Right Corner Bracket */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '-2px',
+                    right: '-2px',
+                    width: '28px',
+                    height: '28px',
+                    borderTop: '3.5px solid #22D3EE',
+                    borderRight: '3.5px solid #22D3EE',
+                    borderTopRightRadius: '18px'
+                  }}
+                />
+                {/* Bottom-Left Corner Bracket */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '-2px',
+                    left: '-2px',
+                    width: '28px',
+                    height: '28px',
+                    borderBottom: '3.5px solid #22D3EE',
+                    borderLeft: '3.5px solid #22D3EE',
+                    borderBottomLeftRadius: '18px'
+                  }}
+                />
+                {/* Bottom-Right Corner Bracket */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '-2px',
+                    right: '-2px',
+                    width: '28px',
+                    height: '28px',
+                    borderBottom: '3.5px solid #22D3EE',
+                    borderRight: '3.5px solid #22D3EE',
+                    borderBottomRightRadius: '18px'
+                  }}
+                />
+              </div>
+
+              {/* Instruction Pill */}
+              <div
+                style={{
+                  marginTop: '20px',
+                  padding: '8px 18px',
+                  borderRadius: '9999px',
+                  backgroundColor: 'rgba(15, 23, 42, 0.76)',
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.14)',
+                  color: '#F8FAFC',
+                  fontSize: '0.82rem',
+                  fontWeight: 500,
+                  letterSpacing: '0.01em',
+                  textAlign: 'center',
+                  maxWidth: '90vw'
+                }}
+              >
+                Place the visiting card within the frame
+              </div>
+            </div>
+          )}
+
+          {/* Top Overlay Bar: Close (Left), Title & Desktop Camera Selector (Center), Flip Camera (Right) */}
+          <div
+            style={{
+              position: 'relative',
+              zIndex: 20,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              paddingTop: 'calc(14px + env(safe-area-inset-top, 0px))',
+              paddingBottom: '16px',
+              paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(16px, env(safe-area-inset-right, 0px))',
+              background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0) 100%)'
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleModalClose}
+              aria-label="Close scanner"
+              title="Close"
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '9999px',
+                backgroundColor: 'rgba(255, 255, 255, 0.14)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
+                color: '#FFFFFF',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#0E7490'
+                cursor: 'pointer',
+                flexShrink: 0
               }}
             >
-              <Camera size={20} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A', margin: 0 }}>
-                {step === 'capture' && 'Capture Visiting Card'}
-                {step === 'crop' && 'Adjust Card Boundaries & Perspective'}
-                {step === 'preview' && 'Review Cropped Card Before AI Scan'}
-              </h2>
-              <p style={{ fontSize: '13px', color: '#64748B', margin: '2px 0 0 0' }}>
-                {step === 'capture' && 'High-resolution document capture with automatic boundary detection'}
-                {step === 'crop' && 'Drag corner pins to align edges and correct optical skew'}
-                {step === 'preview' && 'Inspect straightened card and image quality assessment'}
-              </p>
-            </div>
-          </div>
+              <X size={20} />
+            </button>
 
-          <button
-            onClick={handleModalClose}
-            style={{
-              padding: '8px',
-              borderRadius: '10px',
-              border: 'none',
-              backgroundColor: '#F1F5F9',
-              color: '#64748B',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background-color 0.15s'
-            }}
-            title="Close"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', backgroundColor: '#F8FAFC' }}>
-          {/* STEP 1: CAPTURE / UPLOAD */}
-          {step === 'capture' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Tab Selector */}
-              <div
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+              <span
                 style={{
-                  display: 'flex',
-                  alignSelf: 'center',
-                  backgroundColor: '#E2E8F0',
-                  padding: '4px',
-                  borderRadius: '12px',
-                  gap: '4px'
+                  color: '#FFFFFF',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  letterSpacing: '-0.01em',
+                  textShadow: '0 1px 3px rgba(0, 0, 0, 0.4)'
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => setCaptureTab('camera')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 20px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    backgroundColor: captureTab === 'camera' ? '#FFFFFF' : 'transparent',
-                    color: captureTab === 'camera' ? '#0E7490' : '#64748B',
-                    boxShadow: captureTab === 'camera' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                    transition: 'all 0.15s'
-                  }}
-                >
-                  <Camera size={16} /> Live Camera
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCaptureTab('upload')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 20px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    backgroundColor: captureTab === 'upload' ? '#FFFFFF' : 'transparent',
-                    color: captureTab === 'upload' ? '#0E7490' : '#64748B',
-                    boxShadow: captureTab === 'upload' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                    transition: 'all 0.15s'
-                  }}
-                >
-                  <Upload size={16} /> Upload Image
-                </button>
-              </div>
+                Scan Visiting Card
+              </span>
 
-              {/* Camera View */}
-              {captureTab === 'camera' && (
+              {!isMobile && videoDevices.length > 1 && (
+                <select
+                  value={selectedDeviceId}
+                  onChange={e => {
+                    const newDevId = e.target.value;
+                    setSelectedDeviceId(newDevId);
+                    selectedDeviceIdRef.current = newDevId;
+                    startCamera(newDevId);
+                  }}
+                  aria-label="Select camera device"
+                  style={{
+                    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+                    color: '#F8FAFC',
+                    border: '1px solid rgba(255, 255, 255, 0.22)',
+                    padding: '4px 10px',
+                    borderRadius: '9999px',
+                    fontSize: '0.75rem',
+                    fontWeight: 500,
+                    maxWidth: '220px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {videoDevices.map((d, i) => (
+                    <option key={d.deviceId || i} value={d.deviceId}>
+                      {d.label || `Camera ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleCameraFacing}
+              aria-label="Switch camera"
+              title="Switch Camera"
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '9999px',
+                backgroundColor: 'rgba(255, 255, 255, 0.14)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0
+              }}
+            >
+              <RefreshCw size={19} />
+            </button>
+          </div>
+
+          {/* Camera Error / Permission Denied Fallback inside Fullscreen Layer */}
+          {cameraError && (
+            <div
+              style={{
+                position: 'relative',
+                zIndex: 15,
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px',
+                overflowY: 'auto'
+              }}
+            >
+              <div
+                style={{
+                  width: '100%',
+                  maxWidth: '420px',
+                  backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                  backdropFilter: 'blur(16px)',
+                  WebkitBackdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(255, 255, 255, 0.14)',
+                  borderRadius: '20px',
+                  padding: '24px 20px',
+                  textAlign: 'center',
+                  color: '#F8FAFC'
+                }}
+              >
                 <div
                   style={{
-                    position: 'relative',
-                    width: '100%',
-                    height: '460px',
-                    backgroundColor: '#0F172A',
-                    borderRadius: '16px',
-                    overflow: 'hidden',
+                    width: '52px',
+                    height: '52px',
+                    borderRadius: '9999px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.16)',
+                    color: '#F87171',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
+                    margin: '0 auto 14px auto'
                   }}
                 >
-                  {cameraError ? (
-                    <div style={{ textAlign: 'center', padding: '24px 20px', color: '#F87171', maxWidth: '540px', margin: '0 auto' }}>
-                      <AlertTriangle size={44} style={{ margin: '0 auto 10px auto' }} />
-                      <p style={{ fontWeight: 700, fontSize: '16px', marginBottom: '8px', color: '#FCA5A5' }}>
-                        Camera Inaccessible
-                      </p>
-                      <p style={{ fontSize: '13px', color: '#E2E8F0', marginBottom: '14px', lineHeight: '1.5' }}>
-                        {cameraError}
-                      </p>
-
-                      {videoDevices.length > 1 && (
-                        <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '12px', color: '#94A3B8' }}>Select Camera:</span>
-                          <select
-                            value={selectedDeviceId}
-                            onChange={(e) => {
-                              const newDevId = e.target.value;
-                              setSelectedDeviceId(newDevId);
-                              selectedDeviceIdRef.current = newDevId;
-                              startCamera(newDevId);
-                            }}
-                            style={{
-                              backgroundColor: '#1E293B',
-                              color: '#F8FAFC',
-                              border: '1px solid #475569',
-                              padding: '6px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {videoDevices.map((d, i) => (
-                              <option key={d.deviceId || i} value={d.deviceId}>
-                                {d.label || `Camera ${i + 1}`}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
-                        <button
-                          type="button"
-                          onClick={() => startCamera()}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '9px 18px',
-                            backgroundColor: '#0E7490',
-                            color: '#FFFFFF',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                            fontSize: '13px',
-                            boxShadow: '0 2px 4px rgba(14, 116, 144, 0.3)'
-                          }}
-                        >
-                          <RefreshCw size={15} /> Retry Camera
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCaptureTab('upload');
-                            setTimeout(() => {
-                              fileInputRef.current?.click();
-                            }, 60);
-                          }}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '9px 18px',
-                            backgroundColor: '#334155',
-                            color: '#F1F5F9',
-                            border: '1px solid #475569',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                            fontSize: '13px'
-                          }}
-                        >
-                          <Upload size={15} /> Choose Photo File
-                        </button>
-                      </div>
-
-                      {/* Quick Windows Troubleshooting Card */}
-                      <div style={{
-                        backgroundColor: 'rgba(30, 41, 59, 0.85)',
-                        border: '1px solid rgba(71, 85, 105, 0.5)',
-                        borderRadius: '10px',
-                        padding: '12px 16px',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                        color: '#CBD5E1',
-                        lineHeight: 1.6
-                      }}>
-                        <div style={{ fontWeight: 600, color: '#38BDF8', marginBottom: '4px' }}>
-                          🔧 How to fix on Windows:
-                        </div>
-                        <ul style={{ margin: 0, paddingLeft: '18px' }}>
-                          <li><strong>Windows Settings:</strong> Open <em>Settings &gt; Privacy &amp; security &gt; Camera</em> &rarr; Turn <strong>ON</strong> "Let desktop apps access your camera".</li>
-                          <li><strong>Close other apps:</strong> Ensure Teams, Zoom, Skype, or Windows Camera app aren't using the webcam.</li>
-                          <li><strong>Camera slider:</strong> Check if your laptop has a physical privacy slider closed over the lens.</li>
-                        </ul>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover'
-                        }}
-                      />
-
-                      {/* Apple Document Scanner Card Viewfinder Guide */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          pointerEvents: 'none',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {/* Shaded backdrop cutout */}
-                        <div
-                          style={{
-                            width: '84%',
-                            maxWidth: '540px',
-                            height: '310px',
-                            borderRadius: '16px',
-                            border: '2px solid rgba(14, 116, 144, 0.8)',
-                            boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.55)',
-                            position: 'relative'
-                          }}
-                        >
-                          {/* Corner brackets */}
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '-2px',
-                              left: '-2px',
-                              width: '24px',
-                              height: '24px',
-                              borderTop: '4px solid #06B6D4',
-                              borderLeft: '4px solid #06B6D4',
-                              borderTopLeftRadius: '16px'
-                            }}
-                          />
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '-2px',
-                              right: '-2px',
-                              width: '24px',
-                              height: '24px',
-                              borderTop: '4px solid #06B6D4',
-                              borderRight: '4px solid #06B6D4',
-                              borderTopRightRadius: '16px'
-                            }}
-                          />
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: '-2px',
-                              left: '-2px',
-                              width: '24px',
-                              height: '24px',
-                              borderBottom: '4px solid #06B6D4',
-                              borderLeft: '4px solid #06B6D4',
-                              borderBottomLeftRadius: '16px'
-                            }}
-                          />
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: '-2px',
-                              right: '-2px',
-                              width: '24px',
-                              height: '24px',
-                              borderBottom: '4px solid #06B6D4',
-                              borderRight: '4px solid #06B6D4',
-                              borderBottomRightRadius: '16px'
-                            }}
-                          />
-
-
-                        </div>
-                      </div>
-
-                      {/* Top Camera Controls */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '16px',
-                          right: '16px',
-                          display: 'flex',
-                          gap: '10px'
-                        }}
-                      >
-                        {hasTorch && (
-                          <button
-                            type="button"
-                            onClick={toggleTorch}
-                            style={{
-                              width: '40px',
-                              height: '40px',
-                              borderRadius: '9999px',
-                              backgroundColor: torchOn ? '#F59E0B' : 'rgba(15, 23, 42, 0.75)',
-                              color: '#FFFFFF',
-                              border: 'none',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backdropFilter: 'blur(4px)'
-                            }}
-                            title="Toggle Torch"
-                          >
-                            <Zap size={18} />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={toggleCameraFacing}
-                          style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '9999px',
-                            backgroundColor: 'rgba(15, 23, 42, 0.75)',
-                            color: '#FFFFFF',
-                            border: 'none',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backdropFilter: 'blur(4px)'
-                          }}
-                          title="Flip Camera"
-                        >
-                          <RefreshCw size={18} />
-                        </button>
-                      </div>
-
-
-                    </>
-                  )}
+                  <AlertTriangle size={26} />
                 </div>
-              )}
 
-              {/* File Upload View */}
-              {captureTab === 'upload' && (
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '1.05rem', fontWeight: 700, color: '#FFFFFF' }}>
+                  Camera Unavailable
+                </h3>
+                <p style={{ margin: '0 0 18px 0', fontSize: '0.84rem', color: '#CBD5E1', lineHeight: 1.5 }}>
+                  {cameraError}
+                </p>
+
+                {videoDevices.length > 1 && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <select
+                      value={selectedDeviceId}
+                      onChange={e => {
+                        const newDevId = e.target.value;
+                        setSelectedDeviceId(newDevId);
+                        selectedDeviceIdRef.current = newDevId;
+                        startCamera(newDevId);
+                      }}
+                      style={{
+                        width: '100%',
+                        minHeight: '42px',
+                        backgroundColor: '#1E293B',
+                        color: '#F8FAFC',
+                        border: '1px solid #475569',
+                        padding: '8px 12px',
+                        borderRadius: '10px',
+                        fontSize: '0.84rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {videoDevices.map((d, i) => (
+                        <option key={d.deviceId || i} value={d.deviceId}>
+                          {d.label || `Camera ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      width: '100%',
+                      minHeight: '46px',
+                      borderRadius: '12px',
+                      backgroundColor: '#0E7490',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Upload size={17} /> Upload Photo from Gallery
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => startCamera()}
+                    style={{
+                      width: '100%',
+                      minHeight: '44px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                      color: '#F8FAFC',
+                      border: '1px solid rgba(255, 255, 255, 0.18)',
+                      fontSize: '0.86rem',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <RefreshCw size={15} /> Retry Camera
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Controls Bar: Gallery (Left), Large Shutter Button (Center), Flash / Cancel (Right) */}
+          <div
+            style={{
+              position: 'relative',
+              zIndex: 20,
+              paddingTop: '18px',
+              paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+              paddingLeft: 'max(24px, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(24px, env(safe-area-inset-right, 0px))',
+              background: 'linear-gradient(0deg, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0) 100%)'
+            }}
+          >
+            <div
+              style={{
+                maxWidth: '420px',
+                margin: '0 auto',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto 1fr',
+                alignItems: 'center',
+                justifyItems: 'center'
+              }}
+            >
+              {/* Left: Gallery / Upload Image */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  padding: '4px 10px'
+                }}
+                title="Choose Photo from Gallery"
+              >
+                <span
+                  style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '9999px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                    backdropFilter: 'blur(10px)',
+                    WebkitBackdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255, 255, 255, 0.22)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <ImageIcon size={20} />
+                </span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#E2E8F0' }}>
+                  Gallery
+                </span>
+              </button>
+
+              {/* Center: Large Native Shutter Control */}
+              <button
+                type="button"
+                onClick={handleCapturePhoto}
+                disabled={!cameraActive}
+                aria-label="Capture visiting card photo"
+                title="Capture Photo"
+                style={{
+                  width: '76px',
+                  height: '76px',
+                  borderRadius: '9999px',
+                  border: '4px solid #FFFFFF',
+                  backgroundColor: 'transparent',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: cameraActive ? 'pointer' : 'not-allowed',
+                  opacity: cameraActive ? 1 : 0.45,
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.35)',
+                  transition: 'transform 0.12s ease, opacity 0.15s ease'
+                }}
+              >
+                <span
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '9999px',
+                    backgroundColor: '#FFFFFF',
+                    display: 'block'
+                  }}
+                />
+              </button>
+
+              {/* Right: Flash / Torch (when supported) or Cancel / Upload Fallback */}
+              {hasTorch ? (
+                <button
+                  type="button"
+                  onClick={toggleTorch}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    padding: '4px 10px'
+                  }}
+                  title="Toggle Flash"
+                >
+                  <span
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '9999px',
+                      backgroundColor: torchOn ? '#F59E0B' : 'rgba(255, 255, 255, 0.15)',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 255, 255, 0.22)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Zap size={20} />
+                  </span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#E2E8F0' }}>
+                    {torchOn ? 'Flash On' : 'Flash'}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleModalClose}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    padding: '4px 10px'
+                  }}
+                  title="Cancel"
+                >
+                  <span
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '9999px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 255, 255, 0.22)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <X size={20} />
+                  </span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#E2E8F0' }}>
+                    Cancel
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ====================================================================
+           MODE B: UPLOAD / CROP / PREVIEW FULL-VIEWPORT SHEET
+           ==================================================================== */
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: '#F8FAFC',
+            color: '#0F172A',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Clean Top App Bar */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))',
+              paddingBottom: '12px',
+              paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(16px, env(safe-area-inset-right, 0px))',
+              backgroundColor: '#FFFFFF',
+              borderBottom: '1px solid #E2E8F0',
+              flexShrink: 0
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                if (step === 'preview') {
+                  setStep('crop');
+                } else if (step === 'crop') {
+                  handleRetake();
+                } else {
+                  handleModalClose();
+                }
+              }}
+              style={{
+                minHeight: '40px',
+                padding: '0 10px',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+                backgroundColor: '#FFFFFF',
+                color: '#334155',
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              <ChevronLeft size={17} />
+              <span>{step === 'capture' ? 'Close' : 'Back'}</span>
+            </button>
+
+            <div style={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
+              <h2 style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0F172A', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {step === 'capture' && 'Upload Visiting Card'}
+                {step === 'crop' && 'Adjust Card Boundaries'}
+                {step === 'preview' && 'Review Cropped Card'}
+              </h2>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleModalClose}
+              aria-label="Close"
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+                backgroundColor: '#F8FAFC',
+                color: '#64748B',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Scrollable Body */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '20px max(16px, env(safe-area-inset-right, 0px)) 20px max(16px, env(safe-area-inset-left, 0px))',
+              maxWidth: '880px',
+              width: '100%',
+              margin: '0 auto',
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}
+          >
+            {/* STEP 1 (UPLOAD TAB): FILE DROPZONE OR SWITCH TO CAMERA */}
+            {step === 'capture' && captureTab === 'upload' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, justifyContent: 'center' }}>
                 <div
                   onClick={() => fileInputRef.current?.click()}
                   style={{
                     width: '100%',
-                    height: '380px',
-                    borderRadius: '16px',
-                    border: '2px dashed #CBD5E1',
+                    minHeight: '320px',
+                    borderRadius: '18px',
+                    border: '1.5px dashed #94A3B8',
                     backgroundColor: '#FFFFFF',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    transition: 'all 0.15s ease-in-out',
                     gap: '14px',
-                    padding: '24px',
-                    textAlign: 'center'
+                    padding: '28px 20px',
+                    textAlign: 'center',
+                    boxSizing: 'border-box'
                   }}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => {
@@ -1166,17 +1434,10 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
                     }
                   }}
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    style={{ display: 'none' }}
-                    onChange={handleFileChange}
-                  />
                   <div
                     style={{
-                      width: '64px',
-                      height: '64px',
+                      width: '60px',
+                      height: '60px',
                       borderRadius: '16px',
                       backgroundColor: '#ECFEFF',
                       color: '#0E7490',
@@ -1185,203 +1446,220 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
                       justifyContent: 'center'
                     }}
                   >
-                    <Upload size={30} />
+                    <Upload size={28} />
                   </div>
                   <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0F172A', margin: '0 0 6px 0' }}>
-                      Choose or Drag Visiting Card Image
+                    <h3 style={{ fontSize: '1.02rem', fontWeight: 700, color: '#0F172A', margin: '0 0 6px 0' }}>
+                      Choose or Drag Visiting Card Photo
                     </h3>
-                    <p style={{ fontSize: '13px', color: '#64748B', margin: 0, maxWidth: '340px' }}>
-                      Supports high-resolution JPG, PNG, and WEBP. Original character clarity is preserved without destructive compression.
+                    <p style={{ fontSize: '0.84rem', color: '#64748B', margin: 0, maxWidth: '340px', lineHeight: 1.45 }}>
+                      Supports JPG, PNG, and WEBP. AI OCR automatically extracts contact details.
                     </p>
                   </div>
                   <button
                     type="button"
                     style={{
-                      marginTop: '8px',
-                      padding: '8px 20px',
-                      borderRadius: '10px',
+                      marginTop: '6px',
+                      minHeight: '44px',
+                      padding: '0 22px',
+                      borderRadius: '12px',
                       backgroundColor: '#0E7490',
                       color: '#FFFFFF',
-                      fontSize: '13px',
+                      fontSize: '0.88rem',
                       fontWeight: 600,
                       border: 'none',
                       cursor: 'pointer'
                     }}
                   >
-                    Browse Files
+                    Select Photo
                   </button>
                 </div>
-              )}
-            </div>
-          )}
 
-          {/* STEP 2: ADJUST CORNERS & PERSPECTIVE */}
-          {step === 'crop' && originalImageBase64 && corners && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {/* Instructions & Toolset */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '10px',
-                  backgroundColor: '#FFFFFF',
-                  padding: '12px 18px',
-                  borderRadius: '14px',
-                  border: '1px solid #E2E8F0'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#334155', fontSize: '13px', fontWeight: 600 }}>
-                  <Crop size={16} style={{ color: '#0E7490' }} />
-                  Drag the 4 corner pins onto the card edges. The magnifying loupe shows pixel alignment.
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleRotateImage(-90)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                    title="Rotate Counter-Clockwise"
-                  >
-                    <RotateCcw size={14} /> 90°
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRotateImage(90)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                    title="Rotate Clockwise"
-                  >
-                    <RotateCw size={14} /> 90°
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetCorners}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                    title="Reset to Auto Detected"
-                  >
-                    Auto Detect
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFullImageCorners}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                    title="Select Full Image"
-                  >
-                    <Maximize2 size={14} /> Full Image
-                  </button>
-                </div>
-              </div>
-
-              {/* Interactive Crop Canvas Area */}
-              <div
-                ref={cropContainerRef}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                style={{
-                  position: 'relative',
-                  width: '100%',
-                  height: '460px',
-                  backgroundColor: '#0F172A',
-                  borderRadius: '16px',
-                  overflow: 'hidden',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  userSelect: 'none',
-                  touchAction: 'none'
-                }}
-              >
-                {/* Image */}
-                <img
-                  ref={cropImageRef}
-                  src={originalImageBase64}
-                  alt="Visiting Card Crop"
+                <button
+                  type="button"
+                  onClick={() => setCaptureTab('camera')}
                   style={{
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    objectFit: 'contain',
-                    display: 'block'
+                    minHeight: '46px',
+                    borderRadius: '12px',
+                    border: '1px solid #CBD5E1',
+                    backgroundColor: '#FFFFFF',
+                    color: '#0F172A',
+                    fontSize: '0.88rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
                   }}
-                />
+                >
+                  <Camera size={17} color="#0E7490" /> Switch to Live Camera
+                </button>
+              </div>
+            )}
 
-                {/* SVG Overlay for Quad Boundary Lines & Translucent Mask */}
-                {cropImageRef.current && (
-                  <svg
+            {/* STEP 2: ADJUST CORNERS & PERSPECTIVE */}
+            {step === 'crop' && originalImageBase64 && corners && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    backgroundColor: '#FFFFFF',
+                    padding: '12px 16px',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#334155', fontSize: '0.82rem', fontWeight: 600 }}>
+                    <Crop size={16} style={{ color: '#0E7490', flexShrink: 0 }} />
+                    <span>Drag the 4 corner pins to align card edges</span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleRotateImage(-90)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        minHeight: '36px',
+                        padding: '0 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        backgroundColor: '#FFFFFF',
+                        color: '#475569',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <RotateCcw size={14} /> 90°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRotateImage(90)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        minHeight: '36px',
+                        padding: '0 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        backgroundColor: '#FFFFFF',
+                        color: '#475569',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <RotateCw size={14} /> 90°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetCorners}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        minHeight: '36px',
+                        padding: '0 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        backgroundColor: '#FFFFFF',
+                        color: '#475569',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Auto Detect
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleFullImageCorners}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        minHeight: '36px',
+                        padding: '0 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        backgroundColor: '#FFFFFF',
+                        color: '#475569',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Maximize2 size={14} /> Full Image
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  ref={cropContainerRef}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    flex: 1,
+                    minHeight: '340px',
+                    maxHeight: '62dvh',
+                    backgroundColor: '#0F172A',
+                    borderRadius: '16px',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    userSelect: 'none',
+                    touchAction: 'none'
+                  }}
+                >
+                  <img
+                    ref={cropImageRef}
+                    src={originalImageBase64}
+                    alt="Visiting Card Crop"
                     style={{
-                      position: 'absolute',
-                      top: cropImageRef.current.offsetTop,
-                      left: cropImageRef.current.offsetLeft,
-                      width: cropImageRef.current.clientWidth,
-                      height: cropImageRef.current.clientHeight,
-                      pointerEvents: 'none'
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain',
+                      display: 'block'
                     }}
-                  >
-                    {(() => {
-                      const img = cropImageRef.current;
-                      if (!img) return null;
-                      const sX = img.clientWidth / imageNaturalSize.width;
-                      const sY = img.clientHeight / imageNaturalSize.height;
+                  />
 
-                      const pTL = { x: corners.topLeft.x * sX, y: corners.topLeft.y * sY };
-                      const pTR = { x: corners.topRight.x * sX, y: corners.topRight.y * sY };
-                      const pBR = { x: corners.bottomRight.x * sX, y: corners.bottomRight.y * sY };
-                      const pBL = { x: corners.bottomLeft.x * sX, y: corners.bottomLeft.y * sY };
+                  {cropImageRef.current && (
+                    <svg
+                      style={{
+                        position: 'absolute',
+                        top: cropImageRef.current.offsetTop,
+                        left: cropImageRef.current.offsetLeft,
+                        width: cropImageRef.current.clientWidth,
+                        height: cropImageRef.current.clientHeight,
+                        pointerEvents: 'none'
+                      }}
+                    >
+                      {(() => {
+                        const img = cropImageRef.current;
+                        if (!img) return null;
+                        const sX = img.clientWidth / imageNaturalSize.width;
+                        const sY = img.clientHeight / imageNaturalSize.height;
 
-                      const pointsStr = `${pTL.x},${pTL.y} ${pTR.x},${pTR.y} ${pBR.x},${pBR.y} ${pBL.x},${pBL.y}`;
+                        const pTL = { x: corners.topLeft.x * sX, y: corners.topLeft.y * sY };
+                        const pTR = { x: corners.topRight.x * sX, y: corners.topRight.y * sY };
+                        const pBR = { x: corners.bottomRight.x * sX, y: corners.bottomRight.y * sY };
+                        const pBL = { x: corners.bottomLeft.x * sX, y: corners.bottomLeft.y * sY };
 
-                      return (
-                        <>
-                          {/* Inner Quad Highlight */}
+                        const pointsStr = `${pTL.x},${pTL.y} ${pTR.x},${pTR.y} ${pBR.x},${pBR.y} ${pBL.x},${pBL.y}`;
+
+                        return (
                           <polygon
                             points={pointsStr}
                             fill="rgba(14, 116, 144, 0.16)"
@@ -1389,340 +1667,328 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
                             strokeWidth="2.5"
                             strokeDasharray="4 2"
                           />
-                        </>
-                      );
-                    })()}
-                  </svg>
-                )}
+                        );
+                      })()}
+                    </svg>
+                  )}
 
-                {/* 4 Interactive Draggable Corner Pins */}
-                {cropImageRef.current &&
-                  (['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as (keyof CardCorners)[]).map(key => {
-                    const img = cropImageRef.current;
-                    if (!img) return null;
-                    const sX = img.clientWidth / imageNaturalSize.width;
-                    const sY = img.clientHeight / imageNaturalSize.height;
-                    const pt = corners[key];
-                    const left = img.offsetLeft + pt.x * sX;
-                    const top = img.offsetTop + pt.y * sY;
+                  {cropImageRef.current &&
+                    (['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as (keyof CardCorners)[]).map(key => {
+                      const img = cropImageRef.current;
+                      if (!img) return null;
+                      const sX = img.clientWidth / imageNaturalSize.width;
+                      const sY = img.clientHeight / imageNaturalSize.height;
+                      const pt = corners[key];
+                      const left = img.offsetLeft + pt.x * sX;
+                      const top = img.offsetTop + pt.y * sY;
 
-                    return (
-                      <div
-                        key={key}
-                        onPointerDown={e => handlePointerDown(key, e)}
-                        style={{
-                          position: 'absolute',
-                          left: `${left}px`,
-                          top: `${top}px`,
-                          width: '32px',
-                          height: '32px',
-                          transform: 'translate(-50%, -50%)',
-                          cursor: 'grab',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          zIndex: 20
-                        }}
-                      >
+                      return (
                         <div
+                          key={key}
+                          onPointerDown={e => handlePointerDown(key, e)}
                           style={{
-                            width: '20px',
-                            height: '20px',
-                            borderRadius: '9999px',
-                            backgroundColor: activeCorner === key ? '#06B6D4' : '#0E7490',
-                            border: '3px solid #FFFFFF',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                            transition: 'transform 0.1s, background-color 0.1s'
+                            position: 'absolute',
+                            left: `${left}px`,
+                            top: `${top}px`,
+                            width: '36px',
+                            height: '36px',
+                            transform: 'translate(-50%, -50%)',
+                            cursor: 'grab',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 20
                           }}
-                        />
-                      </div>
-                    );
-                  })}
+                        >
+                          <div
+                            style={{
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '9999px',
+                              backgroundColor: activeCorner === key ? '#06B6D4' : '#0E7490',
+                              border: '3px solid #FFFFFF',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
 
-                {/* Apple Document Scanner Magnifying Loupe Lens */}
-                {loupeVisible && loupePoint && cropImageRef.current && (
+                  {loupeVisible && loupePoint && cropImageRef.current && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${cropImageRef.current.offsetLeft + loupePoint.x}px`,
+                        top: `${cropImageRef.current.offsetTop + loupePoint.y - 75}px`,
+                        transform: 'translate(-50%, -50%)',
+                        width: '84px',
+                        height: '84px',
+                        borderRadius: '9999px',
+                        border: '3px solid #FFFFFF',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+                        overflow: 'hidden',
+                        pointerEvents: 'none',
+                        zIndex: 100,
+                        backgroundColor: '#0F172A'
+                      }}
+                    >
+                      <canvas
+                        ref={loupeCanvasRef}
+                        width={84}
+                        height={84}
+                        style={{ width: '100%', height: '100%', display: 'block' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: PREVIEW BEFORE EXTRACTION */}
+            {step === 'preview' && croppedBase64 && qualityReport && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+                {qualityReport.warnings.length > 0 ? (
                   <div
                     style={{
-                      position: 'absolute',
-                      left: `${cropImageRef.current.offsetLeft + loupePoint.x}px`,
-                      top: `${cropImageRef.current.offsetTop + loupePoint.y - 75}px`,
-                      transform: 'translate(-50%, -50%)',
-                      width: '84px',
-                      height: '84px',
-                      borderRadius: '9999px',
-                      border: '3px solid #FFFFFF',
-                      boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
-                      overflow: 'hidden',
-                      pointerEvents: 'none',
-                      zIndex: 100,
-                      backgroundColor: '#0F172A'
+                      backgroundColor: '#FEF3C7',
+                      border: '1px solid #F59E0B',
+                      borderRadius: '12px',
+                      padding: '12px 16px',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      color: '#92400E'
                     }}
                   >
-                    <canvas
-                      ref={loupeCanvasRef}
-                      width={84}
-                      height={84}
-                      style={{ width: '100%', height: '100%', display: 'block' }}
-                    />
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <h4 style={{ margin: '0 0 4px 0', fontSize: '0.86rem', fontWeight: 700 }}>
+                        Image Quality Notice
+                      </h4>
+                      <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.8rem' }}>
+                        {qualityReport.warnings.map((w, idx) => (
+                          <li key={idx}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      backgroundColor: '#DCFCE7',
+                      border: '1px solid #BBF7D0',
+                      borderRadius: '12px',
+                      padding: '12px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      color: '#166534',
+                      fontSize: '0.84rem',
+                      fontWeight: 600
+                    }}
+                  >
+                    <ShieldCheck size={18} />
+                    <span>Image quality verified ({qualityReport.width}×{qualityReport.height}px)</span>
                   </div>
                 )}
-              </div>
-            </div>
-          )}
 
-          {/* STEP 3: PREVIEW BEFORE EXTRACTION */}
-          {step === 'preview' && croppedBase64 && qualityReport && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Quality Assessment Alerts */}
-              {qualityReport.warnings.length > 0 ? (
                 <div
                   style={{
-                    backgroundColor: '#FEF3C7',
-                    border: '1px solid #F59E0B',
-                    borderRadius: '12px',
-                    padding: '14px 18px',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    color: '#92400E'
-                  }}
-                >
-                  <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <div>
-                    <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 700 }}>
-                      Image Quality Notice ({qualityReport.warnings.length} warning{qualityReport.warnings.length > 1 ? 's' : ''})
-                    </h4>
-                    <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px' }}>
-                      {qualityReport.warnings.map((w, idx) => (
-                        <li key={idx} style={{ marginTop: '2px' }}>
-                          {w}
-                        </li>
-                      ))}
-                    </ul>
-                    <p style={{ margin: '6px 0 0 0', fontSize: '12px', color: '#B45309' }}>
-                      For maximum extraction accuracy, you can retake the photo under even lighting, or proceed to scan anyway.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  style={{
-                    backgroundColor: '#DCFCE7',
-                    border: '1px solid #22C55E',
-                    borderRadius: '12px',
-                    padding: '12px 18px',
+                    width: '100%',
+                    flex: 1,
+                    minHeight: '300px',
+                    maxHeight: '60dvh',
+                    backgroundColor: '#0F172A',
+                    borderRadius: '16px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '10px',
-                    color: '#166534',
-                    fontSize: '13px',
-                    fontWeight: 600
+                    justifyContent: 'center',
+                    padding: '16px',
+                    overflow: 'hidden',
+                    boxSizing: 'border-box'
                   }}
                 >
-                  <ShieldCheck size={18} />
-                  Image quality verified: Sharp contrast, clear text, and glare-free ({qualityReport.width}×{qualityReport.height}px).
+                  <img
+                    src={croppedBase64}
+                    alt="Straightened Visiting Card"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain',
+                      borderRadius: '8px'
+                    }}
+                  />
                 </div>
-              )}
-
-              {/* Preview Card Display */}
-              <div
-                style={{
-                  width: '100%',
-                  height: '400px',
-                  backgroundColor: '#0F172A',
-                  borderRadius: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '16px',
-                  overflow: 'hidden'
-                }}
-              >
-                <img
-                  src={croppedBase64}
-                  alt="Straightened Visiting Card"
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    objectFit: 'contain',
-                    borderRadius: '8px',
-                    boxShadow: '0 8px 30px rgba(0,0,0,0.3)'
-                  }}
-                />
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Footer Actions */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '16px 24px',
-            borderTop: '1px solid #E2E8F0',
-            backgroundColor: '#FFFFFF'
-          }}
-        >
-          {step === 'capture' && (
-            <>
+          {/* Sticky Bottom Action Bar for Upload / Crop / Preview */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              paddingTop: '14px',
+              paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
+              paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(16px, env(safe-area-inset-right, 0px))',
+              borderTop: '1px solid #E2E8F0',
+              backgroundColor: '#FFFFFF',
+              flexShrink: 0
+            }}
+          >
+            {step === 'capture' && (
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleModalClose}
                 style={{
-                  padding: '10px 20px',
+                  minHeight: '44px',
+                  padding: '0 20px',
                   borderRadius: '12px',
                   border: '1px solid #CBD5E1',
                   backgroundColor: '#FFFFFF',
                   color: '#475569',
-                  fontSize: '14px',
+                  fontSize: '0.88rem',
                   fontWeight: 600,
                   cursor: 'pointer'
                 }}
               >
                 Cancel
               </button>
+            )}
 
-              <div style={{ display: 'flex', gap: '10px' }}>
-                {captureTab === 'camera' && (
-                  <button
-                    type="button"
-                    onClick={handleCapturePhoto}
-                    disabled={!cameraActive}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 24px',
-                      borderRadius: '12px',
-                      backgroundColor: cameraActive ? '#0E7490' : '#94A3B8',
-                      color: '#FFFFFF',
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      border: 'none',
-                      cursor: cameraActive ? 'pointer' : 'not-allowed'
-                    }}
-                  >
-                    <Camera size={16} /> Snap Photo
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-
-          {step === 'crop' && (
-            <>
-              <button
-                type="button"
-                onClick={handleRetake}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '10px 18px',
-                  borderRadius: '12px',
-                  border: '1px solid #CBD5E1',
-                  backgroundColor: '#FFFFFF',
-                  color: '#475569',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                <RefreshCw size={15} /> Retake
-              </button>
-
-              <button
-                type="button"
-                onClick={handleApplyCrop}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 26px',
-                  borderRadius: '12px',
-                  backgroundColor: '#0E7490',
-                  color: '#FFFFFF',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 4px rgba(14, 116, 144, 0.2)'
-                }}
-              >
-                Crop & Straighten Card <Check size={16} />
-              </button>
-            </>
-          )}
-
-          {step === 'preview' && (
-            <>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => setStep('crop')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '10px 18px',
-                    borderRadius: '12px',
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#475569',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Crop size={15} /> Adjust Corners
-                </button>
+            {step === 'crop' && (
+              <>
                 <button
                   type="button"
                   onClick={handleRetake}
                   style={{
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: '6px',
-                    padding: '10px 18px',
+                    minHeight: '46px',
+                    padding: '0 18px',
                     borderRadius: '12px',
                     border: '1px solid #CBD5E1',
                     backgroundColor: '#FFFFFF',
                     color: '#475569',
-                    fontSize: '14px',
+                    fontSize: '0.88rem',
                     fontWeight: 600,
                     cursor: 'pointer'
                   }}
                 >
                   <RefreshCw size={15} /> Retake
                 </button>
-              </div>
 
-              <button
-                type="button"
-                onClick={handleProceedToExtraction}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 28px',
-                  borderRadius: '12px',
-                  backgroundColor: '#0E7490',
-                  color: '#FFFFFF',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(14, 116, 144, 0.3)'
-                }}
-              >
-                <Check size={16} /> Extract Contact Details
-              </button>
-            </>
-          )}
+                <button
+                  type="button"
+                  onClick={handleApplyCrop}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    minHeight: '46px',
+                    padding: '0 24px',
+                    borderRadius: '12px',
+                    backgroundColor: '#0E7490',
+                    color: '#FFFFFF',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer',
+                    flex: 1,
+                    maxWidth: '280px'
+                  }}
+                >
+                  <span>Crop &amp; Straighten</span>
+                  <Check size={16} />
+                </button>
+              </>
+            )}
+
+            {step === 'preview' && (
+              <>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setStep('crop')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      minHeight: '46px',
+                      padding: '0 14px',
+                      borderRadius: '12px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#475569',
+                      fontSize: '0.84rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Crop size={15} /> Adjust
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRetake}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      minHeight: '46px',
+                      padding: '0 14px',
+                      borderRadius: '12px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#475569',
+                      fontSize: '0.84rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <RefreshCw size={15} /> Retake
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleProceedToExtraction}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    minHeight: '46px',
+                    padding: '0 22px',
+                    borderRadius: '12px',
+                    backgroundColor: '#0E7490',
+                    color: '#FFFFFF',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer',
+                    flex: 1,
+                    maxWidth: '260px'
+                  }}
+                >
+                  <Check size={16} />
+                  <span>Use Card</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
+
+  if (typeof document !== 'undefined' && document.body) {
+    return ReactDOM.createPortal(scannerContent, document.body);
+  }
+  return scannerContent;
 };
