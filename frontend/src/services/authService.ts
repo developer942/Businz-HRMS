@@ -349,14 +349,13 @@ export const authService = {
 
   /**
    * Request 6-digit OTP verification code for password reset.
-   * Calls backend POST /auth/forgot-password with graceful offline fallback.
+   * Calls backend POST /auth/forgot-password. Never exposes OTP in API response.
    */
   async forgotPassword(emailOrEmployeeId: string): Promise<{
     success: boolean;
     message: string;
-    recipientMasked?: string;
-    simulatedOtp?: string;
-    employeeName?: string;
+    expiresInSeconds: number;
+    resendCooldownSeconds: number;
   }> {
     const cleanId = emailOrEmployeeId.trim().toLowerCase();
     const response = await safeFetch(`${getApiBase()}/auth/forgot-password`, {
@@ -365,21 +364,25 @@ export const authService = {
       body: JSON.stringify({ email_or_employee_id: cleanId }),
     });
     if (!response.ok) throw new Error(await readError(response, 'Password reset request failed.'));
-    const body = (await response.json()) as ApiResponse<{ recipientMasked?: string; simulatedOtp?: string }>;
+    const body = (await response.json()) as ApiResponse<{
+      expiresInSeconds?: number;
+      resendCooldownSeconds?: number;
+    }> & { message?: string };
     return {
       success: true,
-      message: 'If this account exists, a verification code has been sent.',
-      recipientMasked: body.data?.recipientMasked,
-      simulatedOtp: body.data?.simulatedOtp,
+      message:
+        body.message ||
+        'If an active account matches your details, a verification code has been sent to the registered email address.',
+      expiresInSeconds: body.data?.expiresInSeconds ?? 300,
+      resendCooldownSeconds: body.data?.resendCooldownSeconds ?? 60,
     };
   },
 
   /**
-   * Verifies the 6-digit OTP.
-   * Calls backend POST /auth/verify-reset-otp with graceful offline fallback.
+   * Verifies the 6-digit OTP (5-minute expiry, limited attempts).
    */
   async verifyResetOtp(emailOrEmployeeId: string, otp: string): Promise<{ success: boolean; resetToken: string }> {
-    const cleanId = emailOrEmployeeId.trim();
+    const cleanId = emailOrEmployeeId.trim().toLowerCase();
     const cleanOtp = otp.trim();
 
     const response = await safeFetch(`${getApiBase()}/auth/verify-reset-otp`, {
@@ -394,8 +397,7 @@ export const authService = {
   },
 
   /**
-   * Resets the password using the verified resetToken.
-   * Calls backend POST /auth/reset-password with graceful offline fallback.
+   * Resets the password using the single-use verified resetToken.
    */
   async resetPassword(resetToken: string, newPassword: string, confirmPassword: string): Promise<void> {
     if (newPassword !== confirmPassword) {
@@ -412,5 +414,149 @@ export const authService = {
       }),
     });
     if (!response.ok) throw new Error(await readError(response, 'Failed to reset password.'));
+  },
+
+  /**
+   * Retrieves public OTP login capabilities (Email OTP & Mobile SMS OTP status) without exposing credentials.
+   */
+  async getOtpConfig(): Promise<{
+    emailOtpEnabled: boolean;
+    mobileOtpEnabled: boolean;
+    dltCompliant: boolean;
+    mobileOtpStatusMessage: string;
+  }> {
+    try {
+      const response = await safeFetch(`${getApiBase()}/auth/otp-config`);
+      if (!response.ok) {
+        return {
+          emailOtpEnabled: true,
+          mobileOtpEnabled: false,
+          dltCompliant: false,
+          mobileOtpStatusMessage:
+            'Mobile OTP login is disabled until an authorized Indian DLT-compliant SMS provider is configured.',
+        };
+      }
+      const body = (await response.json()) as ApiResponse<{
+        emailOtpEnabled: boolean;
+        mobileOtpEnabled: boolean;
+        dltCompliant: boolean;
+        mobileOtpStatusMessage: string;
+      }>;
+      return (
+        body.data || {
+          emailOtpEnabled: true,
+          mobileOtpEnabled: false,
+          dltCompliant: false,
+          mobileOtpStatusMessage:
+            'Mobile OTP login is disabled until an authorized Indian DLT-compliant SMS provider is configured.',
+        }
+      );
+    } catch {
+      return {
+        emailOtpEnabled: true,
+        mobileOtpEnabled: false,
+        dltCompliant: false,
+        mobileOtpStatusMessage:
+          'Mobile OTP login is disabled until an authorized Indian DLT-compliant SMS provider is configured.',
+      };
+    }
+  },
+
+  /**
+   * Requests a single-use 5-minute Email OTP for passwordless login.
+   */
+  async requestEmailOtpLogin(email: string): Promise<{
+    success: boolean;
+    message: string;
+    expiresInSeconds: number;
+    resendCooldownSeconds: number;
+  }> {
+    const cleanEmail = email.trim().toLowerCase();
+    const response = await safeFetch(`${getApiBase()}/auth/otp-login/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Unable to send sign-in verification code.'));
+    const body = (await response.json()) as ApiResponse<{
+      expiresInSeconds?: number;
+      resendCooldownSeconds?: number;
+    }> & { message?: string };
+    return {
+      success: true,
+      message:
+        body.message ||
+        'If an eligible employee account matches this email, a one-time sign-in code has been sent.',
+      expiresInSeconds: body.data?.expiresInSeconds ?? 300,
+      resendCooldownSeconds: body.data?.resendCooldownSeconds ?? 60,
+    };
+  },
+
+  /**
+   * Verifies the 6-digit Email OTP and creates an authenticated session.
+   */
+  async verifyEmailOtpLogin(email: string, otp: string): Promise<{ user: AuthUser; accessToken: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otp.trim();
+    const response = await safeFetch(`${getApiBase()}/auth/otp-login/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, otp: cleanOtp }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Invalid or expired verification code.'));
+    const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
+    if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
+    safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+    safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    return body.data;
+  },
+
+  /**
+   * Requests a single-use 5-minute SMS OTP for verified employee mobile number.
+   */
+  async requestMobileOtpLogin(mobileNumber: string): Promise<{
+    success: boolean;
+    message: string;
+    normalizedMobile?: string;
+    expiresInSeconds: number;
+    resendCooldownSeconds: number;
+  }> {
+    const response = await safeFetch(`${getApiBase()}/auth/mobile-otp/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mobile_number: mobileNumber.trim() }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Mobile OTP login is currently unavailable.'));
+    const body = (await response.json()) as ApiResponse<{
+      normalizedMobile?: string;
+      expiresInSeconds?: number;
+      resendCooldownSeconds?: number;
+    }> & { message?: string };
+    return {
+      success: true,
+      message:
+        body.message ||
+        'If an active employee account is linked to this verified mobile number, an SMS verification code has been sent.',
+      normalizedMobile: body.data?.normalizedMobile,
+      expiresInSeconds: body.data?.expiresInSeconds ?? 300,
+      resendCooldownSeconds: body.data?.resendCooldownSeconds ?? 60,
+    };
+  },
+
+  /**
+   * Verifies the 6-digit Mobile SMS OTP and creates an authenticated session.
+   */
+  async verifyMobileOtpLogin(mobileNumber: string, otp: string): Promise<{ user: AuthUser; accessToken: string }> {
+    const response = await safeFetch(`${getApiBase()}/auth/mobile-otp/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mobile_number: mobileNumber.trim(), otp: otp.trim() }),
+    });
+    if (!response.ok) throw new Error(await readError(response, 'Invalid or expired SMS verification code.'));
+    const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
+    if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
+    safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+    safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    return body.data;
   },
 };

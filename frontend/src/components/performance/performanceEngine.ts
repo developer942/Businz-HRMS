@@ -215,9 +215,14 @@ export const calculateSingleEmployeePerformance = (
   }
 
   const isSales = emp.department?.toLowerCase() === 'sales';
+  const targetEmpCode = (emp.employeeId || '').trim().toLowerCase();
+  const targetEmpUuid = (emp.id || '').trim().toLowerCase();
 
   // 1. Attendance calculation strictly from real attendance records
-  const empAttLogs = (attendanceRecords || []).filter(a => a.employeeId === emp.employeeId);
+  const empAttLogs = (attendanceRecords || []).filter((a) => {
+    const recEmpId = (a.employeeId || '').trim().toLowerCase();
+    return Boolean(recEmpId && (recEmpId === targetEmpCode || (targetEmpUuid && recEmpId === targetEmpUuid)));
+  });
   const totalAttLogs = empAttLogs.length;
 
   let presentDays = 0;
@@ -226,11 +231,11 @@ export const calculateSingleEmployeePerformance = (
   let lateDays = 0;
 
   empAttLogs.forEach(log => {
-    if (log.status === 'Present') presentDays++;
+    if (log.status === 'Present' || log.status === 'Late' || log.status === 'Work From Home') presentDays++;
     else if (log.status === 'Absent') absentDays++;
     else if (log.status === 'On Leave' || log.status === 'Half Day') leaveDays++;
     
-    if (log.lateStatus && log.lateStatus.includes('Late')) lateDays++;
+    if (log.status === 'Late' || (log.lateStatus && log.lateStatus.includes('Late'))) lateDays++;
   });
 
   // Calculate Attendance % (0% if no records logged yet)
@@ -245,9 +250,18 @@ export const calculateSingleEmployeePerformance = (
     : 0;
 
   // 2. Task metrics strictly from assigned tasks
-  const assignedTasks = (enhancedTasks || []).filter(t => 
-    t.assignees?.some(a => a.employeeId === emp.employeeId)
-  );
+  const assignedTasks = (enhancedTasks || []).filter((t) => {
+    const respId = (t.responsiblePersonId || '').trim().toLowerCase();
+    if (respId && (respId === targetEmpCode || (targetEmpUuid && respId === targetEmpUuid))) {
+      return true;
+    }
+    return Boolean(
+      t.assignees?.some((a) => {
+        const aId = (a.employeeId || '').trim().toLowerCase();
+        return Boolean(aId && (aId === targetEmpCode || (targetEmpUuid && aId === targetEmpUuid)));
+      })
+    );
+  });
 
   let tasksTotal = assignedTasks.length;
   let tasksCompleted = 0;
@@ -258,7 +272,10 @@ export const calculateSingleEmployeePerformance = (
   const todayStr = new Date().toISOString().split('T')[0];
 
   assignedTasks.forEach(task => {
-    const assignee = task.assignees?.find(a => a.employeeId === emp.employeeId);
+    const assignee = task.assignees?.find((a) => {
+      const aId = (a.employeeId || '').trim().toLowerCase();
+      return Boolean(aId && (aId === targetEmpCode || (targetEmpUuid && aId === targetEmpUuid)));
+    });
     const isDone = assignee?.individualStatus === 'Completed' || task.overallStatus === 'COMPLETED' || task.overallStatus === 'CLOSED';
     const isTaskOverdue = task.dueDate ? (task.dueDate < todayStr && task.overallStatus !== 'COMPLETED' && task.overallStatus !== 'CLOSED') : false;
 
@@ -305,14 +322,22 @@ export const calculateSingleEmployeePerformance = (
 
   const status = getPerformanceStatus(overallScore, hasAttendance || hasTasks);
 
-  // 5. Monthly Trend generation (Jan - Sep)
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'];
-  const monthlyTrend = months.map((m, idx) => {
-    if (idx === 8) {
-      return { month: m, score: overallScore };
-    }
-    return { month: m, score: 0 };
-  });
+  // 5. Monthly Trend generation (May - Dec, matching current month)
+  const monthConfigs = [
+    { month: 'May', key: '2026-05' },
+    { month: 'Jun', key: '2026-06' },
+    { month: 'Jul', key: '2026-07' },
+    { month: 'Aug', key: '2026-08' },
+    { month: 'Sep', key: '2026-09' },
+    { month: 'Oct', key: '2026-10' },
+    { month: 'Nov', key: '2026-11' },
+    { month: 'Dec', key: '2026-12' },
+  ];
+  const currentMonthKey = getMonthInfo().monthKey;
+  const monthlyTrend = monthConfigs.map((m) => ({
+    month: m.month,
+    score: m.key === currentMonthKey ? overallScore : 0,
+  }));
 
   return {
     employeeId: emp.employeeId,

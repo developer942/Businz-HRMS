@@ -39,6 +39,17 @@ export type AuthAuditAction =
   | 'PASSWORD_RESET_OTP_FAILED'
   | 'PASSWORD_RESET_OTP_VERIFIED'
   | 'PASSWORD_RESET_SUCCESS'
+  | 'PASSWORD_CHANGE_NOTIFICATION_SENT'
+  | 'EMAIL_OTP_LOGIN_REQUESTED'
+  | 'EMAIL_OTP_LOGIN_VERIFIED'
+  | 'EMAIL_OTP_LOGIN_FAILED'
+  | 'EMAIL_OTP_PRIVILEGED_BLOCKED'
+  | 'MOBILE_OTP_LOGIN_REQUESTED'
+  | 'MOBILE_OTP_LOGIN_VERIFIED'
+  | 'MOBILE_OTP_LOGIN_FAILED'
+  | 'MOBILE_OTP_DUPLICATE_NUMBER'
+  | 'MOBILE_OTP_PROVIDER_UNAVAILABLE'
+  | 'SMS_PROVIDER_CONFIG_UPDATED'
   | 'CREDENTIAL_SETUP_LINK_SENT'
   | 'ATTENDANCE_MANUAL_OVERRIDE'
   | 'LEAVE_MANUAL_OVERRIDE';
@@ -67,6 +78,9 @@ export interface AuthenticatedUser {
   credentialEmailStatus?: CredentialEmailStatus;
   credentialEmailSentAt?: string;
   lastLoginAt?: string;
+  tokenVersion?: number;
+  passwordChangedAt?: string;
+  authMethod?: 'password' | 'email_otp' | 'mobile_otp';
 }
 
 declare global {

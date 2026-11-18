@@ -63,8 +63,17 @@ export const EmployeeDetailPerformanceView: React.FC<Props> = ({
     const dept = performance?.department || 'General';
     return {
       department: dept,
-      kpis: [],
-      kras: []
+      kpis: [
+        { title: `${dept} Delivery Milestones`, target: '100% on-time', weightage: 35 },
+        { title: 'Quality & Process Compliance', target: '98% SLA', weightage: 30 },
+        { title: 'Attendance & Shift Regularity', target: '95% attendance', weightage: 20 },
+        { title: 'Cross-functional Collaboration', target: 'Zero escalation', weightage: 15 }
+      ],
+      kras: [
+        { title: `${dept} Operational Excellence`, description: `Execute core functional deliverables for ${dept}`, targetMetric: 'Quarterly target', weightage: 40 },
+        { title: 'Punctuality & Shift Regularity', description: 'Maintain attendance integrity and on-time punch records', targetMetric: '95% attendance', weightage: 30 },
+        { title: 'Team Impact & Productivity', description: 'Deliver assigned task milestones within defined schedule', targetMetric: 'Zero SLA breach', weightage: 30 }
+      ]
     };
   }, [performance?.department]);
 

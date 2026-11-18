@@ -180,6 +180,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
+  const isCEO = 
+    currentUser.role === 'CEO' || 
+    currentUser.role === 'Super Admin' || 
+    currentUser.designation === 'CEO' || 
+    (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) || 
+    currentUser.employeeId === 'EMP-000' ||
+    currentUser.employeeId === 'VRM-001';
+
   // Standardized VRM Enterprise Sidebar Menu
   const menuStructure: MenuItem[] = [
     // Organization & Staffing
@@ -209,7 +217,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'whatsapp_crm', label: 'WhatsApp CRM', icon: MessageSquare, section: 'WORKFLOW & OPS' },
     { 
       id: 'performance', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Performance' : 'Performance', 
+      label: isCEO ? 'Performance' : 'My Performance', 
       icon: TrendingUp, 
       section: 'WORKFLOW & OPS' 
     },
@@ -269,14 +277,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // System & Config
     { id: 'settings', label: 'Settings', icon: SettingsIcon, section: 'SYSTEM & CONFIG' },
   ];
-
-  const isCEO = 
-    currentUser.role === 'CEO' || 
-    currentUser.role === 'Super Admin' || 
-    currentUser.designation === 'CEO' || 
-    (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) || 
-    currentUser.employeeId === 'EMP-000' ||
-    currentUser.employeeId === 'VRM-001';
 
   const myEmpId = (currentUser.employeeId || currentUser.id || '').trim().toLowerCase();
   const myEmail = (currentUser.email || '').trim().toLowerCase();

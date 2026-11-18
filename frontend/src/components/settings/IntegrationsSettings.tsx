@@ -920,6 +920,100 @@ export const IntegrationsSettings: React.FC = () => {
           defaultValue: true
         }
       ]
+    },
+    {
+      id: 'sms_otp_gateway',
+      name: 'Indian DLT SMS OTP Gateway (Mobile Login)',
+      category: 'communication',
+      categoryLabel: 'Communication',
+      icon: Key,
+      brandColor: '#0E7490',
+      brandBg: '#ECFEFF',
+      tagline: 'TRAI DLT-Compliant Mobile Number OTP Authentication',
+      description: 'Configure an authorized Indian DLT-compliant SMS gateway (MSG91, Fast2SMS, Textlocal, Twilio) for employee Mobile OTP sign-in. Mobile OTP remains disabled until verified.',
+      status: connectionStatuses['sms_otp_gateway'] || 'disconnected',
+      lastSynced: connectionStatuses['sms_otp_gateway'] === 'connected' ? 'DLT Verified' : 'Disabled until configured',
+      features: [
+        'TRAI DLT Principal Entity ID & Approved OTP Template enforcement',
+        'E.164 (+91) verified employee mobile number normalization',
+        'AES-256-GCM encrypted API credentials (never exposed to browser)',
+        'Automatic protection against unknown or duplicate mobile numbers'
+      ],
+      docsUrl: 'https://docs.msg91.com/reference/send-otp-message',
+      configFields: [
+        {
+          key: 'provider',
+          label: 'Authorized SMS Gateway Provider',
+          type: 'select',
+          options: [
+            { label: 'MSG91 Enterprise DLT Gateway', value: 'MSG91' },
+            { label: 'Fast2SMS DLT OTP Route', value: 'Fast2SMS' },
+            { label: 'Textlocal India DLT', value: 'Textlocal' },
+            { label: 'Twilio Programmable SMS (DLT)', value: 'Twilio' },
+            { label: 'Custom HTTPS DLT Gateway', value: 'Custom_DLT' }
+          ],
+          defaultValue: 'MSG91'
+        },
+        {
+          key: 'apiEndpoint',
+          label: 'SMS Gateway HTTPS API Endpoint',
+          type: 'text',
+          inputMode: 'url',
+          required: true,
+          placeholder: 'https://control.msg91.com/api/v5/otp',
+          helperText: 'Official HTTPS OTP dispatch endpoint of your SMS provider.',
+          defaultValue: 'https://control.msg91.com/api/v5/otp'
+        },
+        {
+          key: 'senderId',
+          label: 'DLT Approved Sender ID (6-Character Header)',
+          type: 'text',
+          required: true,
+          placeholder: 'e.g. BUSINZ',
+          helperText: '3 to 6 alphanumeric characters registered on your DLT portal (e.g. BUSINZ).',
+          defaultValue: ''
+        },
+        {
+          key: 'dltEntityId',
+          label: 'TRAI DLT Principal Entity ID (PE ID)',
+          type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          numericOnly: true,
+          required: true,
+          placeholder: 'e.g. 1201159283746519283',
+          helperText: '10 to 25 numeric digits issued by Jio/Airtel/VIL/BSNL DLT portal.',
+          defaultValue: ''
+        },
+        {
+          key: 'dltTemplateId',
+          label: 'TRAI DLT Approved OTP Template ID',
+          type: 'text',
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          numericOnly: true,
+          required: true,
+          placeholder: 'e.g. 1207161829384756102',
+          helperText: '10 to 25 numeric digits for your approved OTP SMS template.',
+          defaultValue: ''
+        },
+        {
+          key: 'apiKey',
+          label: 'SMS Provider API Key / Auth Token',
+          type: 'password',
+          required: true,
+          placeholder: '•••••••••••••••• (Encrypted on Server)',
+          helperText: 'Stored encrypted with AES-256-GCM on backend; never returned to the frontend.',
+          defaultValue: ''
+        },
+        {
+          key: 'enabled',
+          label: 'Enable Mobile OTP Sign-In (Requires Verified DLT Provider)',
+          type: 'checkbox',
+          helperText: 'Keep disabled until your SMS provider connection and DLT template are tested.',
+          defaultValue: false
+        }
+      ]
     }
   ];
 
@@ -1097,6 +1191,31 @@ export const IntegrationsSettings: React.FC = () => {
           enableRoutesApi: prev.google_maps?.enableRoutesApi ?? true
         }
       }));
+    }
+
+    if (item.id === 'sms_otp_gateway') {
+      const token = sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      fetch(`${API_BASE_URL}/settings/sms-otp/config`, { headers: authHeaders })
+        .then(r => r.json())
+        .then(res => {
+          if (res?.success && res.data) {
+            setIntegrationFormValues(prev => ({
+              ...prev,
+              sms_otp_gateway: {
+                provider: res.data.provider || 'MSG91',
+                apiEndpoint: res.data.apiEndpoint || 'https://control.msg91.com/api/v5/otp',
+                senderId: res.data.senderId || '',
+                dltEntityId: res.data.dltEntityId || '',
+                dltTemplateId: res.data.dltTemplateId || '',
+                apiKey: res.data.hasApiKey ? '••••••••••••••••' : '',
+                enabled: Boolean(res.data.enabled),
+                isVerified: Boolean(res.data.isVerified)
+              }
+            }));
+          }
+        })
+        .catch(() => {});
     }
 
     setTouchedFields({});
@@ -1504,6 +1623,48 @@ export const IntegrationsSettings: React.FC = () => {
       return;
     }
 
+    // 9. Indian DLT SMS OTP Gateway
+    if (id === 'sms_otp_gateway') {
+      const sVals = integrationFormValues['sms_otp_gateway'] || {};
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/sms-otp/config`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            provider: sVals.provider || 'MSG91',
+            apiEndpoint: sVals.apiEndpoint || 'https://control.msg91.com/api/v5/otp',
+            senderId: sVals.senderId || '',
+            dltEntityId: sVals.dltEntityId || '',
+            dltTemplateId: sVals.dltTemplateId || '',
+            apiKey: sVals.apiKey || '',
+            enabled: Boolean(sVals.enabled),
+            isVerified: Boolean(sVals.isVerified)
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error?.message || data.message || 'Failed to save SMS OTP provider configuration');
+        }
+        const isLive = Boolean(data.data?.enabled && data.data?.isConfigured);
+        setConnectionStatuses(prev => ({
+          ...prev,
+          sms_otp_gateway: isLive ? 'connected' : 'disconnected'
+        }));
+        recordAuditLog(
+          activeModalIntegration.name,
+          activeModalIntegration.brandColor,
+          'SMS DLT Configuration Saved',
+          `Provider ${sVals.provider || 'MSG91'} (Sender ID: ${sVals.senderId}) saved with encrypted credentials.`
+        );
+        triggerToast('SMS OTP provider configuration saved securely', 'success');
+        setActiveModalIntegration(null);
+      } catch (err: any) {
+        setTestResult({ success: false, message: err.message || 'Failed to save SMS provider configuration' });
+        triggerToast(err.message || 'Failed to save SMS provider configuration', 'error');
+      }
+      return;
+    }
+
     // Default Fallback
     triggerToast(`${activeModalIntegration.name} configuration saved`, 'success');
     setActiveModalIntegration(null);
@@ -1888,6 +2049,53 @@ export const IntegrationsSettings: React.FC = () => {
         setTestResult({
           success: false,
           message: err.message || 'Accounting connection test failed.'
+        });
+        return;
+      }
+    }
+
+    // 7. Indian DLT SMS OTP Gateway Verification
+    if (activeModalIntegration.id === 'sms_otp_gateway') {
+      const sVals = integrationFormValues['sms_otp_gateway'] || {};
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/sms-otp/test-connection`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            provider: sVals.provider || 'MSG91',
+            apiEndpoint: sVals.apiEndpoint || 'https://control.msg91.com/api/v5/otp',
+            senderId: sVals.senderId || '',
+            dltEntityId: sVals.dltEntityId || '',
+            dltTemplateId: sVals.dltTemplateId || '',
+            apiKey: sVals.apiKey || ''
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        setIsTestingConnection(false);
+        if (!res.ok || !data.success) {
+          setTestResult({
+            success: false,
+            message: data.error?.message || data.message || 'SMS provider verification failed'
+          });
+          return;
+        }
+        setIntegrationFormValues(prev => ({
+          ...prev,
+          sms_otp_gateway: {
+            ...prev.sms_otp_gateway,
+            isVerified: true
+          }
+        }));
+        setTestResult({
+          success: true,
+          message: data.message || 'SMS OTP Gateway & Indian DLT parameters verified successfully.'
+        });
+        return;
+      } catch (err: any) {
+        setIsTestingConnection(false);
+        setTestResult({
+          success: false,
+          message: err.message || 'SMS provider verification failed.'
         });
         return;
       }

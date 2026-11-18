@@ -206,6 +206,17 @@ export const testCompanySmtpConnection = async (req: Request, res: Response, nex
       testRecipientEmail,
     });
 
+    // Automatically persist verified SMTP configuration in PostgreSQL company_settings
+    if (result.success) {
+      await settingsRepository.saveCompanySmtpConfig(companyId, {
+        smtpHost,
+        smtpPort,
+        secure,
+        senderEmail,
+        appPassword,
+      }).catch(() => {});
+    }
+
     res.status(200).json({
       success: true,
       message: result.message,
@@ -480,6 +491,103 @@ export const testAccountingConnection = async (req: Request, res: Response, next
     res.status(200).json({
       success: true,
       message: result.message
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================================================
+// SMS OTP PROVIDER (INDIAN DLT COMPLIANT) HANDLERS
+// ============================================================================
+
+export const getSmsOtpConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { smsOtpService } = await import('../services/smsOtpService.js');
+    const companyId = req.user?.company_id || (req.query.company_id as string) || 'company-a';
+    const view = await smsOtpService.getAdminConfigView(companyId);
+    res.status(200).json({
+      success: true,
+      data: view,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const saveSmsOtpConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { smsOtpService } = await import('../services/smsOtpService.js');
+    const { auditRepository } = await import('../repositories/auditRepository.js');
+    const companyId = req.user?.company_id || req.body.companyId || 'company-a';
+
+    const saved = await smsOtpService.saveConfig(companyId, {
+      enabled: Boolean(req.body.enabled),
+      provider: req.body.provider || 'MSG91',
+      apiEndpoint: req.body.apiEndpoint,
+      senderId: String(req.body.senderId || ''),
+      dltEntityId: String(req.body.dltEntityId || ''),
+      dltTemplateId: String(req.body.dltTemplateId || ''),
+      apiKey: req.body.apiKey,
+      isVerified: Boolean(req.body.isVerified),
+    });
+
+    await auditRepository.recordLog(
+      'SMS_PROVIDER_CONFIG_UPDATED',
+      req.user?.employeeId || 'ADMIN',
+      req.user?.email || 'Admin',
+      {
+        provider: saved.provider,
+        senderId: saved.senderId,
+        dltCompliant: saved.dltCompliant,
+        enabled: saved.enabled,
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'SMS OTP provider configuration saved and encrypted.',
+      data: saved,
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'SMS_CONFIG_INVALID',
+        message: err.message || 'Invalid SMS OTP provider configuration.',
+      },
+    });
+  }
+};
+
+export const testSmsOtpConnection = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { smsOtpService } = await import('../services/smsOtpService.js');
+    const companyId = req.user?.company_id || req.body.companyId || 'company-a';
+
+    const result = await smsOtpService.testProviderConnection(companyId, {
+      provider: req.body.provider || 'MSG91',
+      apiEndpoint: req.body.apiEndpoint,
+      senderId: String(req.body.senderId || ''),
+      dltEntityId: String(req.body.dltEntityId || ''),
+      dltTemplateId: String(req.body.dltTemplateId || ''),
+      apiKey: req.body.apiKey,
+    });
+
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'SMS_PROVIDER_TEST_FAILED',
+          message: result.message,
+        },
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
     });
   } catch (err) {
     next(err);

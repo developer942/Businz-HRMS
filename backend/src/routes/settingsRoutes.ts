@@ -16,6 +16,9 @@ import {
   getAccountingConfig,
   saveAccountingConfig,
   testAccountingConnection,
+  getSmsOtpConfig,
+  saveSmsOtpConfig,
+  testSmsOtpConnection,
 } from '../controllers/settingsController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
@@ -264,4 +267,21 @@ settingsRouter.post(
   '/accounting/test-connection',
   requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']),
   testAccountingConnection
+);
+
+// SMS OTP Gateway (Indian TRAI DLT Compliant — Admin Only)
+settingsRouter.get(
+  '/sms-otp/config',
+  requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']),
+  getSmsOtpConfig
+);
+settingsRouter.post(
+  '/sms-otp/config',
+  requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']),
+  saveSmsOtpConfig
+);
+settingsRouter.post(
+  '/sms-otp/test-connection',
+  requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']),
+  testSmsOtpConnection
 );

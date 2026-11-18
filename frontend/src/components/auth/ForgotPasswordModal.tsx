@@ -1,20 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  KeyRound, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  CheckCircle2, 
-  AlertCircle, 
-  ArrowLeft, 
-  ArrowRight, 
-  RotateCw, 
+import {
+  KeyRound,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  RotateCw,
   X,
   ShieldCheck,
   Clock,
-  Copy,
-  Check
 } from 'lucide-react';
 import { authService } from '../../services/authService';
 
@@ -35,8 +33,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 }) => {
   const [step, setStep] = useState<Step>('REQUEST_OTP');
   const [identifier, setIdentifier] = useState(initialIdentifier);
-  const [maskedEmail, setMaskedEmail] = useState('');
-  
+
   // 6-digit OTP input boxes
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -53,21 +50,23 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [expiryCountdown, setExpiryCountdown] = useState(300); // 5 minutes (300 seconds)
 
-  // Simulated email toast preview for developers/testers
-  const [simulatedEmail, setSimulatedEmail] = useState<{
-    to: string;
-    employeeName: string;
-    otp: string;
-  } | null>(null);
-  const [copiedOtp, setCopiedOtp] = useState(false);
-
-  // Sync initial identifier if changed
+  // Reset modal state on open
   useEffect(() => {
-    if (initialIdentifier) {
-      setIdentifier(initialIdentifier);
+    if (isOpen) {
+      setStep('REQUEST_OTP');
+      setIdentifier(initialIdentifier || '');
+      setOtpDigits(['', '', '', '', '', '']);
+      setNewPassword('');
+      setConfirmPassword('');
+      setResetToken('');
+      setErrorMessage(null);
+      setInfoMessage(null);
+      setResendCooldown(0);
+      setExpiryCountdown(300);
     }
-  }, [initialIdentifier]);
+  }, [isOpen, initialIdentifier]);
 
   // Resend 60-second cooldown timer countdown
   useEffect(() => {
@@ -78,9 +77,24 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
+  // 5-minute OTP expiry countdown
+  useEffect(() => {
+    if (step !== 'VERIFY_OTP' || expiryCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setExpiryCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [step, expiryCountdown]);
+
   if (!isOpen) return null;
 
-  // Password complexity checks per specification
+  const formatTimer = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  // Password complexity checks
   const passwordRules = {
     minLength: newPassword.length >= 8,
     hasUppercase: /[A-Z]/.test(newPassword),
@@ -102,7 +116,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const handleRequestOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!identifier.trim()) {
-      setErrorMessage('Please enter your registered email address or employee ID.');
+      setErrorMessage('Please enter your registered email address or User ID.');
       return;
     }
 
@@ -111,43 +125,28 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
     try {
       const res = await authService.forgotPassword(identifier.trim().toLowerCase());
-
-      // Always show standard privacy notice
       setInfoMessage(res.message);
-      if (res.recipientMasked) {
-        setMaskedEmail(res.recipientMasked);
-      }
-
-      // If simulated OTP was generated (fallback/dev mode)
-      if (res.simulatedOtp) {
-        setSimulatedEmail({
-          to: res.recipientMasked || identifier,
-          employeeName: res.employeeName || identifier,
-          otp: res.simulatedOtp,
-        });
-      }
-
-      // Start 60-second cooldown
-      setResendCooldown(60);
+      setOtpDigits(['', '', '', '', '', '']);
+      setExpiryCountdown(res.expiresInSeconds || 300);
+      setResendCooldown(res.resendCooldownSeconds || 60);
       setIsLoading(false);
       setStep('VERIFY_OTP');
 
-      // Auto-focus first digit box
       setTimeout(() => {
         otpInputRefs.current[0]?.focus();
-      }, 150);
+      }, 120);
     } catch (err: any) {
       setIsLoading(false);
       setErrorMessage(err.message || 'Unable to process password reset request.');
     }
   };
 
-  // Step 2: Handle OTP input box typing and paste
+  // Step 2: Handle OTP input box typing, autofill, and paste
   const handleOtpChange = (index: number, value: string) => {
-    // If pasting a full 6-digit code
+    setErrorMessage(null);
     if (value.length > 1) {
       const cleanDigits = value.replace(/\D/g, '').slice(0, 6).split('');
-      const newDigits = [...otpDigits];
+      const newDigits = ['', '', '', '', '', ''];
       cleanDigits.forEach((digit, idx) => {
         if (idx < 6) newDigits[idx] = digit;
       });
@@ -162,7 +161,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     newDigits[index] = digit;
     setOtpDigits(newDigits);
 
-    // Auto-advance to next input
     if (digit && index < 5) {
       otpInputRefs.current[index + 1]?.focus();
     }
@@ -174,12 +172,29 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     }
   };
 
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length > 0) {
+      e.preventDefault();
+      const next = ['', '', '', '', '', ''];
+      pasted.split('').forEach((d, idx) => {
+        if (idx < 6) next[idx] = d;
+      });
+      setOtpDigits(next);
+      otpInputRefs.current[Math.min(pasted.length, 5)]?.focus();
+    }
+  };
+
   // Step 2: Verify OTP
   const handleVerifyOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const enteredOtp = otpDigits.join('');
     if (enteredOtp.length !== 6) {
       setErrorMessage('Please enter the complete 6-digit verification code.');
+      return;
+    }
+    if (expiryCountdown <= 0) {
+      setErrorMessage('This verification code has expired. Please request a new code.');
       return;
     }
 
@@ -198,11 +213,11 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     }
   };
 
-  // Step 3: Reset Password Submission
+  // Step 3: Set New Password Submission
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isPasswordCompliant) {
-      setErrorMessage('Please ensure your password meets all complexity requirements.');
+      setErrorMessage('Please ensure your new password meets all security requirements.');
       return;
     }
 
@@ -215,84 +230,76 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       setStep('SUCCESS');
     } catch (err: any) {
       setIsLoading(false);
-      setErrorMessage(err.message || 'Failed to update password.');
-    }
-  };
-
-  const copySimulatedOtp = () => {
-    if (simulatedEmail?.otp) {
-      navigator.clipboard.writeText(simulatedEmail.otp);
-      setCopiedOtp(true);
-      setTimeout(() => setCopiedOtp(false), 2000);
-      // Auto-fill into boxes for extreme convenience
-      const digits = simulatedEmail.otp.split('');
-      setOtpDigits(digits);
+      setErrorMessage(err.message || 'Failed to save new password.');
     }
   };
 
   return (
-    <div 
-      className="modal-overlay" 
+    <div
+      className="modal-overlay"
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.65)',
-        backdropFilter: 'blur(5px)',
+        backgroundColor: 'rgba(15, 23, 42, 0.55)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 10000,
-        padding: '16px'
+        padding: '16px',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
       }}
     >
-      <div 
+      <div
         className="modal-content"
         style={{
           backgroundColor: '#FFFFFF',
           borderRadius: '20px',
           width: '100%',
-          maxWidth: '460px',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-          border: '1px solid #E2E8F0',
+          maxWidth: '440px',
+          boxShadow: '0 24px 48px -12px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.06)',
           overflow: 'hidden',
-          animation: 'fadeIn 0.2s ease-out'
+          boxSizing: 'border-box',
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'DM Sans', 'Plus Jakarta Sans', sans-serif",
         }}
       >
-        {/* Modal Header */}
-        <div 
+        {/* Minimal Apple-Style Header */}
+        <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '20px 24px',
+            padding: '20px 24px 16px',
             borderBottom: '1px solid #F1F5F9',
-            backgroundColor: '#FAFCFD'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div 
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
+                width: '38px',
+                height: '38px',
+                borderRadius: '11px',
                 backgroundColor: '#ECFEFF',
                 color: '#0E7490',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                flexShrink: 0,
               }}
             >
               <KeyRound size={19} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0F172A' }}>
-                {step === 'REQUEST_OTP' && 'Reset Your Password'}
-                {step === 'VERIFY_OTP' && 'Verify Security Code'}
-                {step === 'RESET_PASSWORD' && 'Create New Password'}
-                {step === 'SUCCESS' && 'Password Updated'}
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0F172A', letterSpacing: '-0.01em' }}>
+                {step === 'REQUEST_OTP' && 'Forgot Password'}
+                {step === 'VERIFY_OTP' && 'OTP Verification'}
+                {step === 'RESET_PASSWORD' && 'Set New Password'}
+                {step === 'SUCCESS' && 'Password Changed Successfully'}
               </h3>
-              <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748B' }}>
-                Businz HRMS Security Portal
+              <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#64748B' }}>
+                Businz Enterprise Security
               </p>
             </div>
           </div>
@@ -300,94 +307,113 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             style={{
-              background: 'none',
+              background: '#F8FAFC',
               border: 'none',
-              color: '#94A3B8',
+              color: '#64748B',
               cursor: 'pointer',
-              padding: '6px',
-              borderRadius: '8px',
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'background-color 0.15s'
+              flexShrink: 0,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#F1F5F9')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div style={{ padding: '24px' }}>
-          {/* Error Notice */}
+        <div style={{ padding: '24px', boxSizing: 'border-box' }}>
           {errorMessage && (
-            <div 
+            <div
+              role="alert"
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: '9px',
-                padding: '11px 14px',
-                borderRadius: '10px',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '12px 14px',
+                borderRadius: '12px',
                 backgroundColor: '#FEF2F2',
-                color: '#DC2626',
+                color: '#B91C1C',
                 border: '1px solid #FECACA',
                 fontSize: '0.82rem',
-                marginBottom: '16px',
-                lineHeight: 1.4
+                marginBottom: '18px',
+                lineHeight: 1.45,
               }}
             >
-              <AlertCircle size={17} style={{ flexShrink: 0 }} />
+              <AlertCircle size={17} style={{ flexShrink: 0, marginTop: '1px' }} />
               <span>{errorMessage}</span>
             </div>
           )}
 
-          {/* ================= STEP 1: REQUEST OTP ================= */}
+          {/* ================= STEP 1: ENTER EMAIL / USER ID ================= */}
           {step === 'REQUEST_OTP' && (
-            <form onSubmit={handleRequestOtp}>
-              <p style={{ fontSize: '0.86rem', color: '#475569', lineHeight: 1.5, marginTop: 0, marginBottom: '18px' }}>
-                Enter your <strong>Registered Email Address</strong> or <strong>Employee ID</strong>. We will generate and dispatch a secure 6-digit verification code.
+            <form onSubmit={handleRequestOtp} noValidate>
+              <p style={{ fontSize: '0.86rem', color: '#475569', lineHeight: 1.55, marginTop: 0, marginBottom: '20px' }}>
+                Enter your registered <strong>Email</strong> or <strong>User ID</strong>. We’ll send a single-use 6-digit verification code valid for 5 minutes.
               </p>
 
               <div style={{ marginBottom: '20px' }}>
-                <label 
-                  style={{ 
-                    display: 'block', 
-                    fontSize: '0.8rem', 
-                    fontWeight: 700, 
-                    color: '#334155', 
-                    marginBottom: '7px' 
+                <label
+                  htmlFor="forgot-password-identifier"
+                  style={{
+                    display: 'block',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    marginBottom: '8px',
                   }}
                 >
-                  Registered Email OR Employee ID
+                  Registered Email or User ID
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
+                    id="forgot-password-identifier"
                     type="text"
+                    inputMode="email"
+                    autoComplete="username"
                     value={identifier}
                     onChange={(e) => {
                       setIdentifier(e.target.value);
                       setErrorMessage(null);
                     }}
-                    placeholder="e.g. employee@businz.com or EMP-001"
+                    placeholder="name@businz.com or EMP-001"
                     required
                     style={{
                       width: '100%',
-                      padding: '11px 14px 11px 38px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
+                      minHeight: '48px',
+                      padding: '12px 14px 12px 40px',
+                      borderRadius: '12px',
+                      border: '1px solid #E2E8F0',
+                      fontSize: '0.92rem',
                       color: '#0F172A',
+                      backgroundColor: '#F8FAFC',
                       outline: 'none',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      transition: 'border-color 0.15s ease, background-color 0.15s ease',
                     }}
-                    onFocus={(e) => (e.target.style.borderColor = '#0E7490')}
-                    onBlur={(e) => (e.target.style.borderColor = '#CBD5E1')}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#0E7490';
+                      e.target.style.backgroundColor = '#FFFFFF';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#E2E8F0';
+                      e.target.style.backgroundColor = '#F8FAFC';
+                    }}
                   />
-                  <Mail 
-                    size={16} 
-                    style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} 
+                  <Mail
+                    size={17}
+                    style={{
+                      position: 'absolute',
+                      left: '14px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#94A3B8',
+                    }}
                   />
                 </div>
               </div>
@@ -398,29 +424,30 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                   disabled={isLoading || !identifier.trim()}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    borderRadius: '10px',
-                    backgroundColor: identifier.trim() && !isLoading ? '#0E7490' : '#94A3B8',
+                    minHeight: '48px',
+                    padding: '12px 16px',
+                    borderRadius: '12px',
+                    backgroundColor: identifier.trim() && !isLoading ? '#0E7490' : '#CBD5E1',
                     color: '#FFFFFF',
                     border: 'none',
-                    fontWeight: 700,
-                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    fontSize: '0.92rem',
                     cursor: identifier.trim() && !isLoading ? 'pointer' : 'not-allowed',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '8px',
-                    boxShadow: '0 2px 4px rgba(14, 116, 144, 0.15)'
+                    transition: 'background-color 0.15s ease',
                   }}
                 >
                   {isLoading ? (
                     <>
                       <RotateCw size={16} className="animate-spin" />
-                      <span>Generating Verification Code...</span>
+                      <span>Sending Code...</span>
                     </>
                   ) : (
                     <>
-                      <span>Send OTP</span>
+                      <span>Send Verification Code</span>
                       <ArrowRight size={16} />
                     </>
                   )}
@@ -431,8 +458,9 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                   onClick={onClose}
                   style={{
                     width: '100%',
+                    minHeight: '44px',
                     padding: '10px',
-                    borderRadius: '10px',
+                    borderRadius: '12px',
                     backgroundColor: 'transparent',
                     color: '#64748B',
                     border: 'none',
@@ -442,178 +470,154 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px'
+                    gap: '6px',
                   }}
                 >
-                  <ArrowLeft size={14} /> Back to Login
+                  <ArrowLeft size={14} /> Back to Sign In
                 </button>
               </div>
             </form>
           )}
 
-          {/* ================= STEP 2: VERIFY OTP ================= */}
+          {/* ================= STEP 2: OTP VERIFICATION ================= */}
           {step === 'VERIFY_OTP' && (
             <div>
-              {/* Privacy Confirmation Banner */}
-              <div 
+              <div
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
                   gap: '10px',
                   padding: '12px 14px',
-                  borderRadius: '10px',
-                  backgroundColor: '#ECFEFF',
-                  border: '1px solid #BAE6FD',
-                  color: '#0369A1',
+                  borderRadius: '12px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  color: '#334155',
                   fontSize: '0.82rem',
-                  lineHeight: 1.45,
-                  marginBottom: '18px'
+                  lineHeight: 1.5,
+                  marginBottom: '18px',
                 }}
               >
-                <Clock size={18} style={{ flexShrink: 0, marginTop: '2px', color: '#0E7490' }} />
-                <div>
-                  <div style={{ fontWeight: 700, color: '#0E7490', marginBottom: '2px' }}>
-                    Verification Code Sent
+                <Clock size={17} style={{ flexShrink: 0, marginTop: '2px', color: '#0E7490' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                    <span style={{ fontWeight: 700, color: '#0F172A' }}>Check Your Email</span>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        color: expiryCountdown <= 60 ? '#DC2626' : '#0E7490',
+                        backgroundColor: expiryCountdown <= 60 ? '#FEE2E2' : '#ECFEFF',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                      }}
+                    >
+                      Expires in {formatTimer(expiryCountdown)}
+                    </span>
                   </div>
-                  <span>{infoMessage || 'If this account exists, a verification code has been sent.'}</span>
-                  {maskedEmail && (
-                    <div style={{ marginTop: '3px', fontSize: '0.78rem', color: '#0284C7' }}>
-                      Dispatched to: <strong>{maskedEmail}</strong> (Valid for 10 minutes)
-                    </div>
-                  )}
+                  <span>{infoMessage || 'If an active account matches your details, a 6-digit code has been sent.'}</span>
                 </div>
               </div>
 
-              {/* Simulated Email Toast for Testing / Offline Development */}
-              {simulatedEmail && (
-                <div 
+              <form onSubmit={handleVerifyOtp} noValidate>
+                <label
                   style={{
-                    padding: '12px 14px',
-                    borderRadius: '10px',
-                    backgroundColor: '#F8FAFC',
-                    border: '1px dashed #0E7490',
-                    marginBottom: '18px',
-                    fontSize: '0.78rem'
+                    display: 'block',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    marginBottom: '10px',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 800, color: '#0E7490' }}>
-                      ✉️ Simulated In-App Mail Dispatch
-                    </span>
-                    <button
-                      type="button"
-                      onClick={copySimulatedOtp}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '3px 8px',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        backgroundColor: copiedOtp ? '#DCFCE7' : '#FFFFFF',
-                        color: copiedOtp ? '#166534' : '#0E7490',
-                        border: '1px solid #CBD5E1',
-                        borderRadius: '6px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {copiedOtp ? <Check size={12} /> : <Copy size={12} />}
-                      {copiedOtp ? 'Copied!' : 'Copy Code'}
-                    </button>
-                  </div>
-                  <div style={{ color: '#475569', lineHeight: 1.4 }}>
-                    Subject: <strong>HRMS Password Reset Verification</strong><br />
-                    Code: <strong style={{ fontSize: '1.05rem', color: '#0E7490', letterSpacing: '2px' }}>{simulatedEmail.otp}</strong>
-                  </div>
-                </div>
-              )}
-
-              {/* 6-digit OTP Inputs */}
-              <form onSubmit={handleVerifyOtp}>
-                <label 
-                  style={{ 
-                    display: 'block', 
-                    fontSize: '0.8rem', 
-                    fontWeight: 700, 
-                    color: '#334155', 
-                    marginBottom: '8px' 
-                  }}
-                >
-                  Enter 6-digit Verification Code
+                  6-Digit Verification Code
                 </label>
 
-                <div 
+                <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(6, 1fr)',
+                    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
                     gap: '8px',
-                    marginBottom: '20px'
+                    marginBottom: '20px',
                   }}
                 >
                   {otpDigits.map((digit, idx) => (
                     <input
                       key={idx}
-                      ref={(el) => { otpInputRefs.current[idx] = el; }}
+                      ref={(el) => {
+                        otpInputRefs.current[idx] = el;
+                      }}
                       type="text"
                       inputMode="numeric"
-                      maxLength={1}
+                      pattern="[0-9]*"
+                      autoComplete={idx === 0 ? 'one-time-code' : 'off'}
+                      maxLength={idx === 0 ? 6 : 1}
+                      aria-label={`Verification digit ${idx + 1}`}
                       value={digit}
                       onChange={(e) => handleOtpChange(idx, e.target.value)}
                       onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                      onPaste={handleOtpPaste}
                       style={{
                         width: '100%',
                         height: '52px',
                         textAlign: 'center',
-                        fontSize: '1.3rem',
-                        fontWeight: 800,
-                        borderRadius: '10px',
-                        border: digit ? '2px solid #0E7490' : '1.5px solid #CBD5E1',
-                        backgroundColor: digit ? '#F0FDFA' : '#FFFFFF',
+                        fontSize: '1.25rem',
+                        fontWeight: 700,
+                        borderRadius: '12px',
+                        border: digit ? '2px solid #0E7490' : '1px solid #CBD5E1',
+                        backgroundColor: digit ? '#F0FDFA' : '#F8FAFC',
                         color: '#0F172A',
                         outline: 'none',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        padding: 0,
                       }}
-                      onFocus={(e) => (e.target.style.borderColor = '#0E7490')}
-                      onBlur={(e) => (e.target.style.borderColor = digit ? '#0E7490' : '#CBD5E1')}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#0E7490';
+                        e.target.style.backgroundColor = '#FFFFFF';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = digit ? '#0E7490' : '#CBD5E1';
+                        e.target.style.backgroundColor = digit ? '#F0FDFA' : '#F8FAFC';
+                      }}
                     />
                   ))}
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <button
                     type="submit"
-                    disabled={isLoading || otpDigits.join('').length !== 6}
+                    disabled={isLoading || otpDigits.join('').length !== 6 || expiryCountdown <= 0}
                     style={{
                       width: '100%',
-                      padding: '12px',
-                      borderRadius: '10px',
-                      backgroundColor: otpDigits.join('').length === 6 && !isLoading ? '#0E7490' : '#94A3B8',
+                      minHeight: '48px',
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      backgroundColor:
+                        otpDigits.join('').length === 6 && !isLoading && expiryCountdown > 0 ? '#0E7490' : '#CBD5E1',
                       color: '#FFFFFF',
                       border: 'none',
-                      fontWeight: 700,
-                      fontSize: '0.9rem',
-                      cursor: otpDigits.join('').length === 6 && !isLoading ? 'pointer' : 'not-allowed',
+                      fontWeight: 600,
+                      fontSize: '0.92rem',
+                      cursor:
+                        otpDigits.join('').length === 6 && !isLoading && expiryCountdown > 0 ? 'pointer' : 'not-allowed',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '8px'
+                      gap: '8px',
                     }}
                   >
                     {isLoading ? (
                       <>
                         <RotateCw size={16} className="animate-spin" />
-                        <span>Verifying Code...</span>
+                        <span>Verifying...</span>
                       </>
                     ) : (
                       <>
-                        <span>Verify OTP</span>
+                        <span>Verify Code</span>
                         <ArrowRight size={16} />
                       </>
                     )}
                   </button>
 
-                  {/* Resend OTP with 60s cooldown */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                     <button
                       type="button"
                       onClick={() => {
@@ -629,10 +633,12 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        minHeight: '36px',
+                        padding: '4px 6px',
                       }}
                     >
-                      <ArrowLeft size={13} /> Back
+                      <ArrowLeft size={14} /> Change Email / ID
                     </button>
 
                     <button
@@ -644,11 +650,13 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                         border: 'none',
                         color: resendCooldown > 0 ? '#94A3B8' : '#0E7490',
                         fontSize: '0.82rem',
-                        fontWeight: 700,
-                        cursor: resendCooldown > 0 ? 'not-allowed' : 'pointer'
+                        fontWeight: 600,
+                        cursor: resendCooldown > 0 ? 'not-allowed' : 'pointer',
+                        minHeight: '36px',
+                        padding: '4px 6px',
                       }}
                     >
-                      {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend OTP'}
+                      {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
                     </button>
                   </div>
                 </div>
@@ -656,67 +664,82 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             </div>
           )}
 
-          {/* ================= STEP 3: RESET PASSWORD ================= */}
+          {/* ================= STEP 3: SET NEW PASSWORD ================= */}
           {step === 'RESET_PASSWORD' && (
-            <form onSubmit={handleResetPassword}>
-              <div 
+            <form onSubmit={handleResetPassword} noValidate>
+              <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                   padding: '10px 12px',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   backgroundColor: '#F0FDF4',
                   border: '1px solid #BBF7D0',
-                  color: '#15803D',
+                  color: '#166534',
                   fontSize: '0.82rem',
-                  marginBottom: '16px'
+                  marginBottom: '18px',
                 }}
               >
-                <ShieldCheck size={17} color="#16A34A" />
-                <span>Verification code confirmed. Choose a strong new password.</span>
+                <ShieldCheck size={17} color="#16A34A" style={{ flexShrink: 0 }} />
+                <span>Identity verified. Set a strong new password for your account.</span>
               </div>
 
               {/* New Password */}
               <div style={{ marginBottom: '14px' }}>
-                <label 
-                  style={{ 
-                    display: 'block', 
-                    fontSize: '0.8rem', 
-                    fontWeight: 700, 
-                    color: '#334155', 
-                    marginBottom: '6px' 
+                <label
+                  htmlFor="reset-new-password"
+                  style={{
+                    display: 'block',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    marginBottom: '6px',
                   }}
                 >
                   New Password
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
+                    id="reset-new-password"
                     type={showNewPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      setErrorMessage(null);
+                    }}
                     placeholder="Enter new password"
                     required
                     style={{
                       width: '100%',
-                      padding: '10px 38px 10px 36px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
+                      minHeight: '48px',
+                      padding: '12px 40px 12px 38px',
+                      borderRadius: '12px',
+                      border: '1px solid #E2E8F0',
+                      fontSize: '0.9rem',
                       color: '#0F172A',
+                      backgroundColor: '#F8FAFC',
                       outline: 'none',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
                     }}
-                    onFocus={(e) => (e.target.style.borderColor = '#0E7490')}
-                    onBlur={(e) => (e.target.style.borderColor = '#CBD5E1')}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#0E7490';
+                      e.target.style.backgroundColor = '#FFFFFF';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#E2E8F0';
+                      e.target.style.backgroundColor = '#F8FAFC';
+                    }}
                   />
-                  <Lock 
-                    size={16} 
-                    style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} 
+                  <Lock
+                    size={16}
+                    style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
+                    aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
                     style={{
                       position: 'absolute',
                       right: '10px',
@@ -726,7 +749,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                       border: 'none',
                       color: '#94A3B8',
                       cursor: 'pointer',
-                      padding: '4px'
+                      padding: '6px',
                     }}
                   >
                     {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -736,44 +759,59 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
               {/* Confirm Password */}
               <div style={{ marginBottom: '16px' }}>
-                <label 
-                  style={{ 
-                    display: 'block', 
-                    fontSize: '0.8rem', 
-                    fontWeight: 700, 
-                    color: '#334155', 
-                    marginBottom: '6px' 
+                <label
+                  htmlFor="reset-confirm-password"
+                  style={{
+                    display: 'block',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    marginBottom: '6px',
                   }}
                 >
-                  Confirm New Password
+                  Confirm Password
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
+                    id="reset-confirm-password"
                     type={showConfirmPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter new password"
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setErrorMessage(null);
+                    }}
+                    placeholder="Confirm new password"
                     required
                     style={{
                       width: '100%',
-                      padding: '10px 38px 10px 36px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
+                      minHeight: '48px',
+                      padding: '12px 40px 12px 38px',
+                      borderRadius: '12px',
+                      border: '1px solid #E2E8F0',
+                      fontSize: '0.9rem',
                       color: '#0F172A',
+                      backgroundColor: '#F8FAFC',
                       outline: 'none',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
                     }}
-                    onFocus={(e) => (e.target.style.borderColor = '#0E7490')}
-                    onBlur={(e) => (e.target.style.borderColor = '#CBD5E1')}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#0E7490';
+                      e.target.style.backgroundColor = '#FFFFFF';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#E2E8F0';
+                      e.target.style.backgroundColor = '#F8FAFC';
+                    }}
                   />
-                  <Lock 
-                    size={16} 
-                    style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} 
+                  <Lock
+                    size={16}
+                    style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
                     style={{
                       position: 'absolute',
                       right: '10px',
@@ -783,7 +821,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                       border: 'none',
                       color: '#94A3B8',
                       cursor: 'pointer',
-                      padding: '4px'
+                      padding: '6px',
                     }}
                   >
                     {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -791,109 +829,86 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                 </div>
               </div>
 
-              {/* Live Password Rules Checklist */}
-              <div 
+              {/* Password Rules Checklist */}
+              <div
                 style={{
                   backgroundColor: '#F8FAFC',
-                  borderRadius: '10px',
-                  padding: '12px',
+                  borderRadius: '12px',
+                  padding: '12px 14px',
                   border: '1px solid #E2E8F0',
-                  marginBottom: '20px'
+                  marginBottom: '20px',
                 }}
               >
-                <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
-                  PASSWORD SECURITY REQUIREMENTS:
+                <div style={{ fontSize: '0.73rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
+                  PASSWORD REQUIREMENTS
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: passwordRules.minLength ? '#16A34A' : '#64748B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: passwordRules.minLength ? '#16A34A' : '#64748B' }}>
                     <CheckCircle2 size={13} color={passwordRules.minLength ? '#16A34A' : '#CBD5E1'} />
-                    <span>Min 8 characters</span>
+                    <span>8+ characters</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: passwordRules.hasUppercase ? '#16A34A' : '#64748B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: passwordRules.hasUppercase ? '#16A34A' : '#64748B' }}>
                     <CheckCircle2 size={13} color={passwordRules.hasUppercase ? '#16A34A' : '#CBD5E1'} />
-                    <span>1+ uppercase letter</span>
+                    <span>Uppercase (A–Z)</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: passwordRules.hasLowercase ? '#16A34A' : '#64748B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: passwordRules.hasLowercase ? '#16A34A' : '#64748B' }}>
                     <CheckCircle2 size={13} color={passwordRules.hasLowercase ? '#16A34A' : '#CBD5E1'} />
-                    <span>1+ lowercase letter</span>
+                    <span>Lowercase (a–z)</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: passwordRules.hasNumber ? '#16A34A' : '#64748B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: passwordRules.hasNumber ? '#16A34A' : '#64748B' }}>
                     <CheckCircle2 size={13} color={passwordRules.hasNumber ? '#16A34A' : '#CBD5E1'} />
-                    <span>1+ number</span>
+                    <span>Number (0–9)</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: passwordRules.hasSpecialChar ? '#16A34A' : '#64748B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: passwordRules.hasSpecialChar ? '#16A34A' : '#64748B' }}>
                     <CheckCircle2 size={13} color={passwordRules.hasSpecialChar ? '#16A34A' : '#CBD5E1'} />
-                    <span>1+ special symbol</span>
+                    <span>Symbol (@, #, !)</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: passwordRules.matchesConfirm ? '#16A34A' : '#64748B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: passwordRules.matchesConfirm ? '#16A34A' : '#64748B' }}>
                     <CheckCircle2 size={13} color={passwordRules.matchesConfirm ? '#16A34A' : '#CBD5E1'} />
                     <span>Passwords match</span>
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button
-                  type="submit"
-                  disabled={!isPasswordCompliant || isLoading}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    borderRadius: '10px',
-                    backgroundColor: isPasswordCompliant && !isLoading ? '#0E7490' : '#94A3B8',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    fontWeight: 700,
-                    fontSize: '0.9rem',
-                    cursor: isPasswordCompliant && !isLoading ? 'pointer' : 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  {isLoading ? (
-                    <>
-                      <RotateCw size={16} className="animate-spin" />
-                      <span>Updating Password...</span>
-                    </>
-                  ) : (
-                    <span>Reset Password</span>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setStep('VERIFY_OTP')}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    borderRadius: '8px',
-                    backgroundColor: 'transparent',
-                    color: '#64748B',
-                    border: 'none',
-                    fontWeight: 600,
-                    fontSize: '0.82rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <ArrowLeft size={13} /> Back
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={!isPasswordCompliant || isLoading}
+                style={{
+                  width: '100%',
+                  minHeight: '48px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  backgroundColor: isPasswordCompliant && !isLoading ? '#0E7490' : '#CBD5E1',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.92rem',
+                  cursor: isPasswordCompliant && !isLoading ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+              >
+                {isLoading ? (
+                  <>
+                    <RotateCw size={16} className="animate-spin" />
+                    <span>Saving Password...</span>
+                  </>
+                ) : (
+                  <span>Save Password</span>
+                )}
+              </button>
             </form>
           )}
 
-          {/* ================= STEP 4: SUCCESS ================= */}
+          {/* ================= STEP 4: PASSWORD CHANGED SUCCESSFULLY ================= */}
           {step === 'SUCCESS' && (
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
-              <div 
+            <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
+              <div
                 style={{
-                  width: '64px',
-                  height: '64px',
+                  width: '60px',
+                  height: '60px',
                   borderRadius: '50%',
                   backgroundColor: '#DCFCE7',
                   color: '#16A34A',
@@ -901,18 +916,17 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   margin: '0 auto 16px',
-                  boxShadow: '0 4px 12px rgba(22, 163, 74, 0.15)'
                 }}
               >
-                <CheckCircle2 size={36} />
+                <CheckCircle2 size={32} />
               </div>
 
-              <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', fontWeight: 800, color: '#0F172A' }}>
-                Password Reset Successfully
+              <h3 style={{ margin: '0 0 8px', fontSize: '1.2rem', fontWeight: 700, color: '#0F172A' }}>
+                Password Changed Successfully
               </h3>
 
-              <p style={{ margin: '0 0 24px', fontSize: '0.88rem', color: '#64748B', lineHeight: 1.5 }}>
-                Your password has been securely updated. Please login with your new password.
+              <p style={{ margin: '0 0 22px', fontSize: '0.86rem', color: '#64748B', lineHeight: 1.55 }}>
+                Your new password has been saved and all previous active sessions have been signed out. You can now sign in with your new password.
               </p>
 
               <button
@@ -923,22 +937,22 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                 }}
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  borderRadius: '10px',
+                  minHeight: '48px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
                   backgroundColor: '#0E7490',
                   color: '#FFFFFF',
                   border: 'none',
-                  fontWeight: 700,
+                  fontWeight: 600,
                   fontSize: '0.92rem',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
-                  boxShadow: '0 2px 6px rgba(14, 116, 144, 0.2)'
                 }}
               >
-                <span>Return to Login</span>
+                <span>Continue to Sign In</span>
                 <ArrowRight size={16} />
               </button>
             </div>
