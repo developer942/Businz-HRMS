@@ -75,6 +75,9 @@ const mapRequest = (row: any): FieldAllowanceRequest => {
     balance_received_by: row.balance_received_by || null,
     balance_received_by_name: row.balance_received_by_name || null,
     balance_received_at: row.balance_received_at ? dateTimeValue(row.balance_received_at) : null,
+    decision_remarks: row.decision_remarks || null,
+    decided_by_name: row.decided_by_name || null,
+    decided_at: row.decided_at ? dateTimeValue(row.decided_at) : null,
     status: row.status,
     created_at: dateTimeValue(row.created_at),
     updated_at: dateTimeValue(row.updated_at),
@@ -84,7 +87,10 @@ const mapRequest = (row: any): FieldAllowanceRequest => {
 const requestSelect = `
   SELECT r.*,
     COALESCE((SELECT SUM(d.distributed_amount) FROM public.field_allowance_distributions d WHERE d.request_id = r.id), 0) AS allocated_amount,
-    COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e WHERE e.request_id = r.id), 0) AS total_spent
+    COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e WHERE e.request_id = r.id), 0) AS total_spent,
+    (SELECT a.remarks FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decision_remarks,
+    (SELECT a.approver_name FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decided_by_name,
+    (SELECT a.decided_at FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decided_at
   FROM public.field_allowance_requests r`;
 
 export class FieldAllowanceRepository {
@@ -160,19 +166,25 @@ export class FieldAllowanceRepository {
   }
 
   async decide(input: { companyId: string; requestId: string; approvedBy: string; approverName: string; decision: FieldAllowanceDecision; approvedAmount: number; remarks?: string | null }): Promise<FieldAllowanceRequest | null> {
+    await ensureBalanceReturnSchema();
     return withTransaction(async (client) => {
       const status: FieldAllowanceStatus = input.decision === 'APPROVED' ? 'APPROVED' : input.decision === 'REJECTED' ? 'REJECTED' : 'CORRECTION_REQUESTED';
       const updated = await client.query(
-        `UPDATE public.field_allowance_requests SET status=$3, approved_amount=$4, updated_at=NOW()
-         WHERE company_id=$1 AND id=$2 AND status='PENDING_APPROVAL' RETURNING id`,
-        [input.companyId, input.requestId, status, input.decision === 'APPROVED' ? input.approvedAmount : 0]
+        `UPDATE public.field_allowance_requests
+         SET status = $3,
+             approved_amount = CASE WHEN $3 = 'APPROVED' THEN requested_amount ELSE 0 END,
+             updated_at = NOW()
+         WHERE company_id = $1 AND id = $2 AND status = 'PENDING_APPROVAL'
+         RETURNING id, approved_amount`,
+        [input.companyId, input.requestId, status]
       );
       if (!updated.rowCount) return null;
+      const finalApprovedAmount = input.decision === 'APPROVED' ? Number(updated.rows[0]?.approved_amount || 0) : 0;
       await client.query(
         `INSERT INTO public.field_allowance_approvals
          (request_id, approved_by, approver_name, decision, approved_amount, remarks)
          VALUES ($1,$2,$3,$4,$5,$6)`,
-        [input.requestId, input.approvedBy, input.approverName, input.decision, input.decision === 'APPROVED' ? input.approvedAmount : 0, input.remarks]
+        [input.requestId, input.approvedBy, input.approverName, input.decision, finalApprovedAmount, input.remarks]
       );
       return this.getById(input.companyId, input.requestId);
     });

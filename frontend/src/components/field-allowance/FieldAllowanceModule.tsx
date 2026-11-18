@@ -797,6 +797,24 @@ export const FieldAllowanceModule: React.FC = () => {
                             <span className={`status-pill ${getStatusPillClass(row.status)}`}>
                               {STATUS_LABELS[row.status]}
                             </span>
+                            {row.decision_remarks && ['CORRECTION_REQUESTED', 'REJECTED'].includes(row.status) && (
+                              <div
+                                style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  color: row.status === 'REJECTED' ? '#B91C1C' : '#B45309',
+                                  background: row.status === 'REJECTED' ? '#FEF2F2' : '#FFFBEB',
+                                  border: `1px solid ${row.status === 'REJECTED' ? '#FECACA' : '#FDE68A'}`,
+                                  borderRadius: '6px',
+                                  padding: '3px 8px',
+                                  maxWidth: '220px',
+                                  lineHeight: 1.35,
+                                }}
+                                title={row.decision_remarks}
+                              >
+                                <strong>Reason:</strong> {row.decision_remarks}
+                              </div>
+                            )}
                             {row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
                               <span
                                 className="status-pill info"
@@ -859,14 +877,24 @@ export const FieldAllowanceModule: React.FC = () => {
                             ) : !isManagement &&
                               !isAccountsUser &&
                               ['DRAFT', 'CORRECTION_REQUESTED'].includes(row.status) ? (
-                              <button
-                                type="button"
-                                className="btn-primary btn-sm"
-                                onClick={() => openEditModal(row)}
-                                disabled={busy}
-                              >
-                                Edit & Submit
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn-primary btn-sm"
+                                  onClick={() => openEditModal(row)}
+                                  disabled={busy}
+                                >
+                                  Edit & Submit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary btn-sm"
+                                  onClick={() => openDetailModal(row)}
+                                  disabled={busy}
+                                >
+                                  <Eye size={13} /> View Details
+                                </button>
+                              </>
                             ) : !isManagement &&
                               !isAccountsUser &&
                               row.status === 'COMPLETED' &&
@@ -945,6 +973,24 @@ export const FieldAllowanceModule: React.FC = () => {
                         {STATUS_LABELS[row.status]}
                       </span>
                     </div>
+
+                    {row.decision_remarks && ['CORRECTION_REQUESTED', 'REJECTED'].includes(row.status) && (
+                      <div
+                        style={{
+                          fontSize: '0.76rem',
+                          fontWeight: 600,
+                          color: row.status === 'REJECTED' ? '#B91C1C' : '#B45309',
+                          background: row.status === 'REJECTED' ? '#FEF2F2' : '#FFFBEB',
+                          border: `1px solid ${row.status === 'REJECTED' ? '#FECACA' : '#FDE68A'}`,
+                          borderRadius: '8px',
+                          padding: '6px 10px',
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        <strong>{row.status === 'REJECTED' ? 'Rejection Reason:' : 'Correction Requested:'}</strong>{' '}
+                        {row.decision_remarks}
+                      </div>
+                    )}
 
                     <div
                       style={{
@@ -1196,6 +1242,30 @@ const FieldAllowanceRequestModal: React.FC<FieldAllowanceRequestModalProps> = ({
         </div>
 
         <div className="modal-body">
+          {initial?.status === 'CORRECTION_REQUESTED' &&
+            (initial.decision_remarks || initial.approvals?.[0]?.remarks) && (
+              <div
+                style={{
+                  background: '#FFFBEB',
+                  border: '1px solid #FDE68A',
+                  color: '#92400E',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  fontSize: '0.84rem',
+                  marginBottom: '16px',
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: '4px' }}>
+                  Correction Requested Reason
+                  {initial.decided_by_name || initial.approvals?.[0]?.approver_name
+                    ? ` (${initial.decided_by_name || initial.approvals?.[0]?.approver_name})`
+                    : ''}
+                  :
+                </div>
+                <div>{initial.decision_remarks || initial.approvals?.[0]?.remarks}</div>
+              </div>
+            )}
+
           {validationError && (
             <div
               style={{
@@ -1769,6 +1839,32 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
             )}
           </div>
 
+          {/* Decision Reason Banner for Employee / Management when Rejected or Correction Requested */}
+          {(detail.decision_remarks || detail.approvals?.[0]?.remarks) &&
+            ['CORRECTION_REQUESTED', 'REJECTED'].includes(detail.status) && (
+              <div
+                style={{
+                  background: detail.status === 'REJECTED' ? '#FEF2F2' : '#FFFBEB',
+                  border: `1px solid ${detail.status === 'REJECTED' ? '#FECACA' : '#FDE68A'}`,
+                  color: detail.status === 'REJECTED' ? '#991B1B' : '#92400E',
+                  borderRadius: '12px',
+                  padding: '14px 16px',
+                  marginBottom: '18px',
+                  fontSize: '0.86rem',
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: '4px' }}>
+                  {detail.status === 'REJECTED' ? 'Rejection Reason' : 'Correction Requested Reason'}
+                  {detail.decided_by_name || detail.approvals?.[0]?.approver_name
+                    ? ` — ${detail.decided_by_name || detail.approvals?.[0]?.approver_name}`
+                    : ''}
+                </div>
+                <div style={{ lineHeight: 1.45 }}>
+                  {detail.decision_remarks || detail.approvals?.[0]?.remarks}
+                </div>
+              </div>
+            )}
+
           {/* 1. MANAGEMENT APPROVAL DECISION SECTION (Petty Cash CeoApprovalModal Style) */}
           {isManagement && detail.status === 'PENDING_APPROVAL' && (
             <div
@@ -1787,13 +1883,19 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                 <div className="form-group" style={{ marginBottom: '12px' }}>
                   <label>Approved Advance Amount (₹)</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    readOnly
+                    disabled
                     className="petty-cash-input"
-                    style={{ width: '100%', fontWeight: 700, fontSize: '1rem' }}
-                    value={approvedAmount}
-                    onChange={(e) => setApprovedAmount(e.target.value)}
+                    style={{
+                      width: '100%',
+                      fontWeight: 700,
+                      fontSize: '1rem',
+                      backgroundColor: '#F1F5F9',
+                      color: '#475569',
+                      cursor: 'not-allowed',
+                    }}
+                    value={detail.advance_required ? formatInr(detail.requested_amount) : 'No Advance'}
                   />
                 </div>
                 <div className="form-group" style={{ marginBottom: '12px' }}>

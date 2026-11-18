@@ -44,6 +44,9 @@ export interface FieldAllowanceRequest {
   balance_received_by?: string | null;
   balance_received_by_name?: string | null;
   balance_received_at?: string | null;
+  decision_remarks?: string | null;
+  decided_by_name?: string | null;
+  decided_at?: string | null;
   status: FieldAllowanceStatus;
   created_at: string;
   updated_at: string;
