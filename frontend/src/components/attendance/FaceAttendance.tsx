@@ -45,7 +45,7 @@ import {
   buildEmployeeMonthlyAttendanceOtReport,
   calculateEnterpriseOvertimeRateAndAmount
 } from '../../services/attendanceCalculationEngine';
-import { isOwnerOrCEO } from '../../data/hrmsInitialData';
+import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { formatCurrency } from '../../utils/numbers';
 import type { FaceLog } from '../../types/hrms';
 import {
@@ -140,7 +140,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     departmentOtPolicies,
     employeeOtPolicies,
     payrollSettingsConfig,
-    shifts
+    shifts,
+    holidayPolicies
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -2184,7 +2185,30 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     return null;
   }, [myTodayAttendance, myTodayFaceLogs]);
 
-  // Current user's monthly attendance records (Consolidated & deduplicated per date)
+  // Elapsed Week Off (Sunday) & Company Holiday dates in the selected month (up to today)
+  const elapsedMonthHolidayDates = useMemo(() => {
+    const result: Array<{ dateStr: string; label: string }> = [];
+    if (!selectedMonth) return result;
+    const [year, month] = selectedMonth.split('-').map(Number);
+    if (!year || !month) return result;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (dateStr > todayStr) continue;
+      const dateObj = new Date(year, month - 1, day, 12, 0, 0);
+      const isSunday = dateObj.getDay() === 0;
+      const matchedHoliday = (holidayPolicies || []).find(h => normalizeToYYYYMMDD(h.date) === dateStr);
+      if (isSunday || matchedHoliday) {
+        result.push({
+          dateStr,
+          label: matchedHoliday ? ((matchedHoliday as any).name || (matchedHoliday as any).holidayName || 'Holiday') : 'Week Off'
+        });
+      }
+    }
+    return result;
+  }, [selectedMonth, todayStr, holidayPolicies]);
+
+  // Current user's monthly attendance records (Consolidated & deduplicated per date, including Week Off / Holiday rows)
   const myMonthlyRecords = useMemo(() => {
     if (isCEO || isOwnerOrCEO(currentUserEmp)) return [];
     const rawList = attendanceRecords
@@ -2260,16 +2284,40 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       });
     });
 
+    const myJoiningDate = normalizeToYYYYMMDD(currentUserEmp?.joiningDate || currentUserEmp?.dateOfJoining);
+    elapsedMonthHolidayDates.forEach(({ dateStr, label }) => {
+      if (myJoiningDate && dateStr < myJoiningDate) return;
+      if (!byDate.has(dateStr)) {
+        const empCode = currentUserEmp?.employeeId || currentUser.employeeId || '';
+        byDate.set(dateStr, {
+          id: `HOL-${empCode || 'ME'}-${dateStr}`,
+          employeeId: empCode,
+          employeeName: currentUser.name || 'Employee',
+          department: currentUserEmp?.department || currentUser.department || 'General',
+          date: dateStr,
+          shiftDate: dateStr,
+          checkIn: null,
+          checkOut: null,
+          workingHours: 0,
+          status: 'Holiday',
+          method: label
+        });
+      }
+    });
+
     return Array.from(byDate.values()).sort((a, b) => {
       const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
       const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
       return String(db).localeCompare(String(da));
     });
-  }, [attendanceRecords, selectedMonth, isLogForCurrentUser]);
+  }, [attendanceRecords, selectedMonth, isLogForCurrentUser, elapsedMonthHolidayDates, currentUserEmp, currentUser]);
 
   const resolveEffectiveRecordStatus = (rec: any): string => {
     const rawStatus = String(rec?.status || 'Present').trim();
     const statusNorm = rawStatus.toLowerCase();
+    if (statusNorm === 'holiday' || statusNorm === 'week off' || statusNorm === 'weekoff' || statusNorm === 'wo') {
+      return 'Holiday';
+    }
     if (statusNorm === 'half day' || statusNorm === 'half-day' || statusNorm === 'hd') {
       return 'Half Day';
     }
@@ -2438,6 +2486,48 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       });
     });
 
+    // Also include Week Off / Company Holiday rows for active employees on elapsed dates in the month
+    const activeEmps = employees.filter(e => {
+      if (isOwnerOrCEO(e) || isAttendanceExemptEmployee(e)) return false;
+      const st = String(e.status || '').toLowerCase().trim();
+      const accSt = String((e as any).accountStatus || '').toLowerCase().trim();
+      const profSt = String((e as any).profile_data?.status || '').toLowerCase().trim();
+      if (st === 'inactive' || st === 'terminated' || accSt === 'deactivated' || accSt === 'disabled' || profSt === 'inactive' || (e as any).isActive === false || e.employeeId === 'EMP-000') {
+        return false;
+      }
+      return true;
+    });
+
+    activeEmps.forEach(emp => {
+      const canonicalEmpId = emp.employeeId || emp.id || '';
+      const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee';
+      const empKey = String(canonicalEmpId || empName).toLowerCase();
+      if (!empKey) return;
+      const joinDate = normalizeToYYYYMMDD(emp.joiningDate || emp.dateOfJoining);
+
+      elapsedMonthHolidayDates.forEach(({ dateStr, label }) => {
+        if (joinDate && dateStr < joinDate) return;
+        const uniqueKey = `${empKey}_${dateStr}`;
+        if (!byEmpDate.has(uniqueKey)) {
+          byEmpDate.set(uniqueKey, {
+            id: `HOL-${canonicalEmpId}-${dateStr}`,
+            employeeId: canonicalEmpId,
+            employeeName: empName,
+            department: emp.department || 'General',
+            designation: emp.designation || '',
+            avatar: emp.avatar || '',
+            date: dateStr,
+            shiftDate: dateStr,
+            checkIn: null,
+            checkOut: null,
+            workingHours: 0,
+            status: 'Holiday',
+            method: label
+          });
+        }
+      });
+    });
+
     return Array.from(byEmpDate.values()).sort((a, b) => {
       const da = normalizeToYYYYMMDD(a.date || a.shiftDate);
       const db = normalizeToYYYYMMDD(b.date || b.shiftDate);
@@ -2445,7 +2535,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       if (cmp !== 0) return cmp;
       return String(a.employeeName || '').localeCompare(String(b.employeeName || ''));
     });
-  }, [attendanceRecords, selectedMonth, employees]);
+  }, [attendanceRecords, selectedMonth, employees, elapsedMonthHolidayDates]);
 
   const availableDepartments = useMemo(() => {
     const depts = new Set<string>();
@@ -2533,6 +2623,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     if (statusStr === 'Present') return '#16a34a';
     if (statusStr === 'Late') return '#d97706';
     if (statusStr === 'Half Day') return '#d97706';
+    if (statusStr === 'Holiday') return '#2563eb';
     return '#dc2626';
   };
 
@@ -3534,6 +3625,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
               <option value="Present">Present</option>
               <option value="Half Day">Half Day</option>
               <option value="Late">Late</option>
+              <option value="Holiday">Holiday</option>
             </select>
           </div>
         )
@@ -3672,6 +3764,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 <option value="Present">Present</option>
                 <option value="Half Day">Half Day</option>
                 <option value="Late">Late</option>
+                <option value="Holiday">Holiday</option>
               </select>
             </div>
 
