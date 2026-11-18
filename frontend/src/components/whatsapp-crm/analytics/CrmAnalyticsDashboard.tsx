@@ -12,10 +12,8 @@ import {
   ShieldCheck,
   CheckCheck,
   RefreshCw,
-  ArrowUpRight,
   ArrowDownRight,
-  CheckCircle2,
-  AlertCircle
+  CheckCircle2
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type { CrmAnalyticsKPIs } from '../../../types/crm';
@@ -42,174 +40,112 @@ export const CrmAnalyticsDashboard: React.FC = () => {
 
   const kpis = [
     {
-      title: 'Total CRM Contacts',
+      title: 'Total Contacts',
       value: analytics?.totalContacts ?? 0,
       sub: `${analytics?.optedInContacts ?? 0} Opted-In`,
       icon: Users,
-      color: '#0E7490',
-      bgColor: '#ECFEFF'
+      accent: 'teal'
     },
     {
       title: 'Active Conversations',
       value: analytics?.activeConversations ?? 0,
-      sub: 'Open / In-progress threads',
+      sub: 'Open threads',
       icon: MessageSquare,
-      color: '#3B82F6',
-      bgColor: '#EFF6FF'
+      accent: 'teal'
     },
     {
-      title: 'Anti-Spam Consent Rate',
+      title: 'Consent Rate',
       value: `${analytics?.totalContacts ? Math.round(((analytics.optedInContacts || 0) / analytics.totalContacts) * 100) : 0}%`,
-      sub: 'Eligible for broadcasts',
+      sub: 'Broadcast eligible',
       icon: ShieldCheck,
-      color: '#059669',
-      bgColor: '#ECFDF5'
+      accent: 'green'
     },
     {
       title: 'Delivery Rate',
       value: `${analytics?.deliveryRatePercent ?? 100}%`,
-      sub: 'Successful Meta dispatches',
+      sub: 'Meta Cloud dispatches',
       icon: CheckCheck,
-      color: '#0891B2',
-      bgColor: '#CFFAFE'
+      accent: 'teal'
     },
     {
       title: 'Read Rate',
       value: `${analytics?.readRatePercent ?? 0}%`,
-      sub: 'Blue tick read receipts',
+      sub: 'Read receipts',
       icon: TrendingUp,
-      color: '#8B5CF6',
-      bgColor: '#F5F3FF'
+      accent: 'teal'
     },
     {
       title: 'Inbound Inquiries',
       value: analytics?.totalInbound ?? 0,
       sub: `vs ${analytics?.totalOutbound ?? 0} Outbound`,
       icon: ArrowDownRight,
-      color: '#D97706',
-      bgColor: '#FFFBEB'
+      accent: 'neutral'
     }
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Banner */}
-      <div className="crm-templates-header-card">
+    <div className="crm-analytics-wrapper">
+      {/* Compact Header Row */}
+      <div className="crm-analytics-topbar">
         <div>
-          <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', color: '#1E293B', fontWeight: 600 }}>
-            WhatsApp CRM Analytics & Performance
-          </h3>
-          <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748B' }}>
-            Real-time delivery KPIs, conversation response metrics, and contact consent distribution.
+          <h3 className="crm-section-heading">Analytics & KPIs</h3>
+          <p className="crm-analytics-sub">
+            Delivery performance, conversation activity, and consent compliance.
           </p>
         </div>
 
         <button
+          type="button"
           onClick={loadAnalytics}
-          style={{
-            padding: '10px 16px',
-            borderRadius: '10px',
-            border: '1px solid #E2E8F0',
-            backgroundColor: '#FFFFFF',
-            color: '#0E7490',
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
+          className="crm-btn-secondary"
         >
-          <RefreshCw size={16} />
-          <span>Refresh Analytics</span>
+          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+          <span>Refresh</span>
         </button>
       </div>
 
-      {/* KPI Tiles Grid */}
+      {/* Minimal, Balanced KPI Grid (3 cols desktop, 2 cols mobile) */}
       <div className="crm-analytics-kpi-grid">
         {kpis.map((kpi, idx) => {
           const Icon = kpi.icon;
           return (
-            <div
-              key={idx}
-              style={{
-                backgroundColor: '#FFFFFF',
-                borderRadius: '16px',
-                padding: '20px',
-                border: '1px solid #E7ECF3',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between'
-              }}
-            >
-              <div>
-                <span style={{ fontSize: '0.8rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                  {kpi.title}
-                </span>
-                <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#1E293B', margin: '8px 0 4px' }}>
-                  {loading ? '—' : kpi.value}
+            <div key={idx} className="crm-kpi-card">
+              <div className="crm-kpi-card-top">
+                <span className="crm-kpi-label">{kpi.title}</span>
+                <div className={`crm-kpi-icon ${kpi.accent}`}>
+                  <Icon size={16} />
                 </div>
-                <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>{kpi.sub}</span>
               </div>
-
-              <div style={{
-                width: '42px',
-                height: '42px',
-                borderRadius: '12px',
-                backgroundColor: kpi.bgColor,
-                color: kpi.color,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}>
-                <Icon size={22} />
-              </div>
+              <div className="crm-kpi-value">{loading ? '—' : kpi.value}</div>
+              <div className="crm-kpi-sub">{kpi.sub}</div>
             </div>
           );
         })}
       </div>
 
-      {/* Category Breakdown & Delivery Performance */}
+      {/* Clean Breakdown Sections */}
       <div className="crm-analytics-breakdown-grid">
-        {/* Category Breakdown Card */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          padding: '24px',
-          border: '1px solid #E7ECF3',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-        }}>
-          <h4 style={{ margin: '0 0 16px', fontSize: '1.05rem', color: '#1E293B', fontWeight: 600 }}>
-            Contacts Distribution by Segment
-          </h4>
+        {/* Contact Distribution */}
+        <div className="crm-breakdown-card">
+          <h4 className="crm-breakdown-title">Contact Distribution by Segment</h4>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div className="crm-segment-bars">
             {['Customers', 'Scanned Contacts', 'Employees', 'Others'].map(cat => {
               const count = analytics?.categoryBreakdown?.[cat] || 0;
               const total = analytics?.totalContacts || 1;
               const pct = Math.round((count / total) * 100);
 
               return (
-                <div key={cat}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 600, color: '#334155' }}>{cat}</span>
-                    <span style={{ color: '#64748B' }}>{count} ({pct}%)</span>
+                <div key={cat} className="crm-segment-row">
+                  <div className="crm-segment-row-head">
+                    <span className="crm-segment-name">{cat}</span>
+                    <span className="crm-segment-stat">{count} ({pct}%)</span>
                   </div>
-                  <div style={{ height: '8px', backgroundColor: '#F1F5F9', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{
-                      width: `${pct}%`,
-                      height: '100%',
-                      backgroundColor:
-                        cat === 'Customers'
-                          ? '#0E7490'
-                          : cat === 'Scanned Contacts'
-                          ? '#F59E0B'
-                          : cat === 'Employees'
-                          ? '#3B82F6'
-                          : '#94A3B8',
-                      borderRadius: '4px'
-                    }} />
+                  <div className="crm-segment-track">
+                    <div
+                      className={`crm-segment-fill ${cat === 'Customers' ? 'primary' : cat === 'Scanned Contacts' ? 'green' : 'muted'}`}
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
                 </div>
               );
@@ -217,43 +153,25 @@ export const CrmAnalyticsDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Anti-Spam & Delivery Health Card */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          padding: '24px',
-          border: '1px solid #E7ECF3',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-        }}>
-          <h4 style={{ margin: '0 0 16px', fontSize: '1.05rem', color: '#1E293B', fontWeight: 600 }}>
-            Anti-Spam & Health Compliance
-          </h4>
+        {/* Meta API Health / Compliance */}
+        <div className="crm-breakdown-card">
+          <h4 className="crm-breakdown-title">Meta API Health & Compliance</h4>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{
-              padding: '14px',
-              borderRadius: '12px',
-              backgroundColor: '#ECFDF5',
-              border: '1px solid #A7F3D0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px'
-            }}>
-              <CheckCircle2 size={24} color="#059669" />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#065F46' }}>
-                  Meta Cloud API Tier Health: Active & Healthy
-                </div>
-                <div style={{ fontSize: '0.78rem', color: '#047857', marginTop: '2px' }}>
-                  Zero spam violation flags detected. Quality rating: High (Green).
-                </div>
+          <div className="crm-compliance-status-box">
+            <CheckCircle2 size={20} className="crm-compliance-icon" />
+            <div>
+              <div className="crm-compliance-headline">
+                Meta Cloud API Tier Health: Active & Healthy
+              </div>
+              <div className="crm-compliance-sub">
+                Zero spam violation flags detected • Quality rating: High (Green)
               </div>
             </div>
-
-            <div style={{ fontSize: '0.85rem', color: '#64748B', lineHeight: '1.5' }}>
-              Automatic contact synchronization is active for both the <strong>Visiting Card Scanner</strong> and the <strong>Employee Directory</strong>. All outbound marketing broadcasts strictly filter out unconsented recipients to preserve Meta API deliverability.
-            </div>
           </div>
+
+          <p className="crm-compliance-note">
+            Automatic contact synchronization is active for both the <strong>Visiting Card Scanner</strong> and the <strong>Employee Directory</strong>. All outbound marketing broadcasts strictly filter out unconsented recipients to preserve Meta API deliverability.
+          </p>
         </div>
       </div>
     </div>

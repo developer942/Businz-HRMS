@@ -1,7 +1,6 @@
 /**
  * WhatsApp CRM Inbox View for BUSINZ HRMS
- * Portions adapted from wacrm (https://github.com/ArnasDon/wacrm)
- * Copyright (c) 2026 Arnas Donauskas - MIT License
+ * Desktop: WhatsApp Web Style | Mobile: Native iOS WhatsApp App Experience
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -11,12 +10,9 @@ import {
   Check,
   CheckCheck,
   AlertCircle,
-  Clock,
   User,
   Phone,
   Mail,
-  Building,
-  Tag,
   Plus,
   X,
   MessageSquare,
@@ -24,17 +20,17 @@ import {
   ShieldAlert,
   ShieldQuestion,
   UserCheck,
-  Sparkles,
   RefreshCw,
-  ArrowLeft
+  ArrowLeft,
+  Info,
+  Paperclip
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type {
   CrmConversation,
   CrmMessage,
   CrmContact,
-  CrmTag,
-  CrmConversationStatus
+  CrmTag
 } from '../../../types/crm';
 import { useHRMS } from '../../../context/HRMSContext';
 
@@ -43,7 +39,7 @@ interface CrmInboxViewProps {
 }
 
 export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) => {
-  const { currentUser, employees } = useHRMS();
+  const { employees } = useHRMS();
 
   // Conversations State
   const [conversations, setConversations] = useState<CrmConversation[]>([]);
@@ -59,13 +55,15 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
 
-  // Active Contact Sidebar State
+  // Contact Info Panel State (Shown only when requested/toggled)
+  const [showContactInfo, setShowContactInfo] = useState<boolean>(false);
   const [contactDetails, setContactDetails] = useState<CrmContact | null>(null);
   const [availableTags, setAvailableTags] = useState<CrmTag[]>([]);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [newTagName, setNewTagName] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   // Load conversations on mount & filter change
   useEffect(() => {
@@ -84,7 +82,6 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   useEffect(() => {
     if (selectedConvId) {
       loadConversationData(selectedConvId);
-      // Auto-poll messages every 6 seconds while chatting
       const interval = setInterval(() => {
         pollMessages(selectedConvId);
       }, 6000);
@@ -93,10 +90,11 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       setActiveConv(null);
       setMessages([]);
       setContactDetails(null);
+      setShowContactInfo(false);
     }
   }, [selectedConvId]);
 
-  // Auto scroll to bottom
+  // Auto scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -132,13 +130,11 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
   const handleOpenContactConversation = async (contactId: string) => {
     try {
-      // Find or create conversation
       const convs = await crmService.getConversations();
       const existing = convs.find(c => c.contactId === contactId);
       if (existing) {
         setSelectedConvId(existing.id);
       } else {
-        // Refresh conversations
         await loadConversations();
       }
     } catch (err) {
@@ -160,9 +156,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       const msgs = await crmService.getMessages(convId);
       setMessages(msgs);
 
-      // Mark conversation as read
       await crmService.markAsRead(convId);
-      // update unread count locally
       setConversations(prev =>
         prev.map(c => (c.id === convId ? { ...c, unreadCount: 0 } : c))
       );
@@ -194,7 +188,6 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       const newMsg = await crmService.sendMessage(selectedConvId, text);
       setMessages(prev => [...prev, newMsg]);
 
-      // update conversation snippet in list
       setConversations(prev =>
         prev.map(c =>
           c.id === selectedConvId
@@ -270,543 +263,436 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     }
   };
 
-  // Helper formatting functions
   const formatTime = (ts?: string) => {
     if (!ts) return '';
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const formatDate = (ts?: string) => {
+  const formatListDate = (ts?: string) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const today = new Date();
+    if (d.toDateString() === today.toDateString()) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const formatDateSeparator = (ts?: string) => {
     if (!ts) return '';
     const d = new Date(ts);
     const today = new Date();
     if (d.toDateString() === today.toDateString()) return 'Today';
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
+  const handleAttachmentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setInputText(prev => (prev ? `${prev} [Attachment: ${file.name}]` : `[Attachment: ${file.name}]`));
+    e.target.value = '';
+  };
+
+  const showRightDrawer = Boolean(activeConv && contactDetails && showContactInfo);
+
   return (
-    <div className={`crm-inbox-container ${selectedConvId ? 'mobile-show-chat' : ''}`}>
-      {/* ============================================================ */}
-      {/* 1. LEFT PANE: Conversations List */}
-      {/* ============================================================ */}
+    <div
+      className={`crm-inbox-container ${selectedConvId ? 'mobile-show-chat' : ''} ${
+        showRightDrawer ? 'with-contact-drawer' : ''
+      }`}
+    >
+      {/* ============================================================
+          1. LEFT PANEL: Conversation Search, Filters & List
+          ============================================================ */}
       <div className="crm-inbox-left">
-        {/* Search & Header */}
-        <div style={{ padding: '16px', borderBottom: '1px solid #E7ECF3' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: '#1E293B' }}>Inbox</h3>
+        <div className="crm-inbox-left-header">
+          <div className="crm-inbox-title-row">
+            <h2 className="crm-inbox-heading">Chats</h2>
             <button
+              type="button"
               onClick={loadConversations}
-              title="Refresh"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#64748B',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '4px'
-              }}
+              title="Refresh conversations"
+              aria-label="Refresh conversations"
+              className="crm-icon-btn"
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={15} className={loadingConvs ? 'animate-spin' : ''} />
             </button>
           </div>
 
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
+          {/* Search Input */}
+          <div className="crm-inbox-search-box">
+            <Search size={15} className="crm-inbox-search-icon" />
             <input
               type="text"
-              placeholder="Search conversations..."
+              placeholder="Search name or phone..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && loadConversations()}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.85rem',
-                outline: 'none',
-                backgroundColor: '#FFFFFF',
-                boxSizing: 'border-box'
-              }}
+              className="crm-inbox-search-input"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setTimeout(loadConversations, 0);
+                }}
+                aria-label="Clear search"
+                className="crm-inbox-search-clear"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
 
-          {/* Status Filter Tabs */}
-          <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-            {['all', 'open', 'snoozed', 'closed'].map(st => (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                style={{
-                  flex: 1,
-                  padding: '5px 0',
-                  borderRadius: '6px',
-                  border: 'none',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  textTransform: 'capitalize',
-                  cursor: 'pointer',
-                  backgroundColor: statusFilter === st ? '#0E7490' : '#E2E8F0',
-                  color: statusFilter === st ? '#FFFFFF' : '#475569',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {st}
-              </button>
-            ))}
+          {/* Compact Filter Chips: All / Open / Snoozed / Closed */}
+          <div className="crm-inbox-filter-chips" role="tablist" aria-label="Conversation status filter">
+            {(['all', 'open', 'snoozed', 'closed'] as const).map(st => {
+              const isActive = statusFilter === st;
+              return (
+                <button
+                  key={st}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setStatusFilter(st)}
+                  className={`crm-inbox-chip ${isActive ? 'active' : ''}`}
+                >
+                  {st}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Conversation List Scroll Area */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Conversation List */}
+        <div className="crm-conv-list">
           {loadingConvs ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#94A3B8', fontSize: '0.85rem' }}>
-              Loading conversations...
-            </div>
+            <div className="crm-conv-empty">Loading chats...</div>
           ) : conversations.length === 0 ? (
-            <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '0.85rem' }}>
-              <MessageSquare size={32} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
-              <div>No conversations found</div>
+            <div className="crm-conv-empty">
+              <MessageSquare size={26} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+              <div style={{ fontWeight: 600, color: '#17212C', marginBottom: '2px' }}>No conversations found</div>
+              <div style={{ fontSize: '0.76rem', color: '#667085' }}>
+                Start a chat from the Contacts tab or adjust your filter.
+              </div>
             </div>
           ) : (
             conversations.map(conv => {
               const isSelected = conv.id === selectedConvId;
+              const initial = (conv.contactName || conv.contactPhone || 'U').charAt(0).toUpperCase();
               return (
-                <div
+                <button
                   key={conv.id}
+                  type="button"
                   onClick={() => setSelectedConvId(conv.id)}
-                  style={{
-                    padding: '14px 16px',
-                    borderBottom: '1px solid #F1F5F9',
-                    cursor: 'pointer',
-                    backgroundColor: isSelected ? '#ECFEFF' : 'transparent',
-                    borderLeft: isSelected ? '4px solid #0E7490' : '4px solid transparent',
-                    transition: 'background-color 0.15s ease'
-                  }}
+                  className={`crm-conv-row ${isSelected ? 'selected' : ''}`}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                        backgroundColor: '#0E7490',
-                        color: '#FFFFFF',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 600,
-                        fontSize: '0.85rem'
-                      }}>
-                        {conv.contactName ? conv.contactName.charAt(0).toUpperCase() : 'U'}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1E293B' }}>
-                          {conv.contactName || conv.contactPhone || 'Unknown'}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                          {conv.contactPhone}
-                        </div>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
-                      {formatDate(conv.lastMessageTimestamp)}
-                    </span>
-                  </div>
+                  <div className="crm-conv-avatar">{initial}</div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                    <p style={{
-                      margin: 0,
-                      fontSize: '0.8rem',
-                      color: isSelected ? '#0E7490' : '#64748B',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      maxWidth: '180px'
-                    }}>
-                      {conv.lastMessageText || 'No messages yet'}
-                    </p>
-                    {conv.unreadCount > 0 && (
-                      <span style={{
-                        backgroundColor: '#0E7490',
-                        color: '#FFFFFF',
-                        fontSize: '0.7rem',
-                        fontWeight: 700,
-                        padding: '2px 7px',
-                        borderRadius: '9999px'
-                      }}>
-                        {conv.unreadCount}
+                  <div className="crm-conv-main">
+                    <div className="crm-conv-top-line">
+                      <span className="crm-conv-name">
+                        {conv.contactName || conv.contactPhone || 'Unknown'}
                       </span>
-                    )}
+                      <span className={`crm-conv-time ${conv.unreadCount > 0 ? 'unread' : ''}`}>
+                        {formatListDate(conv.lastMessageTimestamp)}
+                      </span>
+                    </div>
+
+                    <div className="crm-conv-bottom-line">
+                      <span className="crm-conv-snippet">
+                        {conv.lastMessageText || conv.contactPhone || 'No messages yet'}
+                      </span>
+                      {conv.unreadCount > 0 && (
+                        <span className="crm-conv-unread-badge">{conv.unreadCount}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                </button>
               );
             })
           )}
         </div>
       </div>
 
-      {/* ============================================================ */}
-      {/* 2. MIDDLE PANE: Active Chat & Composer */}
-      {/* ============================================================ */}
+      {/* ============================================================
+          2. CENTER PANEL: Active Chat Thread & Composer
+          ============================================================ */}
       <div className="crm-inbox-center">
         {activeConv ? (
           <>
             {/* Chat Header */}
-            <div style={{
-              padding: '14px 20px',
-              borderBottom: '1px solid #E7ECF3',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: '#FFFFFF',
-              gap: '8px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                {/* Back button for mobile view */}
+            <div className="crm-chat-header">
+              <div className="crm-chat-header-left">
                 <button
                   type="button"
                   onClick={() => setSelectedConvId(null)}
-                  className="crm-mobile-back-btn"
-                  title="Back to Inbox"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#0E7490',
-                    cursor: 'pointer',
-                    alignItems: 'center',
-                    padding: '4px',
-                    borderRadius: '8px',
-                    flexShrink: 0
-                  }}
+                  className="crm-chat-back-btn"
+                  title="Back to Chats"
+                  aria-label="Back to Chats"
                 >
                   <ArrowLeft size={20} />
                 </button>
 
-                <div style={{
-                  width: '38px',
-                  height: '38px',
-                  borderRadius: '50%',
-                  backgroundColor: '#CFFAFE',
-                  color: '#0E7490',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 600,
-                  fontSize: '0.95rem',
-                  flexShrink: 0
-                }}>
-                  {activeConv.contactName ? activeConv.contactName.charAt(0).toUpperCase() : 'U'}
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem', color: '#1E293B' }}>
-                      {activeConv.contactName || activeConv.contactPhone}
-                    </span>
-                    {activeConv.contactCategory && (
-                      <span style={{
-                        fontSize: '0.72rem',
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        backgroundColor: '#ECFEFF',
-                        color: '#0E7490',
-                        fontWeight: 600
-                      }}>
-                        {activeConv.contactCategory}
+                <button
+                  type="button"
+                  onClick={() => setShowContactInfo(prev => !prev)}
+                  className="crm-chat-contact-trigger"
+                  title="View contact info"
+                >
+                  <div className="crm-chat-header-avatar">
+                    {(activeConv.contactName || activeConv.contactPhone || 'U').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="crm-chat-header-meta">
+                    <div className="crm-chat-header-name-row">
+                      <span className="crm-chat-header-name">
+                        {activeConv.contactName || activeConv.contactPhone}
                       </span>
-                    )}
+                      {activeConv.contactCategory && (
+                        <span className="crm-chat-category-tag">{activeConv.contactCategory}</span>
+                      )}
+                    </div>
+                    <div className="crm-chat-header-phone">{activeConv.contactPhone}</div>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
-                    {activeConv.contactPhone}
-                  </div>
-                </div>
+                </button>
               </div>
 
-              {/* Assign Agent Quick Dropdown */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <UserCheck size={16} color="#64748B" />
-                <select
-                  value={activeConv.assignedEmployeeId || ''}
-                  onChange={e => handleAssignAgent(e.target.value)}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    border: '1px solid #E2E8F0',
-                    fontSize: '0.82rem',
-                    color: '#334155',
-                    outline: 'none',
-                    backgroundColor: '#F8FAFC'
-                  }}
+              {/* Header Right Controls: Agent Assign & Contact Info Toggle */}
+              <div className="crm-chat-header-actions">
+                <div className="crm-agent-assign-wrap" title="Assign team member">
+                  <UserCheck size={14} color="#667085" className="crm-agent-icon" />
+                  <select
+                    value={activeConv.assignedEmployeeId || ''}
+                    onChange={e => handleAssignAgent(e.target.value)}
+                    aria-label="Assign conversation to employee"
+                    className="crm-agent-select"
+                  >
+                    <option value="">Unassigned</option>
+                    {employees.map(emp => (
+                      <option key={emp.id || emp.employeeId} value={emp.employeeId || emp.id}>
+                        {emp.firstName} {emp.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowContactInfo(prev => !prev)}
+                  className={`crm-icon-btn ${showContactInfo ? 'active' : ''}`}
+                  title={showContactInfo ? 'Hide contact info' : 'Show contact info'}
+                  aria-label="Contact info"
                 >
-                  <option value="">Unassigned</option>
-                  {employees.map(emp => (
-                    <option key={emp.id || emp.employeeId} value={emp.employeeId || emp.id}>
-                      {emp.firstName} {emp.lastName} ({emp.designation || 'Staff'})
-                    </option>
-                  ))}
-                </select>
+                  <Info size={18} />
+                </button>
               </div>
             </div>
 
-            {/* Anti-spam Consent Warning Banner */}
+            {/* Anti-Spam Consent Warning Banner */}
             {contactDetails?.consentStatus === 'Opted Out' && (
-              <div style={{
-                backgroundColor: '#FEF2F2',
-                color: '#991B1B',
-                padding: '10px 16px',
-                fontSize: '0.82rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                borderBottom: '1px solid #FEE2E2'
-              }}>
-                <ShieldAlert size={16} />
-                <span><strong>Recipient Opted Out:</strong> WhatsApp policy prohibits promotional messages. Only respond to direct inquiries.</span>
+              <div className="crm-consent-warning-bar">
+                <ShieldAlert size={15} style={{ flexShrink: 0 }} />
+                <span>
+                  <strong>Opted Out:</strong> Promotional messages are restricted. Only reply to direct inquiries.
+                </span>
               </div>
             )}
 
-            {/* Message Thread Scroll Area */}
-            <div style={{
-              flex: 1,
-              padding: '20px',
-              overflowY: 'auto',
-              backgroundColor: '#F7F9FC',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
-            }}>
+            {/* Chat Messages Scroll Area */}
+            <div className="crm-chat-messages-area">
               {loadingMessages ? (
-                <div style={{ textAlign: 'center', padding: '32px', color: '#94A3B8' }}>
-                  Loading chat history...
-                </div>
+                <div className="crm-chat-status-msg">Loading messages...</div>
               ) : messages.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94A3B8', fontSize: '0.88rem' }}>
-                  <MessageSquare size={36} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
-                  <div>No messages yet in this conversation.</div>
-                  <div style={{ fontSize: '0.78rem', marginTop: '4px' }}>Type a message below to start chatting.</div>
+                <div className="crm-chat-status-msg">
+                  <MessageSquare size={28} style={{ margin: '0 auto 8px', opacity: 0.35 }} />
+                  <div style={{ fontWeight: 600, color: '#17212C' }}>No messages yet</div>
+                  <div style={{ fontSize: '0.78rem', color: '#667085', marginTop: '2px' }}>
+                    Send a message below to start the conversation.
+                  </div>
                 </div>
               ) : (
-                messages.map(msg => {
-                  const isOutbound = msg.senderType === 'agent' || msg.senderType === 'bot' || msg.senderType === 'system';
-                  return (
-                    <div
-                      key={msg.id}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: isOutbound ? 'flex-end' : 'flex-start'
-                      }}
-                    >
-                      <div
-                        style={{
-                          maxWidth: '70%',
-                          padding: '10px 14px',
-                          borderRadius: isOutbound ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                          backgroundColor: isOutbound ? '#0E7490' : '#FFFFFF',
-                          color: isOutbound ? '#FFFFFF' : '#1E293B',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                          fontSize: '0.9rem',
-                          lineHeight: '1.4',
-                          border: isOutbound ? 'none' : '1px solid #E2E8F0',
-                          wordBreak: 'break-word'
-                        }}
-                      >
-                        {msg.contentText}
-                      </div>
+                messages.map((msg, idx) => {
+                  const isOutbound =
+                    msg.senderType === 'agent' || msg.senderType === 'bot' || msg.senderType === 'system';
+                  const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                  const currDateLabel = formatDateSeparator(msg.createdAt);
+                  const prevDateLabel = prevMsg ? formatDateSeparator(prevMsg.createdAt) : '';
+                  const showDateDivider = currDateLabel && currDateLabel !== prevDateLabel;
 
-                      {/* Message Meta Info (Time + Status) */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        marginTop: '3px',
-                        fontSize: '0.7rem',
-                        color: '#94A3B8'
-                      }}>
-                        <span>{formatTime(msg.createdAt)}</span>
-                        {isOutbound && (
-                          <span>
-                            {msg.status === 'read' ? (
-                              <CheckCheck size={14} color="#0891B2" />
-                            ) : msg.status === 'delivered' ? (
-                              <CheckCheck size={14} color="#94A3B8" />
-                            ) : msg.status === 'failed' ? (
-                              <AlertCircle size={14} color="#EF4444" />
-                            ) : (
-                              <Check size={14} color="#94A3B8" />
+                  return (
+                    <React.Fragment key={msg.id}>
+                      {showDateDivider && (
+                        <div className="crm-date-separator">
+                          <span>{currDateLabel}</span>
+                        </div>
+                      )}
+
+                      <div className={`crm-msg-row ${isOutbound ? 'outbound' : 'inbound'}`}>
+                        <div className={`crm-msg-bubble ${isOutbound ? 'outbound' : 'inbound'}`}>
+                          <div className="crm-msg-text">{msg.contentText}</div>
+                          <div className="crm-msg-meta">
+                            <span>{formatTime(msg.createdAt)}</span>
+                            {isOutbound && (
+                              <span className="crm-msg-tick">
+                                {msg.status === 'read' ? (
+                                  <CheckCheck size={14} color="#0284C7" />
+                                ) : msg.status === 'delivered' ? (
+                                  <CheckCheck size={14} color="#667085" />
+                                ) : msg.status === 'failed' ? (
+                                  <AlertCircle size={13} color="#DC2626" />
+                                ) : (
+                                  <Check size={14} color="#667085" />
+                                )}
+                              </span>
                             )}
-                          </span>
-                        )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   );
                 })
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Message Composer */}
-            <form
-              onSubmit={handleSendMessage}
-              style={{
-                padding: '14px 20px',
-                borderTop: '1px solid #E7ECF3',
-                backgroundColor: '#FFFFFF',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}
-            >
+            {/* Bottom Message Composer */}
+            <form onSubmit={handleSendMessage} className="crm-chat-composer">
+              <input
+                ref={attachmentInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={handleAttachmentSelect}
+              />
+              <button
+                type="button"
+                onClick={() => attachmentInputRef.current?.click()}
+                className="crm-composer-attach-btn"
+                title="Attach file"
+                aria-label="Attach file"
+              >
+                <Paperclip size={18} />
+              </button>
+
               <input
                 type="text"
-                placeholder="Type your WhatsApp message..."
+                placeholder="Message..."
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
                 disabled={sending}
-                style={{
-                  flex: 1,
-                  padding: '12px 16px',
-                  borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
-                  fontSize: '0.9rem',
-                  outline: 'none',
-                  backgroundColor: '#F8FAFC'
-                }}
+                className="crm-composer-input"
               />
+
               <button
                 type="submit"
                 disabled={sending || !inputText.trim()}
-                style={{
-                  padding: '12px 20px',
-                  backgroundColor: inputText.trim() && !sending ? '#0E7490' : '#E2E8F0',
-                  color: inputText.trim() && !sending ? '#FFFFFF' : '#94A3B8',
-                  borderRadius: '10px',
-                  border: 'none',
-                  fontWeight: 600,
-                  fontSize: '0.88rem',
-                  cursor: inputText.trim() && !sending ? 'pointer' : 'default',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease'
-                }}
+                className={`crm-composer-send-btn ${inputText.trim() && !sending ? 'ready' : ''}`}
+                aria-label="Send message"
               >
-                <span>Send</span>
-                <Send size={15} />
+                <Send size={16} />
               </button>
             </form>
           </>
         ) : (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#94A3B8'
-          }}>
-            <MessageSquare size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
-            <h4 style={{ margin: '0 0 6px', color: '#475569' }}>Select a conversation</h4>
-            <p style={{ margin: 0, fontSize: '0.85rem' }}>Choose a chat from the left panel to begin messaging.</p>
+          <div className="crm-inbox-empty-state">
+            <div className="crm-inbox-empty-icon">
+              <MessageSquare size={26} />
+            </div>
+            <h3 className="crm-inbox-empty-title">Select a conversation</h3>
+            <p className="crm-inbox-empty-desc">
+              Choose a contact from the left panel to view messages or send a reply.
+            </p>
           </div>
         )}
       </div>
 
-      {/* ============================================================ */}
-      {/* 3. RIGHT PANE: Contact Details Sidebar */}
-      {/* ============================================================ */}
-      <div className="crm-inbox-right">
-        {contactDetails ? (
-          <>
-            {/* Contact Profile Summary */}
-            <div style={{ textAlign: 'center' }}>
-              <div style={{
-                width: '64px',
-                height: '64px',
-                borderRadius: '50%',
-                backgroundColor: '#ECFEFF',
-                color: '#0E7490',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                fontSize: '1.4rem',
-                margin: '0 auto 10px'
-              }}>
+      {/* ============================================================
+          3. RIGHT PANEL: On-Demand Contact Info Drawer / Mobile Sheet
+          ============================================================ */}
+      {showRightDrawer && contactDetails && (
+        <div className="crm-contact-drawer-backdrop" onClick={() => setShowContactInfo(false)}>
+          <aside
+            className="crm-inbox-right"
+            aria-label="Contact Information"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="crm-contact-drawer-header">
+              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#17212C' }}>Contact Info</span>
+              <button
+                type="button"
+                onClick={() => setShowContactInfo(false)}
+                className="crm-icon-btn"
+                aria-label="Close contact info"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            {/* Profile Summary */}
+            <div className="crm-contact-profile-box">
+              <div className="crm-contact-large-avatar">
                 {contactDetails.name.charAt(0).toUpperCase()}
               </div>
-              <h4 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1E293B' }}>{contactDetails.name}</h4>
-              <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748B' }}>{contactDetails.designation || 'Contact'}</p>
+              <h4 className="crm-contact-profile-name">{contactDetails.name}</h4>
+              <p className="crm-contact-profile-sub">
+                {contactDetails.designation || contactDetails.category || 'Contact'}
+              </p>
               {contactDetails.companyName && (
-                <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#94A3B8' }}>{contactDetails.companyName}</p>
+                <p className="crm-contact-profile-company">{contactDetails.companyName}</p>
               )}
             </div>
 
-            {/* Anti-Spam Consent Status Card */}
-            <div style={{
-              padding: '12px',
-              borderRadius: '12px',
-              backgroundColor:
+            {/* Consent Status */}
+            <div
+              className={`crm-consent-card ${
                 contactDetails.consentStatus === 'Opted In'
-                  ? '#ECFDF5'
+                  ? 'opted-in'
                   : contactDetails.consentStatus === 'Opted Out'
-                  ? '#FEF2F2'
-                  : '#FFFBEB',
-              border: `1px solid ${
-                contactDetails.consentStatus === 'Opted In'
-                  ? '#A7F3D0'
-                  : contactDetails.consentStatus === 'Opted Out'
-                  ? '#FECACA'
-                  : '#FDE68A'
-              }`
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  ? 'opted-out'
+                  : 'pending'
+              }`}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {contactDetails.consentStatus === 'Opted In' ? (
-                  <ShieldCheck size={18} color="#059669" />
+                  <ShieldCheck size={16} color="#16A34A" />
                 ) : contactDetails.consentStatus === 'Opted Out' ? (
-                  <ShieldAlert size={18} color="#DC2626" />
+                  <ShieldAlert size={16} color="#DC2626" />
                 ) : (
-                  <ShieldQuestion size={18} color="#D97706" />
+                  <ShieldQuestion size={16} color="#D97706" />
                 )}
-                <span style={{
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  color:
-                    contactDetails.consentStatus === 'Opted In'
-                      ? '#065F46'
-                      : contactDetails.consentStatus === 'Opted Out'
-                      ? '#991B1B'
-                      : '#92400E'
-                }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#17212C' }}>
                   {contactDetails.consentStatus}
                 </span>
               </div>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748B' }}>
+              <div style={{ fontSize: '0.74rem', color: '#667085', marginTop: '4px' }}>
                 Source: {contactDetails.consentSource || contactDetails.sourceType || 'Direct'}
-              </p>
+              </div>
             </div>
 
-            {/* Details List */}
-            <div>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '8px' }}>
-                Contact Info
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#334155' }}>
-                  <Phone size={15} color="#64748B" />
+            {/* Contact Details List */}
+            <div className="crm-contact-section">
+              <div className="crm-contact-section-label">Details</div>
+              <div className="crm-contact-detail-list">
+                <div className="crm-contact-detail-row">
+                  <Phone size={14} color="#667085" />
                   <span>{contactDetails.phone}</span>
                 </div>
                 {contactDetails.email && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#334155' }}>
-                    <Mail size={15} color="#64748B" />
-                    <span>{contactDetails.email}</span>
+                  <div className="crm-contact-detail-row">
+                    <Mail size={14} color="#667085" />
+                    <span style={{ overflowWrap: 'anywhere' }}>{contactDetails.email}</span>
                   </div>
                 )}
                 {contactDetails.category && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#334155' }}>
-                    <User size={15} color="#64748B" />
+                  <div className="crm-contact-detail-row">
+                    <User size={14} color="#667085" />
                     <span>{contactDetails.category}</span>
                   </div>
                 )}
@@ -814,23 +700,24 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             </div>
 
             {/* Tags Section */}
-            <div>
+            <div className="crm-contact-section">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase' }}>
+                <span className="crm-contact-section-label" style={{ marginBottom: 0 }}>
                   Tags
                 </span>
                 <button
+                  type="button"
                   onClick={() => setShowAddTagModal(true)}
                   style={{
                     background: 'none',
                     border: 'none',
                     color: '#0E7490',
-                    fontSize: '0.78rem',
+                    fontSize: '0.76rem',
                     fontWeight: 600,
                     cursor: 'pointer',
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '2px'
+                    gap: '3px'
                   }}
                 >
                   <Plus size={13} /> Add
@@ -840,101 +727,95 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {contactDetails.tags && contactDetails.tags.length > 0 ? (
                   contactDetails.tags.map(t => (
-                    <span
-                      key={t.id}
-                      style={{
-                        fontSize: '0.75rem',
-                        padding: '3px 8px',
-                        borderRadius: '9999px',
-                        backgroundColor: '#ECFEFF',
-                        color: '#0E7490',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
-                    >
-                      {t.name}
-                      <X
-                        size={12}
+                    <span key={t.id} className="crm-tag-pill">
+                      <span>{t.name}</span>
+                      <button
+                        type="button"
                         onClick={() => handleRemoveTag(t.id)}
-                        style={{ cursor: 'pointer' }}
-                      />
+                        aria-label={`Remove tag ${t.name}`}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: 'inherit',
+                          cursor: 'pointer',
+                          display: 'inline-flex'
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
                     </span>
                   ))
                 ) : (
-                  <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>No tags assigned</span>
+                  <span style={{ fontSize: '0.78rem', color: '#667085' }}>No tags assigned</span>
                 )}
               </div>
             </div>
 
             {/* Notes Section */}
             {contactDetails.notes && (
-              <div>
-                <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Notes
-                </div>
-                <div style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  backgroundColor: '#F8FAFC',
-                  fontSize: '0.82rem',
-                  color: '#475569',
-                  border: '1px solid #E2E8F0'
-                }}>
-                  {contactDetails.notes}
-                </div>
+              <div className="crm-contact-section">
+                <div className="crm-contact-section-label">Notes</div>
+                <div className="crm-contact-notes-box">{contactDetails.notes}</div>
               </div>
             )}
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: '0.85rem', paddingTop: '40px' }}>
-            No contact selected
-          </div>
-        )}
-      </div>
+          </aside>
+        </div>
+      )}
 
       {/* Add Tag Modal */}
       {showAddTagModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.4)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '16px',
-            padding: '24px',
-            width: '360px',
-            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
-          }}>
-            <h4 style={{ margin: '0 0 16px', fontSize: '1.05rem', color: '#1E293B' }}>Assign or Create Tag</h4>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowAddTagModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              padding: '22px',
+              width: '100%',
+              maxWidth: '360px',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
+              border: '1px solid #E5E7EB'
+            }}
+          >
+            <h4 style={{ margin: '0 0 14px', fontSize: '1rem', fontWeight: 700, color: '#17212C' }}>
+              Assign or Create Tag
+            </h4>
 
             {availableTags.length > 0 && (
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '8px' }}>Select Existing:</div>
+              <div style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '0.78rem', color: '#667085', marginBottom: '8px' }}>Select Existing:</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {availableTags.map(tag => (
                     <button
                       key={tag.id}
+                      type="button"
                       onClick={() => {
                         handleAddTag(tag.id);
                         setShowAddTagModal(false);
                       }}
                       style={{
-                        padding: '4px 10px',
+                        padding: '5px 10px',
                         borderRadius: '9999px',
-                        backgroundColor: '#F1F5F9',
-                        color: '#334155',
-                        border: '1px solid #CBD5E1',
-                        fontSize: '0.78rem',
+                        backgroundColor: '#F8FAFC',
+                        color: '#17212C',
+                        border: '1px solid #E5E7EB',
+                        fontSize: '0.76rem',
+                        fontWeight: 500,
                         cursor: 'pointer'
                       }}
                     >
@@ -946,18 +827,19 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             )}
 
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '6px' }}>Or Create New Tag:</div>
+              <div style={{ fontSize: '0.78rem', color: '#667085', marginBottom: '6px' }}>New Tag Name:</div>
               <input
                 type="text"
-                placeholder="e.g. VIP Client, Urgent"
+                placeholder="e.g. VIP Client, Priority"
                 value={newTagName}
                 onChange={e => setNewTagName(e.target.value)}
                 style={{
                   width: '100%',
+                  minHeight: '42px',
                   padding: '8px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '0.85rem',
+                  borderRadius: '10px',
+                  border: '1px solid #E5E7EB',
+                  fontSize: '0.86rem',
                   boxSizing: 'border-box'
                 }}
               />
@@ -965,32 +847,39 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
+                type="button"
                 onClick={() => setShowAddTagModal(false)}
                 style={{
-                  padding: '8px 14px',
-                  borderRadius: '8px',
-                  border: '1px solid #E2E8F0',
+                  minHeight: '40px',
+                  padding: '0 14px',
+                  borderRadius: '10px',
+                  border: '1px solid #E5E7EB',
                   backgroundColor: '#FFFFFF',
-                  color: '#64748B',
+                  color: '#667085',
+                  fontWeight: 600,
+                  fontSize: '0.84rem',
                   cursor: 'pointer'
                 }}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleCreateNewTag}
                 disabled={!newTagName.trim()}
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: '8px',
+                  minHeight: '40px',
+                  padding: '0 16px',
+                  borderRadius: '10px',
                   border: 'none',
-                  backgroundColor: '#0E7490',
-                  color: '#FFFFFF',
+                  backgroundColor: newTagName.trim() ? '#0E7490' : '#E5E7EB',
+                  color: newTagName.trim() ? '#FFFFFF' : '#94A3B8',
                   fontWeight: 600,
+                  fontSize: '0.84rem',
                   cursor: newTagName.trim() ? 'pointer' : 'default'
                 }}
               >
-                Create & Assign
+                Create &amp; Assign
               </button>
             </div>
           </div>

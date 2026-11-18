@@ -1,8 +1,6 @@
 /**
  * WhatsApp CRM Contacts Directory for BUSINZ HRMS
- * Strict VRM Table Design System with Standardized [5, 10] Pagination & Floating Action Bar
- * Portions adapted from wacrm (https://github.com/ArnasDon/wacrm)
- * Copyright (c) 2026 Arnas Donauskas - MIT License
+ * Desktop: Clean CRM Table | Mobile: Native iOS Contacts App List
  */
 
 import React, { useState, useEffect } from 'react';
@@ -17,13 +15,11 @@ import {
   ShieldAlert,
   ShieldQuestion,
   User,
-  Tag,
   X,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight,
-  Filter
+  ChevronsRight
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type {
@@ -67,8 +63,11 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
   const [saving, setSaving] = useState<boolean>(false);
 
   useEffect(() => {
-    loadContacts();
-  }, [selectedCategory, currentPage, pageSize]);
+    const timer = setTimeout(() => {
+      loadContacts();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [selectedCategory, currentPage, pageSize, searchQuery]);
 
   const loadContacts = async () => {
     setLoading(true);
@@ -202,170 +201,142 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
     { label: 'Others', value: 'Others' }
   ];
 
+  const renderConsentIndicator = (status: CrmConsentStatus) => {
+    if (status === 'Opted In') {
+      return (
+        <span className="crm-consent-badge opted-in">
+          <ShieldCheck size={13} />
+          <span>Opted In</span>
+        </span>
+      );
+    }
+    if (status === 'Opted Out') {
+      return (
+        <span className="crm-consent-badge opted-out">
+          <ShieldAlert size={13} />
+          <span>Opted Out</span>
+        </span>
+      );
+    }
+    return (
+      <span className="crm-consent-badge pending">
+        <ShieldQuestion size={13} />
+        <span>{status || 'Pending'}</span>
+      </span>
+    );
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Category Pills & Action Bar */}
-      <div className="crm-contacts-filter-card">
-        {/* Category Pills */}
-        <div className="crm-contacts-pills-bar">
-          {categories.map(cat => {
-            const isActive = selectedCategory === cat.value;
-            return (
-              <button
-                key={cat.value}
-                onClick={() => {
-                  setSelectedCategory(cat.value);
+    <div className="crm-contacts-view">
+      {/* Unified Directory Card */}
+      <div className="crm-surface-card">
+        {/* Compact Toolbar: Search, Category Pills, Refresh & Add Contact */}
+        <div className="crm-directory-toolbar">
+          <div className="crm-directory-top-row">
+            <form onSubmit={handleSearchSubmit} className="crm-directory-search-form">
+              <Search size={15} className="crm-directory-search-icon" />
+              <input
+                type="text"
+                placeholder="Search contacts by name, phone, or company..."
+                value={searchQuery}
+                onChange={e => {
+                  setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                style={{
-                  height: '36px',
-                  padding: '0 16px',
-                  borderRadius: '9999px',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  border: isActive ? '1px solid #0E7490' : '1px solid #E2E8F0',
-                  backgroundColor: isActive ? '#0E7490' : '#FFFFFF',
-                  color: isActive ? '#FFFFFF' : '#475569',
-                  transition: 'all 0.15s ease',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxSizing: 'border-box'
-                }}
+                className="crm-directory-search-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setCurrentPage(1);
+                  }}
+                  aria-label="Clear search"
+                  className="crm-directory-search-clear"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </form>
+
+            <div className="crm-directory-actions">
+              <button
+                type="button"
+                onClick={loadContacts}
+                title="Refresh contacts"
+                aria-label="Refresh contacts"
+                className="crm-icon-btn bordered"
               >
-                {cat.label}
+                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
               </button>
-            );
-          })}
-        </div>
 
-        {/* Search & Actions */}
-        <div className="crm-contacts-search-actions">
-          <form onSubmit={handleSearchSubmit} className="crm-contacts-search-form" style={{ position: 'relative', margin: 0, display: 'flex', alignItems: 'center' }}>
-            <Search
-              size={16}
-              style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#94A3B8',
-                pointerEvents: 'none'
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Search by name, phone, company..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="crm-contacts-search-input"
-              style={{
-                height: '38px',
-                padding: '0 14px 0 38px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                fontSize: '0.85rem',
-                outline: 'none',
-                width: '260px',
-                boxSizing: 'border-box'
-              }}
-            />
-          </form>
+              <button
+                type="button"
+                onClick={handleOpenAddModal}
+                className="crm-primary-btn"
+              >
+                <Plus size={16} />
+                <span>Add Contact</span>
+              </button>
+            </div>
+          </div>
 
-          <div className="crm-contacts-action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={loadContacts}
-              title="Refresh"
-              className="crm-contacts-refresh-btn"
-              style={{
-                height: '38px',
-                width: '38px',
-                padding: 0,
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: '#64748B',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxSizing: 'border-box',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <RefreshCw size={16} />
-            </button>
-
-            <button
-              onClick={handleOpenAddModal}
-              className="crm-contacts-add-btn"
-              style={{
-                height: '38px',
-                padding: '0 18px',
-                borderRadius: '10px',
-                border: 'none',
-                backgroundColor: '#0E7490',
-                color: '#FFFFFF',
-                fontWeight: 600,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                boxSizing: 'border-box',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <Plus size={16} />
-              <span>Add Contact</span>
-            </button>
+          {/* Horizontal Category Filter Pills */}
+          <div className="crm-category-chips-row" role="tablist" aria-label="Contact category filter">
+            {categories.map(cat => {
+              const isActive = selectedCategory === cat.value;
+              return (
+                <button
+                  key={cat.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => {
+                    setSelectedCategory(cat.value);
+                    setCurrentPage(1);
+                  }}
+                  className={`crm-category-chip ${isActive ? 'active' : ''}`}
+                >
+                  {cat.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-      </div>
 
-      {/* VRM Enterprise Table Container */}
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '16px',
-        border: '1px solid #E7ECF3',
-        overflow: 'hidden',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
-      }}>
-        <div className="table-responsive whatsapp-desktop-table" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-          <table style={{ width: '100%', minWidth: '700px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+        {/* Desktop Table (>= 768px): Contact, Phone, Category, Consent, Source, Actions */}
+        <div className="crm-contacts-desktop-table">
+          <table className="crm-clean-table">
             <thead>
-              <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#64748B', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                <th style={{ padding: '14px 18px', width: '40px', verticalAlign: 'middle' }}>
+              <tr>
+                <th style={{ width: '40px' }}>
                   <input
                     type="checkbox"
                     checked={contacts.length > 0 && selectedIds.size === contacts.length}
                     onChange={handleSelectAll}
-                    style={{ accentColor: '#0E7490', width: '16px', height: '16px', cursor: 'pointer', display: 'block' }}
+                    aria-label="Select all contacts on page"
+                    style={{ accentColor: '#0E7490', width: '16px', height: '16px', cursor: 'pointer' }}
                   />
                 </th>
-                <th style={{ padding: '14px 18px', verticalAlign: 'middle' }}>Contact</th>
-                <th style={{ padding: '14px 18px', verticalAlign: 'middle' }}>Phone Number</th>
-                <th style={{ padding: '14px 18px', verticalAlign: 'middle' }}>Category</th>
-                <th style={{ padding: '14px 18px', verticalAlign: 'middle' }}>Consent Status</th>
-                <th style={{ padding: '14px 18px', verticalAlign: 'middle' }}>Tags</th>
-                <th style={{ padding: '14px 18px', verticalAlign: 'middle' }}>Source</th>
-                <th style={{ padding: '14px 18px', textAlign: 'right', verticalAlign: 'middle' }}>Actions</th>
+                <th>Contact</th>
+                <th>Phone</th>
+                <th>Category</th>
+                <th>Consent</th>
+                <th>Source</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+                  <td colSpan={7} className="crm-table-empty-cell">
                     Loading contacts...
                   </td>
                 </tr>
               ) : contacts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94A3B8' }}>
+                  <td colSpan={7} className="crm-table-empty-cell">
                     No contacts found matching the criteria.
                   </td>
                 </tr>
@@ -373,173 +344,62 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
                 contacts.map(c => {
                   const isSelected = selectedIds.has(c.id);
                   return (
-                    <tr
-                      key={c.id}
-                      style={{
-                        borderBottom: '1px solid #F1F5F9',
-                        backgroundColor: isSelected ? '#ECFEFF' : 'transparent',
-                        borderLeft: isSelected ? '4px solid #0E7490' : '4px solid transparent',
-                        transition: 'background-color 0.15s ease'
-                      }}
-                    >
-                      {/* Checkbox */}
-                      <td style={{ padding: '14px 18px' }}>
+                    <tr key={c.id} className={isSelected ? 'selected' : ''}>
+                      <td>
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => handleSelectRow(c.id)}
+                          aria-label={`Select ${c.name}`}
                           style={{ accentColor: '#0E7490', width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                       </td>
 
-                      {/* Contact Info */}
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{
-                            width: '36px',
-                            height: '36px',
-                            borderRadius: '50%',
-                            backgroundColor: '#0E7490',
-                            color: '#FFFFFF',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontWeight: 600,
-                            fontSize: '0.85rem'
-                          }}>
+                      <td>
+                        <div className="crm-table-contact-cell">
+                          <div className="crm-contact-avatar">
                             {c.name.charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <div style={{ fontWeight: 600, color: '#1E293B' }}>{c.name}</div>
-                            <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
-                              {c.companyName || c.designation || 'No company'}
+                          <div style={{ minWidth: 0 }}>
+                            <div className="crm-table-contact-name">{c.name}</div>
+                            <div className="crm-table-contact-sub">
+                              {c.companyName || c.designation || c.email || '—'}
                             </div>
                           </div>
                         </div>
                       </td>
 
-                      {/* Phone */}
-                      <td style={{ padding: '14px 18px', color: '#334155', fontWeight: 500 }}>
+                      <td style={{ fontWeight: 500, color: '#17212C', whiteSpace: 'nowrap' }}>
                         {c.phone}
                       </td>
 
-                      {/* Category */}
-                      <td style={{ padding: '14px 18px' }}>
-                        <span style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          padding: '3px 10px',
-                          borderRadius: '9999px',
-                          backgroundColor:
-                            c.category === 'Employees'
-                              ? '#EFF6FF'
-                              : c.category === 'Customers'
-                              ? '#ECFEFF'
-                              : c.category === 'Scanned Contacts'
-                              ? '#FEF3C7'
-                              : '#F1F5F9',
-                          color:
-                            c.category === 'Employees'
-                              ? '#1D4ED8'
-                              : c.category === 'Customers'
-                              ? '#0E7490'
-                              : c.category === 'Scanned Contacts'
-                              ? '#B45309'
-                              : '#475569'
-                        }}>
-                          {c.category}
-                        </span>
+                      <td>
+                        <span className="crm-subtle-pill">{c.category}</span>
                       </td>
 
-                      {/* Anti-Spam Consent Status */}
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {c.consentStatus === 'Opted In' ? (
-                            <ShieldCheck size={16} color="#059669" />
-                          ) : c.consentStatus === 'Opted Out' ? (
-                            <ShieldAlert size={16} color="#DC2626" />
-                          ) : (
-                            <ShieldQuestion size={16} color="#D97706" />
-                          )}
-                          <span style={{
-                            fontSize: '0.8rem',
-                            fontWeight: 600,
-                            color:
-                              c.consentStatus === 'Opted In'
-                                ? '#059669'
-                                : c.consentStatus === 'Opted Out'
-                                ? '#DC2626'
-                                : '#D97706'
-                          }}>
-                            {c.consentStatus}
-                          </span>
-                        </div>
-                      </td>
+                      <td>{renderConsentIndicator(c.consentStatus)}</td>
 
-                      {/* Tags */}
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                          {c.tags && c.tags.length > 0 ? (
-                            c.tags.map(t => (
-                              <span
-                                key={t.id}
-                                style={{
-                                  fontSize: '0.72rem',
-                                  padding: '2px 7px',
-                                  borderRadius: '9999px',
-                                  backgroundColor: '#F1F5F9',
-                                  color: '#334155',
-                                  border: '1px solid #E2E8F0'
-                                }}
-                              >
-                                {t.name}
-                              </span>
-                            ))
-                          ) : (
-                            <span style={{ color: '#CBD5E1', fontSize: '0.75rem' }}>—</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Source */}
-                      <td style={{ padding: '14px 18px', color: '#64748B', fontSize: '0.8rem' }}>
+                      <td style={{ color: '#667085', fontSize: '0.8rem' }}>
                         {c.sourceType || 'Direct'}
                       </td>
 
-                      {/* Actions */}
-                      <td style={{ padding: '14px 18px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                           <button
+                            type="button"
                             onClick={() => onStartChat(c.id)}
                             title="Start WhatsApp Chat"
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '8px',
-                              border: 'none',
-                              backgroundColor: '#0E7490',
-                              color: '#FFFFFF',
-                              fontWeight: 600,
-                              fontSize: '0.8rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '5px'
-                            }}
+                            className="crm-whatsapp-chat-btn"
                           >
                             <MessageSquare size={14} />
                             <span>Chat</span>
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleOpenEditModal(c)}
                             title="Edit Contact"
-                            style={{
-                              padding: '6px',
-                              borderRadius: '8px',
-                              border: '1px solid #E2E8F0',
-                              backgroundColor: '#FFFFFF',
-                              color: '#64748B',
-                              cursor: 'pointer'
-                            }}
+                            aria-label={`Edit ${c.name}`}
+                            className="crm-icon-btn bordered sm"
                           >
                             <Edit2 size={14} />
                           </button>
@@ -553,174 +413,65 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
           </table>
         </div>
 
-        {/* Mobile Contact List Cards */}
-        <div className="whatsapp-mobile-cards" style={{ padding: '12px' }}>
+        {/* Mobile Native Contacts List (< 768px) */}
+        <div className="crm-contacts-mobile-list">
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '36px 16px', color: '#94A3B8' }}>
-              Loading contacts...
-            </div>
+            <div className="crm-mobile-empty-box">Loading contacts...</div>
           ) : contacts.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '36px 16px', background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
-              <User size={36} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
-              <div style={{ fontWeight: 750, fontSize: '0.92rem', color: '#1E293B' }}>No contacts found</div>
-              <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '4px 0 14px' }}>Try searching with a different name, phone, or category.</p>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={handleOpenAddModal}
-                style={{ borderRadius: '10px', padding: '8px 16px', fontWeight: 650 }}
-              >
-                <Plus size={15} /> Add Contact
-              </button>
+            <div className="crm-mobile-empty-box">
+              <User size={28} color="#94A3B8" style={{ margin: '0 auto 8px' }} />
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#17212C' }}>No contacts found</div>
+              <div style={{ fontSize: '0.78rem', color: '#667085', marginTop: '2px' }}>
+                Try another search or tap &ldquo;Add Contact&rdquo;.
+              </div>
             </div>
           ) : (
-            contacts.map(c => {
-              return (
-                <div key={c.id} className="mobile-whatsapp-contact-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{
-                        width: '38px',
-                        height: '38px',
-                        borderRadius: '50%',
-                        backgroundColor: '#0E7490',
-                        color: '#FFFFFF',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        flexShrink: 0
-                      }}>
-                        {c.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 750, color: '#0F172A', fontSize: '0.9rem' }}>{c.name}</div>
-                        <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{c.companyName || c.designation || 'No company'}</div>
-                      </div>
-                    </div>
-                    <span style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '9999px',
-                      backgroundColor:
-                        c.category === 'Employees'
-                          ? '#EFF6FF'
-                          : c.category === 'Customers'
-                          ? '#ECFEFF'
-                          : c.category === 'Scanned Contacts'
-                          ? '#FEF3C7'
-                          : '#F1F5F9',
-                      color:
-                        c.category === 'Employees'
-                          ? '#1D4ED8'
-                          : c.category === 'Customers'
-                          ? '#0E7490'
-                          : c.category === 'Scanned Contacts'
-                          ? '#B45309'
-                          : '#475569'
-                    }}>
-                      {c.category}
-                    </span>
-                  </div>
+            contacts.map(c => (
+              <div key={c.id} className="crm-mobile-contact-row">
+                <div className="crm-contact-avatar">{c.name.charAt(0).toUpperCase()}</div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', padding: '8px 12px', borderRadius: '10px' }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 650, color: '#1E293B' }}>{c.phone}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: c.consentStatus === 'Opted In' ? '#166534' : '#64748B' }}>
-                      {c.consentStatus === 'Opted In' ? (
-                        <>
-                          <ShieldCheck size={14} color="#166534" />
-                          <span style={{ fontWeight: 600 }}>Opted In</span>
-                        </>
-                      ) : (
-                        <span>{c.consentStatus}</span>
-                      )}
-                    </div>
+                <div className="crm-mobile-contact-info">
+                  <div className="crm-mobile-contact-top">
+                    <span className="crm-mobile-contact-name">{c.name}</span>
+                    {renderConsentIndicator(c.consentStatus)}
                   </div>
-
-                  {c.tags && c.tags.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                      {c.tags.map(t => (
-                        <span
-                          key={t.id}
-                          style={{
-                            fontSize: '0.68rem',
-                            padding: '2px 7px',
-                            borderRadius: '9999px',
-                            backgroundColor: '#F1F5F9',
-                            color: '#334155',
-                            border: '1px solid #E2E8F0'
-                          }}
-                        >
-                          {t.name}
-                        </span>
-                      ))}
+                  {(c.companyName || c.designation || c.category) && (
+                    <div className="crm-mobile-contact-company">
+                      {c.companyName || c.designation || c.category}
                     </div>
                   )}
-
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
-                    <button
-                      type="button"
-                      onClick={() => onStartChat(c.id)}
-                      style={{
-                        flex: 1,
-                        padding: '8px 12px',
-                        borderRadius: '10px',
-                        border: 'none',
-                        backgroundColor: '#0E7490',
-                        color: '#FFFFFF',
-                        fontWeight: 700,
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <MessageSquare size={14} />
-                      <span>Chat on WhatsApp</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditModal(c)}
-                      title="Edit Contact"
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: '10px',
-                        border: '1px solid #E2E8F0',
-                        backgroundColor: '#FFFFFF',
-                        color: '#64748B',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                  </div>
+                  <div className="crm-mobile-contact-phone">{c.phone}</div>
                 </div>
-              );
-            })
+
+                <div className="crm-mobile-contact-actions">
+                  <button
+                    type="button"
+                    onClick={() => onStartChat(c.id)}
+                    className="crm-mobile-chat-icon-btn"
+                    title="Chat on WhatsApp"
+                    aria-label={`Chat with ${c.name}`}
+                  >
+                    <MessageSquare size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditModal(c)}
+                    className="crm-mobile-edit-icon-btn"
+                    title="Edit Contact"
+                    aria-label={`Edit ${c.name}`}
+                  >
+                    <Edit2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))
           )}
         </div>
 
-        {/* Standardized VRM Pagination Footer: Rows strictly [5, 10] */}
-        <div style={{
-          padding: '14px 20px',
-          borderTop: '1px solid #E7ECF3',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '12px',
-          backgroundColor: '#FFFFFF'
-        }}>
-          {/* Left: Selector strictly [5, 10] + Showing X to Y of Z */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '0.85rem', color: '#64748B' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Standardized Pagination Footer: Rows strictly [5, 10] */}
+        <div className="crm-pagination-bar">
+          <div className="crm-pagination-left">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
               <span>Rows per page:</span>
               <select
                 value={pageSize}
@@ -728,15 +479,8 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
                   setPageSize(Number(e.target.value) as 5 | 10);
                   setCurrentPage(1);
                 }}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '0.85rem',
-                  outline: 'none',
-                  backgroundColor: '#FFFFFF',
-                  color: '#1E293B'
-                }}
+                aria-label="Rows per page"
+                className="crm-pagination-select"
               >
                 <option value={5}>5</option>
                 <option value={10}>10</option>
@@ -744,84 +488,55 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
             </div>
             <span>
               Showing {totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1} to{' '}
-              {Math.min(currentPage * pageSize, totalCount)} of {totalCount} entries
+              {Math.min(currentPage * pageSize, totalCount)} of {totalCount}
             </span>
           </div>
 
-          {/* Right: Page Navigation Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => setCurrentPage(1)}
-              disabled={currentPage === 1}
-              style={{
-                padding: '6px',
-                borderRadius: '6px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: currentPage === 1 ? '#CBD5E1' : '#475569',
-                cursor: currentPage === 1 ? 'default' : 'pointer'
-              }}
-            >
-              <ChevronsLeft size={16} />
-            </button>
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              style={{
-                padding: '6px',
-                borderRadius: '6px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: currentPage === 1 ? '#CBD5E1' : '#475569',
-                cursor: currentPage === 1 ? 'default' : 'pointer'
-              }}
-            >
-              <ChevronLeft size={16} />
-            </button>
+          <div className="crm-pagination-right">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                aria-label="First page"
+                className="crm-page-btn"
+              >
+                <ChevronsLeft size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                aria-label="Previous page"
+                className="crm-page-btn"
+              >
+                <ChevronLeft size={15} />
+              </button>
 
-            <span style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              backgroundColor: '#0E7490',
-              color: '#FFFFFF',
-              fontWeight: 600,
-              fontSize: '0.85rem'
-            }}>
-              {currentPage}
-            </span>
+              <span className="crm-page-active">{currentPage}</span>
 
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-              style={{
-                padding: '6px',
-                borderRadius: '6px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: currentPage === totalPages ? '#CBD5E1' : '#475569',
-                cursor: currentPage === totalPages ? 'default' : 'pointer'
-              }}
-            >
-              <ChevronRight size={16} />
-            </button>
-            <button
-              onClick={() => setCurrentPage(totalPages)}
-              disabled={currentPage === totalPages}
-              style={{
-                padding: '6px',
-                borderRadius: '6px',
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-                color: currentPage === totalPages ? '#CBD5E1' : '#475569',
-                cursor: currentPage === totalPages ? 'default' : 'pointer'
-              }}
-            >
-              <ChevronsRight size={16} />
-            </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                aria-label="Next page"
+                className="crm-page-btn"
+              >
+                <ChevronRight size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                aria-label="Last page"
+                className="crm-page-btn"
+              >
+                <ChevronsRight size={15} />
+              </button>
+            </div>
 
-            {/* Jump to Page */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '10px' }}>
-              <span style={{ fontSize: '0.82rem', color: '#64748B' }}>Go to</span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.78rem', color: '#667085' }}>Go to</span>
               <input
                 type="number"
                 min={1}
@@ -829,28 +544,9 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
                 value={jumpPageInput}
                 onChange={e => setJumpPageInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleJumpPage()}
-                style={{
-                  width: '44px',
-                  padding: '4px 6px',
-                  borderRadius: '6px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '0.82rem',
-                  textAlign: 'center'
-                }}
+                className="crm-page-jump-input"
               />
-              <button
-                onClick={handleJumpPage}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #0E7490',
-                  backgroundColor: '#ECFEFF',
-                  color: '#0E7490',
-                  fontSize: '0.82rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
+              <button type="button" onClick={handleJumpPage} className="crm-page-go-btn">
                 Go ›
               </button>
             </div>
@@ -858,52 +554,41 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
         </div>
       </div>
 
-      {/* Floating Action Bar (Fixed at bottom center when rows are checked) */}
+      {/* Floating Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: '#1E293B',
-          color: '#FFFFFF',
-          borderRadius: '12px',
-          padding: '10px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)',
-          zIndex: 1000
-        }}>
-          <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+        <div className="crm-floating-bulk-bar">
+          <span style={{ fontWeight: 600, fontSize: '0.84rem' }}>
             {selectedIds.size} Selected
           </span>
           <span style={{ color: '#475569' }}>|</span>
           <button
+            type="button"
             onClick={handleDeleteSelected}
             style={{
               background: 'none',
               border: 'none',
               color: '#F87171',
               cursor: 'pointer',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              fontSize: '0.85rem',
+              fontSize: '0.84rem',
               fontWeight: 600
             }}
           >
-            <Trash2 size={15} /> Delete
+            <Trash2 size={14} /> Delete
           </button>
           <span style={{ color: '#475569' }}>|</span>
           <button
+            type="button"
             onClick={() => setSelectedIds(new Set())}
+            aria-label="Clear selection"
             style={{
               background: 'none',
               border: 'none',
               color: '#94A3B8',
               cursor: 'pointer',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center'
             }}
           >
@@ -914,130 +599,103 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
 
       {/* Add / Edit Contact Modal */}
       {showAddModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.4)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '20px',
-            padding: '28px',
-            width: '480px',
-            maxWidth: '90vw',
-            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
-          }}>
-            <h3 style={{ margin: '0 0 20px', fontSize: '1.2rem', color: '#1E293B' }}>
-              {editingContact ? 'Edit CRM Contact' : 'Add New CRM Contact'}
-            </h3>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowAddModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '18px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '480px',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
+              border: '1px solid #E5E7EB'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#17212C' }}>
+                {editingContact ? 'Edit CRM Contact' : 'Add CRM Contact'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="crm-icon-btn"
+                aria-label="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <form onSubmit={handleSaveContact} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                  Full Name *
-                </label>
+                <label className="crm-form-label">Full Name *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Ramesh Kumar"
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    boxSizing: 'border-box'
-                  }}
+                  className="crm-form-input"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                  WhatsApp Phone Number *
-                </label>
+                <label className="crm-form-label">WhatsApp Phone Number *</label>
                 <input
                   type="tel"
+                  inputMode="tel"
                   required
                   placeholder="e.g. +91 9876543210"
                   value={formData.phone}
                   onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    boxSizing: 'border-box'
-                  }}
+                  className="crm-form-input"
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="crm-form-row-2col">
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                    Email
-                  </label>
+                  <label className="crm-form-label">Email</label>
                   <input
                     type="email"
                     placeholder="name@example.com"
                     value={formData.email}
                     onChange={e => setFormData({ ...formData, email: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
-                      boxSizing: 'border-box'
-                    }}
+                    className="crm-form-input"
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                    Company Name
-                  </label>
+                  <label className="crm-form-label">Company Name</label>
                   <input
                     type="text"
                     placeholder="Acme Corp"
                     value={formData.companyName}
                     onChange={e => setFormData({ ...formData, companyName: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
-                      boxSizing: 'border-box'
-                    }}
+                    className="crm-form-input"
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="crm-form-row-2col">
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                    Category
-                  </label>
+                  <label className="crm-form-label">Category</label>
                   <select
                     value={formData.category}
                     onChange={e => setFormData({ ...formData, category: e.target.value as CrmContactCategory })}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
-                      boxSizing: 'border-box'
-                    }}
+                    className="crm-form-input"
                   >
                     <option value="Customers">Customers</option>
                     <option value="Scanned Contacts">Scanned Contacts</option>
@@ -1046,20 +704,11 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                    Consent Status
-                  </label>
+                  <label className="crm-form-label">Consent Status</label>
                   <select
                     value={formData.consentStatus}
                     onChange={e => setFormData({ ...formData, consentStatus: e.target.value as CrmConsentStatus })}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
-                      boxSizing: 'border-box'
-                    }}
+                    className="crm-form-input"
                   >
                     <option value="Opted In">Opted In</option>
                     <option value="Pending">Pending</option>
@@ -1070,54 +719,26 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                  Notes
-                </label>
+                <label className="crm-form-label">Notes</label>
                 <textarea
                   rows={2}
                   placeholder="Additional context or remarks..."
                   value={formData.notes}
                   onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    boxSizing: 'border-box'
-                  }}
+                  className="crm-form-input"
+                  style={{ height: 'auto', minHeight: '68px', paddingTop: '10px' }}
                 />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  style={{
-                    padding: '10px 16px',
-                    borderRadius: '10px',
-                    border: '1px solid #E2E8F0',
-                    backgroundColor: '#FFFFFF',
-                    color: '#64748B',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
+                  className="crm-secondary-btn"
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  style={{
-                    padding: '10px 20px',
-                    borderRadius: '10px',
-                    border: 'none',
-                    backgroundColor: '#0E7490',
-                    color: '#FFFFFF',
-                    fontWeight: 600,
-                    cursor: saving ? 'default' : 'pointer'
-                  }}
-                >
+                <button type="submit" disabled={saving} className="crm-primary-btn">
                   {saving ? 'Saving...' : editingContact ? 'Update Contact' : 'Save Contact'}
                 </button>
               </div>
