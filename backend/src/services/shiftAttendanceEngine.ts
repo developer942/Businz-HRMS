@@ -183,16 +183,30 @@ export function evaluateBackendShiftAttendance(params: {
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
   const tomorrowStr = toDateStr(tomorrowDate);
 
-  const empLogs = attendanceLogs.filter((r) => r.employeeId === employeeId);
+  const empIdLower = String(employeeId || '').trim().toLowerCase();
+  const empLogs = attendanceLogs.filter(
+    (r) => String(r.employeeId || '').trim().toLowerCase() === empIdLower
+  );
 
   const hasValidIn = (r?: AttendanceLogRecord) =>
     Boolean(r?.checkIn && r.checkIn !== '--:--' && r.checkIn.trim() !== '');
   const hasValidOut = (r?: AttendanceLogRecord) =>
     Boolean(r?.checkOut && r.checkOut !== '--:--' && r.checkOut.trim() !== '');
 
+  const pickBestRecordForDate = (targetDate: string): AttendanceLogRecord | undefined => {
+    const matches = empLogs.filter((r) => (r.shiftDate || r.date) === targetDate || r.date === targetDate);
+    if (matches.length <= 1) return matches[0];
+    return (
+      matches.find((r) => hasValidIn(r) && !hasValidOut(r)) ||
+      matches.find((r) => hasValidIn(r) && hasValidOut(r)) ||
+      matches.find((r) => hasValidIn(r)) ||
+      matches[0]
+    );
+  };
+
   // 1. Check if employee has an open check-in from yesterday (overnight shift still in progress)
-  const yesterdayRecord = empLogs.find((r) => (r.shiftDate || r.date) === yesterdayStr);
-  const todayRecord = empLogs.find((r) => (r.shiftDate || r.date) === todayStr);
+  const yesterdayRecord = pickBestRecordForDate(yesterdayStr);
+  const todayRecord = pickBestRecordForDate(todayStr);
 
   let targetShiftDateStr = todayStr;
   let activeRecord: AttendanceLogRecord | undefined = todayRecord;

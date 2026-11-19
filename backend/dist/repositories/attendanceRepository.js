@@ -245,6 +245,49 @@ export class AttendanceRepository {
         return { authorized: false };
     }
     async getAll(filters) {
+        // 1. Fast direct PostgreSQL query (avoids pulling entire attendance_records table with base64 photos over PostgREST)
+        try {
+            const conditions = [];
+            const params = [];
+            if (filters?.date) {
+                params.push(filters.date);
+                conditions.push(`(ar.date = $${params.length}::date OR ar.shift_date = $${params.length}::date)`);
+            }
+            if (filters?.status) {
+                params.push(filters.status);
+                conditions.push(`ar.status::text = $${params.length}`);
+            }
+            if (filters?.employeeId) {
+                params.push(filters.employeeId.trim());
+                conditions.push(`(LOWER(e.employee_id) = LOWER($${params.length}) OR ar.employee_id::text = $${params.length} OR ar.id::text = $${params.length})`);
+            }
+            const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+            const sql = `
+        SELECT ar.id, ar.employee_id, ar.date, ar.shift_id, ar.shift_date,
+               ar.check_in, ar.check_out, ar.working_hours, ar.status, ar.late_status,
+               ar.late_duration_minutes, ar.method, ar.in_geofence, ar.face_verified,
+               ar.location_lat, ar.location_lng, ar.location_address, ar.notes,
+               ar.created_at, ar.updated_at,
+               e.employee_id AS emp_code, e.first_name, e.last_name
+        FROM public.attendance_records ar
+        LEFT JOIN public.employees e ON e.id = ar.employee_id
+        ${whereSql}
+        ORDER BY
+          ar.date DESC,
+          CASE WHEN ar.check_in IS NOT NULL AND ar.check_out IS NULL THEN 0
+               WHEN ar.check_in IS NOT NULL THEN 1
+               ELSE 2 END,
+          ar.check_in DESC NULLS LAST,
+          ar.updated_at DESC NULLS LAST
+      `;
+            const pgRes = await query(sql, params);
+            if (pgRes && Array.isArray(pgRes.rows)) {
+                return pgRes.rows.map((r) => this.mapRowToAttendance(r, r.emp_code || undefined, r.first_name ? `${r.first_name || ''} ${r.last_name || ''}`.trim() : undefined));
+            }
+        }
+        catch {
+            // Fall back to PostgREST below if direct SQL is mocked or unavailable in test environments
+        }
         if (!isRealSupabaseConfigured())
             return [];
         try {
@@ -263,7 +306,9 @@ export class AttendanceRepository {
             if (!error && data) {
                 let records = data.map((r) => this.mapRowToAttendance(r));
                 if (filters?.employeeId) {
-                    records = records.filter((r) => r.employeeId === filters.employeeId || r.id === filters.employeeId);
+                    const targetLower = filters.employeeId.trim().toLowerCase();
+                    records = records.filter((r) => String(r.employeeId || '').trim().toLowerCase() === targetLower ||
+                        String(r.id || '').trim().toLowerCase() === targetLower);
                 }
                 return records;
             }

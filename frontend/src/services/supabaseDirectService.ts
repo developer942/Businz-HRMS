@@ -1218,11 +1218,11 @@ export const supabaseDirect = {
   async getAttendanceRecords(): Promise<any[]> {
     try {
       const cols = 'id,employee_id,date,shift_id,shift_date,check_in,check_out,working_hours,status,late_status,method,in_geofence,face_verified,location_lat,location_lng,location_address,notes,created_at,updated_at';
-      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols},employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols},employees(employee_id,first_name,last_name)&order=date.desc,check_in.desc.nullslast,updated_at.desc.nullslast`, {
         headers: getHeaders(),
       });
       if (!res.ok) {
-        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols}&order=date.desc`, {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols}&order=date.desc,check_in.desc.nullslast,updated_at.desc.nullslast`, {
           headers: getHeaders(),
         });
       }

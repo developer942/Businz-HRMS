@@ -37,7 +37,8 @@ import {
   ChevronRight,
   Image,
   Search,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Loader2
 } from 'lucide-react';
 import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatTimeDisplay } from '../../utils/dateUtils';
 import {
@@ -52,9 +53,128 @@ import type { FaceLog } from '../../types/hrms';
 import {
   submitVerifiedFacePunch,
   fetchCanonicalGeofenceSettings,
-  reportClientGpsDiagnostic
+  fetchAuthoritativeShiftStatus,
+  reportClientGpsDiagnostic,
+  type AuthoritativeShiftStatusResponse
 } from '../../services/attendanceApi';
 import { supabaseDirect } from '../../services/supabaseDirectService';
+
+const reverseGeocodeMemoryCache = new Map<string, string>();
+
+const formatFullHumanDate = (dateRaw?: string): string => {
+  const ymd = normalizeToYYYYMMDD(dateRaw);
+  if (!ymd) return formatDateDDMMYYYY(dateRaw);
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return formatDateDDMMYYYY(dateRaw);
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+};
+
+const isGenericPlaceholderAddress = (addr?: string | null): boolean => {
+  if (!addr) return true;
+  const clean = String(addr).trim().toLowerCase();
+  return (
+    !clean ||
+    clean === 'hq office' ||
+    clean === 'plant hq' ||
+    clean === 'main plant hq' ||
+    clean === 'verified office geofence' ||
+    clean === 'daily field work (gps verified)' ||
+    clean === 'daily field work (flexible attendance)' ||
+    clean === 'location pending'
+  );
+};
+
+const reverseGeocodeCoordinates = async (
+  lat: number,
+  lng: number,
+  officePrefix?: string,
+  timeoutMs = 1800
+): Promise<string | null> => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+    return null;
+  }
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = reverseGeocodeMemoryCache.get(cacheKey);
+  if (cached) {
+    if (officePrefix && !cached.toLowerCase().includes(officePrefix.toLowerCase())) {
+      return `${officePrefix}, ${cached}`;
+    }
+    return cached;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`,
+      { headers: { 'Accept-Language': 'en' }, signal: controller.signal }
+    );
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const addr = data?.address || {};
+    const area =
+      addr.suburb ||
+      addr.neighbourhood ||
+      addr.industrial ||
+      addr.quarter ||
+      addr.road ||
+      addr.village ||
+      addr.town ||
+      '';
+    const city =
+      addr.city ||
+      addr.town ||
+      addr.city_district ||
+      addr.county ||
+      addr.state_district ||
+      '';
+    const state = addr.state || '';
+    const parts = Array.from(
+      new Set([area, city, state].map(v => String(v || '').trim()).filter(Boolean))
+    );
+    let readable = '';
+    if (parts.length > 0) {
+      readable = parts.join(', ');
+    } else if (data?.display_name) {
+      const displayParts = String(data.display_name)
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => Boolean(p) && !/^\d{5,6}$/.test(p) && !/^india$/i.test(p));
+      readable = displayParts.slice(0, 3).join(', ');
+    }
+    if (!readable) return null;
+    reverseGeocodeMemoryCache.set(cacheKey, readable);
+    if (officePrefix && !readable.toLowerCase().includes(officePrefix.toLowerCase())) {
+      return `${officePrefix}, ${readable}`;
+    }
+    return readable;
+  } catch {
+    return null;
+  }
+};
+
+const readCachedTodayPunchFromStorage = (candidateIds: Array<string | undefined>, dateStr: string): any | null => {
+  if (typeof window === 'undefined' || !dateStr) return null;
+  for (const rawId of candidateIds) {
+    const idLower = String(rawId || '').trim().toLowerCase();
+    if (!idLower) continue;
+    try {
+      const raw = localStorage.getItem(`vrm_authoritative_today_punch_${idLower}_${dateStr}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.checkIn || parsed.checkOut)) {
+          return parsed;
+        }
+      }
+    } catch { }
+  }
+  return null;
+};
 
 const getLocalDateString = (d = new Date()) => {
   const year = d.getFullYear();
@@ -251,7 +371,21 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   );
 
   // Local immediate committed record for today so UI buttons (Punch In / Punch Out) never lag or flicker during cloud sync
-  const [committedTodayRecord, setCommittedTodayRecord] = useState<any | null>(null);
+  const [committedTodayRecord, setCommittedTodayRecord] = useState<any | null>(() =>
+    readCachedTodayPunchFromStorage(
+      [currentUser.employeeId, currentUser.id, selectedEmpId],
+      getLocalDateString()
+    )
+  );
+  const [serverShiftStatus, setServerShiftStatus] = useState<AuthoritativeShiftStatusResponse | null>(null);
+  const [isCheckingServerStatus, setIsCheckingServerStatus] = useState<boolean>(() => {
+    if (mode === 'log') return false;
+    const cached = readCachedTodayPunchFromStorage(
+      [currentUser.employeeId, currentUser.id, selectedEmpId],
+      getLocalDateString()
+    );
+    return !cached;
+  });
 
   // Lightweight ticker for shift window & 1-hour delay evaluation (15s interval to avoid UI lag)
   const [ticker, setTicker] = useState<number>(0);
@@ -259,11 +393,6 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const t = setInterval(() => setTicker(prev => prev + 1), 15000);
     return () => clearInterval(t);
   }, []);
-
-  // Shift Window Evaluation
-  const shiftEval = useMemo(() => {
-    return getEmployeeShiftAttendanceState(selectedEmpId);
-  }, [selectedEmpId, ticker, attendanceRecords, getEmployeeShiftAttendanceState]);
 
   const todayAttendance = useMemo(() => {
     const candidateIds = new Set(
@@ -292,13 +421,16 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         matches[0]
       );
 
+    const cachedFromStorage = readCachedTodayPunchFromStorage(Array.from(candidateIds), todayStr);
+    const activeCommitted = committedTodayRecord || cachedFromStorage;
+
     const isCommittedForToday =
-      committedTodayRecord &&
-      (normalizeToYYYYMMDD(committedTodayRecord.shiftDate) === todayStr || normalizeToYYYYMMDD(committedTodayRecord.date) === todayStr) &&
-      candidateIds.has(String(committedTodayRecord.employeeId || '').trim().toLowerCase());
+      activeCommitted &&
+      (normalizeToYYYYMMDD(activeCommitted.shiftDate) === todayStr || normalizeToYYYYMMDD(activeCommitted.date) === todayStr) &&
+      (candidateIds.size === 0 || candidateIds.has(String(activeCommitted.employeeId || '').trim().toLowerCase()));
 
     if (!fromRecords) {
-      return isCommittedForToday ? committedTodayRecord : undefined;
+      return isCommittedForToday ? activeCommitted : undefined;
     }
     if (!isCommittedForToday) {
       return fromRecords;
@@ -311,14 +443,168 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ...fromRecords,
       checkIn: (fromRecords.checkIn && fromRecords.checkIn !== '--:--' && fromRecords.checkIn.trim() !== '')
         ? fromRecords.checkIn
-        : committedTodayRecord.checkIn,
+        : activeCommitted.checkIn,
       checkOut: (fromRecords.checkOut && fromRecords.checkOut !== '--:--' && fromRecords.checkOut.trim() !== '')
         ? fromRecords.checkOut
-        : committedTodayRecord.checkOut,
-      checkInPhoto: fromRecords.checkInPhoto || committedTodayRecord.checkInPhoto,
-      checkOutPhoto: fromRecords.checkOutPhoto || committedTodayRecord.checkOutPhoto,
+        : activeCommitted.checkOut,
+      checkInPhoto: fromRecords.checkInPhoto || activeCommitted.checkInPhoto,
+      checkOutPhoto: fromRecords.checkOutPhoto || activeCommitted.checkOutPhoto,
+      checkInLocation: (fromRecords as any).checkInLocation || activeCommitted.checkInLocation || fromRecords.location?.address,
+      checkOutLocation: (fromRecords as any).checkOutLocation || activeCommitted.checkOutLocation,
     };
   }, [attendanceRecords, selectedEmpId, selectedEmp, currentUser.employeeId, currentUser.id, todayStr, committedTodayRecord]);
+
+  // Shift Window Evaluation (synchronized with authoritative server status and todayAttendance)
+  const shiftEval = useMemo(() => {
+    const localEval = getEmployeeShiftAttendanceState(selectedEmpId);
+    const hasTodayIn = Boolean(todayAttendance?.checkIn && todayAttendance.checkIn.trim() !== '' && todayAttendance.checkIn !== '--:--');
+    const hasTodayOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
+
+    if (hasTodayIn && hasTodayOut) {
+      return {
+        ...localEval,
+        canCheckIn: false,
+        canCheckOut: false,
+        statusBadge: 'Completed' as const,
+        message: serverShiftStatus?.message || "Today's attendance is completed.",
+      };
+    }
+
+    if (hasTodayIn && !hasTodayOut) {
+      return {
+        ...localEval,
+        canCheckIn: false,
+        canCheckOut: serverShiftStatus ? serverShiftStatus.canCheckOut : true,
+        statusBadge: 'Checked-In Active' as const,
+        message: serverShiftStatus?.message || 'Checked in. Next action: Punch Out.',
+      };
+    }
+
+    if (serverShiftStatus) {
+      return {
+        ...localEval,
+        canCheckIn: serverShiftStatus.canCheckIn,
+        canCheckOut: serverShiftStatus.canCheckOut,
+        message: serverShiftStatus.message || localEval.message,
+      };
+    }
+    return localEval;
+  }, [selectedEmpId, ticker, attendanceRecords, getEmployeeShiftAttendanceState, serverShiftStatus, todayAttendance]);
+
+  // Immediately synchronize today's attendance state from authoritative PostgreSQL backend on mount, employee change, and tab focus
+  useEffect(() => {
+    if (mode === 'log') {
+      setIsCheckingServerStatus(false);
+      return;
+    }
+    let active = true;
+    const targetId = selectedEmpId || currentUser.employeeId || currentUser.id;
+
+    // Hydrate from per-day localStorage cache immediately if available
+    const cached = readCachedTodayPunchFromStorage(
+      [targetId, selectedEmp?.employeeId, selectedEmp?.id, currentUser.employeeId, currentUser.id],
+      todayStr
+    );
+    if (cached && !committedTodayRecord) {
+      setCommittedTodayRecord(cached);
+    }
+
+    const hasExistingTodayRecord = Boolean(
+      (todayAttendance?.checkIn && todayAttendance.checkIn !== '--:--') ||
+      (cached?.checkIn && cached.checkIn !== '--:--')
+    );
+    if (!hasExistingTodayRecord) {
+      setIsCheckingServerStatus(true);
+    }
+
+    const safetyTimer = setTimeout(() => {
+      if (active) setIsCheckingServerStatus(false);
+    }, 1500);
+
+    const verifyFromServer = async () => {
+      try {
+        const statusRes = await fetchAuthoritativeShiftStatus(targetId);
+        if (!active) return;
+        if (statusRes) {
+          setServerShiftStatus(statusRes);
+          const srvRec = statusRes.todayRecord || statusRes.activeAttendance;
+          if (srvRec && (srvRec.checkIn || srvRec.checkOut)) {
+            const formattedIn =
+              (srvRec.checkIn && (formatTimeDisplay(srvRec.checkIn, '') || formatAttendanceTime(srvRec.checkIn))) ||
+              null;
+            const formattedOut =
+              (srvRec.checkOut && (formatTimeDisplay(srvRec.checkOut, '') || formatAttendanceTime(srvRec.checkOut))) ||
+              null;
+            const empName = selectedEmp
+              ? `${selectedEmp.firstName} ${selectedEmp.lastName}`.trim()
+              : (currentUser.name || 'Employee');
+            const syncedRecord = {
+              id: srvRec.id,
+              employeeId: srvRec.employeeId || targetId,
+              employeeName: empName,
+              department: selectedEmp?.department || currentUser.department || 'General',
+              designation: selectedEmp?.designation || currentUser.designation,
+              date: srvRec.date || todayStr,
+              shiftDate: srvRec.shiftDate || srvRec.date || todayStr,
+              checkIn: formattedIn,
+              checkOut: formattedOut,
+              checkInPhoto: srvRec.checkInPhoto,
+              checkOutPhoto: srvRec.checkOutPhoto,
+              workingHours: Number(srvRec.workingHours || 0),
+              status: (srvRec.status || 'Present') as any,
+              lateStatus: (srvRec.lateStatus || 'On Time') as any,
+              method: 'Face Recognition' as const,
+              faceVerified: true,
+              location: {
+                lat: srvRec.locationLat ?? 13.15166,
+                lng: srvRec.locationLng ?? 80.208618,
+                address: srvRec.locationAddress || geofenceConfig.officeName || 'HQ Office',
+                inGeofence: srvRec.inGeofence ?? true,
+              },
+              checkInLocation: srvRec.checkInLocation || (formattedIn ? (srvRec.locationAddress || geofenceConfig.officeName) : undefined),
+              checkOutLocation: srvRec.checkOutLocation || (formattedOut ? (srvRec.locationAddress || geofenceConfig.officeName) : undefined),
+            };
+            setCommittedTodayRecord(syncedRecord);
+            applyServerAttendanceRecord(syncedRecord as any);
+
+            if (srvRec.createdAt && formattedIn && !formattedOut) {
+              const parsedEpoch = Date.parse(srvRec.createdAt);
+              if (Number.isFinite(parsedEpoch)) {
+                try {
+                  localStorage.setItem(`vrm_punch_in_epoch_${targetId}_${todayStr}`, String(parsedEpoch));
+                  if (srvRec.employeeId) {
+                    localStorage.setItem(`vrm_punch_in_epoch_${srvRec.employeeId}_${todayStr}`, String(parsedEpoch));
+                  }
+                } catch { }
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore network error and fall back to existing state
+      } finally {
+        clearTimeout(safetyTimer);
+        if (active) setIsCheckingServerStatus(false);
+      }
+    };
+
+    void verifyFromServer();
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void verifyFromServer();
+      }
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      active = false;
+      clearTimeout(safetyTimer);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [mode, selectedEmpId, todayStr]);
 
   const isCheckedIn = Boolean(todayAttendance?.checkIn && todayAttendance.checkIn.trim() !== '' && todayAttendance.checkIn !== '--:--');
   const isCheckedOut = Boolean(todayAttendance?.checkOut && todayAttendance.checkOut.trim() !== '' && todayAttendance.checkOut !== '--:--');
@@ -521,8 +807,15 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   } | null>(null);
   const [hasPreservedFaceCapture, setHasPreservedFaceCapture] = useState<boolean>(false);
   const [committedPunchSummary, setCommittedPunchSummary] = useState<{
+    punchType: 'Check-In' | 'Check-Out';
     title: string;
     savedTime: string;
+    checkInTime: string;
+    checkOutTime?: string;
+    dateDisplay: string;
+    checkInLocation: string;
+    checkOutLocation?: string;
+    gpsVerified: boolean;
     status: string;
     lateStatus: string;
     locationText: string;
@@ -536,6 +829,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const [fullScreenStep, setFullScreenStep] = useState<'CAMERA' | 'CONFIRM'>('CAMERA');
   const [capturedFullScreenPhoto, setCapturedFullScreenPhoto] = useState<string | null>(null);
   const [fullScreenError, setFullScreenError] = useState<string | null>(null);
+
+  // Prevent background page scrolling while full-screen camera is open
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (isFullScreenCameraOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [isFullScreenCameraOpen]);
   const [perfMetrics, setPerfMetrics] = useState<{
     cameraOpenMs: number;
     photoCaptureMs: number;
@@ -1123,7 +1428,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     }
 
     // 3. Enforce shift rules
-    const currentShiftState = getEmployeeShiftAttendanceState(selectedEmpId);
+    const currentShiftState = shiftEval;
     if (type === 'Check-In' && !currentShiftState.canCheckIn) {
       setScanResult({
         status: 'error',
@@ -1258,15 +1563,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         );
 
         if (isFieldDutyAuthorized && reading.accuracy <= (maxAccuracyThreshold ?? 150)) {
+          const initialFieldAddr = fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || '';
           setActivePunchGps({
             latitude: reading.latitude,
             longitude: reading.longitude,
             accuracy: reading.accuracy,
-            address: fieldAssignment
-              ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
-              : isFlexibleEmp
-                ? 'Daily Field Work (GPS Verified)'
-                : (geofenceConfig.officeName || 'HQ Office'),
+            address: initialFieldAddr || 'Location pending',
             distance,
             timestamp: reading.timestamp,
             readingAgeMs: reading.readingAgeMs,
@@ -1274,6 +1576,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             sampleCount: reading.sampleCount,
             retryCount: reading.retryCount,
             browserDeviceCategory: reading.browserDeviceCategory
+          });
+          void reverseGeocodeCoordinates(reading.latitude, reading.longitude, initialFieldAddr || undefined, 2200).then(readable => {
+            if (readable) {
+              setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
+            }
           });
           setGpsStatusDetails({
             verified: true,
@@ -1285,11 +1592,19 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             message: 'GPS Verified'
           });
         } else if (!geofenceConfig.enabled || evaluation.canPunch) {
+          const officePrefix =
+            geofenceConfig.officeName && !isGenericPlaceholderAddress(geofenceConfig.officeName)
+              ? geofenceConfig.officeName.replace(/\s+India\s+Pvt\s+Ltd$/i, '').trim()
+              : undefined;
+          const initialOfficeAddr =
+            (geofenceConfig.address && !isGenericPlaceholderAddress(geofenceConfig.address) ? geofenceConfig.address : '') ||
+            officePrefix ||
+            'Location pending';
           setActivePunchGps({
             latitude: reading.latitude,
             longitude: reading.longitude,
             accuracy: reading.accuracy,
-            address: geofenceConfig.officeName || 'HQ Office',
+            address: initialOfficeAddr,
             distance,
             timestamp: reading.timestamp,
             readingAgeMs: reading.readingAgeMs,
@@ -1297,6 +1612,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             sampleCount: reading.sampleCount,
             retryCount: reading.retryCount,
             browserDeviceCategory: reading.browserDeviceCategory
+          });
+          void reverseGeocodeCoordinates(reading.latitude, reading.longitude, officePrefix, 2200).then(readable => {
+            if (readable) {
+              setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
+            }
           });
           setGpsStatusDetails({
             verified: true,
@@ -1346,6 +1666,28 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     setCapturedFullScreenPhoto(null);
     setFullScreenError(null);
     setGpsProgressMsg('');
+  };
+
+  // Single primary "Open Camera" action: automatically determines Punch In vs Punch Out from authoritative shift & attendance state
+  const handleOpenCameraForNextPunch = () => {
+    if (isCheckingServerStatus || isCompletedToday) return;
+    const nextAction: 'Check-In' | 'Check-Out' = hasActiveCheckIn ? 'Check-Out' : 'Check-In';
+    void handlePunchAction(nextAction);
+  };
+
+  // Allow retaking photo in full-screen camera before confirming
+  const handleRetakeFullScreenPhoto = async () => {
+    if (isScanning || punchInProgressRef.current) return;
+    setFullScreenError(null);
+    setCapturedFullScreenPhoto(null);
+    setFullScreenStep('CAMERA');
+    try {
+      await startCameraStream();
+      setCameraAccessDenied(false);
+    } catch (camErr: any) {
+      setCameraAccessDenied(true);
+      setFullScreenError(camErr?.message || 'Unable to restart camera.');
+    }
   };
 
   // STEP 2: Employee taps Capture Photo in Full-Screen Camera -> Display Captured Photo & Confirm Button Only (NO Retake)
@@ -1475,57 +1817,21 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         throw new Error(conciseMsg);
       }
 
-      const baseFallbackAddress = isFieldDutyAuthorized
-        ? (fieldAssignment
-          ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
-          : 'Daily Field Work (GPS Verified)')
-        : (geofenceConfig.officeName || 'HQ Office');
+      const officePrefix =
+        !isFieldDutyAuthorized && geofenceConfig.officeName && !isGenericPlaceholderAddress(geofenceConfig.officeName)
+          ? geofenceConfig.officeName.replace(/\s+India\s+Pvt\s+Ltd$/i, '').trim()
+          : (isFieldDutyAuthorized && fieldAssignment?.customerSiteName ? fieldAssignment.customerSiteName.trim() : undefined);
 
-      let resolvedHumanAddress = baseFallbackAddress;
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1100);
-        const geoResp = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${reading.latitude}&lon=${reading.longitude}&zoom=16&addressdetails=1`,
-          { headers: { 'Accept-Language': 'en' }, signal: controller.signal }
-        );
-        clearTimeout(timer);
-        if (geoResp.ok) {
-          const geoData = await geoResp.json();
-          const addrObj = geoData?.address || {};
-          const area =
-            addrObj.suburb ||
-            addrObj.neighbourhood ||
-            addrObj.industrial ||
-            addrObj.quarter ||
-            addrObj.road ||
-            addrObj.village ||
-            addrObj.town ||
-            '';
-          const city =
-            addrObj.city ||
-            addrObj.town ||
-            addrObj.city_district ||
-            addrObj.county ||
-            addrObj.state_district ||
-            '';
-          const localityParts = Array.from(
-            new Set([area, city].map(s => String(s || '').trim()).filter(Boolean))
-          );
-          if (localityParts.length > 0) {
-            const localityStr = localityParts.join(', ');
-            if (isFieldDutyAuthorized && fieldAssignment?.customerSiteName) {
-              resolvedHumanAddress = `${fieldAssignment.customerSiteName} · ${localityStr}`;
-            } else {
-              resolvedHumanAddress = localityStr;
-            }
-          } else if (geoData?.display_name) {
-            resolvedHumanAddress = String(geoData.display_name);
-          }
-        }
-      } catch {
-        // Fallback immediately to baseFallbackAddress if reverse geocoding times out or is offline
-      }
+      const configuredFallbackAddress = isFieldDutyAuthorized
+        ? (fieldAssignment?.siteAddress || fieldAssignment?.customerSiteName || '')
+        : ((geofenceConfig.address && !isGenericPlaceholderAddress(geofenceConfig.address) ? geofenceConfig.address : '') ||
+           (geofenceConfig.officeName && !isGenericPlaceholderAddress(geofenceConfig.officeName) ? geofenceConfig.officeName : ''));
+
+      let resolvedHumanAddress =
+        (activePunchGps && !isGenericPlaceholderAddress(activePunchGps.address) ? activePunchGps.address : '') ||
+        (await reverseGeocodeCoordinates(reading.latitude, reading.longitude, officePrefix, 1500)) ||
+        configuredFallbackAddress ||
+        'Location pending';
 
       const gpsInfo = {
         latitude: reading.latitude,
@@ -1567,7 +1873,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         longitude: gpsInfo.longitude,
         accuracyMeters: gpsInfo.accuracy,
         locationTimestamp: new Date(reading.timestamp).toISOString(),
-        locationAddress: gpsInfo.address,
+        locationAddress: resolvedHumanAddress !== 'Location pending' ? resolvedHumanAddress : (configuredFallbackAddress || 'Verified Office Geofence'),
         gpsDurationMs: reading.durationMs,
         gpsReadingAgeMs: Math.min(180000, Math.max(0, Date.now() - reading.timestamp)),
         gpsSampleCount: reading.sampleCount,
@@ -1587,29 +1893,75 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       const fallbackNowTime = formatTimeDisplay(new Date(), '');
       const resolvedCheckIn =
         formatTimeDisplay(serverRecord.checkIn, '') ||
-        (type === 'Check-In' ? fallbackNowTime : (todayAttendance?.checkIn || null));
+        (type === 'Check-In' ? fallbackNowTime : (myCheckInTime || todayAttendance?.checkIn || null));
       const resolvedCheckOut =
         formatTimeDisplay(serverRecord.checkOut, '') ||
-        (type === 'Check-Out' ? fallbackNowTime : (todayAttendance?.checkOut || null));
+        (type === 'Check-Out' ? fallbackNowTime : (myCheckOutTime || todayAttendance?.checkOut || null));
+
+      const savedInLocation =
+        type === 'Check-In'
+          ? (resolvedHumanAddress !== 'Location pending'
+              ? resolvedHumanAddress
+              : (!isGenericPlaceholderAddress(serverRecord.checkInLocation || serverRecord.locationAddress)
+                  ? String(serverRecord.checkInLocation || serverRecord.locationAddress)
+                  : (configuredFallbackAddress || 'Location pending')))
+          : ((todayAttendance as any)?.checkInLocation && !isGenericPlaceholderAddress((todayAttendance as any).checkInLocation)
+              ? String((todayAttendance as any).checkInLocation)
+              : (!isGenericPlaceholderAddress(serverRecord.checkInLocation)
+                  ? String(serverRecord.checkInLocation)
+                  : (resolvedHumanAddress !== 'Location pending' ? resolvedHumanAddress : (configuredFallbackAddress || 'Location pending'))));
+
+      const savedOutLocation =
+        type === 'Check-Out'
+          ? (resolvedHumanAddress !== 'Location pending'
+              ? resolvedHumanAddress
+              : (!isGenericPlaceholderAddress(serverRecord.checkOutLocation || serverRecord.locationAddress)
+                  ? String(serverRecord.checkOutLocation || serverRecord.locationAddress)
+                  : (configuredFallbackAddress || 'Location pending')))
+          : undefined;
 
       // Clear preserved face capture once attendance is committed to PostgreSQL
       preservedFaceCaptureRef.current = null;
       setHasPreservedFaceCapture(false);
       setCommittedPunchSummary({
+        punchType: type,
         title: type === 'Check-In' ? 'Punch In Successful' : 'Punch Out Successful',
         savedTime:
           type === 'Check-In'
             ? (resolvedCheckIn || fallbackNowTime)
             : (resolvedCheckOut || fallbackNowTime),
+        checkInTime: resolvedCheckIn || fallbackNowTime,
+        checkOutTime: type === 'Check-Out' ? (resolvedCheckOut || fallbackNowTime) : undefined,
+        dateDisplay: formatFullHumanDate(serverRecord.date || todayStr),
+        checkInLocation: savedInLocation,
+        checkOutLocation: savedOutLocation,
+        gpsVerified: true,
         status: serverRecord.status || 'Present',
         lateStatus: serverRecord.lateStatus || (serverRecord.status === 'Late' ? 'Late' : 'On Time'),
-        locationText: `GPS Verified (${Math.round(distance)}m / ${radius}m, ±${Math.round(reading.accuracy)}m)`,
+        locationText: savedOutLocation || savedInLocation,
         totalLatencyMs: confirmElapsedMs,
         gpsDurationMs: reading.durationMs ?? 0,
         cameraOpenMs: perfMetrics.cameraOpenMs,
         photoCaptureMs: perfMetrics.photoCaptureMs,
         confirmToSuccessMs: confirmElapsedMs
       });
+
+      // If address resolution was still pending when Confirm completed, finish reverse-geocoding in background and update
+      if (resolvedHumanAddress === 'Location pending') {
+        void reverseGeocodeCoordinates(reading.latitude, reading.longitude, officePrefix, 4000).then(lateReadable => {
+          if (!lateReadable) return;
+          setCommittedPunchSummary(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              checkInLocation: prev.punchType === 'Check-In' || prev.checkInLocation === 'Location pending' ? lateReadable : prev.checkInLocation,
+              checkOutLocation: prev.punchType === 'Check-Out' ? lateReadable : prev.checkOutLocation,
+              locationText: lateReadable
+            };
+          });
+        });
+      }
+
       stopCamera();
       setIsFullScreenCameraOpen(false);
       setFullScreenStep('CAMERA');
@@ -1637,22 +1989,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         location: {
           lat: serverRecord.locationLat ?? gpsInfo.latitude,
           lng: serverRecord.locationLng ?? gpsInfo.longitude,
-          address: serverRecord.locationAddress || gpsInfo.address,
+          address: savedOutLocation || savedInLocation || serverRecord.locationAddress || gpsInfo.address,
           inGeofence: serverRecord.inGeofence ?? true,
         },
-        checkInLocation:
-          (serverRecord as any).checkInLocation ||
-          (type === 'Check-In'
-            ? (gpsInfo.address || serverRecord.locationAddress)
-            : ((todayAttendance as any)?.checkInLocation || todayAttendance?.location?.address || serverRecord.locationAddress)),
-        checkOutLocation:
-          (serverRecord as any).checkOutLocation ||
-          (type === 'Check-Out'
-            ? (gpsInfo.address || serverRecord.locationAddress)
-            : (todayAttendance as any)?.checkOutLocation),
+        checkInLocation: savedInLocation,
+        checkOutLocation: savedOutLocation || (todayAttendance as any)?.checkOutLocation,
       };
       setCommittedTodayRecord(committedRecord);
       applyServerAttendanceRecord(committedRecord);
+      // Also refresh authoritative shift status immediately so serverShiftStatus matches the newly saved punch
+      void fetchAuthoritativeShiftStatus(selectedEmpId).then(freshStatus => {
+        if (freshStatus) setServerShiftStatus(freshStatus);
+      }).catch(() => { });
       // Synchronize full cloud state asynchronously in background without blocking UI confirmation
       void syncAllWithCloud().catch(() => { });
 
@@ -4131,778 +4479,998 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         /* SEPARATE ATTENDANCE LOG PAGE */
         renderMonthlyActivityCard(true)
       ) : (
-        /* DAILY ATTENDANCE PAGE */
-        <div className="face-attendance-grid" style={{ display: 'flex', justifyContent: 'center' }}>
-          {/* MINIMAL SINGLE-TAP FACE ATTENDANCE SCREEN */}
-          <div className="face-attendance-scanner-card" style={{
+        /* DAILY ATTENDANCE PAGE — APPLE-INSPIRED MINIMAL CAMERA-FIRST EXPERIENCE */
+        <div
+          className="face-attendance-grid"
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
             width: '100%',
-            maxWidth: '420px',
-            margin: '0 auto',
-            backgroundColor: '#ffffff',
-            borderRadius: '16px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 2px 10px rgba(15, 23, 42, 0.03)',
-            padding: '12px 14px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0e7490', marginBottom: '8px', letterSpacing: '0.02em' }}>
-              Live Camera
-            </div>
-            {/* LIVE FRONT-CAMERA PREVIEW WITH COMPACT FACE-GUIDANCE FRAME */}
-            <div
-              data-testid="face-camera-preview"
-              style={{
-                width: '100%',
-                maxWidth: isMobileViewport ? '260px' : '320px',
-                aspectRatio: '1 / 1',
-                margin: '0 auto',
-                backgroundColor: '#f8fafc',
-                borderRadius: '16px',
-                border: '1.5px solid #cbd5e1',
-                overflow: 'hidden',
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  display: isCameraActive ? 'block' : 'none',
-                  transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)'
-                }}
-              />
-
-              {/* ScanFace live camera placeholder removed */}
-
-              {/* Attendance Home Banner (Camera is NOT permanently active on the home screen; opens in Full-Screen when Punch In / Out is tapped) */}
+            paddingBottom: isMobileViewport ? '24px' : '16px'
+          }}
+        >
+          <div
+            className="face-attendance-scanner-card"
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              margin: '0 auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px'
+            }}
+          >
+            {committedPunchSummary ? (
+              /* ATTENDANCE SUCCESS SCREEN (Punch In Successful / Punch Out Successful) */
               <div
-                data-testid="face-guidance-frame"
+                data-testid="one-click-punch-success-card"
                 style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  padding: '12px',
-                  textAlign: 'center',
-                  zIndex: 10
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '18px',
+                  border: '1px solid #E5E7EB',
+                  boxShadow: '0 2px 8px rgba(23, 33, 44, 0.04)',
+                  padding: isMobileViewport ? '18px 16px' : '22px 20px'
                 }}
               >
                 <div
                   style={{
-                    width: '52px',
-                    height: '52px',
-                    borderRadius: '50%',
-                    backgroundColor: '#ecfeff',
-                    border: '2px dashed #0e7490',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#0e7490'
+                    backgroundColor: '#F0FDF4',
+                    border: '1px solid #DCFCE7',
+                    borderRadius: '16px',
+                    padding: isMobileViewport ? '20px 14px 16px' : '24px 18px 18px',
+                    textAlign: 'center'
                   }}
                 >
-                  <Camera size={24} />
-                </div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#0f172a' }}>
-                  {isCompletedToday
-                    ? "Today's Shift Attendance Completed"
-                    : isCheckedIn
-                      ? 'Tap Punch Out to Open Full-Screen Camera'
-                      : 'Tap Punch In to Open Full-Screen Camera'}
-                </div>
-                <div style={{ fontSize: '0.7rem', color: '#475569', lineHeight: 1.35, maxWidth: '240px' }}>
-                  Front camera &amp; GPS start together when you tap <strong>{isCheckedIn && !isCheckedOut ? 'Punch Out' : 'Punch In'}</strong>.
-                </div>
-              </div>
-            </div>
-
-            {/* FULL-SCREEN FRONT CAMERA MODAL & COMMITTED PUNCH SUMMARY (Shift/GPS info panel hidden on frontend home screen per user request) */}
-            <div>
-              {isFullScreenCameraOpen && (
-                <div
-                  data-testid="fullscreen-face-camera-modal"
-                  style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 99990,
-                    backgroundColor: '#f8fafc',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    overflow: 'hidden'
-                  }}
-                >
-                  {/* Top Bar: Action Title, Shift Status, Compact GPS Pill & Close Button */}
                   <div
                     style={{
-                      padding: '14px 18px',
-                      backgroundColor: '#ffffff',
-                      borderBottom: '1px solid #e2e8f0',
+                      width: '54px',
+                      height: '54px',
+                      borderRadius: '50%',
+                      backgroundColor: '#DCFCE7',
+                      color: '#16A34A',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '10px',
-                      boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)'
+                      justifyContent: 'center',
+                      margin: '0 auto 12px'
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <CheckCircle2 size={28} />
+                  </div>
+
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: '1.22rem',
+                      fontWeight: 700,
+                      color: '#15803D',
+                      letterSpacing: '-0.01em'
+                    }}
+                  >
+                    {committedPunchSummary.punchType === 'Check-In'
+                      ? 'Punch In Successful'
+                      : 'Punch Out Successful'}
+                  </h2>
+                  <p
+                    style={{
+                      margin: '6px 0 0',
+                      fontSize: '0.84rem',
+                      color: '#667085',
+                      lineHeight: 1.4
+                    }}
+                  >
+                    Your attendance has been marked successfully.
+                  </p>
+
+                  {/* Summary Details Table */}
+                  <div
+                    style={{
+                      marginTop: '18px',
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: '14px',
+                      border: '1px solid #E5E7EB',
+                      padding: '4px 14px',
+                      textAlign: 'left'
+                    }}
+                  >
+                    {committedPunchSummary.punchType === 'Check-In' ? (
+                      <>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500 }}>
+                            <Clock size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Time</span>
+                          </span>
+                          <span style={{ fontWeight: 700, color: '#17212C' }}>
+                            {committedPunchSummary.checkInTime || committedPunchSummary.savedTime}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500 }}>
+                            <Calendar size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Date</span>
+                          </span>
+                          <span style={{ fontWeight: 600, color: '#17212C' }}>
+                            {committedPunchSummary.dateDisplay}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500, flexShrink: 0 }}>
+                            <MapPin size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Location</span>
+                          </span>
+                          <span
+                            data-testid="success-punch-in-location"
+                            style={{
+                              fontWeight: 600,
+                              color: '#17212C',
+                              textAlign: 'right',
+                              lineHeight: 1.35,
+                              maxWidth: '230px'
+                            }}
+                          >
+                            {committedPunchSummary.checkInLocation || 'Location pending'}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500 }}>
+                            <Clock size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Punch In</span>
+                          </span>
+                          <span style={{ fontWeight: 700, color: '#17212C' }}>
+                            {committedPunchSummary.checkInTime}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500 }}>
+                            <Clock size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Punch Out</span>
+                          </span>
+                          <span style={{ fontWeight: 700, color: '#17212C' }}>
+                            {committedPunchSummary.checkOutTime || committedPunchSummary.savedTime}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500, flexShrink: 0 }}>
+                            <MapPin size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Punch In Location</span>
+                          </span>
+                          <span
+                            data-testid="success-punch-in-location"
+                            style={{
+                              fontWeight: 600,
+                              color: '#17212C',
+                              textAlign: 'right',
+                              lineHeight: 1.35,
+                              maxWidth: '220px'
+                            }}
+                          >
+                            {committedPunchSummary.checkInLocation || 'Location pending'}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 0',
+                            borderBottom: '1px solid #F1F5F9',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500, flexShrink: 0 }}>
+                            <MapPin size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                            <span>Punch Out Location</span>
+                          </span>
+                          <span
+                            data-testid="success-punch-out-location"
+                            style={{
+                              fontWeight: 600,
+                              color: '#17212C',
+                              textAlign: 'right',
+                              lineHeight: 1.35,
+                              maxWidth: '220px'
+                            }}
+                          >
+                            {committedPunchSummary.checkOutLocation || 'Location pending'}
+                          </span>
+                        </div>
+                      </>
+                    )}
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        padding: '11px 0',
+                        fontSize: '0.84rem'
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#667085', fontWeight: 500 }}>
+                        <MapPin size={15} style={{ color: '#667085', flexShrink: 0 }} />
+                        <span>GPS</span>
+                      </span>
+                      <span
+                        data-testid="committed-punch-policy-status"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontWeight: 700,
+                          color: '#16A34A'
+                        }}
+                      >
+                        <span>Verified</span>
+                        <CheckCircle2 size={16} />
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  data-testid="attendance-success-done-btn"
+                  onClick={() => setCommittedPunchSummary(null)}
+                  style={{
+                    width: '100%',
+                    minHeight: '48px',
+                    marginTop: '16px',
+                    padding: '12px 20px',
+                    borderRadius: '12px',
+                    backgroundColor: '#087F92',
+                    color: '#FFFFFF',
+                    fontSize: '0.95rem',
+                    fontWeight: 700,
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              /* MAIN FACE ATTENDANCE VIEW */
+              <>
+                {/* CARD 1: TODAY'S ATTENDANCE STATUS */}
+                <div
+                  data-testid={isCompletedToday ? 'today-attendance-completed' : 'today-punch-in-summary'}
+                  style={{
+                    backgroundColor: isCompletedToday ? '#F0FDF4' : isCheckedIn ? '#ECFDF5' : '#FFFFFF',
+                    border: isCompletedToday
+                      ? '1px solid #BBF7D0'
+                      : isCheckedIn
+                        ? '1px solid #D1FAE5'
+                        : '1px solid #E5E7EB',
+                    borderRadius: '16px',
+                    padding: '16px 18px',
+                    boxShadow: '0 1px 3px rgba(23, 33, 44, 0.03)'
+                  }}
+                >
+                  {isCheckingServerStatus && !isCheckedIn ? (
+                    <div
+                      data-testid="attendance-sync-loading"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        color: '#667085',
+                        fontSize: '0.86rem',
+                        fontWeight: 600,
+                        padding: '4px 0'
+                      }}
+                    >
+                      <RefreshCw size={16} className="animate-spin" style={{ color: '#087F92', flexShrink: 0 }} />
+                      <span>Checking today&apos;s attendance...</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                       <div
                         style={{
-                          width: '36px',
-                          height: '36px',
-                          borderRadius: '10px',
-                          backgroundColor: '#ecfeff',
-                          color: '#0e7490',
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '12px',
+                          backgroundColor: isCompletedToday ? '#DCFCE7' : '#E6F4F7',
+                          color: isCompletedToday ? '#16A34A' : '#087F92',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0
                         }}
                       >
-                        <ScanFace size={20} />
+                        {isCompletedToday ? <CheckCircle2 size={20} /> : <Calendar size={20} />}
                       </div>
-                      <div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-                          {punchType === 'Check-In' ? 'Punch In Verification' : 'Punch Out Verification'}
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            color: isCompletedToday ? '#15803D' : '#17212C',
+                            marginBottom: '6px'
+                          }}
+                        >
+                          {isCompletedToday ? "Today's Attendance Completed" : "Today's Attendance"}
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>
-                          {shiftEval.assignedShift?.shiftName?.replace(/\s*\([^)]*\)\s*$/, '') || 'Assigned Shift'} • {shiftEval.shiftStartDisplay} – {shiftEval.shiftEndDisplay}
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            fontSize: '0.88rem',
+                            color: '#17212C'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#667085', fontWeight: 500 }}>Punch In:</span>
+                            <span style={{ fontWeight: 700, color: isCheckedIn ? '#17212C' : '#667085' }}>
+                              {isCheckedIn ? (myCheckInTime || todayAttendance?.checkIn) : 'Not yet marked'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#667085', fontWeight: 500 }}>Punch Out:</span>
+                            <span style={{ fontWeight: 700, color: isCheckedOut ? '#17212C' : '#667085' }}>
+                              {isCheckedOut ? (myCheckOutTime || todayAttendance?.checkOut) : 'Not yet marked'}
+                            </span>
+                          </div>
                         </div>
+
+                        {!isCompletedToday && (
+                          <div
+                            data-testid="next-attendance-action-label"
+                            style={{
+                              marginTop: '8px',
+                              paddingTop: '8px',
+                              borderTop: isCheckedIn ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid #F1F5F9',
+                              fontSize: '0.8rem',
+                              color: '#667085',
+                              fontWeight: 500,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}
+                          >
+                            <span>Next action:</span>
+                            <strong style={{ color: '#087F92', fontWeight: 700 }}>
+                              {hasActiveCheckIn ? 'Punch Out' : 'Punch In'}
+                            </strong>
+                          </div>
+                        )}
                       </div>
                     </div>
+                  )}
+                </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span
-                        data-testid="fullscreen-gps-status-pill"
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: '9999px',
-                          fontSize: '0.7rem',
-                          fontWeight: 700,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          backgroundColor: gpsStatusDetails.verified
-                            ? '#dcfce7'
-                            : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
-                              ? '#fee2e2'
-                              : '#ecfeff',
-                          color: gpsStatusDetails.verified
-                            ? '#15803d'
-                            : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
-                              ? '#dc2626'
-                              : '#0e7490'
-                        }}
-                      >
-                        <MapPin size={12} />
-                        <span>
-                          {gpsStatusDetails.verified
-                            ? `GPS Ready (${Math.round(gpsStatusDetails.distance ?? 0)}m)`
-                            : gpsProgressMsg
-                              ? gpsProgressMsg
-                              : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
-                                ? 'GPS Retry Needed'
-                                : 'Acquiring GPS...'}
-                        </span>
-                      </span>
-
-                      <button
-                        type="button"
-                        data-testid="fullscreen-close-btn"
-                        disabled={isScanning}
-                        onClick={handleCloseFullScreenCamera}
-                        aria-label="Close full-screen camera"
-                        style={{
-                          width: '36px',
-                          height: '36px',
-                          borderRadius: '10px',
-                          border: '1px solid #cbd5e1',
-                          backgroundColor: '#ffffff',
-                          color: '#475569',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: isScanning ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Center Viewport: Live Full-Screen Front Camera OR Captured Photo Preview */}
+                {/* CARD 2: SINGLE CAMERA-FIRST ACTION CARD */}
+                <div
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '16px',
+                    border: '1px solid #E5E7EB',
+                    boxShadow: '0 1px 3px rgba(23, 33, 44, 0.03)',
+                    padding: isMobileViewport ? '22px 18px' : '26px 22px',
+                    textAlign: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center'
+                  }}
+                >
                   <div
                     style={{
-                      flex: 1,
-                      position: 'relative',
-                      backgroundColor: '#0f172a',
+                      width: '60px',
+                      height: '60px',
+                      borderRadius: '18px',
+                      backgroundColor: isCompletedToday ? '#F0FDF4' : '#E6F4F7',
+                      color: isCompletedToday ? '#16A34A' : '#087F92',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      overflow: 'hidden'
+                      marginBottom: '14px'
                     }}
                   >
-                    {fullScreenStep === 'CAMERA' ? (
-                      <>
-                        <video
-                          ref={videoRef}
-                          autoPlay
-                          playsInline
-                          muted
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                            transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)'
-                          }}
-                        />
+                    {isCompletedToday ? <CheckCircle2 size={28} /> : <Camera size={28} />}
+                  </div>
 
-                        {/* Clean Face Alignment Guide */}
-                        <div
-                          data-testid="fullscreen-face-guide"
-                          style={{
-                            position: 'absolute',
-                            width: isMobileViewport ? '240px' : '290px',
-                            height: isMobileViewport ? '300px' : '360px',
-                            borderRadius: '9999px',
-                            border: '3px dashed rgba(255, 255, 255, 0.88)',
-                            boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.28)',
-                            pointerEvents: 'none',
-                            zIndex: 10
-                          }}
-                        />
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: '1.12rem',
+                      fontWeight: 700,
+                      color: '#17212C',
+                      letterSpacing: '-0.01em'
+                    }}
+                  >
+                    {isCompletedToday
+                      ? "Today's Attendance Completed"
+                      : hasActiveCheckIn
+                        ? 'Ready for Punch Out'
+                        : 'Mark Attendance'}
+                  </h2>
 
-                        <div
-                          style={{
-                            position: 'absolute',
-                            top: '16px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            zIndex: 20,
-                            padding: '6px 14px',
-                            borderRadius: '9999px',
-                            backgroundColor: 'rgba(15, 23, 42, 0.72)',
-                            color: '#ffffff',
-                            fontSize: '0.76rem',
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          Align your face inside the oval &amp; tap Capture Photo
-                        </div>
+                  <p
+                    style={{
+                      margin: '6px 0 18px',
+                      fontSize: '0.84rem',
+                      color: '#667085',
+                      lineHeight: 1.45,
+                      maxWidth: '290px'
+                    }}
+                  >
+                    {isCompletedToday
+                      ? 'Your Punch In and Punch Out have both been recorded for today.'
+                      : 'Open camera to mark your attendance (Punch In / Punch Out).'}
+                  </p>
 
-                        {isCameraActive && isLowLightCamera && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: '16px',
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              zIndex: 20,
-                              padding: '5px 12px',
-                              borderRadius: '9999px',
-                              backgroundColor: 'rgba(15, 23, 42, 0.82)',
-                              color: '#fef3c7',
-                              fontSize: '0.72rem',
-                              fontWeight: 700
-                            }}
-                          >
-                            Low light — move to a brighter area
-                          </div>
-                        )}
+                  {/* ONE PRIMARY BUTTON: Open Camera */}
+                  {(() => {
+                    const isNextPunchOut = hasActiveCheckIn;
+                    const isActionAllowed = !isCheckingServerStatus &&
+                      !isCompletedToday &&
+                      !isScanning &&
+                      !isRequestingPermissions &&
+                      (isNextPunchOut
+                        ? (!oneHourCooldown.isCooldownActive && shiftEval.canCheckOut)
+                        : shiftEval.canCheckIn);
 
-                        {isCameraActive && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsMirrored(prev => {
-                                const next = !prev;
-                                try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch { }
-                                return next;
-                              });
-                            }}
-                            aria-label="Flip camera preview"
-                            style={{
-                              position: 'absolute',
-                              top: '16px',
-                              right: '16px',
-                              zIndex: 20,
-                              width: '38px',
-                              height: '38px',
-                              borderRadius: '50%',
-                              backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                              border: '1px solid #cbd5e1',
-                              color: '#0e7490',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <FlipHorizontal size={17} />
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <div
-                        data-testid="fullscreen-captured-photo-preview"
+                    return (
+                      <button
+                        type="button"
+                        data-testid="open-camera-btn"
+                        disabled={!isActionAllowed}
+                        onClick={handleOpenCameraForNextPunch}
                         style={{
                           width: '100%',
-                          height: '100%',
-                          position: 'relative',
+                          minHeight: '48px',
+                          padding: '12px 20px',
+                          borderRadius: '12px',
+                          backgroundColor: isActionAllowed ? '#087F92' : '#E5E7EB',
+                          color: isActionAllowed ? '#FFFFFF' : '#94A3B8',
+                          fontSize: '0.95rem',
+                          fontWeight: 700,
+                          border: 'none',
+                          cursor: isActionAllowed ? 'pointer' : 'not-allowed',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          backgroundColor: '#0f172a'
+                          gap: '8px',
+                          transition: 'background-color 0.15s ease'
                         }}
                       >
-                        {capturedFullScreenPhoto && (
-                          <img
-                            src={capturedFullScreenPhoto}
-                            alt="Captured Attendance Selfie"
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
-                            }}
-                          />
-                        )}
-                        <div
-                          style={{
-                            position: 'absolute',
-                            top: '16px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            zIndex: 20,
-                            padding: '6px 14px',
-                            borderRadius: '9999px',
-                            backgroundColor: 'rgba(21, 128, 61, 0.92)',
-                            color: '#ffffff',
-                            fontSize: '0.76rem',
-                            fontWeight: 800,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)'
-                          }}
-                        >
-                          <CheckCircle2 size={15} />
-                          <span>Photo Captured • Ready to Confirm</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                        <Camera size={19} />
+                        <span>Open Camera</span>
+                      </button>
+                    );
+                  })()}
 
-                  {/* Bottom Action Sheet: Capture Photo (Step 1) OR Confirm Punch In / Confirm Punch Out ONLY (Step 2 — NO Retake Button) */}
+                  {/* SIMPLE STATUS & GPS INFORMATION BELOW BUTTON */}
                   <div
+                    data-testid="face-attendance-status"
                     style={{
-                      padding: '16px 20px 24px',
-                      backgroundColor: '#ffffff',
-                      borderTop: '1px solid #e2e8f0',
+                      width: '100%',
+                      marginTop: '14px',
+                      paddingTop: '12px',
+                      borderTop: '1px solid #F1F5F9',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '10px',
-                      boxShadow: '0 -4px 16px rgba(15, 23, 42, 0.05)'
+                      gap: '6px',
+                      fontSize: '0.8rem',
+                      fontWeight: 500,
+                      color: scanResult.status === 'error'
+                        ? '#DC2626'
+                        : scanResult.status === 'success'
+                          ? '#16A34A'
+                          : '#667085'
                     }}
                   >
-                    {fullScreenError && (
-                      <div
-                        data-testid="fullscreen-error-banner"
-                        style={{
-                          width: '100%',
-                          maxWidth: '420px',
-                          padding: '10px 12px',
-                          borderRadius: '10px',
-                          backgroundColor: '#fef2f2',
-                          border: '1px solid #fecaca',
-                          color: '#b91c1c',
-                          fontSize: '0.78rem',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '8px',
-                          flexWrap: 'wrap'
-                        }}
-                      >
-                        <span style={{ flex: 1 }}>{fullScreenError}</span>
-                        {fullScreenStep === 'CONFIRM' && (
+                    {isScanning || isRequestingPermissions || isRetryingLocation ? (
+                      <span style={{ color: '#087F92', fontWeight: 600 }}>
+                        {gpsProgressMsg || 'Getting GPS Location...'}
+                      </span>
+                    ) : scanResult.status === 'error' && scanResult.message ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                        <span>{scanResult.message}</span>
+                        {uncertainContext && (
                           <button
                             type="button"
-                            data-testid="fullscreen-retry-location-btn"
-                            disabled={isRetryingLocation || isScanning}
-                            onClick={() => {
-                              setFullScreenError(null);
-                              void handleRetryLocation({ silentOnStart: true });
-                            }}
+                            onClick={handleRequestHrCorrection}
                             style={{
-                              padding: '6px 12px',
+                              padding: '4px 12px',
                               borderRadius: '8px',
-                              border: '1px solid #0e7490',
-                              backgroundColor: '#ecfeff',
-                              color: '#0e7490',
-                              fontSize: '0.74rem',
-                              fontWeight: 800,
-                              cursor: isRetryingLocation || isScanning ? 'not-allowed' : 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              flexShrink: 0
+                              border: '1px solid #D97706',
+                              backgroundColor: '#FFFBEB',
+                              color: '#B45309',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer'
                             }}
                           >
-                            <RefreshCw size={13} />
-                            <span>{isRetryingLocation ? 'Checking GPS...' : 'Retry Location'}</span>
+                            Request HR Review
                           </button>
                         )}
                       </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexWrap: 'wrap',
+                          gap: '8px',
+                          color: '#667085'
+                        }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          <MapPin size={14} style={{ color: gpsStatusDetails.verified ? '#16A34A' : '#087F92' }} />
+                          <span>
+                            {activePunchGps?.address && !isGenericPlaceholderAddress(activePunchGps.address)
+                              ? activePunchGps.address
+                              : gpsStatusDetails.verified
+                                ? 'GPS Verified'
+                                : 'GPS Ready on Camera Open'}
+                          </span>
+                        </span>
+                        <span>•</span>
+                        <span style={{ fontWeight: 600, color: '#17212C' }}>
+                          {isCompletedToday
+                            ? 'Completed for today'
+                            : isCheckedIn && !isCheckedOut && oneHourCooldown.isCooldownActive
+                              ? `Punch Out available in ${oneHourCooldown.remainingMinutes} min`
+                              : hasActiveCheckIn
+                                ? 'Next: Punch Out'
+                                : !shiftEval.canCheckIn
+                                  ? shiftEval.statusBadge
+                                  : shiftEval.isLateCheckIn
+                                    ? 'Late Check-In Allowed'
+                                    : 'Ready to Punch In'}
+                        </span>
+                      </div>
                     )}
+                  </div>
+                </div>
+              </>
+            )}
 
-                    {fullScreenStep === 'CAMERA' ? (
+            {/* FULL-SCREEN CAMERA INTERFACE (NO OVAL GUIDE, NO FACE-COVERING TEXT) */}
+            {isFullScreenCameraOpen && (
+              <div
+                data-testid="fullscreen-face-camera-modal"
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  width: '100vw',
+                  height: '100dvh',
+                  zIndex: 100000,
+                  backgroundColor: '#0B131E',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  overflow: 'hidden'
+                }}
+              >
+                {/* Top Overlay Controls: Small Close Button, Compact Status Pill & Camera Flip */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 30,
+                    padding: 'max(14px, env(safe-area-inset-top)) 16px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    background: 'linear-gradient(180deg, rgba(11, 19, 30, 0.65) 0%, rgba(11, 19, 30, 0) 100%)'
+                  }}
+                >
+                  <button
+                    type="button"
+                    data-testid="fullscreen-close-btn"
+                    disabled={isScanning}
+                    onClick={handleCloseFullScreenCamera}
+                    aria-label="Close full-screen camera"
+                    style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '50%',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      backgroundColor: 'rgba(23, 33, 44, 0.6)',
+                      backdropFilter: 'blur(8px)',
+                      color: '#FFFFFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: isScanning ? 'not-allowed' : 'pointer',
+                      flexShrink: 0
+                    }}
+                  >
+                    <X size={20} />
+                  </button>
+
+                  <span
+                    data-testid="fullscreen-gps-status-pill"
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '9999px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      backgroundColor: 'rgba(23, 33, 44, 0.68)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid rgba(255, 255, 255, 0.16)',
+                      color: '#FFFFFF'
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: '7px',
+                        height: '7px',
+                        borderRadius: '50%',
+                        backgroundColor: gpsStatusDetails.verified
+                          ? '#22C55E'
+                          : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
+                            ? '#EF4444'
+                            : '#38BDF8'
+                      }}
+                    />
+                    <span>
+                      {punchType === 'Check-In' ? 'Punch In' : 'Punch Out'}
+                      {' • '}
+                      {gpsStatusDetails.verified
+                        ? 'GPS Verified'
+                        : gpsProgressMsg
+                          ? gpsProgressMsg
+                          : lastGpsErrorCode && lastGpsErrorCode !== 'NONE'
+                            ? 'GPS Retry Needed'
+                            : 'Acquiring GPS...'}
+                    </span>
+                  </span>
+
+                  {fullScreenStep === 'CAMERA' && isCameraActive ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMirrored(prev => {
+                          const next = !prev;
+                          try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch { }
+                          return next;
+                        });
+                      }}
+                      aria-label="Flip camera preview"
+                      style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '50%',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        backgroundColor: 'rgba(23, 33, 44, 0.6)',
+                        backdropFilter: 'blur(8px)',
+                        color: '#FFFFFF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        flexShrink: 0
+                      }}
+                    >
+                      <FlipHorizontal size={18} />
+                    </button>
+                  ) : (
+                    <div style={{ width: '42px', height: '42px', flexShrink: 0 }} />
+                  )}
+                </div>
+
+                {/* Center Viewport: Unobstructed Natural Live Camera Feed or Captured Photo */}
+                <div
+                  style={{
+                    flex: 1,
+                    width: '100%',
+                    height: '100%',
+                    position: 'relative',
+                    backgroundColor: '#0B131E',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden'
+                  }}
+                >
+                  {fullScreenStep === 'CAMERA' ? (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        transform: isMirrored ? 'scaleX(-1)' : 'scaleX(1)'
+                      }}
+                    />
+                  ) : (
+                    <div
+                      data-testid="fullscreen-captured-photo-preview"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#0B131E'
+                      }}
+                    >
+                      {capturedFullScreenPhoto && (
+                        <img
+                          src={capturedFullScreenPhoto}
+                          alt="Captured Attendance Selfie"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover'
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Overlay Bar: Capture Photo or Confirm Action */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 30,
+                    padding: '20px 20px max(24px, env(safe-area-inset-bottom))',
+                    background: 'linear-gradient(0deg, rgba(11, 19, 30, 0.85) 0%, rgba(11, 19, 30, 0.45) 70%, rgba(11, 19, 30, 0) 100%)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  {fullScreenError && (
+                    <div
+                      data-testid="fullscreen-error-banner"
+                      style={{
+                        width: '100%',
+                        maxWidth: '400px',
+                        padding: '10px 14px',
+                        borderRadius: '12px',
+                        backgroundColor: 'rgba(254, 242, 242, 0.96)',
+                        border: '1px solid #FECACA',
+                        color: '#B91C1C',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <span style={{ flex: 1 }}>{fullScreenError}</span>
+                      {fullScreenStep === 'CONFIRM' && (
+                        <button
+                          type="button"
+                          data-testid="fullscreen-retry-location-btn"
+                          disabled={isRetryingLocation || isScanning}
+                          onClick={() => {
+                            setFullScreenError(null);
+                            void handleRetryLocation({ silentOnStart: true });
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #087F92',
+                            backgroundColor: '#FFFFFF',
+                            color: '#087F92',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: isRetryingLocation || isScanning ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            flexShrink: 0
+                          }}
+                        >
+                          <RefreshCw size={13} />
+                          <span>{isRetryingLocation ? 'Checking GPS...' : 'Retry Location'}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {fullScreenStep === 'CAMERA' ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        maxWidth: '360px'
+                      }}
+                    >
                       <button
                         type="button"
                         data-testid="fullscreen-capture-photo-btn"
                         disabled={!isCameraActive || cameraAccessDenied}
                         onClick={handleCaptureFullScreenPhoto}
+                        aria-label="Capture Photo"
                         style={{
-                          width: '100%',
-                          maxWidth: '420px',
-                          minHeight: '54px',
-                          padding: '14px 20px',
-                          borderRadius: '14px',
-                          backgroundColor: isCameraActive && !cameraAccessDenied ? '#0e7490' : '#cbd5e1',
-                          color: '#ffffff',
-                          fontSize: '1rem',
-                          fontWeight: 800,
-                          border: 'none',
+                          width: '74px',
+                          height: '74px',
+                          borderRadius: '50%',
+                          padding: '5px',
+                          backgroundColor: 'transparent',
+                          border: '4px solid #FFFFFF',
                           cursor: isCameraActive && !cameraAccessDenied ? 'pointer' : 'not-allowed',
+                          opacity: isCameraActive && !cameraAccessDenied ? 1 : 0.45,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '8px',
-                          boxShadow: isCameraActive && !cameraAccessDenied ? '0 6px 16px rgba(14, 116, 144, 0.28)' : 'none'
+                          transition: 'transform 0.12s ease'
                         }}
                       >
-                        <Camera size={20} />
-                        <span>Capture Photo</span>
+                        <span
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            borderRadius: '50%',
+                            backgroundColor: '#FFFFFF',
+                            display: 'block'
+                          }}
+                        />
                       </button>
-                    ) : (
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'rgba(255, 255, 255, 0.88)' }}>
+                        Capture Photo
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        width: '100%',
+                        maxWidth: '400px',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1.6fr',
+                        gap: '10px'
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-testid="fullscreen-retake-photo-btn"
+                        disabled={isScanning || isRetryingLocation}
+                        onClick={() => void handleRetakeFullScreenPhoto()}
+                        style={{
+                          minHeight: '50px',
+                          padding: '12px 16px',
+                          borderRadius: '12px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.16)',
+                          backdropFilter: 'blur(8px)',
+                          color: '#FFFFFF',
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          border: '1px solid rgba(255, 255, 255, 0.24)',
+                          cursor: isScanning || isRetryingLocation ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        Retake
+                      </button>
+
                       <button
                         type="button"
                         data-testid="fullscreen-confirm-punch-btn"
                         disabled={isScanning || isRetryingLocation}
                         onClick={() => void handleConfirmFullScreenPunch()}
                         style={{
-                          width: '100%',
-                          maxWidth: '420px',
-                          minHeight: '54px',
-                          padding: '14px 20px',
-                          borderRadius: '14px',
-                          backgroundColor: isScanning || isRetryingLocation ? '#0891b2' : '#0e7490',
-                          color: '#ffffff',
-                          fontSize: '1rem',
-                          fontWeight: 800,
+                          minHeight: '50px',
+                          padding: '12px 18px',
+                          borderRadius: '12px',
+                          backgroundColor: '#087F92',
+                          color: '#FFFFFF',
+                          fontSize: '0.95rem',
+                          fontWeight: 700,
                           border: 'none',
                           cursor: isScanning || isRetryingLocation ? 'wait' : 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '8px',
-                          boxShadow: '0 6px 16px rgba(14, 116, 144, 0.3)'
+                          gap: '8px'
                         }}
                       >
-                        <CheckCircle2 size={20} />
+                        <CheckCircle2 size={18} />
                         <span>
                           {isScanning
-                            ? (gpsProgressMsg || 'Verifying & Saving Attendance...')
-                            : punchType === 'Check-In'
-                              ? 'Confirm Punch In'
-                              : 'Confirm Punch Out'}
+                            ? (gpsProgressMsg || 'Saving...')
+                            : 'Confirm'}
                         </span>
                       </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {committedPunchSummary && (
-                <div
-                  data-testid="one-click-punch-success-card"
-                  style={{
-                    maxWidth: isMobileViewport ? '280px' : '360px',
-                    margin: '10px auto 0',
-                    padding: '8px 10px',
-                    borderRadius: '10px',
-                    backgroundColor: '#f0fdf4',
-                    border: '1px solid #86efac',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '3px',
-                    fontSize: '0.73rem',
-                    color: '#0f172a',
-                    textAlign: 'left'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 800, color: '#15803d' }}>
-                      <CheckCircle2 size={14} />
-                      <span>{committedPunchSummary.title}</span>
-                    </span>
-                    <span
-                      data-testid="committed-punch-policy-status"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.68rem',
-                        fontWeight: 800,
-                        backgroundColor: committedPunchSummary.status === 'Late' ? '#fef3c7' : '#dcfce7',
-                        color: committedPunchSummary.status === 'Late' ? '#b45309' : '#15803d'
-                      }}
-                    >
-                      {committedPunchSummary.status}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', color: '#334155', fontSize: '0.7rem' }}>
-                    <span>Saved Time: <strong>{committedPunchSummary.savedTime}</strong></span>
-                    <span style={{ color: '#15803d', fontWeight: 700 }}>{committedPunchSummary.locationText}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* TODAY'S COMPLETED ATTENDANCE SUMMARY OR ACTIVE PUNCH IN TIME */}
-            {isCompletedToday ? (
-              <div
-                data-testid="today-attendance-completed"
-                style={{
-                  maxWidth: isMobileViewport ? '260px' : '340px',
-                  margin: '10px auto 0',
-                  padding: '8px 10px',
-                  borderRadius: '10px',
-                  backgroundColor: '#f0fdf4',
-                  border: '1px solid #bbf7d0',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '2px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#15803d', fontWeight: 800, fontSize: '0.8rem' }}>
-                  <CheckCircle2 size={14} />
-                  <span>Today&apos;s Attendance Completed</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', flexWrap: 'wrap', fontSize: '0.74rem', fontWeight: 700, color: '#0f172a' }}>
-                  <span>Punch In: {myCheckInTime || '--:--'}</span>
-                  <span>Punch Out: {myCheckOutTime || '--:--'}</span>
-                </div>
-              </div>
-            ) : (isCheckedIn && myCheckInTime) ? (
-              <div
-                data-testid="today-punch-in-summary"
-                style={{
-                  maxWidth: isMobileViewport ? '260px' : '340px',
-                  margin: '8px auto 0',
-                  fontSize: '0.76rem',
-                  fontWeight: 700,
-                  color: '#0e7490'
-                }}
-              >
-                Punch In: {myCheckInTime}
-              </div>
-            ) : null}
-
-            {/* SIDE-BY-SIDE PUNCH IN AND PUNCH OUT BUTTONS */}
-            <div
-              className="face-attendance-actions-row"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '10px',
-                maxWidth: isMobileViewport ? '260px' : '340px',
-                margin: '10px auto 0'
-              }}
-            >
-              {/* PUNCH IN BUTTON */}
-              <button
-                type="button"
-                disabled={isCheckedIn || isScanning || isRequestingPermissions || !shiftEval.canCheckIn}
-                onClick={() => handlePunchAction('Check-In')}
-                style={{
-                  width: '100%',
-                  minHeight: '46px',
-                  padding: '10px 8px',
-                  borderRadius: '12px',
-                  backgroundColor: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
-                    ? '#0e7490'
-                    : '#e2e8f0',
-                  color: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
-                    ? '#ffffff'
-                    : '#94a3b8',
-                  fontWeight: 800,
-                  fontSize: '0.9rem',
-                  border: 'none',
-                  cursor: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
-                    ? 'pointer'
-                    : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                  boxShadow: (!isCheckedIn && !isScanning && !isRequestingPermissions && shiftEval.canCheckIn)
-                    ? '0 4px 12px rgba(14, 116, 144, 0.22)'
-                    : 'none'
-                }}
-              >
-                <span>Punch In</span>
-              </button>
-
-              {/* PUNCH OUT BUTTON */}
-              <button
-                type="button"
-                disabled={
-                  !isCheckedIn ||
-                  isCheckedOut ||
-                  oneHourCooldown.isCooldownActive ||
-                  isScanning ||
-                  isRequestingPermissions ||
-                  !shiftEval.canCheckOut
-                }
-                onClick={() => handlePunchAction('Check-Out')}
-                style={{
-                  width: '100%',
-                  minHeight: '46px',
-                  padding: '10px 8px',
-                  borderRadius: '12px',
-                  backgroundColor: (
-                    isCheckedIn &&
-                    !isCheckedOut &&
-                    !oneHourCooldown.isCooldownActive &&
-                    !isScanning &&
-                    !isRequestingPermissions &&
-                    shiftEval.canCheckOut
-                  )
-                    ? '#0e7490'
-                    : '#e2e8f0',
-                  color: (
-                    isCheckedIn &&
-                    !isCheckedOut &&
-                    !oneHourCooldown.isCooldownActive &&
-                    !isScanning &&
-                    !isRequestingPermissions &&
-                    shiftEval.canCheckOut
-                  )
-                    ? '#ffffff'
-                    : '#94a3b8',
-                  fontWeight: 800,
-                  fontSize: '0.9rem',
-                  border: 'none',
-                  cursor: (
-                    isCheckedIn &&
-                    !isCheckedOut &&
-                    !oneHourCooldown.isCooldownActive &&
-                    !isScanning &&
-                    !isRequestingPermissions &&
-                    shiftEval.canCheckOut
-                  )
-                    ? 'pointer'
-                    : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                  boxShadow: (
-                    isCheckedIn &&
-                    !isCheckedOut &&
-                    !oneHourCooldown.isCooldownActive &&
-                    !isScanning &&
-                    !isRequestingPermissions &&
-                    shiftEval.canCheckOut
-                  )
-                    ? '0 4px 12px rgba(14, 116, 144, 0.22)'
-                    : 'none'
-                }}
-              >
-                <span>Punch Out</span>
-              </button>
-            </div>
-
-            {/* SMALL STATUS TEXT */}
-            <div
-              data-testid="face-attendance-status"
-              style={{
-                maxWidth: isMobileViewport ? '260px' : '340px',
-                margin: '8px auto 0',
-                minHeight: '20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-                gap: '8px',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                color: scanResult.status === 'error'
-                  ? '#dc2626'
-                  : scanResult.status === 'success'
-                    ? '#15803d'
-                    : '#0e7490'
-              }}
-            >
-              {isScanning || isRequestingPermissions || isRetryingLocation ? (
-                <span>{gpsProgressMsg || 'Getting GPS Location...'}</span>
-              ) : scanResult.status === 'error' && scanResult.message ? (
-                <>
-                  <span>{scanResult.message}</span>
-                  {uncertainContext && (
-                    <button
-                      type="button"
-                      onClick={handleRequestHrCorrection}
-                      style={{
-                        padding: '3px 10px',
-                        borderRadius: '6px',
-                        border: '1px solid #d97706',
-                        backgroundColor: '#fffbeb',
-                        color: '#b45309',
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Request HR Review
-                    </button>
+                    </div>
                   )}
-                </>
-              ) : (
-                <span>
-                  {[
-                    scanResult.status === 'success' && scanResult.message
-                      ? scanResult.message
-                      : isCompletedToday
-                        ? 'Punch Out Successful'
-                        : isCheckedIn
-                          ? 'GPS Verified'
-                          : !shiftEval.canCheckIn
-                            ? shiftEval.statusBadge
-                            : (activePunchGps && gpsStatusDetails.verified)
-                              ? (shiftEval.isLateCheckIn ? 'Late Check-In Allowed' : 'Ready to Punch In')
-                              : gpsStatusDetails.message,
-                    isCheckedIn && !isCheckedOut && oneHourCooldown.isCooldownActive
-                      ? `Punch Out available in ${oneHourCooldown.remainingMinutes} min`
-                      : null
-                  ]
-                    .filter(Boolean)
-                    .join(' • ') || 'Ready to Punch In'}
-                </span>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

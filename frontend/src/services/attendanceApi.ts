@@ -21,6 +21,8 @@ export interface AttendancePunchResult {
   locationLat?: number;
   locationLng?: number;
   locationAddress?: string;
+  checkInLocation?: string;
+  checkOutLocation?: string;
 }
 
 export const getStoredAuthToken = (): string | null => {
@@ -119,6 +121,43 @@ export const fetchCanonicalGeofenceSettings = async (): Promise<any | null> => {
     const payload = await response.json().catch(() => null);
     if (payload?.success && payload.data) {
       return payload.data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+export interface AuthoritativeShiftStatusResponse {
+  employeeId?: string;
+  state: 'UPCOMING' | 'CHECK_IN_AVAILABLE' | 'CHECKED_IN' | 'COMPLETED' | 'WAITING_FOR_NEXT_SHIFT';
+  canCheckIn: boolean;
+  canCheckOut: boolean;
+  shiftDate: string;
+  message?: string;
+  shiftStartDisplay?: string;
+  shiftEndDisplay?: string;
+  checkInOpenDisplay?: string;
+  activeAttendance?: AttendancePunchResult;
+  todayRecord?: AttendancePunchResult;
+}
+
+export const fetchAuthoritativeShiftStatus = async (
+  employeeId?: string
+): Promise<AuthoritativeShiftStatusResponse | null> => {
+  try {
+    const token = getStoredAuthToken();
+    if (!token) return null;
+    const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : '';
+    const response = await fetch(`${API_BASE_URL}/attendance/shift-status${query}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null);
+    if (payload?.success && payload.data) {
+      return payload.data as AuthoritativeShiftStatusResponse;
     }
     return null;
   } catch {

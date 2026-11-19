@@ -8330,13 +8330,31 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const normDate = normalizeToYYYYMMDD(record.shiftDate || record.date) || record.shiftDate || record.date;
     const empLower = String(record.employeeId || '').trim().toLowerCase();
     const compositeKey = `${empLower}_${normDate}`;
-    const committedEntry = { record: { ...record, date: normalizeToYYYYMMDD(record.date) || record.date, shiftDate: normDate }, committedAt: Date.now() };
+    const committedRecord: AttendanceRecord = {
+      ...record,
+      date: normalizeToYYYYMMDD(record.date) || record.date,
+      shiftDate: normDate,
+    };
+    const committedEntry = { record: committedRecord, committedAt: Date.now() };
     if (record.id) {
       recentServerPunchesRef.current.set(record.id, committedEntry);
     }
     if (empLower && normDate) {
       recentServerPunchesRef.current.set(compositeKey, committedEntry);
     }
+    // Also persist a lightweight photo-free copy in localStorage so browser refreshes / module reopens never lose today's punch
+    try {
+      if (empLower && normDate && typeof window !== 'undefined') {
+        const cacheKey = `vrm_authoritative_today_punch_${empLower}_${normDate}`;
+        const lightweight = {
+          ...committedRecord,
+          checkInPhoto: undefined,
+          checkOutPhoto: undefined,
+          savedAtMs: Date.now(),
+        };
+        localStorage.setItem(cacheKey, JSON.stringify(lightweight));
+      }
+    } catch { }
 
     setAttendanceRecords(prev => {
       const index = prev.findIndex(item => {
@@ -13065,9 +13083,10 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
     // Synchronize Attendance (DB table primary, settings fallback) — respecting Approved WFH requests
     if (Array.isArray(rawAttendance) && rawAttendance.length > 0) {
       const mappedAttendance: AttendanceRecord[] = rawAttendance.map((a: any) => {
-        const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === a.employee?.employee_id || e.employeeId === a.employee_id);
-        const fullName = a.employee ? `${a.employee.first_name || ''} ${a.employee.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
-        const empCode = a.employee?.employee_id || emp?.employeeId || a.employee_id;
+        const empRel = Array.isArray(a.employees) ? a.employees[0] : (a.employees || a.employee);
+        const emp = empPool.find(e => e.id === a.employee_id || e.employeeId === empRel?.employee_id || e.employeeId === a.employee_id);
+        const fullName = empRel ? `${empRel.first_name || ''} ${empRel.last_name || ''}`.trim() : (emp ? `${emp.firstName} ${emp.lastName}` : 'Staff');
+        const empCode = empRel?.employee_id || emp?.employeeId || a.employee_id;
         const recDate = normalizeToYYYYMMDD(a.date) || a.date;
         const recShiftDate = normalizeToYYYYMMDD(a.shift_date || recDate) || recDate;
 
@@ -13128,7 +13147,7 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
         });
 
         const nowMs = Date.now();
-        const RECENT_TTL_MS = 10 * 60 * 1000;
+        const RECENT_TTL_MS = 12 * 60 * 60 * 1000;
         const seenRecentKeys = new Set<string>();
 
         const merged = mappedAttendance.map(rec => {
@@ -13149,13 +13168,13 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
             status: recentRec?.status || rec.status,
             method: recentRec?.method || rec.method,
             reason: recentRec?.reason || prevRec?.reason || rec.reason,
-            checkIn: recentRec ? recentRec.checkIn : (rec.checkIn || null),
-            checkOut: recentRec ? recentRec.checkOut : (rec.checkOut || null),
+            checkIn: rec.checkIn || recentRec?.checkIn || prevRec?.checkIn || null,
+            checkOut: rec.checkOut || recentRec?.checkOut || prevRec?.checkOut || null,
             checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
             checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
             checkInLocation: recentRec?.checkInLocation || rec.checkInLocation || prevRec?.checkInLocation,
             checkOutLocation: recentRec?.checkOutLocation || rec.checkOutLocation || prevRec?.checkOutLocation,
-            workingHours: recentRec ? recentRec.workingHours : (rec.workingHours || 0),
+            workingHours: Math.max(Number(rec.workingHours || 0), Number(recentRec?.workingHours || 0), Number(prevRec?.workingHours || 0)),
           };
         });
 
