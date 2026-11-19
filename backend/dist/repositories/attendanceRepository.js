@@ -281,18 +281,22 @@ export class AttendanceRepository {
         // 1. Check PostgreSQL field_duty_assignments table
         try {
             const res = await query(employeeUuid
-                ? `SELECT location_name, latitude, longitude, radius_meters, status
+                ? `SELECT COALESCE(customer_site_name, site_address) AS location_name,
+                    site_lat AS latitude, site_lng AS longitude,
+                    allowed_radius_meters AS radius_meters, status
              FROM public.field_duty_assignments
-             WHERE employee_id = $1
-               AND assigned_date = $2::date
+             WHERE employee_id::text = $1
+               AND $2::date BETWEEN start_date AND end_date
                AND LOWER(status) NOT IN ('cancelled', 'rejected')
              ORDER BY created_at DESC
              LIMIT 1`
-                : `SELECT f.location_name, f.latitude, f.longitude, f.radius_meters, f.status
+                : `SELECT COALESCE(f.customer_site_name, f.site_address) AS location_name,
+                    f.site_lat AS latitude, f.site_lng AS longitude,
+                    f.allowed_radius_meters AS radius_meters, f.status
              FROM public.field_duty_assignments f
              JOIN public.employees e ON e.id = f.employee_id
              WHERE (LOWER(e.employee_id) = LOWER($1) OR e.id::text = $1)
-               AND f.assigned_date = $2::date
+               AND $2::date BETWEEN f.start_date AND f.end_date
                AND LOWER(f.status) NOT IN ('cancelled', 'rejected')
              ORDER BY f.created_at DESC
              LIMIT 1`, [employeeUuid || String(employeeId || '').trim(), targetDate]);

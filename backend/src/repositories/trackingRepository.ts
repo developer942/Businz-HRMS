@@ -70,7 +70,7 @@ export class TrackingRepository {
           const emp = await employeeRepository.getEmployeeById(empUuid);
           if (emp?.id) empUuid = emp.id;
         }
-        conditions.push(`(fa.employee_id = $${idx} OR e.employee_id = $${idx})`);
+        conditions.push(`(fa.employee_id::text = $${idx} OR e.employee_id = $${idx})`);
         values.push(empUuid);
         idx++;
       }
@@ -782,7 +782,7 @@ export class TrackingRepository {
           const emp = await employeeRepository.getEmployeeById(empUuid);
           if (emp?.id) empUuid = emp.id;
         }
-        conditions.push(`(ts.employee_id = $${idx} OR e.employee_id = $${idx})`);
+        conditions.push(`(ts.employee_id::text = $${idx} OR e.employee_id = $${idx})`);
         values.push(empUuid);
         idx++;
       }
