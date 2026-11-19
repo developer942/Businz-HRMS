@@ -794,13 +794,12 @@ export class EmployeeProfileSyncService {
           }
         }
 
-        // 2. Resolve Reporting Manager
+        // 2. Resolve Reporting Manager (preserve existing manager if incoming value is blank)
         let managerId = oldEmployee.reporting_manager_id;
-        let resolvedManagerName = input.reportingManagerName !== undefined
-          ? (input.reportingManagerName || null)
-          : (oldEmployee.reporting_manager_name || null);
+        let resolvedManagerName = (input.reportingManagerName && String(input.reportingManagerName).trim() !== '')
+          ? String(input.reportingManagerName).trim()
+          : (oldEmployee.reporting_manager_name || oldProfile.reportingManagerName || null);
         if (input.reportingManagerId !== undefined) {
-          managerId = null;
           const rawMgrId = String(input.reportingManagerId || '').trim();
           if (rawMgrId) {
             const manager = await client.query(
@@ -810,7 +809,7 @@ export class EmployeeProfileSyncService {
             );
             if (manager.rows[0]) {
               managerId = manager.rows[0].id;
-              if (!resolvedManagerName) {
+              if (!input.reportingManagerName || !String(input.reportingManagerName).trim()) {
                 resolvedManagerName = `${manager.rows[0].first_name || ''} ${manager.rows[0].last_name || ''}`.trim();
               }
             }
@@ -879,10 +878,10 @@ export class EmployeeProfileSyncService {
           upcomingShiftEffectiveFrom: upcomingShiftEffectiveFromVal,
         };
         const mergedBankDetails = sanitizedInput.bankDetails
-          ? { ...(oldProfile.bankDetails || {}), ...sanitizedInput.bankDetails }
+          ? mergeNonBlank(oldProfile.bankDetails, sanitizedInput.bankDetails)
           : oldProfile.bankDetails;
         const mergedSalaryDetails = sanitizedInput.salaryDetails
-          ? { ...(oldProfile.salaryDetails || {}), ...sanitizedInput.salaryDetails }
+          ? mergeNonBlank(oldProfile.salaryDetails, sanitizedInput.salaryDetails)
           : oldProfile.salaryDetails;
         const mergedAllowances = sanitizedInput.allowances
           ? { ...(oldProfile.allowances || {}), ...sanitizedInput.allowances }
@@ -899,9 +898,19 @@ export class EmployeeProfileSyncService {
           ? oldProfile._versionHistory.slice(-19)
           : [];
 
+        const resolveVal = (incoming: any, existing: any) => {
+          if (incoming !== undefined && incoming !== null && String(incoming).trim() !== '' && String(incoming).trim() !== 'null') {
+            return String(incoming).trim();
+          }
+          return existing;
+        };
+
         const profileData: Record<string, any> = {
           ...oldProfile,
           ...sanitizedInput,
+          dob: resolveVal(sanitizedInput.dob, oldProfile.dob || (oldEmployee.dob ? String(oldEmployee.dob).slice(0, 10) : '')),
+          phone: resolveVal(sanitizedInput.phone, oldProfile.phone || oldEmployee.phone || ''),
+          workLocation: resolveVal(sanitizedInput.workLocation ?? sanitizedInput.branch, oldProfile.workLocation || oldEmployee.branch || ''),
           department: resolvedDepartmentName,
           departmentId,
           workShift: effectiveActiveShift,
@@ -910,7 +919,7 @@ export class EmployeeProfileSyncService {
           shiftEffectiveFrom: hasExplicitShiftRequest ? shiftEffectiveFrom : (oldProfile.shiftEffectiveFrom || shiftEffectiveFrom),
           salaryEffectiveFrom,
           rowVersion: nextRowVersion,
-          reportingManagerId: input.reportingManagerId !== undefined ? input.reportingManagerId : oldProfile.reportingManagerId,
+          reportingManagerId: resolveVal(input.reportingManagerId, oldProfile.reportingManagerId || oldEmployee.reporting_manager_id || ''),
           reportingManagerName: resolvedManagerName,
           currentAddress: mergedAddress,
           permanentAddress: mergedPermanentAddress,
@@ -965,16 +974,12 @@ export class EmployeeProfileSyncService {
         }
 
         // 4. Resolve individual SQL columns, preserving existing values when omitted (Phase 3)
-        const firstNameVal = input.firstName !== undefined ? String(input.firstName).trim() : oldEmployee.first_name;
-        const lastNameVal = input.lastName !== undefined ? String(input.lastName).trim() : oldEmployee.last_name;
-        const emailVal = (input.email ?? input.personalEmail) !== undefined
-          ? String(input.email ?? input.personalEmail).trim().toLowerCase()
-          : oldEmployee.email;
-        const phoneVal = input.phone !== undefined
-          ? (String(input.phone || '').trim() || null)
-          : oldEmployee.phone;
-        const dobVal = input.dob !== undefined
-          ? (normalizeDateText(input.dob) || null)
+        const firstNameVal = resolveVal(input.firstName, oldEmployee.first_name);
+        const lastNameVal = input.lastName !== undefined && String(input.lastName).trim() !== '' ? String(input.lastName).trim() : oldEmployee.last_name;
+        const emailVal = resolveVal(input.email ?? input.personalEmail, oldEmployee.email)?.toLowerCase() || oldEmployee.email;
+        const phoneVal = resolveVal(input.phone, oldEmployee.phone);
+        const dobVal = (input.dob !== undefined && String(input.dob || '').trim() !== '')
+          ? (normalizeDateText(input.dob) || oldEmployee.dob)
           : oldEmployee.dob;
         const genderVal = input.gender !== undefined
           ? (['Male', 'Female', 'Other'].includes(input.gender) ? input.gender : oldEmployee.gender)
@@ -990,8 +995,8 @@ export class EmployeeProfileSyncService {
         const designationVal = input.designation !== undefined
           ? (String(input.designation || '').trim() || oldEmployee.designation)
           : oldEmployee.designation;
-        const joiningDateVal = input.joiningDate !== undefined
-          ? (normalizeDateText(input.joiningDate) || null)
+        const joiningDateVal = (input.joiningDate !== undefined && String(input.joiningDate || '').trim() !== '')
+          ? (normalizeDateText(input.joiningDate) || oldEmployee.joining_date)
           : oldEmployee.joining_date;
         const employmentTypeDbVal = input.employmentType !== undefined
           ? normalizeEmploymentTypeForDb(input.employmentType, oldEmployee.employment_type || 'Full-Time')
@@ -1005,7 +1010,7 @@ export class EmployeeProfileSyncService {
         if (dobVal) profileData.dob = String(dobVal).slice(0, 10);
         if (joiningDateVal) profileData.joiningDate = String(joiningDateVal).slice(0, 10);
 
-        const avatarVal = input.avatar !== undefined ? (input.avatar || null) : oldEmployee.avatar_url;
+        const avatarVal = input.avatar !== undefined && String(input.avatar).trim() !== '' ? input.avatar : oldEmployee.avatar_url;
         const basicSalaryVal = input.basicSalary !== undefined
           ? amount(input.basicSalary)
           : (input.salaryDetails?.basicSalary !== undefined && input.salaryDetails?.basicSalary !== ''
@@ -1032,18 +1037,11 @@ export class EmployeeProfileSyncService {
             ? amount(input.salaryDetails.specialAllowance)
             : Number(oldEmployee.allowances_special ?? 0));
 
-        const bankNameVal = input.bankDetails !== undefined || input.bankName !== undefined
-          ? (String(input.bankDetails?.bankName ?? input.bankName ?? '').trim() || null)
-          : oldEmployee.bank_name;
-        const accountNumberVal = input.bankDetails !== undefined || input.accountNumber !== undefined
-          ? (String(input.bankDetails?.accountNumber ?? input.accountNumber ?? '').trim() || null)
-          : oldEmployee.account_number;
-        const ifscCodeVal = input.bankDetails !== undefined || input.ifscCode !== undefined
-          ? (String(input.bankDetails?.ifscCode ?? input.ifscCode ?? '').trim().toUpperCase() || null)
-          : oldEmployee.ifsc_code;
-        const branchVal = (input.workLocation !== undefined || input.branch !== undefined || input.bankDetails?.branch !== undefined)
-          ? (String(input.workLocation ?? input.branch ?? input.bankDetails?.branch ?? '').trim() || null)
-          : oldEmployee.branch;
+        const bankNameVal = resolveVal(input.bankDetails?.bankName ?? input.bankName, oldEmployee.bank_name);
+        const accountNumberVal = resolveVal(input.bankDetails?.accountNumber ?? input.accountNumber, oldEmployee.account_number);
+        const rawIfsc = resolveVal(input.bankDetails?.ifscCode ?? input.ifscCode, oldEmployee.ifsc_code);
+        const ifscCodeVal = rawIfsc ? rawIfsc.toUpperCase() : oldEmployee.ifsc_code;
+        const branchVal = resolveVal(input.workLocation ?? input.branch ?? input.bankDetails?.branch, oldEmployee.branch);
 
         const attendanceMethodVal = input.attendanceMethod !== undefined
           ? (String(input.attendanceMethod || '').trim() || oldEmployee.attendance_method || 'Face Scan')
@@ -1055,19 +1053,9 @@ export class EmployeeProfileSyncService {
           ? (String(effectiveActiveShift || '').trim() || null)
           : oldEmployee.work_shift;
 
-        const panVal = (input.salaryDetails?.panNumber !== undefined || input.panNumber !== undefined || input.pan !== undefined)
-          ? (String(input.salaryDetails?.panNumber ?? input.panNumber ?? input.pan ?? '').trim().toUpperCase() || null)
-          : oldEmployee.pan_number;
-        const uanVal = (input.salaryDetails?.uanNumber !== undefined || input.uanNumber !== undefined || input.uan !== undefined)
-          ? (String(input.salaryDetails?.uanNumber ?? input.uanNumber ?? input.uan ?? '').trim() || null)
-          : oldEmployee.uan_number;
-
-        const resolveVal = (incoming: any, existing: any) => {
-          if (incoming !== undefined && incoming !== null && String(incoming).trim() !== '' && String(incoming).trim() !== 'null') {
-            return String(incoming).trim();
-          }
-          return existing;
-        };
+        const rawPan = resolveVal(input.salaryDetails?.panNumber ?? input.panNumber ?? input.pan, oldEmployee.pan_number);
+        const panVal = rawPan ? rawPan.toUpperCase() : oldEmployee.pan_number;
+        const uanVal = resolveVal(input.salaryDetails?.uanNumber ?? input.uanNumber ?? input.uan, oldEmployee.uan_number);
 
         const addrLine1Val = resolveVal(input.currentAddress?.line1 ?? input.addressLine1, oldEmployee.address_line1);
         const addrLine2Val = resolveVal(input.currentAddress?.line2 ?? input.addressLine2, oldEmployee.address_line2);

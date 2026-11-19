@@ -1718,6 +1718,53 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         if (body.status === 'EMAIL_FAILED') {
           emailStatus = 'FAILED';
         }
+        if (body.data?.id) {
+          newEmp.id = body.data.id;
+        }
+        if (body.data?.rowVersion) {
+          newEmp.rowVersion = Number(body.data.rowVersion) || 1;
+        }
+        // Guarantee all flat SQL columns and profile_data JSONB are persisted in PostgreSQL
+        await supabaseDirect.updateEmployee(newEmp.id || cleanEmpCode, {
+          phone: newEmp.phone || null,
+          dob: newEmp.dob || null,
+          gender: newEmp.gender || 'Male',
+          joining_date: newEmp.joiningDate || null,
+          employment_type: newEmp.employmentType || 'Full-Time',
+          reporting_manager_name: newEmp.reportingManagerName || null,
+          branch: newEmp.workLocation || null,
+          address_line1: formData.currentLine1 || null,
+          address_line2: formData.currentLine2 || null,
+          city: formData.currentCity || null,
+          state: formData.currentState || null,
+          country: formData.currentCountry || 'India',
+          pincode: formData.currentPincode || null,
+          bank_name: formData.bankName || null,
+          account_number: formData.accountNumber || null,
+          ifsc_code: formData.ifscCode ? formData.ifscCode.toUpperCase().trim() : null,
+          pan_number: formData.panNumber ? formData.panNumber.toUpperCase().trim() : null,
+          uan_number: formData.uanNumber || null,
+          highest_qualification: formData.qualification || null,
+          degree_name: formData.degreeName || null,
+          specialization: formData.specialization || null,
+          university: formData.university || null,
+          year_of_passing: formData.yearOfPassing ? parseInt(formData.yearOfPassing, 10) : null,
+          grade_percentage: formData.gradePercentage ? parseFloat(formData.gradePercentage) : null,
+          experience_profile: isFresher ? 'Fresher' : 'Experienced',
+          total_experience: isFresher ? 0 : (formData.totalExperience ? parseFloat(formData.totalExperience) : null),
+          previous_company: isFresher ? null : (formData.previousCompany || null),
+          previous_designation: isFresher ? null : (formData.previousDesignation || null),
+          previous_department: isFresher ? null : (formData.previousDepartment || null),
+          employment_start_date: isFresher ? null : (formData.expStartDate || null),
+          employment_end_date: isFresher ? null : (formData.expEndDate || null),
+          last_drawn_salary: isFresher ? null : (formData.lastDrawnSalary ? parseFloat(formData.lastDrawnSalary) : null),
+          previous_company_location: isFresher ? null : (formData.previousCompanyLocation || null),
+          allowances_hra: Number(formData.hra) || 0,
+          allowances_transport: Number(formData.conveyance) || 0,
+          work_shift: formData.shift || null,
+          gps_allowed: formData.gpsAllowed ?? true,
+          profile_data: fullEmployeePayload.profile_data,
+        }).catch(() => {});
       }
     } catch {
       // Backend not running, proceed directly to VPS database
@@ -1782,6 +1829,12 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
         if (sbRes.success) {
           dbSaved = true;
+          if (sbRes.data?.id) {
+            newEmp.id = sbRes.data.id;
+          }
+          if (sbRes.data?.row_version) {
+            newEmp.rowVersion = Number(sbRes.data.row_version) || 1;
+          }
         } else {
           dbErrorMessage = typeof sbRes.error === 'string' ? sbRes.error : JSON.stringify(sbRes.error);
         }

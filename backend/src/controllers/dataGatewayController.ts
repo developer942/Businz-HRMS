@@ -326,14 +326,63 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
         });
         return;
       } else if (table === 'company_settings') {
-        // Scrub any plaintext passwords from employee_profiles_data (CRIT-02)
-        if (payload && typeof payload === 'object' && payload.setting_key === 'employee_profiles_data') {
-          if (payload.setting_val && typeof payload.setting_val === 'object' && !Array.isArray(payload.setting_val)) {
-            const scrubbedVal: Record<string, any> = {};
-            for (const [k, v] of Object.entries(payload.setting_val)) {
-              scrubbedVal[k] = scrubProfilePasswordFields(v as Record<string, any>);
+        // Protect employee_profiles_data from redacted/partial overwrites and scrub plaintext passwords (CRIT-02)
+        const isProfilesSetting =
+          (payload && typeof payload === 'object' && payload.setting_key === 'employee_profiles_data') ||
+          queryString.includes('employee_profiles_data');
+        if (isProfilesSetting && payload && typeof payload === 'object') {
+          const incomingVal = payload.setting_val;
+          if (incomingVal && typeof incomingVal === 'object' && !Array.isArray(incomingVal)) {
+            let existingMap: Record<string, any> = {};
+            try {
+              const existingRes = await query(
+                `SELECT setting_val FROM public.company_settings WHERE setting_key = 'employee_profiles_data' LIMIT 1`
+              );
+              const rawExisting = existingRes.rows[0]?.setting_val;
+              if (rawExisting && typeof rawExisting === 'object' && !Array.isArray(rawExisting)) {
+                existingMap = { ...rawExisting };
+              }
+            } catch {
+              // Fallback if DB query unavailable in mock environment
             }
-            payload.setting_val = scrubbedVal;
+
+            const deepMergeNonBlank = (baseObj: any, nextObj: any): any => {
+              if (!nextObj || typeof nextObj !== 'object' || Array.isArray(nextObj)) return nextObj;
+              const base = baseObj && typeof baseObj === 'object' && !Array.isArray(baseObj) ? baseObj : {};
+              const merged: Record<string, any> = { ...base };
+              for (const [k, v] of Object.entries(nextObj)) {
+                if (v === undefined || v === null) continue;
+                if (typeof v === 'string' && v.trim() === '') {
+                  if (merged[k] === undefined) merged[k] = '';
+                  continue;
+                }
+                if (typeof v === 'object' && !Array.isArray(v)) {
+                  merged[k] = deepMergeNonBlank(base[k], v);
+                } else {
+                  merged[k] = v;
+                }
+              }
+              return merged;
+            };
+
+            const safeMergedMap: Record<string, any> = { ...existingMap };
+            for (const [k, v] of Object.entries(incomingVal)) {
+              if (!v || typeof v !== 'object') continue;
+              const scrubbedEntry = scrubProfilePasswordFields(v as Record<string, any>);
+              const keyLower = k.toLowerCase();
+              const entryEmpId = String(scrubbedEntry.employeeId || '').toLowerCase();
+              const entryUuid = String(scrubbedEntry.id || '').toLowerCase();
+              const isSelfEntry =
+                (callerEmpCode && (keyLower === callerEmpCode || entryEmpId === callerEmpCode)) ||
+                (callerUuid && (keyLower === callerUuid || entryUuid === callerUuid));
+
+              // Non-HR callers can only merge their own profile entry, never overwriting colleagues with redacted directory data
+              if (!isHrAdmin && !isSelfEntry) {
+                continue;
+              }
+              safeMergedMap[k] = deepMergeNonBlank(existingMap[k], scrubbedEntry);
+            }
+            payload.setting_val = safeMergedMap;
           }
         }
       }

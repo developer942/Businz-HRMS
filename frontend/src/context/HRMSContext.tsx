@@ -7343,6 +7343,25 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     'skills'
   ];
 
+  const deepMergeNonBlankProfile = (baseObj: any, nextObj: any): any => {
+    if (!nextObj || typeof nextObj !== 'object' || Array.isArray(nextObj)) return nextObj;
+    const base = baseObj && typeof baseObj === 'object' && !Array.isArray(baseObj) ? baseObj : {};
+    const merged: Record<string, any> = { ...base };
+    for (const [k, v] of Object.entries(nextObj)) {
+      if (v === undefined || v === null) continue;
+      if (typeof v === 'string' && v.trim() === '') {
+        if (merged[k] === undefined) merged[k] = '';
+        continue;
+      }
+      if (typeof v === 'object' && !Array.isArray(v)) {
+        merged[k] = deepMergeNonBlankProfile(base[k], v);
+      } else {
+        merged[k] = v;
+      }
+    }
+    return merged;
+  };
+
   const persistEmployeeProfileExtension = async (targetEmployee: Employee): Promise<boolean> => {
     try {
       const profileKey = targetEmployee.employeeId || targetEmployee.id;
@@ -7351,7 +7370,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const profiles = existingProfiles && typeof existingProfiles === 'object' && !Array.isArray(existingProfiles)
         ? existingProfiles
         : {};
-      const currentEntry = profiles[profileKey] || (targetEmployee.id ? profiles[targetEmployee.id] : {}) || {};
+      const currentEntry = deepMergeNonBlankProfile(
+        targetEmployee.id ? profiles[targetEmployee.id] : {},
+        profiles[profileKey] || {}
+      );
       const extensionData: Partial<Employee> = {};
       for (const key of EMPLOYEE_PROFILE_EXTENSION_KEYS) {
         if ((targetEmployee as any)[key] !== undefined) {
@@ -7359,8 +7381,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
       const mergedEntry = {
-        ...currentEntry,
-        ...extensionData,
+        ...deepMergeNonBlankProfile(currentEntry, extensionData),
         updatedAt: new Date().toISOString()
       };
       delete (mergedEntry as any).password;
@@ -7378,13 +7399,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Actions
-  const addEmployee = (empData: Omit<Employee, 'id'>, options: { persistToCloud?: boolean } = {}) => {
+  const addEmployee = (empData: Omit<Employee, 'id'> & { id?: string }, options: { persistToCloud?: boolean } = {}) => {
     const rawPrefix = companyInfo?.companyCode || businessSettings?.employeeCodePrefix || employeeConfig?.idFormatPrefix || 'EMP';
     const digits = employeeConfig?.idFormatDigits || 3;
     const startNum = employeeConfig?.idStartingNumber || 1;
     const newId = empData.employeeId && empData.employeeId.trim().length > 0
       ? empData.employeeId.trim()
       : generateNextEmployeeId(employees, rawPrefix, digits, startNum);
+    const dbUuid = empData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empData.id.trim())
+      ? empData.id.trim()
+      : newId;
 
     const cleanEmail = (empData.email || empData.personalEmail || '').trim().toLowerCase();
     const currentCompId = currentUser.company_id || currentUser.companyId || 'company-a';
@@ -7398,7 +7422,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       companyId: empData.company_id || empData.companyId || currentCompId,
       email: cleanEmail,
       personalEmail: cleanEmail,
-      id: newId,
+      id: dbUuid,
       employeeId: newId,
       authUserId: empData.authUserId || `usr-${Date.now()}`,
       portalPassword: resolvedPortalPass,
@@ -7407,7 +7431,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       credentialEmailStatus: empData.credentialEmailStatus || 'SENT',
       credentialEmailSentAt: empData.credentialEmailSentAt || new Date().toISOString(),
     };
-    setEmployees(prev => [newEmp, ...prev]);
+    setEmployees(prev => [newEmp, ...prev.filter(e => e.employeeId !== newId && e.id !== dbUuid)]);
 
     // Always persist profile extension to company settings so all extended fields are preserved
     persistEmployeeProfileExtension(newEmp).catch(err => {
@@ -12861,20 +12885,16 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
         const empCodeKey = e.employee_id || e.employeeId;
         const extByCode = (empCodeKey && profileExtensions[empCodeKey]) || {};
         const extById = (e.id && profileExtensions[e.id]) || {};
-        const extension = { ...extById, ...extByCode };
+        const extension = deepMergeNonBlankProfile(extById, extByCode);
         const rawProfileData = typeof e.profile_data === 'object' && e.profile_data !== null ? e.profile_data : {};
+        const mergedProfileData = deepMergeNonBlankProfile(extension, rawProfileData);
         const mergedRaw = {
-          ...extension,
-          ...rawProfileData,
-          ...e,
+          ...deepMergeNonBlankProfile(mergedProfileData, e),
           row_version: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
           rowVersion: e.row_version ?? rawProfileData.rowVersion ?? extension.rowVersion ?? 1,
           work_shift: e.work_shift || rawProfileData.workShift || extension.workShift,
           workShift: e.work_shift || rawProfileData.workShift || extension.workShift,
-          profile_data: {
-            ...extension,
-            ...rawProfileData,
-          },
+          profile_data: mergedProfileData,
         };
         const base = mapEmployeeFromDb(mergedRaw, currentDepts);
 
@@ -12904,9 +12924,9 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           resolvedPassword = base.password;
         }
 
+        const mergedEmp = deepMergeNonBlankProfile(extension, base);
         return {
-          ...extension,
-          ...base,
+          ...mergedEmp,
           id: base.id,
           employeeId: base.employeeId,
           accountStatus: resolvedAccountStatus,
@@ -12917,6 +12937,22 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           password: resolvedPassword
         };
       });
+
+      // Backfill reportingManagerName from reportingManagerId if missing
+      const empByIdOrCode = new Map<string, Employee>();
+      for (const emp of mapped) {
+        if (emp.id) empByIdOrCode.set(emp.id.toLowerCase(), emp);
+        if (emp.employeeId) empByIdOrCode.set(emp.employeeId.toLowerCase(), emp);
+      }
+      for (const emp of mapped) {
+        if (!emp.reportingManagerName && emp.reportingManagerId) {
+          const mgr = empByIdOrCode.get(String(emp.reportingManagerId).trim().toLowerCase());
+          if (mgr) {
+            emp.reportingManagerName = `${mgr.firstName} ${mgr.lastName}`.trim();
+          }
+        }
+      }
+
       mappedEmployees = mapped;
       setEmployees(mapped);
     } else {

@@ -412,6 +412,10 @@ export class EmployeeRepository {
             roleId = roleData?.id || '965e3410-4ab8-4930-9740-89aa34216ac3';
         }
         let deptId = data.departmentId || data.department_id;
+        const isUuid = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim());
+        if (deptId && !isUuid(deptId)) {
+            deptId = undefined;
+        }
         if (!deptId && data.department) {
             const { data: deptData } = await supabase
                 .from('departments')
@@ -420,6 +424,55 @@ export class EmployeeRepository {
                 .maybeSingle();
             if (deptData?.id) {
                 deptId = deptData.id;
+            }
+            else {
+                const cleanCode = data.department.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'DEPT';
+                const { data: createdDept } = await supabase
+                    .from('departments')
+                    .insert({ name: data.department.trim(), code: `${cleanCode}-${Math.floor(100 + Math.random() * 900)}` })
+                    .select('id')
+                    .maybeSingle();
+                if (createdDept?.id) {
+                    deptId = createdDept.id;
+                }
+            }
+        }
+        // Resolve Reporting Manager UUID & Name
+        let reportingManagerUuid = null;
+        let reportingManagerNameVal = data.reportingManagerName ||
+            data.reporting_manager_name ||
+            data.profile_data?.reportingManagerName ||
+            null;
+        const rawMgrId = String(data.reportingManagerId ||
+            data.reporting_manager_id ||
+            data.profile_data?.reportingManagerId ||
+            '').trim();
+        if (rawMgrId) {
+            if (isUuid(rawMgrId)) {
+                reportingManagerUuid = rawMgrId;
+            }
+            else {
+                const { data: mgrRow } = await supabase
+                    .from('employees')
+                    .select('id, first_name, last_name')
+                    .ilike('employee_id', rawMgrId)
+                    .maybeSingle();
+                if (mgrRow?.id) {
+                    reportingManagerUuid = mgrRow.id;
+                    if (!reportingManagerNameVal) {
+                        reportingManagerNameVal = `${mgrRow.first_name || ''} ${mgrRow.last_name || ''}`.trim();
+                    }
+                }
+            }
+        }
+        const rawPhoneStr = String(data.phone || data.mobile || data.profile_data?.phone || '').trim();
+        let normalizedPhone = null;
+        if (rawPhoneStr) {
+            let digits = rawPhoneStr.replace(/\D/g, '');
+            if (digits.length === 12 && digits.startsWith('91'))
+                digits = digits.slice(2);
+            if (/^[6-9]\d{9}$/.test(digits)) {
+                normalizedPhone = digits;
             }
         }
         const basicVal = Number(data.basicSalary || data.basic_salary || 0);
@@ -438,13 +491,15 @@ export class EmployeeRepository {
             basic_salary: basicVal,
             designation: data.designation || 'Staff',
             department_id: deptId || null,
-            phone: data.phone || data.mobile || null,
+            reporting_manager_id: reportingManagerUuid,
+            reporting_manager_name: reportingManagerNameVal,
+            phone: normalizedPhone,
             dob: data.dob || data.profile_data?.dob || null,
             gender: data.gender || data.profile_data?.gender || 'Male',
             joining_date: data.joiningDate || data.joining_date || data.profile_data?.joiningDate || null,
             employment_type: data.employmentType || data.employment_type || data.profile_data?.employmentType || 'Full-Time',
             work_shift: data.workShift || data.work_shift || data.shift || 'SH-01',
-            branch: data.branch || data.workLocation || null,
+            branch: data.branch || data.workLocation || data.profile_data?.workLocation || null,
             role_id: roleId,
             status: data.status || 'Active',
             attendance_method: data.attendanceMethod || 'Face Scan',
@@ -460,108 +515,122 @@ export class EmployeeRepository {
                 ? data.password
                 : await bcrypt.hash(rawPlainPassword, 12),
         };
-        // Banking & Statutory
-        const bankName = data.bankName || data.bankDetails?.bankName;
-        if (bankName !== undefined)
-            insertPayload.bank_name = bankName;
-        const accountNumber = data.accountNumber || data.bankDetails?.accountNumber;
-        if (accountNumber !== undefined)
-            insertPayload.account_number = String(accountNumber);
-        const ifscCode = data.ifscCode || data.bankDetails?.ifscCode;
-        if (ifscCode !== undefined)
-            insertPayload.ifsc_code = ifscCode;
-        const panNumber = data.panNumber || data.salaryDetails?.panNumber || data.pan;
-        if (panNumber !== undefined)
-            insertPayload.pan_number = panNumber;
-        const uanNumber = data.uanNumber || data.salaryDetails?.uanNumber || data.uan;
-        if (uanNumber !== undefined)
-            insertPayload.uan_number = String(uanNumber);
+        // Banking & Statutory (accept camelCase, snake_case, nested object, or profile_data)
+        const pd = typeof data.profile_data === 'object' && data.profile_data !== null ? data.profile_data : {};
+        const bankName = data.bankName || data.bank_name || data.bankDetails?.bankName || pd.bankDetails?.bankName;
+        if (bankName !== undefined && bankName !== null)
+            insertPayload.bank_name = String(bankName).trim() || null;
+        const accountNumber = data.accountNumber || data.account_number || data.bankDetails?.accountNumber || pd.bankDetails?.accountNumber;
+        if (accountNumber !== undefined && accountNumber !== null)
+            insertPayload.account_number = String(accountNumber).trim() || null;
+        const ifscCode = data.ifscCode || data.ifsc_code || data.bankDetails?.ifscCode || pd.bankDetails?.ifscCode;
+        if (ifscCode !== undefined && ifscCode !== null)
+            insertPayload.ifsc_code = String(ifscCode).toUpperCase().trim() || null;
+        const panNumber = data.panNumber || data.pan_number || data.salaryDetails?.panNumber || pd.salaryDetails?.panNumber || data.pan;
+        if (panNumber !== undefined && panNumber !== null)
+            insertPayload.pan_number = String(panNumber).toUpperCase().trim() || null;
+        const uanNumber = data.uanNumber || data.uan_number || data.salaryDetails?.uanNumber || pd.salaryDetails?.uanNumber || data.uan;
+        if (uanNumber !== undefined && uanNumber !== null)
+            insertPayload.uan_number = String(uanNumber).trim() || null;
         // Current Address
-        const addressLine1 = data.addressLine1 || data.line1 || data.currentLine1 || data.currentAddress?.line1;
-        if (addressLine1 !== undefined)
-            insertPayload.address_line1 = addressLine1;
-        const addressLine2 = data.addressLine2 || data.line2 || data.currentLine2 || data.currentAddress?.line2;
-        if (addressLine2 !== undefined)
-            insertPayload.address_line2 = addressLine2;
-        const city = data.city || data.currentCity || data.currentAddress?.city;
-        if (city !== undefined)
-            insertPayload.city = city;
-        const state = data.state || data.currentState || data.currentAddress?.state;
-        if (state !== undefined)
-            insertPayload.state = state;
-        const country = data.country || data.currentCountry || data.currentAddress?.country;
-        if (country !== undefined)
-            insertPayload.country = country;
-        const pincode = data.pincode || data.currentPincode || data.currentAddress?.pincode;
-        if (pincode !== undefined)
-            insertPayload.pincode = String(pincode);
+        const addressLine1 = data.addressLine1 || data.address_line1 || data.line1 || data.currentLine1 || data.currentAddress?.line1 || pd.currentAddress?.line1;
+        if (addressLine1 !== undefined && addressLine1 !== null)
+            insertPayload.address_line1 = String(addressLine1).trim() || null;
+        const addressLine2 = data.addressLine2 || data.address_line2 || data.line2 || data.currentLine2 || data.currentAddress?.line2 || pd.currentAddress?.line2;
+        if (addressLine2 !== undefined && addressLine2 !== null)
+            insertPayload.address_line2 = String(addressLine2).trim() || null;
+        const city = data.city || data.currentCity || data.currentAddress?.city || pd.currentAddress?.city;
+        if (city !== undefined && city !== null)
+            insertPayload.city = String(city).trim() || null;
+        const state = data.state || data.currentState || data.currentAddress?.state || pd.currentAddress?.state;
+        if (state !== undefined && state !== null)
+            insertPayload.state = String(state).trim() || null;
+        const country = data.country || data.currentCountry || data.currentAddress?.country || pd.currentAddress?.country;
+        if (country !== undefined && country !== null)
+            insertPayload.country = String(country).trim() || 'India';
+        const pincode = data.pincode || data.currentPincode || data.currentAddress?.pincode || pd.currentAddress?.pincode;
+        if (pincode !== undefined && pincode !== null)
+            insertPayload.pincode = String(pincode).trim() || null;
+        if (!insertPayload.address && insertPayload.address_line1) {
+            insertPayload.address = [insertPayload.address_line1, insertPayload.city, insertPayload.state].filter(Boolean).join(', ') +
+                (insertPayload.pincode ? ` - ${insertPayload.pincode}` : '');
+        }
         // Educational Qualifications
-        const highestQualification = data.highestQualification || data.qualification || data.educationalDetails?.highestQualification;
-        if (highestQualification !== undefined)
-            insertPayload.highest_qualification = highestQualification;
-        const degreeName = data.degreeName || data.courseName || data.educationalDetails?.degreeName;
-        if (degreeName !== undefined)
-            insertPayload.degree_name = degreeName;
-        const specialization = data.specialization || data.educationalDetails?.specialization;
-        if (specialization !== undefined)
-            insertPayload.specialization = specialization;
-        const university = data.university || data.institution || data.educationalDetails?.university;
-        if (university !== undefined)
-            insertPayload.university = university;
-        const yearOfPassing = data.yearOfPassing !== undefined ? Number(data.yearOfPassing) : data.educationalDetails?.yearOfPassing ? Number(data.educationalDetails.yearOfPassing) : undefined;
+        const highestQualification = data.highestQualification || data.highest_qualification || data.qualification || data.educationalDetails?.highestQualification || pd.educationalDetails?.highestQualification;
+        if (highestQualification !== undefined && highestQualification !== null)
+            insertPayload.highest_qualification = String(highestQualification).trim() || null;
+        const degreeName = data.degreeName || data.degree_name || data.courseName || data.educationalDetails?.degreeName || pd.educationalDetails?.degreeName;
+        if (degreeName !== undefined && degreeName !== null)
+            insertPayload.degree_name = String(degreeName).trim() || null;
+        const specialization = data.specialization || data.educationalDetails?.specialization || pd.educationalDetails?.specialization;
+        if (specialization !== undefined && specialization !== null)
+            insertPayload.specialization = String(specialization).trim() || null;
+        const university = data.university || data.institution || data.educationalDetails?.university || pd.educationalDetails?.university;
+        if (university !== undefined && university !== null)
+            insertPayload.university = String(university).trim() || null;
+        const rawYop = data.yearOfPassing ?? data.year_of_passing ?? data.educationalDetails?.yearOfPassing ?? pd.educationalDetails?.yearOfPassing;
+        const yearOfPassing = rawYop !== undefined && rawYop !== null && String(rawYop).trim() !== '' ? Number(rawYop) : undefined;
         if (yearOfPassing !== undefined && !isNaN(yearOfPassing))
             insertPayload.year_of_passing = yearOfPassing;
-        const gradePercentage = data.gradePercentage !== undefined ? Number(data.gradePercentage) : data.educationalDetails?.gradePercentage ? Number(data.educationalDetails.gradePercentage) : undefined;
+        const rawGrade = data.gradePercentage ?? data.grade_percentage ?? data.educationalDetails?.gradePercentage ?? pd.educationalDetails?.gradePercentage;
+        const gradePercentage = rawGrade !== undefined && rawGrade !== null && String(rawGrade).trim() !== '' ? Number(rawGrade) : undefined;
         if (gradePercentage !== undefined && !isNaN(gradePercentage))
             insertPayload.grade_percentage = gradePercentage;
         // Experience Details
-        const experienceProfile = data.experienceProfile || data.experienceType || data.experienceDetails?.experienceType;
-        if (experienceProfile !== undefined)
-            insertPayload.experience_profile = experienceProfile;
-        const totalExperience = data.totalExperience !== undefined ? Number(data.totalExperience) : data.experienceDetails?.totalExperience ? Number(data.experienceDetails.totalExperience) : undefined;
+        const experienceProfile = data.experienceProfile || data.experience_profile || data.experienceType || data.experienceDetails?.experienceType || pd.experienceDetails?.experienceType;
+        if (experienceProfile !== undefined && experienceProfile !== null)
+            insertPayload.experience_profile = String(experienceProfile).trim() || 'Fresher';
+        const rawTotExp = data.totalExperience ?? data.total_experience ?? data.experienceDetails?.totalExperience ?? pd.experienceDetails?.totalExperience;
+        const totalExperience = rawTotExp !== undefined && rawTotExp !== null && String(rawTotExp).trim() !== '' ? Number(rawTotExp) : undefined;
         if (totalExperience !== undefined && !isNaN(totalExperience))
             insertPayload.total_experience = totalExperience;
-        const previousCompany = data.previousCompany || data.previousCompanyName || data.experienceDetails?.previousCompany;
-        if (previousCompany !== undefined)
-            insertPayload.previous_company = previousCompany;
-        const previousDesignation = data.previousDesignation || data.experienceDetails?.previousDesignation;
-        if (previousDesignation !== undefined)
-            insertPayload.previous_designation = previousDesignation;
-        const previousDepartment = data.previousDepartment || data.experienceDetails?.previousDepartment;
-        if (previousDepartment !== undefined)
-            insertPayload.previous_department = previousDepartment;
-        const employmentStartDate = data.employmentStartDate || data.startDate || data.expStartDate || data.experienceDetails?.startDate;
-        if (employmentStartDate !== undefined)
-            insertPayload.employment_start_date = employmentStartDate;
-        const employmentEndDate = data.employmentEndDate || data.endDate || data.expEndDate || data.experienceDetails?.endDate;
-        if (employmentEndDate !== undefined)
-            insertPayload.employment_end_date = employmentEndDate;
-        const lastDrawnSalary = data.lastDrawnSalary !== undefined ? Number(data.lastDrawnSalary) : data.experienceDetails?.lastDrawnSalary ? Number(data.experienceDetails.lastDrawnSalary) : undefined;
+        const previousCompany = data.previousCompany || data.previous_company || data.previousCompanyName || data.experienceDetails?.previousCompany || pd.experienceDetails?.previousCompany;
+        if (previousCompany !== undefined && previousCompany !== null)
+            insertPayload.previous_company = String(previousCompany).trim() || null;
+        const previousDesignation = data.previousDesignation || data.previous_designation || data.experienceDetails?.previousDesignation || pd.experienceDetails?.previousDesignation;
+        if (previousDesignation !== undefined && previousDesignation !== null)
+            insertPayload.previous_designation = String(previousDesignation).trim() || null;
+        const previousDepartment = data.previousDepartment || data.previous_department || data.experienceDetails?.previousDepartment || pd.experienceDetails?.previousDepartment;
+        if (previousDepartment !== undefined && previousDepartment !== null)
+            insertPayload.previous_department = String(previousDepartment).trim() || null;
+        const employmentStartDate = data.employmentStartDate || data.employment_start_date || data.startDate || data.expStartDate || data.experienceDetails?.startDate || pd.experienceDetails?.startDate;
+        if (employmentStartDate !== undefined && employmentStartDate !== null)
+            insertPayload.employment_start_date = String(employmentStartDate).trim() || null;
+        const employmentEndDate = data.employmentEndDate || data.employment_end_date || data.endDate || data.expEndDate || data.experienceDetails?.endDate || pd.experienceDetails?.endDate;
+        if (employmentEndDate !== undefined && employmentEndDate !== null)
+            insertPayload.employment_end_date = String(employmentEndDate).trim() || null;
+        const rawLastDrawn = data.lastDrawnSalary ?? data.last_drawn_salary ?? data.experienceDetails?.lastDrawnSalary ?? pd.experienceDetails?.lastDrawnSalary;
+        const lastDrawnSalary = rawLastDrawn !== undefined && rawLastDrawn !== null && String(rawLastDrawn).trim() !== '' ? Number(rawLastDrawn) : undefined;
         if (lastDrawnSalary !== undefined && !isNaN(lastDrawnSalary))
             insertPayload.last_drawn_salary = lastDrawnSalary;
-        const previousCompanyLocation = data.previousCompanyLocation || data.companyLocation || data.experienceDetails?.companyLocation;
-        if (previousCompanyLocation !== undefined)
-            insertPayload.previous_company_location = previousCompanyLocation;
+        const previousCompanyLocation = data.previousCompanyLocation || data.previous_company_location || data.companyLocation || data.experienceDetails?.companyLocation || pd.experienceDetails?.companyLocation;
+        if (previousCompanyLocation !== undefined && previousCompanyLocation !== null)
+            insertPayload.previous_company_location = String(previousCompanyLocation).trim() || null;
         // Build comprehensive profile_data JSONB to ensure 100% data preservation
         const structuredProfile = {
-            ...(typeof data.profile_data === 'object' && data.profile_data !== null ? data.profile_data : {}),
+            ...pd,
             portalPassword: rawPlainPassword,
             firstName: data.firstName || '',
             lastName: data.lastName || '',
             email: (data.email || '').toLowerCase().trim(),
             personalEmail: data.personalEmail || data.personal_email || (data.email || '').toLowerCase().trim(),
-            phone: data.phone || data.mobile || null,
+            phone: normalizedPhone || rawPhoneStr || null,
             dob: insertPayload.dob,
             gender: insertPayload.gender,
-            department: data.department || 'General',
-            designation: data.designation || 'Staff',
+            maritalStatus: data.maritalStatus || pd.maritalStatus || 'Single',
+            department: data.department || pd.department || 'General',
+            designation: data.designation || pd.designation || 'Staff',
+            reportingManagerId: reportingManagerUuid || rawMgrId || '',
+            reportingManagerName: reportingManagerNameVal || '',
             joiningDate: insertPayload.joining_date,
             employmentType: insertPayload.employment_type,
             workLocation: insertPayload.branch,
             workShift: insertPayload.work_shift,
             attendanceMethod: insertPayload.attendance_method,
             gpsAllowed: insertPayload.gps_allowed,
-            currentAddress: data.currentAddress || {
+            currentAddress: {
+                ...(pd.currentAddress || {}),
+                ...(data.currentAddress || {}),
                 line1: insertPayload.address_line1 || '',
                 line2: insertPayload.address_line2 || '',
                 city: insertPayload.city || '',
@@ -569,7 +638,7 @@ export class EmployeeRepository {
                 country: insertPayload.country || 'India',
                 pincode: insertPayload.pincode || '',
             },
-            permanentAddress: data.permanentAddress || {
+            permanentAddress: data.permanentAddress || pd.permanentAddress || {
                 sameAsCurrent: true,
                 line1: insertPayload.address_line1 || '',
                 line2: insertPayload.address_line2 || '',
@@ -578,31 +647,36 @@ export class EmployeeRepository {
                 country: insertPayload.country || 'India',
                 pincode: insertPayload.pincode || '',
             },
-            emergencyContact: data.emergencyContact || {
+            emergencyContact: data.emergencyContact || pd.emergencyContact || {
                 name: data.emergencyName || data.emergency_contact_name || '',
                 relationship: data.emergencyRelationship || data.emergency_contact_relationship || 'Parent',
                 mobile: data.emergencyMobile || data.emergency_contact_phone || '',
                 alternateMobile: data.emergencyAltMobile || '',
             },
-            bankDetails: data.bankDetails || {
+            bankDetails: {
+                ...(pd.bankDetails || {}),
+                ...(data.bankDetails || {}),
                 bankName: insertPayload.bank_name || '',
                 accountNumber: insertPayload.account_number || '',
                 ifscCode: insertPayload.ifsc_code || '',
-                branch: insertPayload.branch || insertPayload.city || '',
+                branch: (data.bankDetails?.branch || pd.bankDetails?.branch || insertPayload.branch || insertPayload.city || ''),
             },
             salaryDetails: {
+                ...(pd.salaryDetails || {}),
                 ...(data.salaryDetails || {}),
                 monthlyCtc: resolvedCtcVal,
                 basicSalary: basicVal,
                 hra: insertPayload.allowances_hra,
-                da: Number(data.salaryDetails?.da || (resolvedCtcVal > 0 ? Math.round(resolvedCtcVal * 0.20) : 0)),
+                da: Number(data.salaryDetails?.da || pd.salaryDetails?.da || (resolvedCtcVal > 0 ? Math.round(resolvedCtcVal * 0.20) : 0)),
                 conveyance: insertPayload.allowances_transport,
-                salaryScheme: data.salaryDetails?.salaryScheme || (data.withPf ? 'WITH_PF' : 'WITHOUT_PF'),
-                withPf: data.withPf ?? data.salaryDetails?.withPf ?? true,
+                salaryScheme: data.salaryDetails?.salaryScheme || pd.salaryDetails?.salaryScheme || (data.withPf ? 'WITH_PF' : 'WITHOUT_PF'),
+                withPf: data.withPf ?? data.salaryDetails?.withPf ?? pd.salaryDetails?.withPf ?? true,
                 panNumber: insertPayload.pan_number || '',
                 uanNumber: insertPayload.uan_number || '',
             },
-            educationalDetails: data.educationalDetails || {
+            educationalDetails: {
+                ...(pd.educationalDetails || {}),
+                ...(data.educationalDetails || {}),
                 highestQualification: insertPayload.highest_qualification || '',
                 degreeName: insertPayload.degree_name || '',
                 specialization: insertPayload.specialization || '',
@@ -610,7 +684,9 @@ export class EmployeeRepository {
                 yearOfPassing: insertPayload.year_of_passing ? String(insertPayload.year_of_passing) : '',
                 gradePercentage: insertPayload.grade_percentage ? String(insertPayload.grade_percentage) : '',
             },
-            experienceDetails: data.experienceDetails || {
+            experienceDetails: {
+                ...(pd.experienceDetails || {}),
+                ...(data.experienceDetails || {}),
                 experienceType: insertPayload.experience_profile || 'Fresher',
                 totalExperience: insertPayload.total_experience ? String(insertPayload.total_experience) : '0',
                 previousCompany: insertPayload.previous_company || '',
@@ -621,14 +697,44 @@ export class EmployeeRepository {
                 lastDrawnSalary: insertPayload.last_drawn_salary ? String(insertPayload.last_drawn_salary) : '',
                 companyLocation: insertPayload.previous_company_location || '',
             },
-            professionalDetails: data.professionalDetails || {
+            professionalDetails: data.professionalDetails || pd.professionalDetails || {
                 skills: data.skills || [],
+                qualification: insertPayload.highest_qualification || '',
+                specialization: insertPayload.specialization || '',
             },
         };
         insertPayload.profile_data = structuredProfile;
         const insertRes = await supabase.from('employees').insert(insertPayload).select('*, department:departments!employees_department_id_fkey(name)').single();
         if (insertRes.error || !insertRes.data) {
             throw new Error(`Failed to create employee in database: ${insertRes.error?.message || 'Unknown database error'}`);
+        }
+        // Also synchronize company_settings.employee_profiles_data immediately so both stores match 100%
+        try {
+            const { data: csRow } = await supabase
+                .from('company_settings')
+                .select('setting_val')
+                .eq('setting_key', 'employee_profiles_data')
+                .maybeSingle();
+            const profilesMap = csRow?.setting_val && typeof csRow.setting_val === 'object' && !Array.isArray(csRow.setting_val)
+                ? { ...csRow.setting_val }
+                : {};
+            const syncedEntry = {
+                ...structuredProfile,
+                id: insertRes.data.id,
+                employeeId: insertRes.data.employee_id,
+                updatedAt: new Date().toISOString(),
+            };
+            delete syncedEntry.password;
+            delete syncedEntry.plainPassword;
+            delete syncedEntry.passwordHash;
+            profilesMap[insertRes.data.employee_id] = syncedEntry;
+            profilesMap[insertRes.data.id] = syncedEntry;
+            await supabase
+                .from('company_settings')
+                .upsert({ setting_key: 'employee_profiles_data', setting_val: profilesMap, updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+        }
+        catch (csErr) {
+            console.warn('Could not sync new employee to company_settings.employee_profiles_data:', csErr);
         }
         memoryCache.invalidatePattern('emp_');
         memoryCache.invalidatePattern('ss_');
