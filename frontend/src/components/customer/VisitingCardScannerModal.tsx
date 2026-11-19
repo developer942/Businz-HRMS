@@ -130,7 +130,7 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
           selectedDeviceIdRef.current = sorted[0].deviceId;
           setSelectedDeviceId(sorted[0].deviceId);
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [isOpen, isMobile]);
 
@@ -176,9 +176,9 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
             try {
               t.stop();
               t.enabled = false;
-            } catch {}
+            } catch { }
           });
-        } catch {}
+        } catch { }
         streamRef.current = null;
       }
       if (videoRef.current && videoRef.current.srcObject) {
@@ -188,9 +188,9 @@ export const VisitingCardScannerModal: React.FC<VisitingCardScannerModalProps> =
             try {
               t.stop();
               t.enabled = false;
-            } catch {}
+            } catch { }
           });
-        } catch {}
+        } catch { }
         videoRef.current.srcObject = null;
       }
 

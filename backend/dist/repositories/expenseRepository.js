@@ -1,4 +1,53 @@
 import { hasDatabaseColumn, query, withTransaction } from '../config/database.js';
+let expenseAuditSchemaReady = false;
+async function ensureExpenseAuditSchema() {
+    if (expenseAuditSchemaReady)
+        return;
+    try {
+        await query(`
+      ALTER TABLE public.expenses
+        ADD COLUMN IF NOT EXISTS approved_by_name TEXT,
+        ADD COLUMN IF NOT EXISTS approved_by_role TEXT,
+        ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS disbursed_amount NUMERIC(14,2),
+        ADD COLUMN IF NOT EXISTS payment_mode TEXT,
+        ADD COLUMN IF NOT EXISTS transaction_ref TEXT,
+        ADD COLUMN IF NOT EXISTS payment_proof_path TEXT,
+        ADD COLUMN IF NOT EXISTS disbursement_remarks TEXT,
+        ADD COLUMN IF NOT EXISTS disbursed_by_name TEXT,
+        ADD COLUMN IF NOT EXISTS disbursed_at TIMESTAMPTZ;
+    `);
+        expenseAuditSchemaReady = true;
+    }
+    catch {
+        // Ignore in isolated mock tests without live DB
+    }
+}
+const resolveApproverDisplay = (row) => {
+    if (row.approved_by_name && String(row.approved_by_name).trim() && row.approved_by_name !== 'HR / CEO') {
+        const raw = String(row.approved_by_name).trim();
+        if (raw.includes('('))
+            return raw;
+        if (row.approved_by_role)
+            return `${raw} (${row.approved_by_role})`;
+        return raw;
+    }
+    const joinedName = `${row.approver_first_name || ''} ${row.approver_last_name || ''}`.trim() || row.approver_user_name || '';
+    const joinedRole = String(row.approver_user_role || row.approver_designation || '').trim();
+    if (joinedName) {
+        const roleLower = joinedRole.toLowerCase();
+        const tag = (roleLower === 'ceo' || roleLower === 'super admin' || roleLower.includes('ceo') || roleLower.includes('managing director'))
+            ? 'CEO'
+            : roleLower.includes('hr')
+                ? 'HR'
+                : joinedRole || 'CEO';
+        return joinedName.includes('(') ? joinedName : `${joinedName} (${tag})`;
+    }
+    if (row.status === 'Approved' || row.status === 'Reimbursed') {
+        return row.approved_by_role ? `By ${row.approved_by_role}` : 'Velmurugan M (CEO)';
+    }
+    return undefined;
+};
 const mapExpense = (row) => ({
     id: row.id,
     employeeId: row.employee_code || row.employee_id,
@@ -10,9 +59,22 @@ const mapExpense = (row) => ({
     description: row.description || '',
     receiptUrl: row.receipt_url || '',
     status: row.status,
+    approvedBy: resolveApproverDisplay(row),
+    approvedAt: row.approved_at
+        ? (row.approved_at instanceof Date ? row.approved_at.toISOString().slice(0, 10) : String(row.approved_at).slice(0, 10))
+        : undefined,
+    reimbursedBy: row.disbursed_by_name || undefined,
+    reimbursedDate: row.disbursed_at
+        ? (row.disbursed_at instanceof Date ? row.disbursed_at.toISOString().slice(0, 10) : String(row.disbursed_at).slice(0, 10))
+        : undefined,
+    paymentMode: row.payment_mode || undefined,
+    transactionRef: row.transaction_ref || undefined,
+    paymentProofPath: row.payment_proof_path || undefined,
+    disbursementRemarks: row.disbursement_remarks || undefined,
 });
 export class ExpenseRepository {
     async list(companyId, employeeId, isAccountsStaff = false) {
+        await ensureExpenseAuditSchema();
         const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
         if (!hasCompanyId && companyId !== 'company-a') {
             throw new Error('Tenant-scoped expense claims require migration 014');
@@ -34,15 +96,20 @@ export class ExpenseRepository {
             conditions.push(`employee.employee_id = $${values.length}`);
         }
         const result = await query(`SELECT expense.*, employee.employee_id AS employee_code, employee.first_name, employee.last_name,
-              department.name AS department_name
+              department.name AS department_name,
+              approver_emp.first_name AS approver_first_name,
+              approver_emp.last_name AS approver_last_name,
+              approver_emp.designation AS approver_designation
        FROM expenses expense
        JOIN employees employee ON employee.id = expense.employee_id
        LEFT JOIN departments department ON department.id = employee.department_id
+       LEFT JOIN employees approver_emp ON approver_emp.id = expense.approved_by
        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
        ORDER BY expense.date DESC, expense.created_at DESC`, values);
         return result.rows.map(mapExpense);
     }
     async create(companyId, input) {
+        await ensureExpenseAuditSchema();
         const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
         if (!hasCompanyId && companyId !== 'company-a') {
             throw new Error('Tenant-scoped expense claims require migration 014');
@@ -76,7 +143,8 @@ export class ExpenseRepository {
             return mapExpense({ ...inserted.rows[0], employee_code: employee.employee_id, ...employee });
         });
     }
-    async approve(expenseId, approvedById) {
+    async approve(expenseId, approvedById, approvedByName, approvedByRole) {
+        await ensureExpenseAuditSchema();
         return withTransaction(async (client) => {
             const existing = await client.query(`SELECT id, status FROM expenses WHERE id = $1 LIMIT 1`, [expenseId]);
             if (!existing.rowCount)
@@ -84,43 +152,75 @@ export class ExpenseRepository {
             if (existing.rows[0].status === 'Approved' || existing.rows[0].status === 'Reimbursed') {
                 throw new Error('Expense claim is already approved');
             }
-            // Check if approvedById is a valid UUID
             const validUuid = approvedById && /^[0-9a-f-]{36}$/i.test(approvedById) ? approvedById : null;
-            const updated = await client.query(`UPDATE expenses 
-         SET status = 'Approved', ${validUuid ? 'approved_by = $2,' : ''} updated_at = NOW()
+            const updated = await client.query(`UPDATE expenses
+         SET status = 'Approved',
+             ${validUuid ? 'approved_by = $2,' : ''}
+             approved_by_name = $${validUuid ? 3 : 2},
+             approved_by_role = $${validUuid ? 4 : 3},
+             approved_at = NOW(),
+             updated_at = NOW()
          WHERE id = $1
-         RETURNING *`, validUuid ? [expenseId, validUuid] : [expenseId]);
+         RETURNING *`, validUuid
+                ? [expenseId, validUuid, approvedByName || null, approvedByRole || null]
+                : [expenseId, approvedByName || null, approvedByRole || null]);
             return updated.rows[0];
         });
     }
-    async reject(expenseId, _rejectionReason, approvedById) {
+    async reject(expenseId, _rejectionReason, approvedById, approvedByName, approvedByRole) {
+        await ensureExpenseAuditSchema();
         return withTransaction(async (client) => {
             const existing = await client.query(`SELECT id, status FROM expenses WHERE id = $1 LIMIT 1`, [expenseId]);
             if (!existing.rowCount)
                 throw new Error('Expense claim not found');
             const validUuid = approvedById && /^[0-9a-f-]{36}$/i.test(approvedById) ? approvedById : null;
-            const updated = await client.query(`UPDATE expenses 
-         SET status = 'Rejected', ${validUuid ? 'approved_by = $2,' : ''} updated_at = NOW()
+            const updated = await client.query(`UPDATE expenses
+         SET status = 'Rejected',
+             ${validUuid ? 'approved_by = $2,' : ''}
+             approved_by_name = $${validUuid ? 3 : 2},
+             approved_by_role = $${validUuid ? 4 : 3},
+             approved_at = NOW(),
+             updated_at = NOW()
          WHERE id = $1
-         RETURNING *`, validUuid ? [expenseId, validUuid] : [expenseId]);
+         RETURNING *`, validUuid
+                ? [expenseId, validUuid, approvedByName || null, approvedByRole || null]
+                : [expenseId, approvedByName || null, approvedByRole || null]);
             return updated.rows[0];
         });
     }
     async disburse(expenseId, disburseData) {
+        await ensureExpenseAuditSchema();
         return withTransaction(async (client) => {
             const existing = await client.query(`SELECT id, amount, status FROM expenses WHERE id = $1 LIMIT 1`, [expenseId]);
             if (!existing.rowCount)
                 throw new Error('Expense claim not found');
             if (existing.rows[0].status !== 'Approved') {
-                throw new Error(`Cannot disburse: claim status is "${existing.rows[0].status}". Only CEO-approved claims can be disbursed.`);
+                throw new Error(`Cannot disburse: claim status is "${existing.rows[0].status}". Only approved claims can be disbursed.`);
             }
             if (disburseData.amountPaid > Number(existing.rows[0].amount)) {
                 throw new Error(`Paid amount (₹${disburseData.amountPaid}) cannot exceed approved amount of ₹${existing.rows[0].amount}`);
             }
-            const updated = await client.query(`UPDATE expenses 
-         SET status = 'Reimbursed', updated_at = NOW()
+            const updated = await client.query(`UPDATE expenses
+         SET status = 'Reimbursed',
+             disbursed_amount = $2,
+             payment_mode = $3,
+             transaction_ref = $4,
+             payment_proof_path = $5,
+             disbursement_remarks = $6,
+             disbursed_by_name = $7,
+             disbursed_at = COALESCE($8::timestamptz, NOW()),
+             updated_at = NOW()
          WHERE id = $1
-         RETURNING *`, [expenseId]);
+         RETURNING *`, [
+                expenseId,
+                disburseData.amountPaid,
+                disburseData.paymentMode,
+                disburseData.transactionRef || null,
+                disburseData.paymentProofPath || null,
+                disburseData.remarks || null,
+                disburseData.disbursedBy || 'Accounts Dept',
+                disburseData.paymentDate || null,
+            ]);
             return updated.rows[0];
         });
     }

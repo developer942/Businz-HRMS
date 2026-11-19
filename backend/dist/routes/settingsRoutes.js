@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getCompanySettings, updateCompanySettings, getGeofenceSettings, updateGeofenceSettings, getCompanySmtpConfig, saveCompanySmtpConfig, testCompanySmtpConnection, getMetaAdsConfig, saveMetaAdsConfig, testMetaAdsConnection, getBiometricsConfig, saveBiometricsConfig, testBiometricsConnection, getAccountingConfig, saveAccountingConfig, testAccountingConnection, } from '../controllers/settingsController.js';
+import { getCompanySettings, updateCompanySettings, getGeofenceSettings, updateGeofenceSettings, getCompanySmtpConfig, saveCompanySmtpConfig, testCompanySmtpConnection, getMetaAdsConfig, saveMetaAdsConfig, testMetaAdsConnection, getBiometricsConfig, saveBiometricsConfig, testBiometricsConnection, getAccountingConfig, saveAccountingConfig, testAccountingConnection, getSmsOtpConfig, saveSmsOtpConfig, testSmsOtpConnection, } from '../controllers/settingsController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
 import { parseGoogleMapsLink } from '../utils/googleMapsParser.js';
@@ -168,4 +168,8 @@ settingsRouter.post('/biometrics/test-connection', requireRoles(['Super Admin', 
 settingsRouter.get('/accounting/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getAccountingConfig);
 settingsRouter.post('/accounting/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), saveAccountingConfig);
 settingsRouter.post('/accounting/test-connection', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), testAccountingConnection);
+// SMS OTP Gateway (Indian TRAI DLT Compliant — Admin Only)
+settingsRouter.get('/sms-otp/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), getSmsOtpConfig);
+settingsRouter.post('/sms-otp/config', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), saveSmsOtpConfig);
+settingsRouter.post('/sms-otp/test-connection', requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin']), testSmsOtpConnection);
 //# sourceMappingURL=settingsRoutes.js.map

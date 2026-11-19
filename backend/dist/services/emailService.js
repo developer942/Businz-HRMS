@@ -34,10 +34,11 @@ export function getMailTransporter() {
  */
 export async function getCompanySmtpTransporter(companyId) {
     try {
-        const config = await settingsRepository.getCompanySmtpConfig(companyId);
+        const config = (await settingsRepository.getCompanySmtpConfig(companyId)) ||
+            (companyId && companyId !== 'company-a' ? await settingsRepository.getCompanySmtpConfig('company-a') : null);
         if (config && config.senderEmail && config.appPasswordEncrypted) {
-            const decryptedPass = decryptCredential(config.appPasswordEncrypted);
-            if (decryptedPass) {
+            const decryptedPass = decryptCredential(config.appPasswordEncrypted).replace(/\s+/g, '').trim();
+            if (decryptedPass && !decryptedPass.includes('•')) {
                 const port = Number(config.smtpPort) || (config.smtpHost.includes('gmail') ? 587 : 465);
                 const secure = config.secure ?? (port === 465);
                 const transporter = nodemailer.createTransport({
@@ -275,9 +276,12 @@ export async function sendCredentialEmail(payload) {
             error: failedRecord.error,
         };
     }
-    // Attempt real SMTP dispatch if transporter is configured
-    const transporter = getMailTransporter();
-    const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
+    // Attempt real SMTP dispatch via company-configured SMTP (Settings -> Integrations) or .env fallback
+    const smtpDetails = await getCompanySmtpTransporter();
+    const transporter = smtpDetails?.transporter || getMailTransporter();
+    const senderAddress = smtpDetails?.senderEmail || process.env.SMTP_USER || 'developer@businz.com';
+    const senderDisplay = smtpDetails?.senderName || 'Businz HRMS';
+    const mailFrom = process.env.SMTP_FROM || `"${senderDisplay}" <${senderAddress}>`;
     const bodyText = formatCredentialEmailBody(payload);
     if (!transporter) {
         const unconfiguredRecord = {
@@ -395,26 +399,30 @@ export function getOutboundEmailLogs(employeeCode) {
     return [...outboundEmailLog];
 }
 /**
- * Dispatches the official 6-digit verification code to the employee's registered email address.
+ * Dispatches the official single-use 6-digit verification code to the employee's registered email address.
+ * Uses the existing configured company/environment SMTP service without duplicating credentials.
  */
 export async function sendPasswordResetOtpEmail(payload) {
     const sentAt = new Date().toISOString();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const subject = 'HRMS Password Reset Verification';
+    const isLoginOtp = payload.purpose === 'EMAIL_OTP_LOGIN';
+    const subject = isLoginOtp
+        ? 'Businz HRMS Sign-In Verification Code'
+        : 'Businz HRMS Password Reset Verification Code';
     const body = `Hello ${payload.employeeName},
 
-We received a request to reset your HRMS password.
+We received a request ${isLoginOtp ? 'to sign in to your Businz HRMS account' : 'to reset your Businz HRMS password'}.
 
-Your verification code is:
+Your one-time verification code is:
 
 ${payload.otp}
 
-This code will expire in 10 minutes.
+This code will expire in 5 minutes and can only be used once.
 
-If you did not request this password reset, please ignore this email.
+If you did not initiate this request, please ignore this email and contact HR Security immediately.
 
 Regards,
-HRMS Team`;
+Businz HRMS Security Team`;
     if (!payload.to || !emailRegex.test(payload.to.trim()) || payload.to.includes('simulate-fail')) {
         const failedRecord = {
             id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -432,9 +440,12 @@ HRMS Team`;
             error: failedRecord.error,
         };
     }
-    // Attempt real SMTP dispatch if configured
-    const transporter = getMailTransporter();
-    const mailFrom = process.env.SMTP_FROM || `"Businz HRMS" <${process.env.SMTP_USER || 'developer@businz.com'}>`;
+    // Resolve existing configured company SMTP transporter with fallback to environment SMTP transporter
+    const smtpDetails = await getCompanySmtpTransporter(payload.companyId);
+    const transporter = smtpDetails?.transporter || getMailTransporter();
+    const senderAddress = smtpDetails?.senderEmail || process.env.SMTP_USER || 'developer@businz.com';
+    const senderDisplay = smtpDetails?.senderName || 'Businz HRMS';
+    const mailFrom = process.env.SMTP_FROM || `"${senderDisplay}" <${senderAddress}>`;
     if (!transporter) {
         const unconfiguredRecord = {
             id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -459,15 +470,18 @@ HRMS Team`;
             subject,
             text: body,
             html: `
-        <div style="font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background-color: #ffffff;">
-          <h3 style="color: #0E7490; margin-top: 0;">HRMS Password Reset Verification</h3>
-          <p>Hello <strong>${payload.employeeName}</strong>,</p>
-          <p>We received a request to reset your HRMS password. Your verification code is:</p>
-          <div style="background-color: #F8FAFC; border: 1px dashed #0E7490; border-radius: 8px; padding: 16px; text-align: center; margin: 18px 0;">
-            <span style="font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #0E7490; font-family: monospace;">${payload.otp}</span>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'DM Sans', 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; border: 1px solid #E2E8F0; border-radius: 16px; background-color: #ffffff; color: #0F172A;">
+          <div style="margin-bottom: 18px;">
+            <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #0E7490;">Businz HRMS Security</span>
+            <h3 style="color: #0F172A; margin: 6px 0 0; font-size: 20px; font-weight: 700;">${isLoginOtp ? 'Sign-In Verification Code' : 'Password Reset Verification'}</h3>
           </div>
-          <p style="font-size: 13px; color: #64748B;">This code is valid for 10 minutes and can only be used once.</p>
-          <p style="font-size: 12px; color: #94A3B8; margin-top: 20px;">If you did not request this password reset, please ignore this email.</p>
+          <p style="font-size: 14px; color: #334155; line-height: 1.6;">Hello <strong>${payload.employeeName}</strong>,</p>
+          <p style="font-size: 14px; color: #334155; line-height: 1.6;">Use the single-use verification code below ${isLoginOtp ? 'to complete your sign-in to Businz HRMS' : 'to reset your Businz HRMS password'}:</p>
+          <div style="background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 12px; padding: 18px; text-align: center; margin: 22px 0;">
+            <span style="font-size: 30px; font-weight: 800; letter-spacing: 8px; color: #0E7490; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">${payload.otp}</span>
+          </div>
+          <p style="font-size: 13px; color: #475569; margin-bottom: 8px;"><strong>Expires in 5 minutes.</strong> For your protection, never share this code with anyone.</p>
+          <p style="font-size: 12px; color: #94A3B8; margin-top: 20px; border-top: 1px solid #F1F5F9; padding-top: 14px;">If you did not request this code, you can safely ignore this email.</p>
         </div>
       `
         });
@@ -480,15 +494,15 @@ HRMS Team`;
             sentAt,
         };
         outboundEmailLog.push(successRecord);
-        console.log(`[SMTP OTP SUCCESS] OTP sent to ${payload.to} via SMTP`);
         return {
             status: 'SENT',
             sentAt,
         };
     }
     catch (smtpErr) {
-        const errorMsg = smtpErr?.message || 'SMTP delivery rejected by mail server';
-        console.warn(`[SMTP OTP FAILED] Could not deliver OTP via SMTP to ${payload.to}: ${errorMsg}`);
+        const errorMsg = (smtpErr?.message || 'SMTP delivery rejected by mail server')
+            .replace(/Bunizzz@1234/g, '••••••••')
+            .replace(/xdarqfxcbkkjgnja/g, '••••••••');
         const failedRecord = {
             id: `mail-otp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             to: payload.to,
@@ -504,6 +518,89 @@ HRMS Team`;
             sentAt,
             error: errorMsg,
         };
+    }
+}
+export async function sendEmailLoginOtpEmail(payload) {
+    return sendPasswordResetOtpEmail({
+        ...payload,
+        purpose: 'EMAIL_OTP_LOGIN',
+    });
+}
+/**
+ * Dispatches a security alert email when an employee's password is changed or reset.
+ */
+export async function sendPasswordChangedNotificationEmail(payload) {
+    const sentAt = payload.changedAt || new Date().toISOString();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const subject = 'Security Alert: Your Businz HRMS Password Was Changed';
+    if (!payload.to || !emailRegex.test(payload.to.trim()) || payload.to.includes('simulate-fail')) {
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: 'Invalid recipient email address',
+        };
+    }
+    const smtpDetails = await getCompanySmtpTransporter(payload.companyId);
+    const transporter = smtpDetails?.transporter || getMailTransporter();
+    const senderAddress = smtpDetails?.senderEmail || process.env.SMTP_USER || 'developer@businz.com';
+    const senderDisplay = smtpDetails?.senderName || 'Businz HRMS';
+    const mailFrom = process.env.SMTP_FROM || `"${senderDisplay}" <${senderAddress}>`;
+    if (!transporter) {
+        return {
+            status: 'FAILED',
+            sentAt,
+            error: 'SMTP mail service is not configured.',
+        };
+    }
+    const formattedTime = new Date(sentAt).toUTCString();
+    const textBody = `Hello ${payload.employeeName},
+
+Your Businz HRMS account password (Employee ID: ${payload.employeeCode}) was successfully changed on ${formattedTime}.
+
+All previous login sessions have been revoked for your security.
+
+If you made this change, no further action is needed. If you did NOT authorize this password change, please contact HR or IT Security immediately at ${senderAddress}.
+
+Regards,
+Businz HRMS Security Team`;
+    try {
+        await transporter.sendMail({
+            from: mailFrom,
+            to: payload.to,
+            subject,
+            text: textBody,
+            html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'DM Sans', 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; border: 1px solid #E2E8F0; border-radius: 16px; background-color: #ffffff; color: #0F172A;">
+          <div style="margin-bottom: 16px;">
+            <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #0E7490;">Businz HRMS Security Notice</span>
+            <h3 style="color: #0F172A; margin: 6px 0 0; font-size: 20px; font-weight: 700;">Password Changed Successfully</h3>
+          </div>
+          <p style="font-size: 14px; color: #334155; line-height: 1.6;">Hello <strong>${payload.employeeName}</strong>,</p>
+          <p style="font-size: 14px; color: #334155; line-height: 1.6;">The password for your Businz HRMS account (<strong>${payload.employeeCode}</strong>) was updated on <strong>${formattedTime}</strong>.</p>
+          <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #166534; margin: 18px 0;">
+            All previous active sessions have been signed out automatically.
+          </div>
+          <p style="font-size: 12px; color: #64748B; line-height: 1.6; margin-top: 18px; border-top: 1px solid #F1F5F9; padding-top: 14px;">
+            If you did not make this change, please contact your HR Administrator immediately at <strong>${senderAddress}</strong>.
+          </p>
+        </div>
+      `,
+        });
+        outboundEmailLog.push({
+            id: `mail-pwchange-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            to: payload.to,
+            subject,
+            employeeCode: payload.employeeCode,
+            status: 'SENT',
+            sentAt,
+        });
+        return { status: 'SENT', sentAt };
+    }
+    catch (err) {
+        const errorMsg = (err?.message || 'SMTP delivery failed')
+            .replace(/Bunizzz@1234/g, '••••••••')
+            .replace(/xdarqfxcbkkjgnja/g, '••••••••');
+        return { status: 'FAILED', sentAt, error: errorMsg };
     }
 }
 export async function sendOfferLetterEmail(payload) {

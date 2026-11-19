@@ -33,7 +33,10 @@ export const forgotPasswordSchema = z.object({
 });
 export const verifyResetOtpSchema = z.object({
     email_or_employee_id: z.preprocess((val) => (typeof val === 'string' ? val.trim().toLowerCase() : val), z.string().min(1, 'Registered Email or Employee ID is required')),
-    otp: z.string().length(6, 'Verification code must be exactly 6 digits'),
+    otp: z
+        .string()
+        .trim()
+        .regex(/^\d{6}$/, 'Verification code must be exactly 6 numeric digits'),
 });
 export const resetPasswordSchema = z
     .object({
@@ -50,5 +53,41 @@ export const resetPasswordSchema = z
     .refine((data) => data.new_password === data.confirm_password, {
     message: 'New password and confirmation do not match',
     path: ['confirm_password'],
+});
+export const emailOtpLoginRequestSchema = z.object({
+    email: z.preprocess((val) => (typeof val === 'string' ? val.trim().toLowerCase() : val), z
+        .string({ required_error: 'Registered email address is required' })
+        .min(1, 'Registered email address is required')
+        .refine((val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), {
+        message: 'Please enter a valid registered email address.',
+    })),
+});
+export const emailOtpLoginVerifySchema = z.object({
+    email: z.preprocess((val) => (typeof val === 'string' ? val.trim().toLowerCase() : val), z
+        .string({ required_error: 'Registered email address is required' })
+        .min(1, 'Registered email address is required')
+        .refine((val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), {
+        message: 'Please enter a valid registered email address.',
+    })),
+    otp: z
+        .string()
+        .trim()
+        .regex(/^\d{6}$/, 'Verification code must be exactly 6 numeric digits'),
+});
+export const mobileOtpLoginRequestSchema = z.object({
+    mobile_number: z
+        .string({ required_error: 'Registered mobile number is required' })
+        .trim()
+        .min(10, 'Please enter a valid mobile number'),
+});
+export const mobileOtpLoginVerifySchema = z.object({
+    mobile_number: z
+        .string({ required_error: 'Registered mobile number is required' })
+        .trim()
+        .min(10, 'Please enter a valid mobile number'),
+    otp: z
+        .string()
+        .trim()
+        .regex(/^\d{6}$/, 'Verification code must be exactly 6 numeric digits'),
 });
 //# sourceMappingURL=authValidators.js.map

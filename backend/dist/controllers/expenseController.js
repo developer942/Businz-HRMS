@@ -1,5 +1,28 @@
 import { expenseRepository } from '../repositories/expenseRepository.js';
 import { createExpenseSchema } from '../validators/expenseValidators.js';
+const formatApproverWithRole = (user) => {
+    const rawName = String(user?.name || user?.email || '').trim();
+    const roleLower = String(user?.role || '').trim().toLowerCase();
+    const desigLower = String(user?.designation || '').trim().toLowerCase();
+    const deptLower = String(user?.department || '').trim().toLowerCase();
+    let roleLabel = 'CEO';
+    if (roleLower === 'ceo' || roleLower === 'super admin' || desigLower.includes('ceo') || desigLower.includes('managing director')) {
+        roleLabel = 'CEO';
+    }
+    else if (roleLower.includes('hr') || desigLower.includes('hr') || deptLower.includes('hr')) {
+        roleLabel = 'HR';
+    }
+    else if (roleLower.includes('finance') || roleLower.includes('account') || deptLower.includes('account') || deptLower.includes('finance')) {
+        roleLabel = 'Accounts';
+    }
+    else if (user?.role) {
+        roleLabel = String(user.role);
+    }
+    const display = rawName
+        ? (rawName.includes('(') ? rawName : `${rawName} (${roleLabel})`)
+        : roleLabel;
+    return { display, roleLabel };
+};
 export const listExpenses = async (req, res, next) => {
     try {
         const role = String(req.user?.role || '');
@@ -54,7 +77,8 @@ export const approveExpenseClaim = async (req, res, next) => {
             return;
         }
         const approvedById = req.user?.id || req.user?.employeeId;
-        const expense = await expenseRepository.approve(id, approvedById);
+        const { display, roleLabel } = formatApproverWithRole(req.user);
+        const expense = await expenseRepository.approve(id, approvedById, display, roleLabel);
         res.json({ success: true, data: expense, message: 'Expense claim approved.' });
     }
     catch (error) {
@@ -74,7 +98,8 @@ export const rejectExpenseClaim = async (req, res, next) => {
             return;
         }
         const approvedById = req.user?.id || req.user?.employeeId;
-        const expense = await expenseRepository.reject(id, rejectionReason.trim(), approvedById);
+        const { display, roleLabel } = formatApproverWithRole(req.user);
+        const expense = await expenseRepository.reject(id, rejectionReason.trim(), approvedById, display, roleLabel);
         res.json({ success: true, data: expense, message: 'Expense claim rejected.' });
     }
     catch (error) {
@@ -84,7 +109,7 @@ export const rejectExpenseClaim = async (req, res, next) => {
 export const disburseExpenseClaim = async (req, res, next) => {
     try {
         const id = String(req.params.id);
-        const { amountPaid, paymentMode, transactionRef, remarks } = req.body;
+        const { amountPaid, paymentMode, transactionRef, paymentProofPath, paymentDate, remarks } = req.body;
         if (!id) {
             res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Expense ID is required.', details: [] } });
             return;
@@ -101,11 +126,15 @@ export const disburseExpenseClaim = async (req, res, next) => {
             res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: `Transaction reference is mandatory for ${paymentMode}.`, details: [{ field: 'transactionRef', message: 'Transaction reference is required.' }] } });
             return;
         }
+        const { display } = formatApproverWithRole(req.user);
         const expense = await expenseRepository.disburse(id, {
             amountPaid: Number(amountPaid),
             paymentMode,
+            paymentDate: paymentDate ? String(paymentDate).trim() : undefined,
             transactionRef: transactionRef ? transactionRef.trim() : undefined,
+            paymentProofPath: paymentProofPath ? String(paymentProofPath).trim() : undefined,
             remarks: remarks ? remarks.trim() : undefined,
+            disbursedBy: display,
         });
         res.json({ success: true, data: expense, message: 'Payment disbursement recorded successfully by Accounts.' });
     }

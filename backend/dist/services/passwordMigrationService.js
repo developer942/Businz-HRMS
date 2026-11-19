@@ -8,7 +8,8 @@ function hasSecretFieldsInObject(obj) {
     if (rec.password !== undefined ||
         rec.plainPassword !== undefined ||
         rec.passwordHash !== undefined ||
-        rec.password_hash !== undefined) {
+        rec.password_hash !== undefined ||
+        rec.portalPassword !== undefined) {
         return true;
     }
     if (rec.systemAccess &&
@@ -16,7 +17,8 @@ function hasSecretFieldsInObject(obj) {
         (rec.systemAccess.password !== undefined ||
             rec.systemAccess.plainPassword !== undefined ||
             rec.systemAccess.passwordHash !== undefined ||
-            rec.systemAccess.password_hash !== undefined)) {
+            rec.systemAccess.password_hash !== undefined ||
+            rec.systemAccess.portalPassword !== undefined)) {
         return true;
     }
     return false;

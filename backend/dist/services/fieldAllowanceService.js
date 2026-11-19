@@ -2,6 +2,25 @@ import { fieldAllowanceRepository } from '../repositories/fieldAllowanceReposito
 const managementRoles = new Set(['CEO', 'Super Admin', 'Admin', 'HR', 'HR Manager', 'HR Admin', 'Management', 'ERP Administrator']);
 const accountsRoles = new Set(['finance manager', 'finance', 'accountant', 'accounts', 'accounts manager', 'accounts executive']);
 const employeeKey = (actor) => actor.employeeId || actor.id;
+const formatActorWithRole = (actor) => {
+    const rawName = (actor.name || actor.email || '').trim();
+    if (rawName.includes('('))
+        return rawName;
+    const roleLower = (actor.role || '').trim().toLowerCase();
+    const desigLower = (actor.designation || '').trim().toLowerCase();
+    const deptLower = (actor.department || '').trim().toLowerCase();
+    let roleTag = actor.role || 'Approver';
+    if (roleLower === 'ceo' || roleLower === 'super admin' || desigLower.includes('ceo') || desigLower.includes('managing director')) {
+        roleTag = 'CEO';
+    }
+    else if (roleLower.includes('hr') || desigLower.includes('hr') || deptLower.includes('hr')) {
+        roleTag = 'HR';
+    }
+    else if (accountsRoles.has(roleLower) || deptLower.includes('account') || deptLower.includes('finance')) {
+        roleTag = 'Accounts';
+    }
+    return `${rawName} (${roleTag})`;
+};
 export class FieldAllowanceService {
     isManagement(actor) { return managementRoles.has(actor.role); }
     isAccounts(actor) {
@@ -51,21 +70,32 @@ export class FieldAllowanceService {
         if (!this.isManagement(actor))
             throw new Error('Only HR or CEO can review Field Allowance requests');
         return fieldAllowanceRepository.decide({
-            companyId: this.company(actor), requestId, approvedBy: actor.id, approverName: actor.name || actor.email,
-            decision: payload.decision, approvedAmount: payload.decision === 'APPROVED' ? Number(payload.approvedAmount || 0) : 0,
+            companyId: this.company(actor),
+            requestId,
+            approvedBy: actor.id,
+            approverName: formatActorWithRole(actor),
+            decision: payload.decision,
+            approvedAmount: payload.decision === 'APPROVED' ? Number(payload.approvedAmount || 0) : 0,
             remarks: payload.remarks,
         });
     }
     async distribute(actor, requestId, payload) {
-        if (!this.isAccounts(actor))
-            throw new Error('Only Accounts can distribute Field Allowance amounts');
+        if (!this.isAccounts(actor) && !this.isManagement(actor)) {
+            throw new Error('Only Accounts, HR, or CEO can distribute Field Allowance amounts');
+        }
         if (payload.distributedAmount <= 0)
             throw new Error('Distributed amount must be greater than zero');
         return fieldAllowanceRepository.distribute({
-            companyId: this.company(actor), requestId, distributedBy: actor.id, distributorName: actor.name || actor.email,
-            distributedAmount: payload.distributedAmount, distributionDate: payload.distributionDate,
-            paymentMethod: payload.paymentMethod, referenceNumber: payload.referenceNumber,
-            paymentProofPath: payload.paymentProofPath, remarks: payload.remarks,
+            companyId: this.company(actor),
+            requestId,
+            distributedBy: actor.id,
+            distributorName: formatActorWithRole(actor),
+            distributedAmount: payload.distributedAmount,
+            distributionDate: payload.distributionDate,
+            paymentMethod: payload.paymentMethod,
+            referenceNumber: payload.referenceNumber,
+            paymentProofPath: payload.paymentProofPath,
+            remarks: payload.remarks,
         });
     }
     async addDailyReport(actor, requestId, payload) {
@@ -94,6 +124,40 @@ export class FieldAllowanceService {
         if (!canComplete)
             throw new Error('This field visit cannot be completed before the approved advance is distributed');
         return fieldAllowanceRepository.complete(this.company(actor), requestId, employeeKey(actor));
+    }
+    async submitBalance(actor, requestId, payload) {
+        const request = await fieldAllowanceRepository.getById(this.company(actor), requestId);
+        if (!request)
+            throw new Error('Field trip was not found');
+        if (!this.isManagement(actor) && !this.isAccounts(actor) && request.employee_id !== employeeKey(actor)) {
+            throw new Error('You are not authorized to submit balance for this field trip');
+        }
+        if (!['AMOUNT_DISTRIBUTED', 'IN_PROGRESS', 'COMPLETED'].includes(request.status)) {
+            throw new Error('Balance can only be submitted to Accounts for active or completed field visits');
+        }
+        return fieldAllowanceRepository.submitBalanceToAccounts({
+            companyId: this.company(actor),
+            requestId,
+            paymentMethod: payload.paymentMethod,
+            referenceNumber: payload.referenceNumber,
+            paymentProofPath: payload.paymentProofPath,
+            remarks: payload.remarks,
+        });
+    }
+    async confirmBalance(actor, requestId, payload) {
+        if (!this.isAccounts(actor) && !this.isManagement(actor)) {
+            throw new Error('Only Accounts, HR, or CEO can confirm balance receipt');
+        }
+        return fieldAllowanceRepository.confirmBalanceReceived({
+            companyId: this.company(actor),
+            requestId,
+            receivedBy: actor.id,
+            receivedByName: formatActorWithRole(actor),
+            paymentMethod: payload.paymentMethod,
+            referenceNumber: payload.referenceNumber,
+            paymentProofPath: payload.paymentProofPath,
+            remarks: payload.remarks,
+        });
     }
     async history(actor, filters) {
         if (!this.isAccounts(actor) && !this.isManagement(actor))

@@ -36,17 +36,17 @@ import { EmployeeSalaryEligibilityContext } from '../../types/settings';
 import { Clock } from 'lucide-react';
 
 export const PayrollManagement: React.FC = () => {
-  const { 
-    payrollRecords, 
-    processPayrollBatch, 
+  const {
+    payrollRecords,
+    processPayrollBatch,
     recalculatePayrollBatch,
     updatePayrollRecordAdvanceDeduction,
     sendPayrollRecordsToAccounts,
     markPayrollRecordsPaid,
     setActiveModule,
-    employees, 
-    currentUser, 
-    hasPermission, 
+    employees,
+    currentUser,
+    hasPermission,
     businessSettings,
     masterAttendancePolicies,
     masterLeavePolicies,
@@ -86,13 +86,13 @@ export const PayrollManagement: React.FC = () => {
   );
 
   // Define strict approval authority: CEO, Super Admin, HR Manager, HR Admin
-  const isApprovalAuthority = 
+  const isApprovalAuthority =
     ['CEO', 'Super Admin', 'HR Manager', 'HR Admin'].includes(currentUser.role) ||
     (currentUser as any).designation?.toLowerCase().includes('ceo') ||
     (currentUser as any).designation?.toLowerCase().includes('managing director');
 
   // Define Accounts Department users: Finance Manager or Accounts/Finance department/designation
-  const isAccountsUser = 
+  const isAccountsUser =
     currentUser.role === 'Finance Manager' ||
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
@@ -225,10 +225,10 @@ export const PayrollManagement: React.FC = () => {
     let records = canViewAllPayroll
       ? payrollRecords
       : payrollRecords.filter(p => {
-          const recEmpId = (p.employeeId || '').trim().toLowerCase();
-          if (myEmployeeId) return recEmpId === myEmployeeId;
-          return (p.employeeName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
-        });
+        const recEmpId = (p.employeeId || '').trim().toLowerCase();
+        if (myEmployeeId) return recEmpId === myEmployeeId;
+        return (p.employeeName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
+      });
 
     // Exclude CEO / Owner records from payroll registers and payouts
     records = records.filter(p => {
@@ -325,7 +325,7 @@ export const PayrollManagement: React.FC = () => {
   }, [visibleRecords, overtimeRequests]);
 
   const handleTogglePayslip = (id: string) => {
-    setSelectedPayslipIds(prev => 
+    setSelectedPayslipIds(prev =>
       prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
     );
   };
@@ -468,9 +468,9 @@ export const PayrollManagement: React.FC = () => {
   const resolveDepartmentName = (rawDept?: string, emp?: Employee): string => {
     const candidate = rawDept || emp?.department || emp?.departmentId;
     if (!candidate) return 'General';
-    const matched = departments.find(d => 
-      d.id === candidate || 
-      d.name.toLowerCase() === String(candidate).toLowerCase() || 
+    const matched = departments.find(d =>
+      d.id === candidate ||
+      d.name.toLowerCase() === String(candidate).toLowerCase() ||
       d.code.toLowerCase() === String(candidate).toLowerCase()
     );
     if (matched) return matched.name;
@@ -694,7 +694,7 @@ export const PayrollManagement: React.FC = () => {
     for (const d of deductions) {
       const normalizedKey = /provident|epf|\bpf\b/i.test(d.label) ? 'PF_STATUTORY'
         : /insurance|esic|\besi\b/i.test(d.label) ? 'ESI_STATUTORY'
-        : d.label.trim().toLowerCase();
+          : d.label.trim().toLowerCase();
       if (!seenDeductions.has(normalizedKey)) {
         seenDeductions.add(normalizedKey);
         uniqueDeductions.push(d);
@@ -720,14 +720,14 @@ export const PayrollManagement: React.FC = () => {
   const getPayrollExportData = () => {
     const dynamicColumns = activeEarnings.length > 0
       ? activeEarnings.map(comp => ({
-          key: comp.code.toLowerCase(),
-          label: `${comp.name}${comp.calculationMethod === 'PERCENTAGE' ? ` (${comp.defaultValue}%)` : ''}`,
-          comp
-        }))
+        key: comp.code.toLowerCase(),
+        label: `${comp.name}${comp.calculationMethod === 'PERCENTAGE' ? ` (${comp.defaultValue}%)` : ''}`,
+        comp
+      }))
       : [
-          { key: 'basicSalary', label: 'Basic Salary', comp: null },
-          { key: 'allowances', label: 'Allowances', comp: null }
-        ];
+        { key: 'basicSalary', label: 'Basic Salary', comp: null },
+        { key: 'allowances', label: 'Allowances', comp: null }
+      ];
 
     const columns = [
       { key: 'employeeId', label: 'Employee ID' },
@@ -1016,7 +1016,7 @@ export const PayrollManagement: React.FC = () => {
             )}
 
             {canViewAllPayroll && (
-              <ExportDropdown 
+              <ExportDropdown
                 onExportExcel={handleExportExcel}
                 onExportPDF={handleExportPDF}
                 onExportCSV={handleExportCSV}
@@ -1065,8 +1065,8 @@ export const PayrollManagement: React.FC = () => {
             <tbody>
               {displayedRecords.length === 0 ? (
                 <tr>
-                  <td 
-                    colSpan={isEmployeeRole ? (activeEarnings.length > 0 ? activeEarnings.length + 7 : 8) : (activeEarnings.length > 0 ? activeEarnings.length + 8 : 9)} 
+                  <td
+                    colSpan={isEmployeeRole ? (activeEarnings.length > 0 ? activeEarnings.length + 7 : 8) : (activeEarnings.length > 0 ? activeEarnings.length + 8 : 9)}
                     style={{ textAlign: 'center', padding: '36px 20px', color: '#64748B' }}
                   >
                     No payslip records found.
@@ -1082,7 +1082,7 @@ export const PayrollManagement: React.FC = () => {
                   const cal = getRecordCalendarSummary(p);
 
                   return (
-                    <tr 
+                    <tr
                       key={p.id}
                       style={{
                         backgroundColor: isSelected ? '#ECFEFF' : undefined,
@@ -1101,137 +1101,137 @@ export const PayrollManagement: React.FC = () => {
                           />
                         </td>
                       )}
-                    <td>
-                      <div>
-                        <strong>{p.employeeName}</strong>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
-                          <span style={{ fontSize: '0.72rem', color: '#64748B' }}>{p.employeeId}</span>
-                          {p.withPf === false ? (
-                            <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#FEF3C7', color: '#92400E', fontWeight: 600 }}>
-                              No PF (&lt;6M)
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#ECFDF5', color: '#065F46', fontWeight: 600 }}>
-                              PF Active
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td>{resolveDepartmentName(p.department, emp)}</td>
-                    {activeEarnings.length > 0 ? (
-                      activeEarnings.map(comp => {
-                        const val = getComponentValue(comp, p, emp);
-                        return (
-                          <td key={comp.id}>
-                            {formatCurrency(val)}
-                          </td>
-                        );
-                      })
-                    ) : (
-                      <>
-                        <td>{formatCurrency(basic)}</td>
-                        <td>+{formatCurrency(p.allowances)}</td>
-                      </>
-                    )}
-                    <td>
-                      {ot.hours > 0 || ot.amount > 0 ? (
+                      <td>
                         <div>
-                          <strong style={{ color: '#0E7490' }}>+{formatCurrency(ot.amount)}</strong>
-                          <div style={{ fontSize: '0.72rem', color: '#0369A1', fontWeight: 600 }}>
-                            {ot.hours} hrs{ot.rate > 0 ? ` @ ₹${ot.rate}/hr` : ''}
+                          <strong>{p.employeeName}</strong>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                            <span style={{ fontSize: '0.72rem', color: '#64748B' }}>{p.employeeId}</span>
+                            {p.withPf === false ? (
+                              <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#FEF3C7', color: '#92400E', fontWeight: 600 }}>
+                                No PF (&lt;6M)
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#ECFDF5', color: '#065F46', fontWeight: 600 }}>
+                                PF Active
+                              </span>
+                            )}
                           </div>
                         </div>
+                      </td>
+                      <td>{resolveDepartmentName(p.department, emp)}</td>
+                      {activeEarnings.length > 0 ? (
+                        activeEarnings.map(comp => {
+                          const val = getComponentValue(comp, p, emp);
+                          return (
+                            <td key={comp.id}>
+                              {formatCurrency(val)}
+                            </td>
+                          );
+                        })
                       ) : (
-                        <span style={{ color: '#94A3B8', fontSize: '0.82rem' }}>₹0.00 (0 hrs)</span>
+                        <>
+                          <td>{formatCurrency(basic)}</td>
+                          <td>+{formatCurrency(p.allowances)}</td>
+                        </>
                       )}
-                    </td>
-                    <td style={{ color: 'var(--accent-rose)' }}>
-                      -{formatCurrency(statutoryTax)}
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 700, color: '#0F172A' }}>
-                        {cal.totalPaidDays} / {cal.calendarDays} days
-                      </div>
-                      <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
-                        Work: {cal.workingDays} • Pres: {cal.presentDays} • WO: {cal.paidWeekOffDays}
-                        {cal.paidHolidayDays > 0 ? ` • Hol: ${cal.paidHolidayDays}` : ''}
-                        {cal.paidLeaveDays > 0 ? ` • PL: ${cal.paidLeaveDays}` : ''}
-                        {cal.lopDays > 0 ? ` • LOP: ${cal.lopDays}` : ''}
-                      </div>
-                    </td>
-                    <td><strong style={{ color: 'var(--accent-emerald)', fontSize: '0.95rem' }}>{formatCurrency(p.netSalary)}</strong></td>
-                    <td>
-                      <span
-                        className={`status-pill ${p.status === 'Paid' ? 'approved' : p.status === 'Sent to Accounts' ? 'pending' : 'cyan'}`}
-                        style={p.status === 'Sent to Accounts' ? { backgroundColor: '#FEF3C7', color: '#B45309' } : undefined}
-                      >
-                        {p.status}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => setPreviewRecord(p)}
-                          title="Payroll Preview"
-                          aria-label="Payroll Preview"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '6px 10px',
-                            borderRadius: '8px',
-                            color: '#0E7490'
-                          }}
+                      <td>
+                        {ot.hours > 0 || ot.amount > 0 ? (
+                          <div>
+                            <strong style={{ color: '#0E7490' }}>+{formatCurrency(ot.amount)}</strong>
+                            <div style={{ fontSize: '0.72rem', color: '#0369A1', fontWeight: 600 }}>
+                              {ot.hours} hrs{ot.rate > 0 ? ` @ ₹${ot.rate}/hr` : ''}
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94A3B8', fontSize: '0.82rem' }}>₹0.00 (0 hrs)</span>
+                        )}
+                      </td>
+                      <td style={{ color: 'var(--accent-rose)' }}>
+                        -{formatCurrency(statutoryTax)}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 700, color: '#0F172A' }}>
+                          {cal.totalPaidDays} / {cal.calendarDays} days
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                          Work: {cal.workingDays} • Pres: {cal.presentDays} • WO: {cal.paidWeekOffDays}
+                          {cal.paidHolidayDays > 0 ? ` • Hol: ${cal.paidHolidayDays}` : ''}
+                          {cal.paidLeaveDays > 0 ? ` • PL: ${cal.paidLeaveDays}` : ''}
+                          {cal.lopDays > 0 ? ` • LOP: ${cal.lopDays}` : ''}
+                        </div>
+                      </td>
+                      <td><strong style={{ color: 'var(--accent-emerald)', fontSize: '0.95rem' }}>{formatCurrency(p.netSalary)}</strong></td>
+                      <td>
+                        <span
+                          className={`status-pill ${p.status === 'Paid' ? 'approved' : p.status === 'Sent to Accounts' ? 'pending' : 'cyan'}`}
+                          style={p.status === 'Sent to Accounts' ? { backgroundColor: '#FEF3C7', color: '#B45309' } : undefined}
                         >
-                          <Eye size={16} />
-                        </button>
-                        <button 
-                          className="btn btn-secondary btn-sm" 
-                          onClick={() => setSelectedPayslip(p)}
-                          title="View Payslip"
-                          aria-label="View Payslip"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '6px 10px',
-                            borderRadius: '8px',
-                            color: '#0E7490'
-                          }}
-                        >
-                          <FileText size={16} />
-                        </button>
-                        {canMarkPaid && p.status !== 'Paid' && p.status !== 'Sent to Accounts' && (
+                          {p.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                           <button
                             type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() => handleMarkPaid([p.id])}
-                            title={`Send ${formatCurrency(p.netSalary)} for ${p.employeeName} to Accounts for payment distribution`}
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setPreviewRecord(p)}
+                            title="Payroll Preview"
+                            aria-label="Payroll Preview"
                             style={{
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
+                              justifyContent: 'center',
                               padding: '6px 10px',
                               borderRadius: '8px',
-                              fontSize: '0.75rem',
-                              fontWeight: 700,
-                              whiteSpace: 'nowrap',
-                              backgroundColor: '#0E7490',
-                              borderColor: '#0E7490'
+                              color: '#0E7490'
                             }}
                           >
-                            <IndianRupee size={13} /> Mark Paid
+                            <Eye size={16} />
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setSelectedPayslip(p)}
+                            title="View Payslip"
+                            aria-label="View Payslip"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '6px 10px',
+                              borderRadius: '8px',
+                              color: '#0E7490'
+                            }}
+                          >
+                            <FileText size={16} />
+                          </button>
+                          {canMarkPaid && p.status !== 'Paid' && p.status !== 'Sent to Accounts' && (
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleMarkPaid([p.id])}
+                              title={`Send ${formatCurrency(p.netSalary)} for ${p.employeeName} to Accounts for payment distribution`}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '6px 10px',
+                                borderRadius: '8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                whiteSpace: 'nowrap',
+                                backgroundColor: '#0E7490',
+                                borderColor: '#0E7490'
+                              }}
+                            >
+                              <IndianRupee size={13} /> Mark Paid
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -1392,9 +1392,9 @@ export const PayrollManagement: React.FC = () => {
                   Edit Advance Salary / Loan Recovery
                 </h3>
               </div>
-              <button 
-                type="button" 
-                onClick={() => setEditingAdvance(null)} 
+              <button
+                type="button"
+                onClick={() => setEditingAdvance(null)}
                 style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
               >
                 <X size={18} />
@@ -1427,15 +1427,15 @@ export const PayrollManagement: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary btn-sm" 
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
                   onClick={() => setEditingAdvance(null)}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-primary btn-sm"
                   style={{ backgroundColor: '#0E7490', border: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   onClick={handleSaveAdvanceDeduction}
@@ -1747,11 +1747,11 @@ export const PayrollManagement: React.FC = () => {
 
         const totalGross = basicSalary + da + conveyance + hra + attBonus + otAmount + rewardBonus;
 
-        const isWithPf = selectedPayslip.withPf !== undefined 
-          ? selectedPayslip.withPf 
+        const isWithPf = selectedPayslip.withPf !== undefined
+          ? selectedPayslip.withPf
           : (toNum(selectedPayslip.epfDeduction) > 0);
 
-        const epfDeduction = isWithPf 
+        const epfDeduction = isWithPf
           ? toNum(selectedPayslip.epfDeduction || Math.round((basicSalary + da + conveyance) * 0.12))
           : 0;
         const esiDeduction = isWithPf
@@ -1771,9 +1771,9 @@ export const PayrollManagement: React.FC = () => {
               <div className="modal-header">
                 <h2>Official Employee Payslip</h2>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button 
+                  <button
                     type="button"
-                    className="btn btn-primary btn-sm" 
+                    className="btn btn-primary btn-sm"
                     onClick={() => downloadElementAsPDF('printable-payslip-content', `Payslip_${selectedPayslip.employeeName.replace(/\s+/g, '_')}_${selectedPayslip.month}_${selectedPayslip.year}`)}
                     style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#0E7490', border: 'none' }}
                   >
@@ -1923,8 +1923,8 @@ export const PayrollManagement: React.FC = () => {
                                   </>
                                 ) : ''}
                               </td>
-                              <td style={{ 
-                                textAlign: 'right', 
+                              <td style={{
+                                textAlign: 'right',
                                 color: ded?.isRed ? 'var(--accent-rose)' : (ded?.isExempt ? '#94A3B8' : 'inherit'),
                                 fontWeight: ded?.isRed ? 600 : 400
                               }}>

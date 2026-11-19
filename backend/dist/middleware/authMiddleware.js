@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { authRepository } from '../repositories/authRepository.js';
 export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
+    const queryToken = typeof req.query?.token === 'string' ? req.query.token : null;
     const token = (authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null) || queryToken;
     if (!token) {
         res.status(401).json({
@@ -63,6 +63,19 @@ export const authenticateToken = async (req, res, next) => {
                 });
                 return;
             }
+            if (typeof currentAccount.tokenVersion === 'number' &&
+                typeof verifiedUser.tokenVersion === 'number' &&
+                verifiedUser.tokenVersion < currentAccount.tokenVersion) {
+                res.status(401).json({
+                    success: false,
+                    error: {
+                        code: 'HRMS_TOKEN_REVOKED',
+                        message: 'Your session has been revoked following a password change. Please sign in again.',
+                        details: [],
+                    },
+                });
+                return;
+            }
             verifiedUser = {
                 ...verifiedUser,
                 id: currentAccount.id,
@@ -97,7 +110,7 @@ export const authenticateToken = async (req, res, next) => {
             return;
         }
     }
-    if (verifiedUser.mustChangePassword && !req.originalUrl.endsWith('/auth/change-password')) {
+    if (verifiedUser.mustChangePassword && !req.originalUrl?.endsWith('/auth/change-password')) {
         res.status(403).json({
             success: false,
             error: {

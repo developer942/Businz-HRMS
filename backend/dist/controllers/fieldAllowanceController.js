@@ -1,5 +1,5 @@
 import { fieldAllowanceService } from '../services/fieldAllowanceService.js';
-import { fieldAllowanceDailyReportSchema, fieldAllowanceDecisionSchema, fieldAllowanceDistributionSchema, fieldAllowanceRequestSchema, } from '../validators/fieldAllowanceValidators.js';
+import { fieldAllowanceConfirmBalanceSchema, fieldAllowanceDailyReportSchema, fieldAllowanceDecisionSchema, fieldAllowanceDistributionSchema, fieldAllowanceRequestSchema, fieldAllowanceSubmitBalanceSchema, } from '../validators/fieldAllowanceValidators.js';
 const notFound = (res, message) => res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message, details: [] } });
 export class FieldAllowanceController {
     async create(req, res, next) {
@@ -98,6 +98,34 @@ export class FieldAllowanceController {
                 return;
             }
             res.json({ success: true, data, message: 'Field visit completed' });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    async submitBalance(req, res, next) {
+        try {
+            const payload = fieldAllowanceSubmitBalanceSchema.parse(req.body || {});
+            const data = await fieldAllowanceService.submitBalance(req.user, String(req.params.id), payload);
+            if (!data) {
+                notFound(res, 'Field Allowance trip not found');
+                return;
+            }
+            res.json({ success: true, data, message: 'Remaining balance submitted to Accounts' });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    async confirmBalance(req, res, next) {
+        try {
+            const payload = fieldAllowanceConfirmBalanceSchema.parse(req.body || {});
+            const data = await fieldAllowanceService.confirmBalance(req.user, String(req.params.id), payload);
+            if (!data) {
+                notFound(res, 'Field Allowance balance return not found');
+                return;
+            }
+            res.json({ success: true, data, message: 'Balance receipt confirmed by Accounts' });
         }
         catch (error) {
             next(error);
