@@ -3,6 +3,11 @@ export type FieldAllowanceDecision = 'APPROVED' | 'REJECTED' | 'CORRECTION_REQUE
 export type FieldAllowanceCategory = 'TRAVEL' | 'FOOD' | 'ROOM' | 'BUS' | 'FUEL' | 'OTHER';
 export type FieldAllowanceBalanceReturnStatus = 'NONE' | 'SUBMITTED_TO_ACCOUNTS' | 'RECEIVED_BY_ACCOUNTS';
 
+export interface FieldAllowanceDailyReport {
+  id: string; request_id: string; employee_id: string; expense_date: string; category: FieldAllowanceCategory;
+  amount: number; description: string; attachment_path?: string | null; created_at: string; updated_at: string;
+}
+
 export interface FieldAllowanceRequest {
   id: string; company_id: string; trip_code: string; employee_id: string; employee_name: string;
   department_id?: string | null; department_name: string; purpose: string; customer_site_name?: string | null;
@@ -13,12 +18,14 @@ export interface FieldAllowanceRequest {
   balance_returned_at?: string | null;
   balance_return_mode?: string | null;
   balance_return_reference?: string | null;
+  balance_return_proof_path?: string | null;
   balance_return_remarks?: string | null;
   balance_received_by_name?: string | null;
   balance_received_at?: string | null;
   decision_remarks?: string | null;
   decided_by_name?: string | null;
   decided_at?: string | null;
+  daily_reports?: FieldAllowanceDailyReport[];
   status: FieldAllowanceStatus; created_at: string; updated_at: string;
 }
 
@@ -32,11 +39,6 @@ export interface FieldAllowanceDistribution {
   distribution_date: string; payment_method: string; reference_number?: string | null; remarks?: string | null;
   payment_proof_path?: string | null;
   created_at: string; trip_code?: string; employee_name?: string; status?: FieldAllowanceStatus;
-}
-
-export interface FieldAllowanceDailyReport {
-  id: string; request_id: string; employee_id: string; expense_date: string; category: FieldAllowanceCategory;
-  amount: number; description: string; attachment_path?: string | null; created_at: string; updated_at: string;
 }
 
 export interface FieldAllowanceDetail extends FieldAllowanceRequest {

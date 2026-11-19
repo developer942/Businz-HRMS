@@ -23,6 +23,7 @@ import type {
 } from '../../types/pettyCash';
 
 import { ExportDropdown } from '../common/ExportDropdown';
+import { CalendarMonthYearFilter, matchesCalendarMonthYear } from '../common/CalendarMonthYearFilter';
 import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import './PettyCash.css';
@@ -73,6 +74,8 @@ export const PettyCashManagement: React.FC = () => {
   // Active Tab
   const defaultTab = isCEO ? 'CEO_DASHBOARD' : isAccounts ? 'ACCOUNTS_DISBURSEMENTS' : 'CUSTODIAN_DESK';
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedYear, setSelectedYear] = useState<string>('ALL');
 
   // Modals state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState<boolean>(false);
@@ -148,6 +151,19 @@ export const PettyCashManagement: React.FC = () => {
 
   const currentBalance = Number(activeAccount?.current_balance || 0);
 
+  const filteredRequests = requests.filter((r) =>
+    matchesCalendarMonthYear(r.request_date || r.created_at, selectedMonth, selectedYear)
+  );
+  const filteredDisbursements = disbursements.filter((d) =>
+    matchesCalendarMonthYear(d.payment_date || d.disbursed_at || d.created_at, selectedMonth, selectedYear)
+  );
+  const filteredExpenses = expenses.filter((e) =>
+    matchesCalendarMonthYear(e.expense_date || e.created_at, selectedMonth, selectedYear)
+  );
+  const filteredLedger = ledger.filter((l) =>
+    matchesCalendarMonthYear(l.created_at, selectedMonth, selectedYear)
+  );
+
   const expenseExportColumns: ExportColumn[] = [
     { label: 'Expense #', key: 'expense_number' },
     { label: 'Date', key: 'expense_date_formatted' },
@@ -160,7 +176,7 @@ export const PettyCashManagement: React.FC = () => {
   ];
 
   const getExpensesExportData = () => {
-    return expenses.map((e) => ({
+    return filteredExpenses.map((e) => ({
       ...e,
       expense_date_formatted: formatDateDDMMYYYY(e.expense_date),
       amount_formatted: Number(e.amount || 0).toFixed(2),
@@ -237,6 +253,14 @@ export const PettyCashManagement: React.FC = () => {
         </div>
 
         <div className="petty-cash-actions-group">
+          <CalendarMonthYearFilter
+            month={selectedMonth}
+            year={selectedYear}
+            onMonthChange={setSelectedMonth}
+            onYearChange={setSelectedYear}
+            allowAll
+          />
+
           {/* Quick Context Action Buttons for Custodian Employee only */}
           {isCustodian && !isCEO && !isAccounts && (
             <>
@@ -288,9 +312,9 @@ export const PettyCashManagement: React.FC = () => {
       {activeTab === 'CEO_DASHBOARD' && (
         <PettyCashCeoView
           activeAccount={activeAccount}
-          requests={requests}
-          expenses={expenses}
-          ledger={ledger}
+          requests={filteredRequests}
+          expenses={filteredExpenses}
+          ledger={filteredLedger}
           onOpenAssignCustodian={() => setIsAssignModalOpen(true)}
           onOpenReconcile={() => setIsReconcileModalOpen(true)}
           onSelectRequestForApproval={(req) => setSelectedRequestForApproval(req)}
@@ -302,9 +326,9 @@ export const PettyCashManagement: React.FC = () => {
       {activeTab === 'ACCOUNTS_DISBURSEMENTS' && (
         <PettyCashAccountsView
           activeAccount={activeAccount}
-          requests={requests}
-          disbursements={disbursements}
-          expenses={expenses}
+          requests={filteredRequests}
+          disbursements={filteredDisbursements}
+          expenses={filteredExpenses}
           onOpenDisburseModal={(req) => setSelectedRequestForDisburse(req)}
           onViewProof={(url, title) => setProofViewer({ isOpen: true, url, title })}
           onRefresh={loadModuleData}
@@ -314,10 +338,10 @@ export const PettyCashManagement: React.FC = () => {
       {activeTab === 'CUSTODIAN_DESK' && (
         <PettyCashCustodianView
           activeAccount={activeAccount}
-          requests={requests}
-          disbursements={disbursements}
-          expenses={expenses}
-          ledger={ledger}
+          requests={filteredRequests}
+          disbursements={filteredDisbursements}
+          expenses={filteredExpenses}
+          ledger={filteredLedger}
           onOpenRequestModal={() => setIsRequestModalOpen(true)}
           onOpenAddExpenseModal={() => setIsAddExpenseModalOpen(true)}
           onOpenConfirmReceiptModal={(disb) => setSelectedDisbursementForReceipt(disb)}

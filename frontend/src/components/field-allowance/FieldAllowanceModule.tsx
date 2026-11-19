@@ -32,6 +32,7 @@ import type {
 } from '../../types/fieldAllowance';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { ExportDropdown } from '../common/ExportDropdown';
+import { CalendarMonthYearFilter, matchesCalendarMonthYear } from '../common/CalendarMonthYearFilter';
 import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ProofViewerModal } from '../petty-cash/ProofViewerModal';
@@ -74,7 +75,7 @@ const formatInr = (value: number): string =>
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export const FieldAllowanceModule: React.FC = () => {
-  const { currentUser } = useHRMS();
+  const { currentUser, setActiveModule } = useHRMS();
   const role = currentUser.role || '';
   const isManagement = [
     'CEO',
@@ -109,6 +110,8 @@ export const FieldAllowanceModule: React.FC = () => {
   // Unified Single-Page Filter & Pagination State
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
 
@@ -164,7 +167,7 @@ export const FieldAllowanceModule: React.FC = () => {
     try {
       setBusy(true);
       const full =
-        'daily_reports' in rowOrDetail ? rowOrDetail : await fieldAllowanceService.detail(rowOrDetail.id);
+        'approvals' in rowOrDetail ? rowOrDetail : await fieldAllowanceService.detail(rowOrDetail.id);
       setEditingDetail(full);
       setSelectedDetail(null);
       setIsRequestModalOpen(true);
@@ -228,7 +231,11 @@ export const FieldAllowanceModule: React.FC = () => {
     const totalSpent =
       summary?.total_spent_amount ?? rows.reduce((sum, r) => sum + Number(r.total_spent || 0), 0);
     const totalReturned =
-      summary?.total_returned_amount ?? rows.reduce((sum, r) => sum + Number(r.returned_amount || 0), 0);
+      summary?.total_returned_amount ??
+      rows.reduce(
+        (sum, r) => sum + (r.balance_return_status === 'RECEIVED_BY_ACCOUNTS' ? Number(r.returned_amount || 0) : 0),
+        0
+      );
     const netBalance = totalDistributed - totalSpent - totalReturned;
 
     return {
@@ -246,6 +253,10 @@ export const FieldAllowanceModule: React.FC = () => {
   // Filtered rows on the unified single page
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
+      if (!matchesCalendarMonthYear(row.start_date || row.created_at, selectedMonth, selectedYear)) {
+        return false;
+      }
+
       const term = search.trim().toLowerCase();
       const matchesSearch =
         !term ||
@@ -260,7 +271,7 @@ export const FieldAllowanceModule: React.FC = () => {
       }
       return row.status === statusFilter;
     });
-  }, [rows, search, statusFilter]);
+  }, [rows, search, statusFilter, selectedMonth, selectedYear]);
 
   const paginatedRows = useMemo(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 768) {
@@ -640,8 +651,22 @@ export const FieldAllowanceModule: React.FC = () => {
             </div>
           </div>
 
-          {/* Search & Status Dropdown */}
+          {/* Calendar Month/Year Filter, Search & Status Dropdown */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <CalendarMonthYearFilter
+              month={selectedMonth}
+              year={selectedYear}
+              onMonthChange={(m) => {
+                setSelectedMonth(m);
+                setCurrentPage(1);
+              }}
+              onYearChange={(y) => {
+                setSelectedYear(y);
+                setCurrentPage(1);
+              }}
+              allowAll
+            />
+
             <div style={{ position: 'relative', minWidth: '240px', flex: 1 }}>
               <Search
                 size={16}
@@ -860,10 +885,11 @@ export const FieldAllowanceModule: React.FC = () => {
                                 <button
                                   type="button"
                                   className="btn-primary btn-sm"
-                                  onClick={() => handleQuickConfirmBalance(row)}
+                                  onClick={() => setActiveModule('accounts_payment')}
                                   disabled={busy}
+                                  title="Open Accounts Payment Disbursement to settle balance"
                                 >
-                                  <CheckCircle2 size={13} /> Receive Balance
+                                  <Send size={13} /> Settle in Accounts
                                 </button>
                                 <button
                                   type="button"
@@ -895,17 +921,17 @@ export const FieldAllowanceModule: React.FC = () => {
                                   <Eye size={13} /> View Details
                                 </button>
                               </>
-                            ) : !isManagement &&
-                              !isAccountsUser &&
-                              row.status === 'COMPLETED' &&
-                              row.balance > 0 ? (
+                            ) : row.status === 'COMPLETED' &&
+                              row.balance !== 0 &&
+                              row.balance_return_status !== 'SUBMITTED_TO_ACCOUNTS' &&
+                              row.balance_return_status !== 'RECEIVED_BY_ACCOUNTS' ? (
                               <>
                                 <button
                                   type="button"
                                   className="btn-primary btn-sm"
                                   onClick={() => handleQuickSubmitBalanceToAccounts(row)}
                                   disabled={busy}
-                                  title="Submit remaining balance to Accounts"
+                                  title="Submit remaining balance to Accounts Payment Disbursement"
                                 >
                                   <Send size={13} /> Submit to Accounts
                                 </button>
@@ -1054,7 +1080,10 @@ export const FieldAllowanceModule: React.FC = () => {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {!isManagement && !isAccountsUser && row.status === 'COMPLETED' && row.balance > 0 && (
+                      {row.status === 'COMPLETED' &&
+                        row.balance !== 0 &&
+                        row.balance_return_status !== 'SUBMITTED_TO_ACCOUNTS' &&
+                        row.balance_return_status !== 'RECEIVED_BY_ACCOUNTS' && (
                         <button
                           type="button"
                           className="btn-primary"
@@ -1062,7 +1091,7 @@ export const FieldAllowanceModule: React.FC = () => {
                           disabled={busy}
                           onClick={() => handleQuickSubmitBalanceToAccounts(row)}
                         >
-                          <Send size={14} /> Submit Balance to Accounts ({formatInr(row.balance)})
+                          <Send size={14} /> Submit Balance to Accounts ({formatInr(Math.abs(row.balance))})
                         </button>
                       )}
                       {(isAccountsUser || isManagement) && row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
@@ -1071,9 +1100,9 @@ export const FieldAllowanceModule: React.FC = () => {
                           className="btn-primary"
                           style={{ width: '100%' }}
                           disabled={busy}
-                          onClick={() => handleQuickConfirmBalance(row)}
+                          onClick={() => setActiveModule('accounts_payment')}
                         >
-                          <CheckCircle2 size={14} /> Receive Balance ({formatInr(Number(row.returned_amount || 0))})
+                          <Send size={14} /> Settle in Accounts ({formatInr(Number(row.returned_amount || Math.abs(row.balance)))})
                         </button>
                       )}
                       <button

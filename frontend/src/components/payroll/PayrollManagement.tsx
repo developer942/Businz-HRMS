@@ -8,6 +8,7 @@ import { toNum, formatCurrency } from '../../utils/numbers';
 import { downloadElementAsPDF, downloadElementAsDirectPdf, printElement, downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
+import { CalendarMonthYearFilter } from '../common/CalendarMonthYearFilter';
 import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { getMonthInfo } from '../../utils/monthUtils';
@@ -243,8 +244,8 @@ export const PayrollManagement: React.FC = () => {
       return true;
     });
 
-    // 2. Filter to active batch month and year for full payroll view
-    if (canViewAllPayroll && activeBatch) {
+    // 2. Filter to active batch month and year
+    if (activeBatch) {
       records = records.filter(p => {
         const m = (p.month || '').trim().toLowerCase();
         const y = Number(p.year);
@@ -936,61 +937,22 @@ export const PayrollManagement: React.FC = () => {
                 {!canViewAllPayroll ? 'My Payslips History' : `${activeMonthName} ${activeYear} Processed Salary Batch`}
               </h3>
             </div>
-            {canViewAllPayroll && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {/* Separate Month Selector */}
-                <select
-                  value={selectedMonth}
-                  onChange={e => {
-                    setSelectedMonth(e.target.value);
-                    setCurrentPage(1);
-                    setSelectedPayslipIds([]);
-                  }}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#0E7490',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    cursor: 'pointer',
-                    outline: 'none'
-                  }}
-                  aria-label="Select Salary Month"
-                >
-                  {ALL_MONTH_NAMES.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-
-                {/* Separate Year Selector */}
-                <select
-                  value={selectedYear}
-                  onChange={e => {
-                    setSelectedYear(Number(e.target.value));
-                    setCurrentPage(1);
-                    setSelectedPayslipIds([]);
-                  }}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#0E7490',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    cursor: 'pointer',
-                    outline: 'none'
-                  }}
-                  aria-label="Select Salary Year"
-                >
-                  {availableYears.map(yr => (
-                    <option key={yr} value={yr}>{yr}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <CalendarMonthYearFilter
+              month={selectedMonth}
+              year={selectedYear}
+              onMonthChange={(m) => {
+                setSelectedMonth(m);
+                setCurrentPage(1);
+                setSelectedPayslipIds([]);
+              }}
+              onYearChange={(y) => {
+                setSelectedYear(Number(y));
+                setCurrentPage(1);
+                setSelectedPayslipIds([]);
+              }}
+              allowAll={false}
+              years={availableYears}
+            />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>

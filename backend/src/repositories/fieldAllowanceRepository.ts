@@ -30,10 +30,22 @@ async function ensureBalanceReturnSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS balance_returned_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS balance_return_mode TEXT,
         ADD COLUMN IF NOT EXISTS balance_return_reference TEXT,
+        ADD COLUMN IF NOT EXISTS balance_return_proof_path TEXT,
         ADD COLUMN IF NOT EXISTS balance_return_remarks TEXT,
         ADD COLUMN IF NOT EXISTS balance_received_by TEXT,
         ADD COLUMN IF NOT EXISTS balance_received_by_name TEXT,
         ADD COLUMN IF NOT EXISTS balance_received_at TIMESTAMPTZ;
+    `);
+    // Ensure any completed trip that was marked RECEIVED_BY_ACCOUNTS without an Accounts reference/proof
+    // (e.g. from the old FieldAllowance table button) is placed in SUBMITTED_TO_ACCOUNTS so it appears in Accounts Payment Disbursement
+    await query(`
+      UPDATE public.field_allowance_requests
+      SET balance_return_status = 'SUBMITTED_TO_ACCOUNTS'
+      WHERE status = 'COMPLETED'
+        AND returned_amount > 0
+        AND balance_return_status = 'RECEIVED_BY_ACCOUNTS'
+        AND balance_return_reference IS NULL
+        AND balance_return_proof_path IS NULL;
     `);
     balanceReturnSchemaReady = true;
   } catch {
@@ -45,6 +57,24 @@ const mapRequest = (row: any): FieldAllowanceRequest => {
   const allocatedAmount = Number(row.allocated_amount || 0);
   const totalSpent = Number(row.total_spent || 0);
   const returnedAmount = Number(row.returned_amount || 0);
+  const returnStatus = row.balance_return_status || (returnedAmount > 0 ? 'SUBMITTED_TO_ACCOUNTS' : 'NONE');
+  // Only deduct returned_amount from balance once Accounts has actually confirmed/settled it
+  const settledReturnAmount = returnStatus === 'RECEIVED_BY_ACCOUNTS' ? returnedAmount : 0;
+
+  const rawReports = Array.isArray(row.daily_reports) ? row.daily_reports : [];
+  const dailyReports: FieldAllowanceDailyReport[] = rawReports.map((r: any) => ({
+    id: r.id,
+    request_id: r.request_id || row.id,
+    employee_id: r.employee_id || row.employee_id,
+    expense_date: dateValue(r.expense_date),
+    category: r.category,
+    amount: Number(r.amount || 0),
+    description: r.description || '',
+    attachment_path: r.attachment_path || null,
+    created_at: dateTimeValue(r.created_at),
+    updated_at: dateTimeValue(r.updated_at),
+  }));
+
   return {
     id: row.id,
     company_id: row.company_id,
@@ -66,11 +96,12 @@ const mapRequest = (row: any): FieldAllowanceRequest => {
     allocated_amount: allocatedAmount,
     total_spent: totalSpent,
     returned_amount: returnedAmount,
-    balance: allocatedAmount - totalSpent - returnedAmount,
-    balance_return_status: (row.balance_return_status || (returnedAmount > 0 ? 'SUBMITTED_TO_ACCOUNTS' : 'NONE')),
+    balance: allocatedAmount - totalSpent - settledReturnAmount,
+    balance_return_status: returnStatus,
     balance_returned_at: row.balance_returned_at ? dateTimeValue(row.balance_returned_at) : null,
     balance_return_mode: row.balance_return_mode || null,
     balance_return_reference: row.balance_return_reference || null,
+    balance_return_proof_path: row.balance_return_proof_path || null,
     balance_return_remarks: row.balance_return_remarks || null,
     balance_received_by: row.balance_received_by || null,
     balance_received_by_name: row.balance_received_by_name || null,
@@ -78,6 +109,7 @@ const mapRequest = (row: any): FieldAllowanceRequest => {
     decision_remarks: row.decision_remarks || null,
     decided_by_name: row.decided_by_name || null,
     decided_at: row.decided_at ? dateTimeValue(row.decided_at) : null,
+    daily_reports: dailyReports,
     status: row.status,
     created_at: dateTimeValue(row.created_at),
     updated_at: dateTimeValue(row.updated_at),
@@ -90,7 +122,23 @@ const requestSelect = `
     COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e WHERE e.request_id = r.id), 0) AS total_spent,
     (SELECT a.remarks FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decision_remarks,
     (SELECT a.approver_name FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decided_by_name,
-    (SELECT a.decided_at FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decided_at
+    (SELECT a.decided_at FROM public.field_allowance_approvals a WHERE a.request_id = r.id ORDER BY a.decided_at DESC LIMIT 1) AS decided_at,
+    COALESCE(
+      (SELECT json_agg(json_build_object(
+        'id', e.id,
+        'request_id', e.request_id,
+        'employee_id', e.employee_id,
+        'expense_date', e.expense_date,
+        'category', e.category,
+        'amount', e.amount,
+        'description', e.description,
+        'attachment_path', e.attachment_path,
+        'created_at', e.created_at,
+        'updated_at', e.updated_at
+      ) ORDER BY e.expense_date DESC, e.created_at DESC)
+      FROM public.field_allowance_daily_reports e WHERE e.request_id = r.id),
+      '[]'::json
+    ) AS daily_reports
   FROM public.field_allowance_requests r`;
 
 export class FieldAllowanceRepository {
@@ -242,15 +290,16 @@ export class FieldAllowanceRepository {
     requestId: string;
     paymentMethod?: string | null;
     referenceNumber?: string | null;
+    paymentProofPath?: string | null;
     remarks?: string | null;
   }): Promise<FieldAllowanceRequest | null> {
     await ensureBalanceReturnSchema();
     const current = await this.getById(input.companyId, input.requestId);
     if (!current) return null;
 
-    const unspent = Math.max(0, Number(current.allocated_amount || 0) - Number(current.total_spent || 0));
-    if (unspent <= 0) {
-      throw new Error('No remaining advance balance to submit to Accounts');
+    const diff = Math.abs(Number(current.allocated_amount || 0) - Number(current.total_spent || 0));
+    if (diff <= 0) {
+      throw new Error('No remaining advance balance or reimbursement amount to submit to Accounts');
     }
 
     const result = await query(
@@ -261,16 +310,18 @@ export class FieldAllowanceRepository {
         balance_returned_at = NOW(),
         balance_return_mode = $4,
         balance_return_reference = $5,
-        balance_return_remarks = $6,
+        balance_return_proof_path = COALESCE($6, balance_return_proof_path),
+        balance_return_remarks = $7,
         updated_at = NOW()
        WHERE company_id = $1 AND id = $2
        RETURNING id`,
       [
         input.companyId,
         input.requestId,
-        unspent,
+        diff,
         input.paymentMethod || 'Cash',
         input.referenceNumber || null,
+        input.paymentProofPath || null,
         input.remarks || 'Remaining balance submitted to Accounts after trip completion',
       ]
     );
@@ -282,6 +333,9 @@ export class FieldAllowanceRepository {
     requestId: string;
     receivedBy: string;
     receivedByName: string;
+    paymentMethod?: string | null;
+    referenceNumber?: string | null;
+    paymentProofPath?: string | null;
     remarks?: string | null;
   }): Promise<FieldAllowanceRequest | null> {
     await ensureBalanceReturnSchema();
@@ -291,11 +345,23 @@ export class FieldAllowanceRepository {
         balance_received_by = $3,
         balance_received_by_name = $4,
         balance_received_at = NOW(),
-        balance_return_remarks = COALESCE($5, balance_return_remarks),
+        balance_return_mode = COALESCE($5, balance_return_mode),
+        balance_return_reference = COALESCE($6, balance_return_reference),
+        balance_return_proof_path = COALESCE($7, balance_return_proof_path),
+        balance_return_remarks = COALESCE($8, balance_return_remarks),
         updated_at = NOW()
        WHERE company_id = $1 AND id = $2 AND returned_amount > 0
        RETURNING id`,
-      [input.companyId, input.requestId, input.receivedBy, input.receivedByName, input.remarks || null]
+      [
+        input.companyId,
+        input.requestId,
+        input.receivedBy,
+        input.receivedByName,
+        input.paymentMethod || null,
+        input.referenceNumber || null,
+        input.paymentProofPath || null,
+        input.remarks || null,
+      ]
     );
     return result.rowCount ? this.getById(input.companyId, input.requestId) : null;
   }
@@ -312,7 +378,7 @@ export class FieldAllowanceRepository {
        JOIN public.field_allowance_requests r ON r.id=d.request_id WHERE ${clauses.join(' AND ')}
        ORDER BY d.distribution_date DESC, d.created_at DESC`, values
     );
-    return result.rows.map((r: any) => ({ ...r, distributed_amount: Number(r.distributed_amount), distribution_date: dateValue(r.distribution_date), created_at: dateTimeValue(r.created_at) }));
+    return result.rows.map((r: any) => ({ ...r, distributed_amount: Number(r.distributed_amount), distribution_date: dateValue(r.distribution_date), created_at: dateTimeValue(rowDate(r.created_at)) }));
   }
 
   async summary(companyId: string): Promise<FieldAllowanceSummary> {
@@ -324,7 +390,7 @@ export class FieldAllowanceRepository {
         COALESCE((SELECT SUM(d.distributed_amount) FROM public.field_allowance_distributions d JOIN public.field_allowance_requests x ON x.id=d.request_id WHERE x.company_id=$1),0) AS total_distributed_amount,
         COUNT(*) FILTER (WHERE status IN ('AMOUNT_DISTRIBUTED','IN_PROGRESS'))::int AS active_trips,
         COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e JOIN public.field_allowance_requests x ON x.id=e.request_id WHERE x.company_id=$1),0) AS total_spent_amount,
-        COALESCE((SELECT SUM(x.returned_amount) FROM public.field_allowance_requests x WHERE x.company_id=$1),0) AS total_returned_amount
+        COALESCE((SELECT SUM(x.returned_amount) FROM public.field_allowance_requests x WHERE x.company_id=$1 AND x.balance_return_status='RECEIVED_BY_ACCOUNTS'),0) AS total_returned_amount
        FROM public.field_allowance_requests WHERE company_id=$1`, [companyId]
     );
     const r = result.rows[0] || {};
@@ -336,5 +402,7 @@ export class FieldAllowanceRepository {
     };
   }
 }
+
+const rowDate = (v: unknown) => v;
 
 export const fieldAllowanceRepository = new FieldAllowanceRepository();

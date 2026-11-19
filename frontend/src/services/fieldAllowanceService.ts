@@ -41,9 +41,9 @@ export const fieldAllowanceService = {
   addDailyReport: (id: string, payload: { expenseDate: string; category: string; amount: number; description: string; attachmentPath?: string }) =>
     request(`/requests/${id}/daily-reports`, { method: 'POST', body: JSON.stringify(payload) }),
   complete: (id: string) => request<FieldAllowanceRequest>(`/requests/${id}/complete`, { method: 'POST' }),
-  submitBalance: (id: string, payload: { paymentMethod?: string; referenceNumber?: string; remarks?: string } = {}) =>
+  submitBalance: (id: string, payload: { paymentMethod?: string; referenceNumber?: string; paymentProofPath?: string; remarks?: string } = {}) =>
     request<FieldAllowanceRequest>(`/requests/${id}/submit-balance`, { method: 'POST', body: JSON.stringify(payload) }),
-  confirmBalance: (id: string, payload: { remarks?: string } = {}) =>
+  confirmBalance: (id: string, payload: { paymentMethod?: string; referenceNumber?: string; paymentProofPath?: string; remarks?: string } = {}) =>
     request<FieldAllowanceRequest>(`/requests/${id}/confirm-balance`, { method: 'POST', body: JSON.stringify(payload) }),
   summary: () => request<FieldAllowanceSummary>('/summary'),
   distributions: (filters: { search?: string; startDate?: string; endDate?: string } = {}) =>

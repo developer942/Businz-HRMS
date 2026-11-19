@@ -75,7 +75,9 @@ export const rejectExpenseApi = async (id: string, rejectionReason: string): Pro
 export const disburseExpenseApi = async (id: string, details: {
   amountPaid: number;
   paymentMode: string;
+  paymentDate?: string;
   transactionRef?: string;
+  paymentProofPath?: string;
   remarks?: string;
 }): Promise<Expense> => {
   const token = getToken();

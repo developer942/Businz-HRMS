@@ -14,6 +14,19 @@ export type FieldAllowanceDecision = 'APPROVED' | 'REJECTED' | 'CORRECTION_REQUE
 export type FieldAllowanceCategory = 'TRAVEL' | 'FOOD' | 'ROOM' | 'BUS' | 'FUEL' | 'OTHER';
 export type FieldAllowanceBalanceReturnStatus = 'NONE' | 'SUBMITTED_TO_ACCOUNTS' | 'RECEIVED_BY_ACCOUNTS';
 
+export interface FieldAllowanceDailyReport {
+  id: string;
+  request_id: string;
+  employee_id: string;
+  expense_date: string;
+  category: FieldAllowanceCategory;
+  amount: number;
+  description: string;
+  attachment_path?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FieldAllowanceRequest {
   id: string;
   company_id: string;
@@ -40,6 +53,7 @@ export interface FieldAllowanceRequest {
   balance_returned_at?: string | null;
   balance_return_mode?: string | null;
   balance_return_reference?: string | null;
+  balance_return_proof_path?: string | null;
   balance_return_remarks?: string | null;
   balance_received_by?: string | null;
   balance_received_by_name?: string | null;
@@ -47,6 +61,7 @@ export interface FieldAllowanceRequest {
   decision_remarks?: string | null;
   decided_by_name?: string | null;
   decided_at?: string | null;
+  daily_reports?: FieldAllowanceDailyReport[];
   status: FieldAllowanceStatus;
   created_at: string;
   updated_at: string;
@@ -75,19 +90,6 @@ export interface FieldAllowanceDistribution {
   payment_proof_path?: string | null;
   remarks?: string | null;
   created_at: string;
-}
-
-export interface FieldAllowanceDailyReport {
-  id: string;
-  request_id: string;
-  employee_id: string;
-  expense_date: string;
-  category: FieldAllowanceCategory;
-  amount: number;
-  description: string;
-  attachment_path?: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface FieldAllowanceDetail extends FieldAllowanceRequest {

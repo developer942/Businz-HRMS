@@ -10648,7 +10648,35 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true };
   };
 
-  const approveExpense = (id: string, approvedBy: string, nextStatus: Expense['status']) => {
+  const approveExpense = (
+    id: string,
+    approvedBy: string,
+    nextStatus: Expense['status'],
+    options?: {
+      rejectionReason?: string;
+      paymentDetails?: {
+        amountPaid: number;
+        paymentMode: 'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque';
+        transactionRef?: string;
+        remarks?: string;
+        paymentProofUrl?: string;
+      };
+    }
+  ) => {
+    const roleLower = String(currentUser.role || '').trim().toLowerCase();
+    const desigLower = String((currentUser as any).designation || '').trim().toLowerCase();
+    const deptLower = String(currentUser.department || '').trim().toLowerCase();
+    const roleTag =
+      roleLower === 'ceo' || roleLower === 'super admin' || desigLower.includes('ceo') || desigLower.includes('managing director')
+        ? 'CEO'
+        : roleLower.includes('hr') || desigLower.includes('hr') || deptLower.includes('hr')
+        ? 'HR'
+        : roleLower.includes('finance') || roleLower.includes('account') || deptLower.includes('account') || deptLower.includes('finance')
+        ? 'Accounts'
+        : currentUser.role || 'CEO';
+    const rawApprover = (approvedBy || currentUser.name || roleTag).trim();
+    const formattedApprover = rawApprover.includes('(') ? rawApprover : `${rawApprover} (${roleTag})`;
+
     const targetExp = expenses.find(e => e.id === id);
     setExpenses(prev => prev.map(e => {
       if (e.id !== id) return e;
@@ -10657,19 +10685,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return {
           ...e,
           status: nextStatus,
-          approvedBy: e.approvedBy || approvedBy,
-          reimbursedBy: approvedBy,
-          reimbursedDate: new Date().toISOString().split('T')[0]
+          approvedBy: e.approvedBy || formattedApprover,
+          reimbursedBy: formattedApprover,
+          reimbursedDate: new Date().toISOString().split('T')[0],
+          disbursedAmount: options?.paymentDetails?.amountPaid ?? e.amount,
+          paymentMode: options?.paymentDetails?.paymentMode ?? e.paymentMode,
+          transactionRef: options?.paymentDetails?.transactionRef ?? e.transactionRef,
+          paymentProofUrl: options?.paymentDetails?.paymentProofUrl ?? e.paymentProofUrl,
+          paymentRemarks: options?.paymentDetails?.remarks ?? e.paymentRemarks,
         };
       }
-      return { ...e, status: nextStatus, approvedBy };
+      return {
+        ...e,
+        status: nextStatus,
+        approvedBy: formattedApprover,
+        approvedAt: new Date().toISOString().split('T')[0],
+        ...(options?.rejectionReason ? { rejectionReason: options.rejectionReason } : {}),
+      };
     }));
     if (id.length === 36) {
-      supabaseDirect.updateExpenseStatus(id, nextStatus, approvedBy).catch(() => { });
+      supabaseDirect.updateExpenseStatus(id, nextStatus, formattedApprover).catch(() => { });
       if (nextStatus === 'Approved') {
         approveExpenseApi(id).catch(() => { });
       } else if (nextStatus === 'Rejected') {
-        rejectExpenseApi(id, `Rejected by ${approvedBy}`).catch(() => { });
+        rejectExpenseApi(id, options?.rejectionReason || `Rejected by ${formattedApprover}`).catch(() => { });
       }
     }
 
@@ -13182,18 +13221,34 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
     ].join('|').toLowerCase();
 
     if (Array.isArray(rawExpenses) && rawExpenses.length > 0) {
-      const mappedExpenses = rawExpenses.map((exp: any) => ({
-        id: exp.id,
-        employeeId: exp.employeeId || exp.employee?.employee_id || exp.employee_id,
-        employeeName: exp.employeeName || (exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff'),
-        department: exp.department || exp.employee?.department_id || 'General',
-        category: exp.category || 'Travel',
-        amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0)),
-        date: exp.date,
-        description: exp.description || '',
-        receiptUrl: exp.receiptUrl || exp.receipt_url || '',
-        status: exp.status || 'Pending'
-      }));
+      const savedById = new Map<string, Expense>();
+      savedExpenses.forEach((s: Expense) => {
+        if (s?.id) savedById.set(s.id, s);
+      });
+      const mappedExpenses = rawExpenses.map((exp: any) => {
+        const savedMatch = savedById.get(exp.id);
+        return {
+          id: exp.id,
+          employeeId: exp.employeeId || exp.employee?.employee_id || exp.employee_id,
+          employeeName: exp.employeeName || (exp.employee ? `${exp.employee.first_name || ''} ${exp.employee.last_name || ''}`.trim() : 'Staff'),
+          department: exp.department || exp.employee?.department_id || 'General',
+          category: exp.category || 'Travel',
+          amount: Math.min(100000, Math.max(0, Number(exp.amount) || 0)),
+          date: exp.date,
+          description: exp.description || '',
+          receiptUrl: exp.receiptUrl || exp.receipt_url || savedMatch?.receiptUrl || '',
+          status: exp.status || 'Pending',
+          approvedBy: exp.approvedBy || exp.approved_by_name || savedMatch?.approvedBy,
+          approvedAt: exp.approvedAt || exp.approved_at || savedMatch?.approvedAt,
+          reimbursedBy: exp.reimbursedBy || exp.disbursed_by_name || savedMatch?.reimbursedBy,
+          reimbursedDate: exp.reimbursedDate || exp.disbursed_at?.slice?.(0, 10) || savedMatch?.reimbursedDate,
+          paymentMode: exp.paymentMode || exp.payment_mode || savedMatch?.paymentMode,
+          transactionRef: exp.transactionRef || exp.transaction_ref || savedMatch?.transactionRef,
+          paymentProofUrl: exp.paymentProofPath || exp.payment_proof_path || exp.paymentProofUrl || savedMatch?.paymentProofUrl,
+          paymentRemarks: exp.disbursementRemarks || exp.disbursement_remarks || exp.paymentRemarks || savedMatch?.paymentRemarks,
+          disbursedAmount: exp.disbursedAmount || exp.disbursed_amount || savedMatch?.disbursedAmount,
+        };
+      });
       const savedOnlyExpenses = savedExpenses.filter((exp: Expense) => (
         exp?.id &&
         !mappedExpenses.some((dbExp: Expense) => dbExp.id === exp.id || expenseKey(dbExp) === expenseKey(exp))

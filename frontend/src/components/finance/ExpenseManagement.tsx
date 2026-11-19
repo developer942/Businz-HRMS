@@ -30,6 +30,7 @@ import { toNum, formatCurrency } from '../../utils/numbers';
 import { formatDateDDMMYYYY, isValidISODate } from '../../utils/dateUtils';
 import { downloadPDF, downloadCSV, downloadExcel, ExportColumn } from '../../utils/exportUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
+import { CalendarMonthYearFilter, matchesCalendarMonthYear } from '../common/CalendarMonthYearFilter';
 import { Expense } from '../../types/hrms';
 import { 
   getTodayKolkata, 
@@ -88,6 +89,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [scopeTab, setScopeTab] = useState<'all' | 'my' | 'approved'>(isEmployeeRole ? 'my' : (isAccountsOnly ? 'approved' : 'all'));
 
   // Multi-row selection
@@ -300,6 +303,11 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
         if (!isUserExpense(exp)) return false;
       }
 
+      // Month & Year filter
+      if (!matchesCalendarMonthYear(exp.date, selectedMonth, selectedYear)) {
+        return false;
+      }
+
       // Category filter
       if (categoryFilter !== 'ALL' && exp.category !== categoryFilter) {
         return false;
@@ -326,7 +334,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
 
       return true;
     });
-  }, [expenses, scopeTab, isEmployeeRole, userEmpId, userName, categoryFilter, statusFilter, searchQuery]);
+  }, [expenses, scopeTab, isEmployeeRole, userEmpId, userName, selectedMonth, selectedYear, categoryFilter, statusFilter, searchQuery]);
 
   // Pagination calculation
   const totalEntries = filteredExpenses.length;
@@ -711,8 +719,16 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ openAddMod
             </button>
           </div>
 
-          {/* Search & Category Filter */}
+          {/* Calendar Month/Year Filter, Search & Category Filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <CalendarMonthYearFilter
+              month={selectedMonth}
+              year={selectedYear}
+              onMonthChange={(m) => { setSelectedMonth(m); setCurrentPage(1); }}
+              onYearChange={(y) => { setSelectedYear(y); setCurrentPage(1); }}
+              allowAll
+            />
+
             <div style={{ position: 'relative', minWidth: '220px' }}>
               <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
               <input
