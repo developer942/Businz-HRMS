@@ -49,6 +49,19 @@ export class MetaApiClient {
         return null;
     }
     /**
+     * Normalizes phone number to E.164 digits (e.g., 10-digit Indian number 9087153885 -> 919087153885)
+     */
+    normalizeRecipientPhone(to) {
+        let digits = String(to || '').replace(/\D/g, '');
+        if (digits.length === 11 && digits.startsWith('0')) {
+            digits = digits.slice(1);
+        }
+        if (digits.length === 10 && /^[6-9]\d{9}$/.test(digits)) {
+            digits = `91${digits}`;
+        }
+        return digits;
+    }
+    /**
      * Sends an outbound text message
      */
     async sendTextMessage(to, text, companyId = 'company-a') {
@@ -56,7 +69,7 @@ export class MetaApiClient {
         if (!config) {
             return { success: false, error: 'WhatsApp Meta credentials not configured' };
         }
-        const cleanTo = to.replace(/\D/g, '');
+        const cleanTo = this.normalizeRecipientPhone(to);
         const url = `${this.baseUrl}/${config.phoneNumberId}/messages`;
         try {
             const res = await fetch(url, {
@@ -75,9 +88,15 @@ export class MetaApiClient {
             });
             const data = await res.json();
             if (!res.ok) {
+                const errCode = data?.error?.code;
+                const errMsg = data?.error?.error_data?.details ||
+                    data?.error?.error_user_msg ||
+                    data?.error?.message ||
+                    `Meta API Error (${res.status})`;
                 return {
                     success: false,
-                    error: data?.error?.message || `Meta API Error (${res.status})`
+                    error: errCode ? `[Meta #${errCode}] ${errMsg}` : errMsg,
+                    errorCode: errCode
                 };
             }
             const wamid = data?.messages?.[0]?.id;
@@ -98,7 +117,7 @@ export class MetaApiClient {
         if (!config) {
             return { success: false, error: 'WhatsApp Meta credentials not configured' };
         }
-        const cleanTo = to.replace(/\D/g, '');
+        const cleanTo = this.normalizeRecipientPhone(to);
         const url = `${this.baseUrl}/${config.phoneNumberId}/messages`;
         try {
             const res = await fetch(url, {
@@ -121,9 +140,14 @@ export class MetaApiClient {
             });
             const data = await res.json();
             if (!res.ok) {
+                const errCode = data?.error?.code;
+                const errMsg = data?.error?.error_data?.details ||
+                    data?.error?.error_user_msg ||
+                    data?.error?.message ||
+                    `Meta API Template Error (${res.status})`;
                 return {
                     success: false,
-                    error: data?.error?.message || `Meta API Template Error (${res.status})`
+                    error: errCode ? `[Meta #${errCode}] ${errMsg}` : errMsg
                 };
             }
             const wamid = data?.messages?.[0]?.id;

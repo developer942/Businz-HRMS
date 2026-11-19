@@ -33,6 +33,7 @@ crmRouter.get('/tags', requirePermission('customer_data', 'view'), (req, res) =>
 crmRouter.post('/tags', requirePermission('customer_data', 'create'), (req, res) => crmController.createTag(req, res));
 // 4. Conversations
 crmRouter.get('/conversations', requirePermission('customer_data', 'view'), (req, res) => crmController.getConversations(req, res));
+crmRouter.post('/conversations', requirePermission('customer_data', 'view'), (req, res) => crmController.startOrGetConversation(req, res));
 crmRouter.get('/conversations/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getConversationById(req, res));
 crmRouter.put('/conversations/:id/assign', requirePermission('customer_data', 'edit'), (req, res) => crmController.assignConversation(req, res));
 crmRouter.post('/conversations/:id/read', requirePermission('customer_data', 'edit'), (req, res) => crmController.markAsRead(req, res));

@@ -169,6 +169,17 @@ export const crmService = {
     return data.data || null;
   },
 
+  async startOrGetConversation(contactId: string): Promise<CrmConversation> {
+    const res = await fetch(`${getApiBase()}/conversations`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ contactId })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to start conversation');
+    return data.data;
+  },
+
   async assignConversation(id: string, employeeId?: string | null, employeeName?: string | null): Promise<boolean> {
     const res = await fetch(`${getApiBase()}/conversations/${id}/assign`, {
       method: 'PUT',

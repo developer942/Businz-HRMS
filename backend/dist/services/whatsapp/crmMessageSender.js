@@ -53,8 +53,40 @@ export class CrmMessageSender {
         }
         // Ensure conversation exists
         const conv = await crmRepository.getOrCreateConversation(contact.id, companyId);
+        // Resolve template metadata (exact language code e.g. en_US and bodyText) from database if available
+        let effectiveLanguage = language || 'en_US';
+        let renderedBodyText = `[Template: ${templateName}]`;
+        try {
+            const templates = await crmRepository.getTemplates(companyId, { search: templateName });
+            const matchedTmpl = templates.find(t => t.name.toLowerCase() === templateName.toLowerCase().trim());
+            if (matchedTmpl) {
+                if (matchedTmpl.language) {
+                    effectiveLanguage = matchedTmpl.language;
+                }
+                if (matchedTmpl.bodyText) {
+                    let body = matchedTmpl.bodyText;
+                    const bodyComp = Array.isArray(components)
+                        ? components.find((c) => String(c?.type || '').toLowerCase() === 'body')
+                        : null;
+                    const paramsList = Array.isArray(bodyComp?.parameters) ? bodyComp.parameters : [];
+                    paramsList.forEach((p, idx) => {
+                        const val = p?.text ?? '';
+                        body = body.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), String(val));
+                    });
+                    renderedBodyText = body;
+                }
+            }
+            else if (templateName.toLowerCase().trim() === 'hello_world' && (!language || language === 'en')) {
+                effectiveLanguage = 'en_US';
+                renderedBodyText =
+                    'Hello World\nWelcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.';
+            }
+        }
+        catch {
+            // Fallback to provided language
+        }
         // Call Meta Graph API
-        const metaRes = await metaApiClient.sendTemplateMessage(contact.phone, templateName, language, components, companyId);
+        const metaRes = await metaApiClient.sendTemplateMessage(contact.phone, templateName, effectiveLanguage, components, companyId);
         const status = metaRes.success ? 'sent' : 'failed';
         const failureReason = metaRes.error || null;
         const wamid = metaRes.wamid || null;
@@ -65,6 +97,7 @@ export class CrmMessageSender {
             senderType: 'agent',
             senderId: agentEmployeeId || 'AGENT-DEFAULT',
             contentType: 'template',
+            contentText: renderedBodyText,
             templateName,
             templateVariables: { components },
             wamid: wamid || undefined,

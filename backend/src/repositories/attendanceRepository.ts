@@ -33,6 +33,83 @@ export class AttendancePunchError extends Error {
 
 let attendanceSchemaEnsured = false;
 
+const serverReverseGeocodeCache = new Map<string, string>();
+
+const isGenericPlaceholderLocation = (addr?: string | null): boolean => {
+  if (!addr) return true;
+  const clean = String(addr).trim().toLowerCase();
+  if (!clean || clean === '—' || clean === '-' || clean === 'n/a') return true;
+  if (
+    clean === 'hq office' ||
+    clean === 'plant hq' ||
+    clean === 'main plant hq' ||
+    clean === 'verified office geofence' ||
+    clean === 'daily field work (gps verified)' ||
+    clean === 'daily field work (flexible attendance)' ||
+    clean === 'field work (gps)' ||
+    clean === 'field work' ||
+    clean === 'field visit' ||
+    clean === 'field duty' ||
+    clean === 'authorized field duty' ||
+    clean === 'authorized field duty site' ||
+    clean === 'location pending' ||
+    clean === 'client site' ||
+    clean === 'client location' ||
+    clean === 'current location'
+  ) {
+    return true;
+  }
+  if (clean.startsWith('live gps (') || clean.startsWith('authorized field duty')) {
+    return true;
+  }
+  return false;
+};
+
+const reverseGeocodeOnServer = async (lat?: number | null, lng?: number | null): Promise<string | null> => {
+  if (
+    typeof lat !== 'number' ||
+    typeof lng !== 'number' ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    (lat === 0 && lng === 0)
+  ) {
+    return null;
+  }
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = serverReverseGeocodeCache.get(cacheKey);
+  if (cached) return cached;
+
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+    return null;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2200);
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      {
+        headers: {
+          'User-Agent': 'BusinzHRMS/1.0 (https://hrms.businz.com)',
+          'Accept-Language': 'en',
+        },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data: any = await resp.json();
+    const displayName = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
+    if (displayName) {
+      serverReverseGeocodeCache.set(cacheKey, displayName);
+      return displayName;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 export class AttendanceRepository {
   private mapRowToAttendance(row: any, empCode?: string, empName?: string): AttendanceLogRecord {
     const formatTime = (val?: string | Date | null) => {
@@ -76,13 +153,27 @@ export class AttendanceRepository {
     const rawStatus = String(row.status || 'Present');
     const lateDuration = Number(row.late_duration_minutes ?? parsedNotes?.lateDurationMinutes ?? 0);
     const rawLateStatus = String(row.late_status || (rawStatus === 'Late' ? 'Late' : 'On Time'));
-    const baseLocationAddress = row.location_address || 'Main Plant HQ';
-    const checkInLocation = row.check_in
-      ? String(parsedNotes?.checkInLocation || row.check_in_location || baseLocationAddress).trim()
-      : undefined;
-    const checkOutLocation = row.check_out
-      ? String(parsedNotes?.checkOutLocation || row.check_out_location || baseLocationAddress).trim()
-      : undefined;
+    const baseLocationAddress =
+      (row.location_address && !isGenericPlaceholderLocation(row.location_address) ? row.location_address : '') ||
+      (parsedNotes?.checkInLocation && !isGenericPlaceholderLocation(parsedNotes.checkInLocation) ? parsedNotes.checkInLocation : '') ||
+      row.location_address ||
+      'Main Plant HQ';
+    const rawInCandidate =
+      (!isGenericPlaceholderLocation(parsedNotes?.checkInLocation) && parsedNotes?.checkInLocation) ||
+      (!isGenericPlaceholderLocation(row.check_in_location) && row.check_in_location) ||
+      (!isGenericPlaceholderLocation(row.location_address) && row.location_address) ||
+      parsedNotes?.checkInLocation ||
+      row.check_in_location ||
+      baseLocationAddress;
+    const rawOutCandidate =
+      (!isGenericPlaceholderLocation(parsedNotes?.checkOutLocation) && parsedNotes?.checkOutLocation) ||
+      (!isGenericPlaceholderLocation(row.check_out_location) && row.check_out_location) ||
+      (!isGenericPlaceholderLocation(row.location_address) && row.location_address) ||
+      parsedNotes?.checkOutLocation ||
+      row.check_out_location ||
+      baseLocationAddress;
+    const checkInLocation = row.check_in ? String(rawInCandidate || '').trim() : undefined;
+    const checkOutLocation = row.check_out ? String(rawOutCandidate || '').trim() : undefined;
 
     return {
       id: row.id,
@@ -562,6 +653,10 @@ export class AttendanceRepository {
       ? createHash('sha256').update(params.photoBase64).digest('hex')
       : undefined;
 
+    const serverGeocodedAddress = isGenericPlaceholderLocation(params.locationAddress)
+      ? await reverseGeocodeOnServer(params.locationLat, params.locationLng)
+      : null;
+
     return withTransaction(async (client) => {
       // 1. Lock employee row and load profile + department metadata
       const empResult = await client.query<{
@@ -773,9 +868,14 @@ export class AttendanceRepository {
         const finalStatus = isFlexibleWorker ? 'Present' : lateEval.status;
         const finalLateStatus = isFlexibleWorker ? 'On-Time' : lateEval.lateStatus;
         const finalLateMins = isFlexibleWorker ? 0 : lateEval.lateDurationMinutes;
+        const cleanClientInAddr = !isGenericPlaceholderLocation(params.locationAddress)
+          ? String(params.locationAddress).trim()
+          : null;
         const resolvedInAddress =
+          cleanClientInAddr ||
+          serverGeocodedAddress ||
           params.locationAddress ||
-          (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence');
+          'Verified Office Geofence';
         const rawNotesInput =
           params.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : lateEval.notes);
         let finalNotes = rawNotesInput;
@@ -886,8 +986,20 @@ export class AttendanceRepository {
         );
         const calculatedOtHours = otMins >= 30 ? Number((otMins / 60).toFixed(2)) : 0;
 
+        const cleanClientOutAddr = !isGenericPlaceholderLocation(params.locationAddress)
+          ? String(params.locationAddress).trim()
+          : null;
         const resolvedOutAddress =
-          params.locationAddress || currentRow.location_address || 'Verified Office Geofence';
+          cleanClientOutAddr ||
+          serverGeocodedAddress ||
+          (!isGenericPlaceholderLocation(currentRow.location_address) ? currentRow.location_address : null) ||
+          params.locationAddress ||
+          currentRow.location_address ||
+          'Verified Office Geofence';
+        const upgradedBaseAddress =
+          !isGenericPlaceholderLocation(currentRow.location_address)
+            ? currentRow.location_address
+            : resolvedOutAddress;
         let updatedNotes = currentRow.notes || null;
         try {
           let existingNotesObj: Record<string, any> = {};
@@ -896,10 +1008,15 @@ export class AttendanceRepository {
           } else if (typeof currentRow.notes === 'string' && currentRow.notes.trim()) {
             existingNotesObj = { note: currentRow.notes };
           }
+          const preservedInLocation =
+            (!isGenericPlaceholderLocation(existingNotesObj.checkInLocation) && existingNotesObj.checkInLocation) ||
+            (!isGenericPlaceholderLocation(currentRow.location_address) && currentRow.location_address) ||
+            existingNotesObj.checkInLocation ||
+            currentRow.location_address ||
+            resolvedOutAddress;
           updatedNotes = JSON.stringify({
             ...existingNotesObj,
-            checkInLocation:
-              existingNotesObj.checkInLocation || currentRow.location_address || resolvedOutAddress,
+            checkInLocation: preservedInLocation,
             checkOutLocation: resolvedOutAddress,
           });
         } catch {
@@ -915,7 +1032,7 @@ export class AttendanceRepository {
                calculated_ot_hours = $6,
                location_lat = COALESCE($7, location_lat),
                location_lng = COALESCE($8, location_lng),
-               location_address = COALESCE(location_address, $9),
+               location_address = COALESCE($9, location_address),
                notes = COALESCE($10, notes),
                updated_at = NOW()
            WHERE id = $1
@@ -929,7 +1046,7 @@ export class AttendanceRepository {
             calculatedOtHours,
             params.locationLat ?? null,
             params.locationLng ?? null,
-            params.locationAddress || null,
+            upgradedBaseAddress || null,
             updatedNotes,
           ]
         );

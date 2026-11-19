@@ -13198,6 +13198,27 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
             seenRecentKeys.add(compKey);
           }
           const recentRec = isRecentValid ? recentEntry!.record : undefined;
+          const isPlaceholderLoc = (val?: string | null) => {
+            if (!val) return true;
+            const low = String(val).trim().toLowerCase();
+            return (
+              !low ||
+              low === 'hq office' ||
+              low === 'plant hq' ||
+              low === 'main plant hq' ||
+              low === 'verified office geofence' ||
+              low === 'daily field work (gps verified)' ||
+              low === 'daily field work (flexible attendance)' ||
+              low === 'field work (gps)' ||
+              low === 'field work' ||
+              low === 'location pending' ||
+              low.startsWith('live gps (')
+            );
+          };
+          const pickRealLoc = (...vals: Array<string | undefined | null>) => {
+            const real = vals.find(v => v && !isPlaceholderLoc(v));
+            return real || vals.find(Boolean) || undefined;
+          };
 
           return {
             ...rec,
@@ -13208,8 +13229,8 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
             checkOut: rec.checkOut || recentRec?.checkOut || prevRec?.checkOut || null,
             checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
             checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
-            checkInLocation: recentRec?.checkInLocation || rec.checkInLocation || prevRec?.checkInLocation,
-            checkOutLocation: recentRec?.checkOutLocation || rec.checkOutLocation || prevRec?.checkOutLocation,
+            checkInLocation: pickRealLoc(rec.checkInLocation, recentRec?.checkInLocation, prevRec?.checkInLocation),
+            checkOutLocation: pickRealLoc(rec.checkOutLocation, recentRec?.checkOutLocation, prevRec?.checkOutLocation),
             workingHours: Math.max(Number(rec.workingHours || 0), Number(recentRec?.workingHours || 0), Number(prevRec?.workingHours || 0)),
           };
         });

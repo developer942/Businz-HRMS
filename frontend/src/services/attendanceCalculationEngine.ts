@@ -1340,6 +1340,29 @@ export function buildEmployeeMonthlyAttendanceCalendar(
           ? existingHrs
           : Math.max(existingHrs, recHrs);
 
+      const isGenericLoc = (val?: string | null) => {
+        if (!val) return true;
+        const low = String(val).trim().toLowerCase();
+        return (
+          !low ||
+          low === 'hq office' ||
+          low === 'plant hq' ||
+          low === 'main plant hq' ||
+          low === 'verified office geofence' ||
+          low === 'daily field work (gps verified)' ||
+          low === 'daily field work (flexible attendance)' ||
+          low === 'field work (gps)' ||
+          low === 'field work' ||
+          low === 'location pending' ||
+          low.startsWith('live gps (')
+        );
+      };
+      const pickBestLoc = (...candidates: Array<string | undefined | null>) => {
+        const real = candidates.find(c => c && !isGenericLoc(c));
+        if (real) return real;
+        return candidates.find(Boolean) || undefined;
+      };
+
       attByDate.set(dIso, {
         ...base,
         date: dIso,
@@ -1349,16 +1372,18 @@ export function buildEmployeeMonthlyAttendanceCalendar(
         workingHours: finalHours > 0 ? finalHours : Number(base.workingHours || 0),
         checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
         checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto,
-        checkInLocation:
-          existing.checkInLocation ||
-          rec.checkInLocation ||
-          existing.location?.address ||
-          rec.location?.address,
-        checkOutLocation:
-          rec.checkOutLocation ||
-          existing.checkOutLocation ||
-          rec.location?.address ||
+        checkInLocation: pickBestLoc(
+          existing.checkInLocation,
+          rec.checkInLocation,
           existing.location?.address,
+          rec.location?.address
+        ),
+        checkOutLocation: pickBestLoc(
+          rec.checkOutLocation,
+          existing.checkOutLocation,
+          rec.location?.address,
+          existing.location?.address
+        ),
       });
     }
   }

@@ -76,32 +76,49 @@ const formatFullHumanDate = (dateRaw?: string): string => {
 const isGenericPlaceholderAddress = (addr?: string | null): boolean => {
   if (!addr) return true;
   const clean = String(addr).trim().toLowerCase();
-  return (
-    !clean ||
+  if (!clean || clean === '—' || clean === '-' || clean === 'n/a') return true;
+  if (
     clean === 'hq office' ||
     clean === 'plant hq' ||
     clean === 'main plant hq' ||
     clean === 'verified office geofence' ||
     clean === 'daily field work (gps verified)' ||
     clean === 'daily field work (flexible attendance)' ||
+    clean === 'field work (gps)' ||
+    clean === 'field work' ||
+    clean === 'field visit' ||
+    clean === 'field duty' ||
+    clean === 'authorized field duty' ||
+    clean === 'authorized field duty site' ||
+    clean === 'field site' ||
+    clean === 'client site' ||
+    clean === 'client location' ||
+    clean === 'current location' ||
     clean === 'location pending'
-  );
+  ) {
+    return true;
+  }
+  if (clean.startsWith('live gps (') || clean.startsWith('authorized field duty')) {
+    return true;
+  }
+  return false;
 };
 
 const reverseGeocodeCoordinates = async (
   lat: number,
   lng: number,
   officePrefix?: string,
-  timeoutMs = 1800
+  timeoutMs = 2200
 ): Promise<string | null> => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
     return null;
   }
+  const cleanPrefix = officePrefix && !isGenericPlaceholderAddress(officePrefix) ? officePrefix.trim() : undefined;
   const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
   const cached = reverseGeocodeMemoryCache.get(cacheKey);
   if (cached) {
-    if (officePrefix && !cached.toLowerCase().includes(officePrefix.toLowerCase())) {
-      return `${officePrefix}, ${cached}`;
+    if (cleanPrefix && !cached.toLowerCase().includes(cleanPrefix.toLowerCase())) {
+      return `${cleanPrefix}, ${cached}`;
     }
     return cached;
   }
@@ -110,47 +127,42 @@ const reverseGeocodeCoordinates = async (
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const resp = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`,
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
       { headers: { 'Accept-Language': 'en' }, signal: controller.signal }
     );
     clearTimeout(timer);
     if (!resp.ok) return null;
     const data = await resp.json();
-    const addr = data?.address || {};
-    const area =
-      addr.suburb ||
-      addr.neighbourhood ||
-      addr.industrial ||
-      addr.quarter ||
-      addr.road ||
-      addr.village ||
-      addr.town ||
-      '';
-    const city =
-      addr.city ||
-      addr.town ||
-      addr.city_district ||
-      addr.county ||
-      addr.state_district ||
-      '';
-    const state = addr.state || '';
-    const parts = Array.from(
-      new Set([area, city, state].map(v => String(v || '').trim()).filter(Boolean))
-    );
     let readable = '';
-    if (parts.length > 0) {
+    if (data?.display_name) {
+      readable = String(data.display_name).trim();
+    } else {
+      const addr = data?.address || {};
+      const road = addr.road || addr.pedestrian || addr.industrial || '';
+      const area =
+        addr.suburb ||
+        addr.neighbourhood ||
+        addr.quarter ||
+        addr.village ||
+        addr.town ||
+        '';
+      const city =
+        addr.city ||
+        addr.town ||
+        addr.city_district ||
+        addr.county ||
+        addr.state_district ||
+        '';
+      const state = addr.state || '';
+      const parts = Array.from(
+        new Set([road, area, city, state].map(v => String(v || '').trim()).filter(Boolean))
+      );
       readable = parts.join(', ');
-    } else if (data?.display_name) {
-      const displayParts = String(data.display_name)
-        .split(',')
-        .map(p => p.trim())
-        .filter(p => Boolean(p) && !/^\d{5,6}$/.test(p) && !/^india$/i.test(p));
-      readable = displayParts.slice(0, 3).join(', ');
     }
     if (!readable) return null;
     reverseGeocodeMemoryCache.set(cacheKey, readable);
-    if (officePrefix && !readable.toLowerCase().includes(officePrefix.toLowerCase())) {
-      return `${officePrefix}, ${readable}`;
+    if (cleanPrefix && !readable.toLowerCase().includes(cleanPrefix.toLowerCase())) {
+      return `${cleanPrefix}, ${readable}`;
     }
     return readable;
   } catch {
@@ -929,15 +941,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
       if (isFieldDutyAuthorized && reading.accuracy <= (maxAccuracyThreshold ?? 150)) {
         verifiedOnRetry = true;
+        const cachedReadable = reverseGeocodeMemoryCache.get(`${reading.latitude.toFixed(4)},${reading.longitude.toFixed(4)}`);
         setActivePunchGps({
           latitude: reading.latitude,
           longitude: reading.longitude,
           accuracy: reading.accuracy,
-          address: fieldAssignment
-            ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
-            : isFlexibleEmp
-              ? 'Daily Field Work (GPS Verified)'
-              : (geofenceConfig.officeName || 'HQ Office'),
+          address: cachedReadable || 'Location pending',
           distance,
           timestamp: reading.timestamp,
           readingAgeMs: reading.readingAgeMs,
@@ -945,6 +954,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           sampleCount: reading.sampleCount,
           retryCount: reading.retryCount,
           browserDeviceCategory: reading.browserDeviceCategory
+        });
+        void reverseGeocodeCoordinates(reading.latitude, reading.longitude, undefined, 2500).then(readable => {
+          if (readable) {
+            setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
+          }
         });
         setGpsStatusDetails({
           verified: true,
@@ -963,11 +977,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         }
       } else if (!geofenceConfig.enabled || evaluation.canPunch) {
         verifiedOnRetry = true;
+        const cachedReadable = reverseGeocodeMemoryCache.get(`${reading.latitude.toFixed(4)},${reading.longitude.toFixed(4)}`);
         setActivePunchGps({
           latitude: reading.latitude,
           longitude: reading.longitude,
           accuracy: reading.accuracy,
-          address: geofenceConfig.officeName || 'HQ Office',
+          address: cachedReadable || 'Location pending',
           distance,
           timestamp: reading.timestamp,
           readingAgeMs: reading.readingAgeMs,
@@ -975,6 +990,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           sampleCount: reading.sampleCount,
           retryCount: reading.retryCount,
           browserDeviceCategory: reading.browserDeviceCategory
+        });
+        void reverseGeocodeCoordinates(reading.latitude, reading.longitude, undefined, 2500).then(readable => {
+          if (readable) {
+            setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
+          }
         });
         setGpsStatusDetails({
           verified: true,
@@ -1110,11 +1130,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         });
         if (cached) {
           const dist = calculateAccurateHaversine(cached.latitude, cached.longitude, centerLat, centerLng);
+          const cachedReadable = reverseGeocodeMemoryCache.get(`${cached.latitude.toFixed(4)},${cached.longitude.toFixed(4)}`);
           setActivePunchGps({
             latitude: cached.latitude,
             longitude: cached.longitude,
             accuracy: cached.accuracy,
-            address: geofenceConfig.officeName || 'HQ Office',
+            address: cachedReadable || 'Location pending',
             distance: dist,
             timestamp: cached.timestamp,
             readingAgeMs: cached.readingAgeMs,
@@ -1122,6 +1143,11 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             sampleCount: cached.sampleCount,
             retryCount: cached.retryCount,
             browserDeviceCategory: cached.browserDeviceCategory
+          });
+          void reverseGeocodeCoordinates(cached.latitude, cached.longitude, undefined, 2500).then(readable => {
+            if (mounted && readable) {
+              setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
+            }
           });
           setGpsStatusDetails({
             verified: true,
@@ -1563,12 +1589,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         );
 
         if (isFieldDutyAuthorized && reading.accuracy <= (maxAccuracyThreshold ?? 150)) {
-          const initialFieldAddr = fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || '';
+          const cachedReadable = reverseGeocodeMemoryCache.get(`${reading.latitude.toFixed(4)},${reading.longitude.toFixed(4)}`);
           setActivePunchGps({
             latitude: reading.latitude,
             longitude: reading.longitude,
             accuracy: reading.accuracy,
-            address: initialFieldAddr || 'Location pending',
+            address: cachedReadable || 'Location pending',
             distance,
             timestamp: reading.timestamp,
             readingAgeMs: reading.readingAgeMs,
@@ -1577,7 +1603,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             retryCount: reading.retryCount,
             browserDeviceCategory: reading.browserDeviceCategory
           });
-          void reverseGeocodeCoordinates(reading.latitude, reading.longitude, initialFieldAddr || undefined, 2200).then(readable => {
+          void reverseGeocodeCoordinates(reading.latitude, reading.longitude, undefined, 2500).then(readable => {
             if (readable) {
               setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
             }
@@ -1592,19 +1618,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             message: 'GPS Verified'
           });
         } else if (!geofenceConfig.enabled || evaluation.canPunch) {
-          const officePrefix =
-            geofenceConfig.officeName && !isGenericPlaceholderAddress(geofenceConfig.officeName)
-              ? geofenceConfig.officeName.replace(/\s+India\s+Pvt\s+Ltd$/i, '').trim()
-              : undefined;
-          const initialOfficeAddr =
-            (geofenceConfig.address && !isGenericPlaceholderAddress(geofenceConfig.address) ? geofenceConfig.address : '') ||
-            officePrefix ||
-            'Location pending';
+          const cachedReadable = reverseGeocodeMemoryCache.get(`${reading.latitude.toFixed(4)},${reading.longitude.toFixed(4)}`);
           setActivePunchGps({
             latitude: reading.latitude,
             longitude: reading.longitude,
             accuracy: reading.accuracy,
-            address: initialOfficeAddr,
+            address: cachedReadable || 'Location pending',
             distance,
             timestamp: reading.timestamp,
             readingAgeMs: reading.readingAgeMs,
@@ -1613,7 +1632,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             retryCount: reading.retryCount,
             browserDeviceCategory: reading.browserDeviceCategory
           });
-          void reverseGeocodeCoordinates(reading.latitude, reading.longitude, officePrefix, 2200).then(readable => {
+          void reverseGeocodeCoordinates(reading.latitude, reading.longitude, undefined, 2500).then(readable => {
             if (readable) {
               setActivePunchGps(prev => (prev ? { ...prev, address: readable } : prev));
             }
@@ -1817,19 +1836,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         throw new Error(conciseMsg);
       }
 
-      const officePrefix =
-        !isFieldDutyAuthorized && geofenceConfig.officeName && !isGenericPlaceholderAddress(geofenceConfig.officeName)
-          ? geofenceConfig.officeName.replace(/\s+India\s+Pvt\s+Ltd$/i, '').trim()
-          : (isFieldDutyAuthorized && fieldAssignment?.customerSiteName ? fieldAssignment.customerSiteName.trim() : undefined);
-
       const configuredFallbackAddress = isFieldDutyAuthorized
-        ? (fieldAssignment?.siteAddress || fieldAssignment?.customerSiteName || '')
+        ? (!isGenericPlaceholderAddress(fieldAssignment?.siteAddress)
+            ? String(fieldAssignment?.siteAddress || '')
+            : (!isGenericPlaceholderAddress(fieldAssignment?.customerSiteName)
+                ? String(fieldAssignment?.customerSiteName || '')
+                : ''))
         : ((geofenceConfig.address && !isGenericPlaceholderAddress(geofenceConfig.address) ? geofenceConfig.address : '') ||
            (geofenceConfig.officeName && !isGenericPlaceholderAddress(geofenceConfig.officeName) ? geofenceConfig.officeName : ''));
 
       let resolvedHumanAddress =
         (activePunchGps && !isGenericPlaceholderAddress(activePunchGps.address) ? activePunchGps.address : '') ||
-        (await reverseGeocodeCoordinates(reading.latitude, reading.longitude, officePrefix, 1500)) ||
+        (await reverseGeocodeCoordinates(reading.latitude, reading.longitude, undefined, 2500)) ||
         configuredFallbackAddress ||
         'Location pending';
 
@@ -1873,7 +1891,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         longitude: gpsInfo.longitude,
         accuracyMeters: gpsInfo.accuracy,
         locationTimestamp: new Date(reading.timestamp).toISOString(),
-        locationAddress: resolvedHumanAddress !== 'Location pending' ? resolvedHumanAddress : (configuredFallbackAddress || 'Verified Office Geofence'),
+        locationAddress: !isGenericPlaceholderAddress(resolvedHumanAddress) ? resolvedHumanAddress : (configuredFallbackAddress || ''),
         gpsDurationMs: reading.durationMs,
         gpsReadingAgeMs: Math.min(180000, Math.max(0, Date.now() - reading.timestamp)),
         gpsSampleCount: reading.sampleCount,
@@ -1946,19 +1964,35 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         confirmToSuccessMs: confirmElapsedMs
       });
 
-      // If address resolution was still pending when Confirm completed, finish reverse-geocoding in background and update
-      if (resolvedHumanAddress === 'Location pending') {
-        void reverseGeocodeCoordinates(reading.latitude, reading.longitude, officePrefix, 4000).then(lateReadable => {
+      // If address resolution was still pending when Confirm completed, finish reverse-geocoding in background and update UI + DB
+      if (isGenericPlaceholderAddress(resolvedHumanAddress)) {
+        void reverseGeocodeCoordinates(reading.latitude, reading.longitude, undefined, 4500).then(lateReadable => {
           if (!lateReadable) return;
           setCommittedPunchSummary(prev => {
             if (!prev) return prev;
             return {
               ...prev,
-              checkInLocation: prev.punchType === 'Check-In' || prev.checkInLocation === 'Location pending' ? lateReadable : prev.checkInLocation,
+              checkInLocation: prev.punchType === 'Check-In' || isGenericPlaceholderAddress(prev.checkInLocation) ? lateReadable : prev.checkInLocation,
               checkOutLocation: prev.punchType === 'Check-Out' ? lateReadable : prev.checkOutLocation,
               locationText: lateReadable
             };
           });
+          setCommittedTodayRecord((prev: any) => {
+            if (!prev) return prev;
+            const nextRec = {
+              ...prev,
+              location: { ...(prev.location || {}), address: lateReadable },
+              checkInLocation: type === 'Check-In' || isGenericPlaceholderAddress(prev.checkInLocation) ? lateReadable : prev.checkInLocation,
+              checkOutLocation: type === 'Check-Out' ? lateReadable : prev.checkOutLocation,
+            };
+            applyServerAttendanceRecord(nextRec);
+            return nextRec;
+          });
+          if (serverRecord?.id) {
+            void supabaseDirect.updateAttendanceRecord(serverRecord.id, {
+              location_address: lateReadable
+            }).catch(() => {});
+          }
         });
       }
 
@@ -2580,20 +2614,72 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     return null;
   };
 
+  const [geocodedTick, setGeocodedTick] = useState<number>(0);
+
+  // Automatically reverse-geocode any attendance records in memory that still have a generic placeholder address and valid GPS coordinates
+  useEffect(() => {
+    let active = true;
+    const pendingCoords = new Map<string, { lat: number; lng: number }>();
+
+    (attendanceRecords || []).forEach((rec: any) => {
+      if (!rec) return;
+      const inLoc = rec.checkInLocation || rec.check_in_location;
+      const outLoc = rec.checkOutLocation || rec.check_out_location;
+      const baseLoc = rec.location?.address || rec.locationAddress || rec.location_address;
+      const needsLookup =
+        isGenericPlaceholderAddress(inLoc) &&
+        isGenericPlaceholderAddress(outLoc) &&
+        isGenericPlaceholderAddress(baseLoc);
+      if (!needsLookup) return;
+
+      const lat = Number(rec.location?.lat ?? rec.locationLat ?? rec.location_lat ?? 0);
+      const lng = Number(rec.location?.lng ?? rec.locationLng ?? rec.location_lng ?? 0);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+      const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+      if (!reverseGeocodeMemoryCache.has(key) && !pendingCoords.has(key)) {
+        pendingCoords.set(key, { lat, lng });
+      }
+    });
+
+    if (pendingCoords.size === 0) return;
+
+    (async () => {
+      for (const { lat, lng } of pendingCoords.values()) {
+        if (!active) break;
+        const resolved = await reverseGeocodeCoordinates(lat, lng, undefined, 2500);
+        if (resolved && active) {
+          setGeocodedTick(t => t + 1);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [attendanceRecords]);
+
   const formatCompactLocation = (rawLocation?: string | null): string => {
     if (!rawLocation) return '';
     const trimmed = String(rawLocation).trim();
     if (!trimmed || trimmed === '—' || trimmed === '-' || trimmed === 'N/A') return '';
     const lower = trimmed.toLowerCase();
     if (lower === 'verified office geofence' || lower === 'plant hq' || lower === 'main plant hq' || lower === 'hq office') {
-      return geofenceConfig?.officeName || 'HQ Office';
+      return geofenceConfig?.address || geofenceConfig?.officeName || 'HQ Office';
     }
-    if (lower === 'daily field work (gps verified)' || lower === 'daily field work (flexible attendance)') {
-      return 'Field Work (GPS)';
+    if (
+      lower === 'daily field work (gps verified)' ||
+      lower === 'daily field work (flexible attendance)' ||
+      lower === 'field work (gps)' ||
+      lower === 'field work' ||
+      lower === 'location pending'
+    ) {
+      return geofenceConfig?.address || '';
     }
     const authMatch = trimmed.match(/^Authorized Field Duty\s*\((.+)\)$/i);
     if (authMatch && authMatch[1]) {
-      return authMatch[1].trim();
+      const inner = authMatch[1].trim();
+      if (!isGenericPlaceholderAddress(inner)) return inner;
+      return '';
     }
     if (trimmed.includes(',')) {
       const parts = trimmed
@@ -2605,7 +2691,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             !/^\d{5,6}$/.test(p) &&
             !/^(india|tamil nadu)$/i.test(p)
         );
-      if (parts.length >= 2) {
+      if (parts.length >= 3) {
+        return `${parts[0]}, ${parts[1]}, ${parts[2]}`;
+      }
+      if (parts.length === 2) {
         return `${parts[0]}, ${parts[1]}`;
       }
       if (parts.length === 1) {
@@ -2617,6 +2706,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
   const getRecordLocation = (record: any, type: 'Check-In' | 'Check-Out'): string | null => {
     if (!record) return null;
+    // Reference geocodedTick so React re-evaluates when background geocoding completes
+    void geocodedTick;
     const isCheckIn = type === 'Check-In';
     const rawTime = isCheckIn ? record.checkIn : record.checkOut;
     const hasTime = Boolean(
@@ -2640,16 +2731,37 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? (record.checkInLocation || record.check_in_location || parsedNotes?.checkInLocation)
       : (record.checkOutLocation || record.check_out_location || parsedNotes?.checkOutLocation);
 
-    const candidate =
-      specificLoc ||
+    const baseLoc =
       record.location?.address ||
       record.locationAddress ||
-      record.location_address ||
-      (String(record.method || '').toLowerCase() === 'work from home' ? 'Work From Home' : '') ||
-      geofenceConfig?.officeName ||
-      'HQ Office';
+      record.location_address;
 
-    const clean = String(candidate || '').trim();
+    if (specificLoc && !isGenericPlaceholderAddress(specificLoc)) {
+      return String(specificLoc).trim();
+    }
+    if (baseLoc && !isGenericPlaceholderAddress(baseLoc)) {
+      return String(baseLoc).trim();
+    }
+
+    const lat = Number(record.location?.lat ?? record.locationLat ?? record.location_lat ?? 0);
+    const lng = Number(record.location?.lng ?? record.locationLng ?? record.location_lng ?? 0);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+      const cachedAddr = reverseGeocodeMemoryCache.get(`${lat.toFixed(4)},${lng.toFixed(4)}`);
+      if (cachedAddr) return cachedAddr;
+    }
+
+    if (String(record.method || '').toLowerCase() === 'work from home') {
+      return 'Work From Home';
+    }
+
+    const fallbackCandidate =
+      (!isGenericPlaceholderAddress(geofenceConfig?.address) && geofenceConfig?.address) ||
+      specificLoc ||
+      baseLoc ||
+      geofenceConfig?.officeName ||
+      '';
+
+    const clean = String(fallbackCandidate || '').trim();
     return clean || null;
   };
 

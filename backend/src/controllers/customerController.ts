@@ -753,8 +753,10 @@ export class CustomerController {
       // Immediately acknowledge HTTP 200 OK to Meta to prevent timeout/retries
       res.status(200).json({ status: 'received' });
 
-      // Process delivery status asynchronously
+      // Process delivery status and inbound customer messages into both legacy history and WhatsApp CRM Shared Inbox
       await whatsappService.handleWebhookPayload(req.body);
+      const { crmWebhookController } = await import('./crmWebhookController.js');
+      await crmWebhookController.processWebhookEventBody(req.body);
     } catch (err) {
       console.error('Error handling Meta webhook:', err);
     }

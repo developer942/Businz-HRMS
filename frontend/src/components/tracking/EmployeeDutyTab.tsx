@@ -81,6 +81,24 @@ export const EmployeeDutyTab: React.FC<EmployeeDutyTabProps> = ({ onGoToTripTab 
 
   const isCheckedIn = Boolean(activeTrip?.checkInTime || completedTrip?.checkInTime || myAssignment?.status === 'Active');
 
+  const reverseGeocodeLiveCoords = async (lat: number, lng: number): Promise<string | null> => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2200);
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        { headers: { 'Accept-Language': 'en' }, signal: controller.signal }
+      );
+      clearTimeout(timer);
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (data?.display_name) return String(data.display_name).trim();
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   // Handle Field Check-in
   const handleFieldCheckIn = async () => {
     if (!myAssignment) return;
@@ -90,12 +108,16 @@ export const EmployeeDutyTab: React.FC<EmployeeDutyTabProps> = ({ onGoToTripTab 
     try {
       const position = await defaultLocationProvider.getCurrentPosition();
       setIsGpsEnabled(true);
+      const resolvedAddr =
+        (await reverseGeocodeLiveCoords(position.lat, position.lng)) ||
+        myAssignment.siteAddress ||
+        myAssignment.customerSiteName;
 
       const res = fieldCheckIn(
         myAssignment.id,
         position.lat,
         position.lng,
-        `${myAssignment.customerSiteName} Site Area`
+        resolvedAddr
       );
 
       if (res.success) {
@@ -123,7 +145,12 @@ export const EmployeeDutyTab: React.FC<EmployeeDutyTabProps> = ({ onGoToTripTab 
     try {
       const position = await defaultLocationProvider.getCurrentPosition();
       setIsGpsEnabled(true);
-      const trip = startTrip(myAssignment.id, position.lat, position.lng, myAssignment.siteAddress || 'Current Location');
+      const resolvedAddr =
+        (await reverseGeocodeLiveCoords(position.lat, position.lng)) ||
+        myAssignment.siteAddress ||
+        myAssignment.customerSiteName ||
+        'Current Location';
+      const trip = startTrip(myAssignment.id, position.lat, position.lng, resolvedAddr);
       setFeedbackMessage({ type: 'success', text: trip.status === 'Active' ? 'Trip initiated! GPS location tracking is now active.' : 'Trip is ready.' });
       onGoToTripTab();
     } catch (err: any) {

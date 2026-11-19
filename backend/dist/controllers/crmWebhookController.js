@@ -32,8 +32,10 @@ export class CrmWebhookController {
     async handleWebhookPayload(req, res) {
         // Immediate 200 OK acknowledgment to Meta to prevent retry loops
         res.status(200).json({ success: true });
+        await this.processWebhookEventBody(req.body);
+    }
+    async processWebhookEventBody(body) {
         try {
-            const body = req.body;
             if (!body || body.object !== 'whatsapp_business_account')
                 return;
             const entries = body.entry || [];

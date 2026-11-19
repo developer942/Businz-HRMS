@@ -180,6 +180,35 @@ export class CrmController {
             res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error fetching conversation' });
         }
     }
+    async startOrGetConversation(req, res) {
+        try {
+            const companyId = req.user?.company_id || 'company-a';
+            const { contactId, phone, name } = req.body;
+            let targetContactId = contactId ? String(contactId).trim() : '';
+            if (!targetContactId && phone) {
+                let contact = await crmRepository.getContactById(String(phone), companyId);
+                if (!contact) {
+                    contact = await crmRepository.upsertContact({
+                        companyId,
+                        phone: String(phone),
+                        name: name || String(phone),
+                        sourceType: 'MANUAL',
+                        consentStatus: 'Opted In'
+                    });
+                }
+                targetContactId = contact.id;
+            }
+            if (!targetContactId) {
+                res.status(400).json({ success: false, error: 'contactId or phone is required' });
+                return;
+            }
+            const conv = await crmRepository.getOrCreateConversation(targetContactId, companyId);
+            res.status(200).json({ success: true, data: conv });
+        }
+        catch (err) {
+            res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to start conversation' });
+        }
+    }
     async assignConversation(req, res) {
         try {
             const companyId = req.user?.company_id || 'company-a';

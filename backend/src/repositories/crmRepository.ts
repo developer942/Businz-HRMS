@@ -64,20 +64,31 @@ export class CrmRepository {
 
   async getContactById(idOrPhone: string, companyId = 'company-a'): Promise<CrmContact | null> {
     const supabase = getSupabaseAdmin();
-    let { data } = await supabase.from('crm_contacts')
-      .select('*')
-      .eq('company_id', companyId)
-      .eq('id', idOrPhone)
-      .maybeSingle();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(idOrPhone || '').trim());
+    let data: any = null;
 
-    if (!data) {
-      const cleanPhone = idOrPhone.replace(/\D/g, '');
+    if (isUuid) {
       const res = await supabase.from('crm_contacts')
         .select('*')
         .eq('company_id', companyId)
-        .or(`phone.eq.${idOrPhone},phone_normalized.eq.${cleanPhone}`)
+        .eq('id', idOrPhone.trim())
         .maybeSingle();
       data = res.data;
+    }
+
+    if (!data) {
+      const cleanPhone = String(idOrPhone || '').replace(/\D/g, '');
+      if (cleanPhone) {
+        const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+        const with91 = last10.length === 10 ? `91${last10}` : cleanPhone;
+        const res = await supabase.from('crm_contacts')
+          .select('*')
+          .eq('company_id', companyId)
+          .or(`phone.eq.${idOrPhone},phone_normalized.eq.${cleanPhone},phone_normalized.eq.${last10},phone_normalized.eq.${with91},phone.eq.+${with91},phone.eq.${last10}`)
+          .limit(1)
+          .maybeSingle();
+        data = res.data;
+      }
     }
 
     if (!data) return null;
@@ -208,22 +219,33 @@ export class CrmRepository {
       .select('*, crm_contacts(*)')
       .eq('company_id', params.companyId || 'company-a');
 
-    if (params.status && params.status !== 'ALL') {
-      query = query.eq('status', params.status);
+    if (params.status && params.status !== 'ALL' && params.status !== 'all') {
+      query = query.eq('status', params.status.toLowerCase());
     }
     if (params.assignedEmployeeId) {
       query = query.eq('assigned_employee_id', params.assignedEmployeeId);
     }
 
-    query = query.order('last_message_at', { ascending: false }).range(params.offset || 0, (params.offset || 0) + (params.limit || 50) - 1);
+    query = query.order('last_message_at', { ascending: false }).range(params.offset || 0, (params.offset || 0) + (params.limit || 100) - 1);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    return (data || []).map((r: any) => ({
+    let mapped = (data || []).map((r: any) => ({
       ...this.mapConversationRow(r),
       contact: r.crm_contacts ? this.mapContactRow(r.crm_contacts) : undefined
     }));
+
+    if (params.search && params.search.trim()) {
+      const term = params.search.trim().toLowerCase();
+      mapped = mapped.filter((c: any) =>
+        String(c.contactName || c.contact?.name || '').toLowerCase().includes(term) ||
+        String(c.contactPhone || c.contact?.phone || '').toLowerCase().includes(term) ||
+        String(c.lastMessageText || '').toLowerCase().includes(term)
+      );
+    }
+
+    return mapped;
   }
 
   async getConversationById(id: string, companyId = 'company-a'): Promise<CrmConversation | null> {
@@ -244,12 +266,17 @@ export class CrmRepository {
   async getOrCreateConversation(contactId: string, companyId = 'company-a'): Promise<CrmConversation> {
     const supabase = getSupabaseAdmin();
     const { data: existing } = await supabase.from('crm_conversations')
-      .select('*')
+      .select('*, crm_contacts(*)')
       .eq('company_id', companyId)
       .eq('contact_id', contactId)
       .maybeSingle();
 
-    if (existing) return this.mapConversationRow(existing);
+    if (existing) {
+      return {
+        ...this.mapConversationRow(existing),
+        contact: existing.crm_contacts ? this.mapContactRow(existing.crm_contacts) : undefined
+      };
+    }
 
     const { data: created, error } = await supabase.from('crm_conversations')
       .insert({
@@ -259,11 +286,14 @@ export class CrmRepository {
         last_message_at: new Date().toISOString(),
         unread_count: 0
       })
-      .select()
+      .select('*, crm_contacts(*)')
       .single();
 
     if (error) throw new Error(error.message);
-    return this.mapConversationRow(created);
+    return {
+      ...this.mapConversationRow(created),
+      contact: created.crm_contacts ? this.mapContactRow(created.crm_contacts) : undefined
+    };
   }
 
   async updateConversationAssignment(
@@ -781,21 +811,26 @@ export class CrmRepository {
   }
 
   private mapConversationRow(r: any): CrmConversation {
+    const contactRow = r.crm_contacts;
     return {
       id: r.id,
       companyId: r.company_id,
       contactId: r.contact_id,
+      contactName: contactRow?.name || r.contact_name || undefined,
+      contactPhone: contactRow?.phone || r.contact_phone || undefined,
+      contactCategory: contactRow?.category || r.contact_category || undefined,
       status: r.status,
       assignedEmployeeId: r.assigned_employee_id,
       assignedEmployeeName: r.assigned_employee_name,
       lastMessageText: r.last_message_text,
       lastMessageAt: r.last_message_at,
+      lastMessageTimestamp: r.last_message_at || r.updated_at || r.created_at,
       unreadCount: r.unread_count || 0,
       aiAutoreplyDisabled: Boolean(r.ai_autoreply_disabled),
       aiReplyCount: r.ai_reply_count || 0,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
-    };
+    } as any;
   }
 
   private mapMessageRow(r: any): CrmMessage {

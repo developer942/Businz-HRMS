@@ -23,14 +23,16 @@ import {
   RefreshCw,
   ArrowLeft,
   Info,
-  Paperclip
+  Paperclip,
+  FileText
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type {
   CrmConversation,
   CrmMessage,
   CrmContact,
-  CrmTag
+  CrmTag,
+  CrmTemplate
 } from '../../../types/crm';
 import { useHRMS } from '../../../context/HRMSContext';
 
@@ -61,6 +63,18 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const [availableTags, setAvailableTags] = useState<CrmTag[]>([]);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [newTagName, setNewTagName] = useState('');
+
+  // New Chat & In-Chat Template Picker Modal States
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [directoryContacts, setDirectoryContacts] = useState<CrmContact[]>([]);
+  const [contactSearchTerm, setContactSearchTerm] = useState('');
+  const [loadingDirectoryContacts, setLoadingDirectoryContacts] = useState(false);
+
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [approvedTemplates, setApprovedTemplates] = useState<CrmTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<CrmTemplate | null>(null);
+  const [templateVarValues, setTemplateVarValues] = useState<string[]>([]);
+  const [sendingTemplate, setSendingTemplate] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -130,15 +144,95 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
   const handleOpenContactConversation = async (contactId: string) => {
     try {
-      const convs = await crmService.getConversations();
-      const existing = convs.find(c => c.contactId === contactId);
-      if (existing) {
-        setSelectedConvId(existing.id);
+      const conv = await crmService.startOrGetConversation(contactId);
+      if (conv && conv.id) {
+        setConversations(prev => {
+          const exists = prev.some(c => c.id === conv.id);
+          return exists ? prev.map(c => (c.id === conv.id ? { ...c, ...conv } : c)) : [conv, ...prev];
+        });
+        setActiveConv(conv);
+        setSelectedConvId(conv.id);
       } else {
         await loadConversations();
       }
     } catch (err) {
       console.error('Error opening contact conversation:', err);
+    }
+  };
+
+  const handleOpenNewChatModal = async () => {
+    setShowNewChatModal(true);
+    setLoadingDirectoryContacts(true);
+    try {
+      const res = await crmService.getContacts({ limit: 100, offset: 0 });
+      setDirectoryContacts(res.contacts || []);
+    } catch (err) {
+      console.error('Failed to load contacts for new chat:', err);
+    } finally {
+      setLoadingDirectoryContacts(false);
+    }
+  };
+
+  const handleOpenTemplatePicker = async () => {
+    setShowTemplateModal(true);
+    try {
+      const tmpls = await crmService.getTemplates({ status: 'APPROVED' });
+      const list = tmpls.length > 0 ? tmpls : await crmService.getTemplates();
+      setApprovedTemplates(list);
+      const firstApproved = list.find(t => t.status === 'APPROVED') || list[0] || null;
+      handleSelectTemplateForSend(firstApproved);
+    } catch (err) {
+      console.error('Failed to load templates for chat:', err);
+    }
+  };
+
+  const handleSelectTemplateForSend = (tmpl: CrmTemplate | null) => {
+    setSelectedTemplate(tmpl);
+    if (!tmpl || !tmpl.bodyText) {
+      setTemplateVarValues([]);
+      return;
+    }
+    const matches = tmpl.bodyText.match(/\{\{(\d+)\}\}/g) || [];
+    const count = matches.length;
+    const defaults = Array.from({ length: count }, (_, i) => {
+      if (i === 0 && (activeConv?.contactName || contactDetails?.name)) {
+        return activeConv?.contactName || contactDetails?.name || '';
+      }
+      return tmpl.bodyExampleValues?.[i] || '';
+    });
+    setTemplateVarValues(defaults);
+  };
+
+  const handleSendSelectedTemplate = async () => {
+    if (!selectedTemplate || !activeConv || sendingTemplate) return;
+    setSendingTemplate(true);
+    try {
+      const msg = await crmService.sendTemplateMessage({
+        contactId: activeConv.contactId,
+        recipientPhone: activeConv.contactPhone || contactDetails?.phone,
+        recipientName: activeConv.contactName || contactDetails?.name,
+        templateName: selectedTemplate.name,
+        language: selectedTemplate.language || 'en_US',
+        category: (selectedTemplate.category as any) || 'UTILITY',
+        bodyParameters: templateVarValues.filter(v => v !== undefined)
+      });
+      setMessages(prev => [...prev, msg]);
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === activeConv.id
+            ? {
+                ...c,
+                lastMessageText: msg.contentText || `Template: ${selectedTemplate.name}`,
+                lastMessageTimestamp: new Date().toISOString()
+              }
+            : c
+        )
+      );
+      setShowTemplateModal(false);
+    } catch (err: any) {
+      alert(`Failed to send template: ${err.message || 'Meta API error'}`);
+    } finally {
+      setSendingTemplate(false);
     }
   };
 
@@ -315,15 +409,39 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
         <div className="crm-inbox-left-header">
           <div className="crm-inbox-title-row">
             <h2 className="crm-inbox-heading">Chats</h2>
-            <button
-              type="button"
-              onClick={loadConversations}
-              title="Refresh conversations"
-              aria-label="Refresh conversations"
-              className="crm-icon-btn"
-            >
-              <RefreshCw size={15} className={loadingConvs ? 'animate-spin' : ''} />
-            </button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={handleOpenNewChatModal}
+                title="Start New Chat"
+                aria-label="Start New Chat"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid #E5E7EB',
+                  backgroundColor: '#FFFFFF',
+                  color: '#0E7490',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                <Plus size={14} />
+                <span>New Chat</span>
+              </button>
+              <button
+                type="button"
+                onClick={loadConversations}
+                title="Refresh conversations"
+                aria-label="Refresh conversations"
+                className="crm-icon-btn"
+              >
+                <RefreshCw size={15} className={loadingConvs ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
 
           {/* Search Input */}
@@ -380,14 +498,37 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             <div className="crm-conv-empty">
               <MessageSquare size={26} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
               <div style={{ fontWeight: 600, color: '#17212C', marginBottom: '2px' }}>No conversations found</div>
-              <div style={{ fontSize: '0.76rem', color: '#667085' }}>
-                Start a chat from the Contacts tab or adjust your filter.
+              <div style={{ fontSize: '0.76rem', color: '#667085', marginBottom: '12px' }}>
+                Start a chat with any contact or employee.
               </div>
+              <button
+                type="button"
+                onClick={handleOpenNewChatModal}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  backgroundColor: '#0E7490',
+                  color: '#FFFFFF',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                <Plus size={15} />
+                <span>Start New Chat</span>
+              </button>
             </div>
           ) : (
             conversations.map(conv => {
               const isSelected = conv.id === selectedConvId;
-              const initial = (conv.contactName || conv.contactPhone || 'U').charAt(0).toUpperCase();
+              const resolvedName = conv.contactName || (conv as any).contact?.name || conv.contactPhone || (conv as any).contact?.phone || 'Unknown';
+              const resolvedPhone = conv.contactPhone || (conv as any).contact?.phone || '';
+              const resolvedTime = conv.lastMessageTimestamp || (conv as any).lastMessageAt;
+              const initial = resolvedName.charAt(0).toUpperCase();
               return (
                 <button
                   key={conv.id}
@@ -400,16 +541,16 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   <div className="crm-conv-main">
                     <div className="crm-conv-top-line">
                       <span className="crm-conv-name">
-                        {conv.contactName || conv.contactPhone || 'Unknown'}
+                        {resolvedName}
                       </span>
                       <span className={`crm-conv-time ${conv.unreadCount > 0 ? 'unread' : ''}`}>
-                        {formatListDate(conv.lastMessageTimestamp)}
+                        {formatListDate(resolvedTime)}
                       </span>
                     </div>
 
                     <div className="crm-conv-bottom-line">
                       <span className="crm-conv-snippet">
-                        {conv.lastMessageText || conv.contactPhone || 'No messages yet'}
+                        {conv.lastMessageText || resolvedPhone || 'No messages yet'}
                       </span>
                       {conv.unreadCount > 0 && (
                         <span className="crm-conv-unread-badge">{conv.unreadCount}</span>
@@ -449,18 +590,18 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   title="View contact info"
                 >
                   <div className="crm-chat-header-avatar">
-                    {(activeConv.contactName || activeConv.contactPhone || 'U').charAt(0).toUpperCase()}
+                    {(activeConv.contactName || contactDetails?.name || activeConv.contactPhone || contactDetails?.phone || 'U').charAt(0).toUpperCase()}
                   </div>
                   <div className="crm-chat-header-meta">
                     <div className="crm-chat-header-name-row">
                       <span className="crm-chat-header-name">
-                        {activeConv.contactName || activeConv.contactPhone}
+                        {activeConv.contactName || contactDetails?.name || activeConv.contactPhone || contactDetails?.phone}
                       </span>
-                      {activeConv.contactCategory && (
-                        <span className="crm-chat-category-tag">{activeConv.contactCategory}</span>
+                      {(activeConv.contactCategory || contactDetails?.category) && (
+                        <span className="crm-chat-category-tag">{activeConv.contactCategory || contactDetails?.category}</span>
                       )}
                     </div>
-                    <div className="crm-chat-header-phone">{activeConv.contactPhone}</div>
+                    <div className="crm-chat-header-phone">{activeConv.contactPhone || contactDetails?.phone}</div>
                   </div>
                 </button>
               </div>
@@ -514,9 +655,30 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 <div className="crm-chat-status-msg">
                   <MessageSquare size={28} style={{ margin: '0 auto 8px', opacity: 0.35 }} />
                   <div style={{ fontWeight: 600, color: '#17212C' }}>No messages yet</div>
-                  <div style={{ fontSize: '0.78rem', color: '#667085', marginTop: '2px' }}>
-                    Send a message below to start the conversation.
+                  <div style={{ fontSize: '0.78rem', color: '#667085', marginTop: '4px', maxWidth: '340px', marginInline: 'auto' }}>
+                    To start a new WhatsApp chat (before the contact messages you), send an approved template first or type a reply below.
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenTemplatePicker}
+                    style={{
+                      marginTop: '12px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      borderRadius: '10px',
+                      border: '1px solid #0E7490',
+                      backgroundColor: '#ECFEFF',
+                      color: '#0E7490',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <FileText size={15} />
+                    <span>Send Approved Template</span>
+                  </button>
                 </div>
               ) : (
                 messages.map((msg, idx) => {
@@ -537,7 +699,34 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
                       <div className={`crm-msg-row ${isOutbound ? 'outbound' : 'inbound'}`}>
                         <div className={`crm-msg-bubble ${isOutbound ? 'outbound' : 'inbound'}`}>
-                          <div className="crm-msg-text">{msg.contentText}</div>
+                          {msg.contentType === 'template' && (msg as any).templateName && (
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#0E7490', marginBottom: '3px', textTransform: 'uppercase' }}>
+                              Template • {(msg as any).templateName}
+                            </div>
+                          )}
+                          <div className="crm-msg-text">{msg.contentText || ((msg as any).templateName ? `Template: ${(msg as any).templateName}` : '')}</div>
+                          {msg.status === 'failed' && (
+                            <div style={{ marginTop: '6px', paddingTop: '5px', borderTop: '1px solid rgba(220,38,38,0.2)', fontSize: '0.72rem', color: '#DC2626', fontWeight: 600 }}>
+                              <div>Delivery failed: {(msg as any).failureReason || 'Outside 24-hour customer reply window — send an Approved Template first.'}</div>
+                              <button
+                                type="button"
+                                onClick={handleOpenTemplatePicker}
+                                style={{
+                                  marginTop: '4px',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #DC2626',
+                                  backgroundColor: '#FEF2F2',
+                                  color: '#DC2626',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Send Approved Template
+                              </button>
+                            </div>
+                          )}
                           <div className="crm-msg-meta">
                             <span>{formatTime(msg.createdAt)}</span>
                             {isOutbound && (
@@ -579,6 +768,17 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 aria-label="Attach file"
               >
                 <Paperclip size={18} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenTemplatePicker}
+                className="crm-composer-attach-btn"
+                title="Send Approved WhatsApp Template"
+                aria-label="Send Approved WhatsApp Template"
+                style={{ color: '#0E7490' }}
+              >
+                <FileText size={18} />
               </button>
 
               <input
@@ -880,6 +1080,281 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 }}
               >
                 Create &amp; Assign
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Start New Chat Contact Picker Modal */}
+      {showNewChatModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowNewChatModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              padding: '20px',
+              width: '100%',
+              maxWidth: '440px',
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
+              border: '1px solid #E5E7EB'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#17212C' }}>Start New WhatsApp Chat</h4>
+              <button type="button" onClick={() => setShowNewChatModal(false)} className="crm-icon-btn">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="crm-inbox-search-box" style={{ marginBottom: '12px' }}>
+              <Search size={15} className="crm-inbox-search-icon" />
+              <input
+                type="text"
+                placeholder="Search contact name or phone..."
+                value={contactSearchTerm}
+                onChange={e => setContactSearchTerm(e.target.value)}
+                className="crm-inbox-search-input"
+              />
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {loadingDirectoryContacts ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: '#667085', fontSize: '0.84rem' }}>
+                  Loading contacts...
+                </div>
+              ) : (
+                directoryContacts
+                  .filter(c => {
+                    if (!contactSearchTerm.trim()) return true;
+                    const q = contactSearchTerm.toLowerCase();
+                    return (
+                      c.name.toLowerCase().includes(q) ||
+                      c.phone.toLowerCase().includes(q) ||
+                      (c.companyName || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setShowNewChatModal(false);
+                        void handleOpenContactConversation(c.id);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: '1px solid #F1F5F9',
+                        backgroundColor: '#FFFFFF',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div className="crm-conv-avatar" style={{ width: '36px', height: '36px', fontSize: '0.85rem' }}>
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.86rem', color: '#17212C' }}>{c.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: '#667085' }}>
+                            {c.phone} {c.category ? `• ${c.category}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '8px',
+                          backgroundColor: '#ECFEFF',
+                          color: '#0E7490',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          flexShrink: 0
+                        }}
+                      >
+                        Chat
+                      </span>
+                    </button>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Approved WhatsApp Template Modal */}
+      {showTemplateModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowTemplateModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              padding: '22px',
+              width: '100%',
+              maxWidth: '460px',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
+              border: '1px solid #E5E7EB'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#17212C' }}>
+                Send Approved WhatsApp Template
+              </h4>
+              <button type="button" onClick={() => setShowTemplateModal(false)} className="crm-icon-btn">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.78rem', color: '#667085', marginBottom: '14px', lineHeight: 1.45 }}>
+              Meta requires an <strong>Approved Template</strong> to initiate a new conversation when the recipient has not messaged your business number in the last 24 hours.
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#17212C', marginBottom: '6px' }}>
+                Select Template
+              </label>
+              <select
+                value={selectedTemplate?.id || ''}
+                onChange={e => {
+                  const found = approvedTemplates.find(t => t.id === e.target.value) || null;
+                  handleSelectTemplateForSend(found);
+                }}
+                style={{
+                  width: '100%',
+                  minHeight: '42px',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #E5E7EB',
+                  fontSize: '0.86rem',
+                  fontWeight: 600,
+                  color: '#17212C'
+                }}
+              >
+                {approvedTemplates.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.category} • {t.language} • {t.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedTemplate && (
+              <div
+                style={{
+                  padding: '12px',
+                  borderRadius: '10px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E5E7EB',
+                  fontSize: '0.82rem',
+                  color: '#17212C',
+                  marginBottom: '14px',
+                  whiteSpace: 'pre-wrap'
+                }}
+              >
+                {selectedTemplate.bodyText}
+              </div>
+            )}
+
+            {templateVarValues.length > 0 && (
+              <div style={{ marginBottom: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#17212C' }}>Template Variables</div>
+                {templateVarValues.map((val, i) => (
+                  <input
+                    key={i}
+                    type="text"
+                    placeholder={`Value for {{${i + 1}}}`}
+                    value={val}
+                    onChange={e => {
+                      const next = [...templateVarValues];
+                      next[i] = e.target.value;
+                      setTemplateVarValues(next);
+                    }}
+                    style={{
+                      width: '100%',
+                      minHeight: '38px',
+                      padding: '6px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #E5E7EB',
+                      fontSize: '0.84rem',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowTemplateModal(false)}
+                style={{
+                  minHeight: '40px',
+                  padding: '0 14px',
+                  borderRadius: '10px',
+                  border: '1px solid #E5E7EB',
+                  backgroundColor: '#FFFFFF',
+                  color: '#667085',
+                  fontWeight: 600,
+                  fontSize: '0.84rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSendSelectedTemplate}
+                disabled={!selectedTemplate || sendingTemplate}
+                style={{
+                  minHeight: '40px',
+                  padding: '0 16px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  backgroundColor: selectedTemplate && !sendingTemplate ? '#0E7490' : '#E5E7EB',
+                  color: selectedTemplate && !sendingTemplate ? '#FFFFFF' : '#94A3B8',
+                  fontWeight: 700,
+                  fontSize: '0.84rem',
+                  cursor: selectedTemplate && !sendingTemplate ? 'pointer' : 'default'
+                }}
+              >
+                {sendingTemplate ? 'Sending...' : 'Send Template'}
               </button>
             </div>
           </div>
