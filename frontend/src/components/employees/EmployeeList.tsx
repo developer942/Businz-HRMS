@@ -855,61 +855,27 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                     <td style={{ whiteSpace: 'nowrap' }}>{formatDateDDMMYYYY(emp.joiningDate)}</td>
                     <td>
                       {(() => {
-                        const { pct, filled, total } = getEmployeeProfileCompletion(emp);
-                        const isHigh = pct >= 80;
-                        const isMid = pct >= 55 && pct < 80;
-                        const badgeBg = isHigh ? '#DCFCE7' : isMid ? '#ECFEFF' : '#FEF3C7';
-                        const badgeColor = isHigh ? '#15803D' : isMid ? '#0E7490' : '#D97706';
-                        const barColor = isHigh ? '#22C55E' : isMid ? '#0E7490' : '#F59E0B';
+                        const { pct } = getEmployeeProfileCompletion(emp);
                         return (
-                          <div
+                          <span
                             onClick={() => setActiveProfileEmp(emp)}
-                            title={`Employee Details Completion: ${pct}% (${filled}/${total} fields filled)`}
+                            title={`Employee Details Completion: ${pct}%`}
                             style={{
                               display: 'inline-flex',
-                              flexDirection: 'column',
-                              gap: '4px',
-                              minWidth: '84px',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              padding: '3px 10px',
+                              borderRadius: '999px',
+                              backgroundColor: '#ECFEFF',
+                              color: '#0E7490',
+                              border: '1px solid #CFFAFE',
                               cursor: 'pointer'
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                              <span
-                                style={{
-                                  fontSize: '0.74rem',
-                                  fontWeight: 800,
-                                  padding: '2px 8px',
-                                  borderRadius: '999px',
-                                  backgroundColor: badgeBg,
-                                  color: badgeColor
-                                }}
-                              >
-                                {pct}%
-                              </span>
-                              <span style={{ fontSize: '0.66rem', color: '#64748B', fontWeight: 600 }}>
-                                {filled}/{total}
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                width: '100%',
-                                height: '5px',
-                                backgroundColor: '#E2E8F0',
-                                borderRadius: '999px',
-                                overflow: 'hidden'
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: `${pct}%`,
-                                  height: '100%',
-                                  backgroundColor: barColor,
-                                  borderRadius: '999px',
-                                  transition: 'width 0.25s ease'
-                                }}
-                              />
-                            </div>
-                          </div>
+                            {pct}%
+                          </span>
                         );
                       })()}
                     </td>
@@ -1084,17 +1050,16 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ openAddModal, onClos
                 <div className="employee-mobile-meta">
                   {(() => {
                     const { pct } = getEmployeeProfileCompletion(emp);
-                    const isHigh = pct >= 80;
-                    const isMid = pct >= 55 && pct < 80;
                     return (
                       <span
                         style={{
                           fontSize: '0.73rem',
-                          fontWeight: 800,
+                          fontWeight: 700,
                           padding: '3px 9px',
                           borderRadius: '999px',
-                          backgroundColor: isHigh ? '#DCFCE7' : isMid ? '#ECFEFF' : '#FEF3C7',
-                          color: isHigh ? '#15803D' : isMid ? '#0E7490' : '#D97706'
+                          backgroundColor: '#ECFEFF',
+                          color: '#0E7490',
+                          border: '1px solid #CFFAFE'
                         }}
                       >
                         {pct}%
