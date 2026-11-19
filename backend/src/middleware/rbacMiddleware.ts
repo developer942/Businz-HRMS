@@ -78,6 +78,13 @@ export const requirePermission = (moduleName: string | string[], action: Permiss
       return next();
     }
 
+    const modules = Array.isArray(moduleName) ? moduleName : [moduleName];
+
+    // Contact Card Scanner (customer_data) & WhatsApp CRM (whatsapp_crm) are accessible to all authenticated employees, HR, Accounts, and CEO
+    if (modules.includes('customer_data') || modules.includes('whatsapp_crm')) {
+      return next();
+    }
+
     const roleConfig = rbacRepository.getRolePermissions(userRole);
     if (!roleConfig) {
       // Fallback: check standard roles
@@ -95,7 +102,6 @@ export const requirePermission = (moduleName: string | string[], action: Permiss
       return;
     }
 
-    const modules = Array.isArray(moduleName) ? moduleName : [moduleName];
     const hasPermission = modules.some(mod => {
       const moduleActions = roleConfig.modulePermissions[mod] || [];
       return moduleActions.includes(action);

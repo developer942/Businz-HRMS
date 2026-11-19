@@ -453,10 +453,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return false;
     }
 
-    // Accounts role: Normal employee features + payment disbursement desk.
-    // STRICTLY NO access to Employee Directory, Attendance Management, Executive Reports, HRMS Settings, Customer Data, or WhatsApp CRM
+    // Accounts role: Normal employee features + payment disbursement desk + Contact Card Scanner & WhatsApp CRM.
+    // STRICTLY NO access to Employee Directory, Attendance Management, Executive Reports, or HRMS Settings
     if (isAccountsStaff && !isCEO) {
-      if (['employees', 'attendance', 'reports', 'settings', 'customer_data', 'whatsapp_crm'].includes(item.id)) {
+      if (['employees', 'attendance', 'reports', 'settings'].includes(item.id)) {
         return false;
       }
     }

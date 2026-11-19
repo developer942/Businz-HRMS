@@ -1263,6 +1263,20 @@ export const Dashboard: React.FC = () => {
                   </div>
                   <span className="ceo-report-name">Tracking</span>
                 </div>
+
+                <div className="ceo-report-tile" onClick={() => setActiveModule('customer_data')}>
+                  <div className="ceo-report-icon-box purple">
+                    <ScanLine size={18} color="#7C3AED" />
+                  </div>
+                  <span className="ceo-report-name">Card Scanner</span>
+                </div>
+
+                <div className="ceo-report-tile" onClick={() => setActiveModule('whatsapp_crm')}>
+                  <div className="ceo-report-icon-box green">
+                    <MessageCircle size={18} color="#16A34A" />
+                  </div>
+                  <span className="ceo-report-name">WhatsApp CRM</span>
+                </div>
               </div>
             </div>
           </div>

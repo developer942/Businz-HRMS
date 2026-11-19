@@ -26,6 +26,7 @@ export const CORE_MODULES = [
     { id: 'mod-15', key: 'notifications', name: 'Notifications', category: 'System', isCustom: false, description: 'System alerts, broadcast announcements & push alerts' },
     { id: 'mod-16', key: 'settings', name: 'Settings', category: 'System', isCustom: false, description: 'System configurations, company identity & policy engines' },
     { id: 'mod-17', key: 'customer_data', name: 'Customer Data Collection', category: 'Operations', isCustom: false, description: 'Field customer capture, visiting card OCR scanning, WhatsApp consent and templates' },
+    { id: 'mod-18', key: 'whatsapp_crm', name: 'WhatsApp CRM', category: 'Operations', isCustom: false, description: 'Shared WhatsApp Business Cloud API Inbox, Contacts, Broadcasts & Templates' },
 ];
 export const SPECIAL_PERMISSIONS_CATALOG = [
     // Payroll & Salary
@@ -168,7 +169,7 @@ export class RbacRepository {
                 // HR can view, create and export, but CANNOT approve financial requests
                 hrModules[m.key] = ['view', 'create', 'export'];
             }
-            else if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'reports', 'documents', 'notifications', 'dashboard', 'customer_data'].includes(m.key)) {
+            else if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'reports', 'documents', 'notifications', 'dashboard', 'customer_data', 'whatsapp_crm'].includes(m.key)) {
                 hrModules[m.key] = [...ALL_ACTIONS];
             }
             else {
@@ -240,7 +241,8 @@ export class RbacRepository {
             reports: ['view', 'export'],
             documents: ['view'],
             notifications: ['view'],
-            customer_data: ['view', 'create', 'edit', 'export'],
+            customer_data: [...ALL_ACTIONS],
+            whatsapp_crm: [...ALL_ACTIONS],
         };
         this.permissionsByRole['role-manager'] = {
             roleId: 'role-manager',
@@ -271,7 +273,8 @@ export class RbacRepository {
             performance: ['view'],
             site_visit: ['view'],
             notifications: ['view'],
-            customer_data: ['view', 'create'],
+            customer_data: [...ALL_ACTIONS],
+            whatsapp_crm: [...ALL_ACTIONS],
         };
         this.permissionsByRole['role-team-leader'] = {
             roleId: 'role-team-leader',
@@ -287,7 +290,7 @@ export class RbacRepository {
             updatedAt: new Date().toISOString(),
             updatedBy: 'System',
         };
-        // 6. Employee (Own Data Only)
+        // 6. Employee (Own Data Only + Full Contact Card Scanner & WhatsApp CRM)
         const empModules = {
             dashboard: ['view'],
             attendance: ['view', 'create'],
@@ -299,7 +302,8 @@ export class RbacRepository {
             expenses: ['view', 'create'],
             documents: ['view'],
             notifications: ['view'],
-            customer_data: ['view', 'create'],
+            customer_data: [...ALL_ACTIONS],
+            whatsapp_crm: [...ALL_ACTIONS],
         };
         this.permissionsByRole['role-employee'] = {
             roleId: 'role-employee',
@@ -311,7 +315,7 @@ export class RbacRepository {
             updatedBy: 'System',
         };
         // 7. Accounts (Finance Manager / Accounts Staff)
-        // Normal Employee features + CEO-approved payment distribution & ledger
+        // Normal Employee features + CEO-approved payment distribution & ledger + Contact Card Scanner & WhatsApp CRM
         // STRICTLY NO access to employee directory, company attendance, or CEO approval rights
         const accountsModules = {
             dashboard: ['view'],
@@ -325,6 +329,8 @@ export class RbacRepository {
             petty_cash: ['view', 'create', 'export'], // Disburse funding
             documents: ['view'],
             notifications: ['view'],
+            customer_data: [...ALL_ACTIONS],
+            whatsapp_crm: [...ALL_ACTIONS],
         };
         this.permissionsByRole['role-accounts'] = {
             roleId: 'role-accounts',

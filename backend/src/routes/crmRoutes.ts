@@ -50,12 +50,11 @@ crmRouter.get('/conversations/:id/messages', requirePermission('customer_data', 
 crmRouter.post('/conversations/:id/messages', requirePermission('customer_data', 'edit'), (req, res) => crmController.sendMessage(req, res));
 crmRouter.post('/messages/template', requirePermission('customer_data', 'edit'), (req, res) => crmController.sendTemplateMessage(req, res));
 
-// 6. Broadcasts (Restricted strictly to authorized Managers / Admins)
+// 6. Broadcasts (Accessible to all authorized HRMS users: Employee, HR, Accounts, CEO)
 crmRouter.get('/broadcasts', requirePermission('customer_data', 'view'), (req, res) => crmController.getBroadcasts(req, res));
 crmRouter.get('/broadcasts/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getBroadcastById(req, res));
 crmRouter.post(
   '/broadcasts',
-  requireRoles(['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'Marketing Manager', 'Operations Manager']),
   requirePermission('customer_data', 'create'),
   (req, res) => crmController.createBroadcast(req, res)
 );

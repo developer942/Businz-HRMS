@@ -338,7 +338,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'edit'],
     assets: ['view', 'create', 'edit', 'export'],
     settings: ['view'],
-    customer_data: ['view', 'create', 'edit', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'HR Admin': {
     dashboard: ['view', 'export'],
@@ -362,7 +363,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'edit'],
-    customer_data: ['view', 'create', 'edit', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'HR': {
     dashboard: ['view', 'export'],
@@ -386,7 +388,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view', 'create', 'edit', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'edit'],
-    customer_data: ['view', 'create', 'edit', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Admin': {
     dashboard: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -411,6 +414,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Department Manager': {
     dashboard: ['view'],
@@ -434,7 +438,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: ['view'],
     settings: ['view'],
-    customer_data: ['view', 'create', 'edit', 'export'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Employee': {
     dashboard: ['view'],
@@ -458,7 +463,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: ['view'],
     settings: ['view'],
-    customer_data: ['view', 'create'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Finance Manager': {
     dashboard: ['view'],
@@ -482,8 +488,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: [],
     settings: [],
-    customer_data: [],
-    whatsapp_crm: [],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Task Creator': {
     dashboard: ['view'],
@@ -504,6 +510,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: ['view'],
     settings: ['view'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Assignee': {
     dashboard: ['view'],
@@ -524,6 +532,8 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     organization: ['view'],
     assets: ['view'],
     settings: ['view'],
+    customer_data: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    whatsapp_crm: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
   },
   'Responsible Person': {
     dashboard: ['view'],
@@ -7110,16 +7120,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       (currentUser as any).designation?.toLowerCase().includes('managing director') ||
       currentUser.employeeId === 'EMP-000';
 
-    // Accounts employees must have normal employee access:
-    // Strictly NO unrestricted access to employee personal records, attendance, company reports, settings, assets, recruitment, or CRM
+    // Accounts employees must have normal employee access + Contact Card Scanner & WhatsApp CRM:
+    // Strictly NO unrestricted access to employee personal records, attendance, company reports, settings, assets, or recruitment
     if (isFinanceStaff && !isCeoAuthority) {
       if (
         module === 'employees' ||
         module === 'attendance' ||
         module === 'reports' ||
         module === 'settings' ||
-        module === 'customer_data' ||
-        module === 'whatsapp_crm' ||
         module === 'assets' ||
         module === 'recruitment'
       ) {
@@ -7128,6 +7136,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     if (module === 'profile') return true;
+    if (module === 'customer_data' || module === 'whatsapp_crm') return true;
     if (module === 'face_attendance' && (action === 'view' || action === 'create')) return true;
     if (module === 'attendance_log' && action === 'view') {
       return true;
