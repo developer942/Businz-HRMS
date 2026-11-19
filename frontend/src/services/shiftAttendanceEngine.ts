@@ -363,8 +363,15 @@ export function evaluateShiftAttendance(params: {
   const yesterdayStr = formatDateISO(yesterday);
 
   // 1. Check for an ACTIVE unclosed check-in (checkOut is NULL or empty)
-  // An active attendance can strictly belong ONLY to today or yesterday's night shift!
-  // Any unclosed check-ins from past dates must NEVER hijack today's check-in.
+  // An active attendance can strictly belong ONLY to today or yesterday's overnight / extended overtime session!
+  // Any unclosed check-ins from past dates must NEVER hijack today's check-in once today's early check-in window opens.
+  const hasTodayCheckInRecord = params.attendanceRecords.some(a => {
+    if (!matchesTargetEmployee(a.employeeId)) return false;
+    const recDate = normalizeToYYYYMMDD(a.shiftDate) || normalizeToYYYYMMDD(a.date);
+    const hasCheckIn = Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--');
+    return recDate === todayStr && hasCheckIn;
+  });
+
   const activeAttendance = params.attendanceRecords.find(a => {
     if (!matchesTargetEmployee(a.employeeId)) return false;
     const hasCheckIn = Boolean(a.checkIn && a.checkIn.trim() !== '' && a.checkIn !== '--:--');
@@ -375,12 +382,26 @@ export function evaluateShiftAttendance(params: {
     if (recDate === todayStr) {
       return true;
     }
-    if (recDate === yesterdayStr) {
+    if (recDate === yesterdayStr && !hasTodayCheckInRecord) {
       const { isNightShift, endDateTime } = calculateShiftDateTimes(yesterdayStr, assignedShift, effectiveGraceMins);
+      const todayTiming = calculateShiftDateTimes(todayStr, assignedShift, effectiveGraceMins);
+      const [yYear, yMonth, yDay] = yesterdayStr.split('-').map(Number);
+      const yInComp = parseShiftTime(a.checkIn, assignedShift.startTime || '09:00');
+      const yCheckInWall = new Date(yYear, (yMonth || 1) - 1, yDay || 1, yInComp.hours, yInComp.minutes, 0, 0);
+      const elapsedSinceYesterdayInMs = now.getTime() - yCheckInWall.getTime();
+      const maxOvernightElapsedMs = 18 * 3600 * 1000;
+
       if (isNightShift) {
-        // Active night shift from yesterday running into today morning (with 4h grace)
-        return now.getTime() <= endDateTime.getTime() + 4 * 3600 * 1000;
+        // Active night shift from yesterday running into today morning
+        return now.getTime() <= endDateTime.getTime() + 8 * 3600 * 1000 && elapsedSinceYesterdayInMs <= maxOvernightElapsedMs;
       }
+      // Day shift working extended overnight overtime past midnight (e.g., 10:04 AM to 01:00 AM next day):
+      // Keep active for punch-out until today's early check-in window opens (and within 18h max session).
+      const maxCheckoutCutoffMs = Math.min(
+        yCheckInWall.getTime() + maxOvernightElapsedMs,
+        todayTiming.earlyCheckInDateTime.getTime() - 60 * 1000
+      );
+      return elapsedSinceYesterdayInMs > 0 && now.getTime() <= maxCheckoutCutoffMs;
     }
     return false;
   }) || null;

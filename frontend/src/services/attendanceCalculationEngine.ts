@@ -1716,7 +1716,21 @@ export function buildEmployeeMonthlyAttendanceCalendar(
 
     // Case 3: Physical Attendance Punch (or Work From Home attendance record)
     if (att && (hasCheckIn || attStatusNorm === 'work from home' || attStatusNorm === 'wfh')) {
-      const workHrs = Number(att.workingHours ?? att.working_hours ?? 0);
+      let workHrs = Number(att.workingHours ?? att.working_hours ?? 0);
+      if (workHrs <= 0 && hasCheckIn && hasCheckOut) {
+        const session = resolveOvernightAttendanceSession({
+          attendanceDate: dateStr,
+          checkIn: rawCheckIn,
+          checkOut: rawCheckOut,
+          unpaidBreakMinutes: Number((att as any).breakDurationMinutes ?? (att as any).breakMinutes ?? 0),
+          deductBreakAlways: Number((att as any).breakDurationMinutes ?? (att as any).breakMinutes ?? 0) > 0,
+          otThresholdHours: stdShiftHours,
+          allowAutoRollSameDateIsoCheckOut: true,
+        });
+        workHrs = session.isValid ? session.workingHours : 0;
+      } else if (workHrs < 0) {
+        workHrs = 0;
+      }
       const isInProgress = hasCheckIn && !hasCheckOut && dateStr === todayIst;
       const isHalfDay =
         !isInProgress &&
@@ -2434,7 +2448,7 @@ export function calculateAttendanceHoursAndStatus(params: {
   const shiftEndMins = parseTimeToMinutes(shift.endTime) ?? 18 * 60;    // 06:00 PM
 
   const graceMins = shift.gracePeriodMinutes ?? attendancePolicy?.gracePeriodMinutes ?? 10;
-  const breakMins = shift.breakDurationMinutes ?? 60;
+  const breakMins = shift.breakDurationMinutes ?? 0;
   const reqHours = shift.requiredWorkingHours ?? 9.0;
   const halfDayThreshold = attendancePolicy?.minWorkingHoursHalfDay ?? 4.5;
 
@@ -2493,10 +2507,12 @@ export function calculateAttendanceHoursAndStatus(params: {
   const shiftEndTimelineMins = shiftEndMins >= shiftStartMins
     ? shiftEndMins
     : shiftEndMins + 24 * 60;
-  const grossMins = checkoutTimelineMins - inMins!;
-  
-  // Deduct break only if worked duration exceeds standard half-shift
-  const applicableBreakMins = grossMins > (breakMins + 120) ? breakMins : 0;
+  const rawSpanMins = checkoutTimelineMins - inMins!;
+  const isInvalidOvernightSpan = outMins! < inMins! && rawSpanMins > MAX_OVERNIGHT_SESSION_MINUTES;
+  const grossMins = isInvalidOvernightSpan ? 0 : Math.max(0, rawSpanMins);
+
+  // Deduct break only if configured and worked duration exceeds standard half-shift
+  const applicableBreakMins = (breakMins > 0 && grossMins > (breakMins + 120)) ? breakMins : 0;
   const netMins = Math.max(0, grossMins - applicableBreakMins);
   const workedHours = Math.round((netMins / 60) * 100) / 100;
 
@@ -2509,21 +2525,22 @@ export function calculateAttendanceHoursAndStatus(params: {
 
   // Early checkout calculation
   const earlyThreshold = shift.earlyCheckoutThresholdMinutes ?? 10;
-  const earlyCheckoutMinutes = (checkoutTimelineMins < (shiftEndTimelineMins - earlyThreshold))
+  const earlyCheckoutMinutes = (!isInvalidOvernightSpan && checkoutTimelineMins < (shiftEndTimelineMins - earlyThreshold))
     ? (shiftEndTimelineMins - checkoutTimelineMins)
     : 0;
 
   // Potential OT calculation
   let potentialOtHours = 0;
-  if (isOtEligible && otPolicy?.enabled !== false) {
+  if (!isInvalidOvernightSpan && isOtEligible && otPolicy?.enabled !== false) {
     // OT Hours = Actual Eligible Working Hours - Required Working Hours
     const rawOtHours = Math.max(0, workedHours - reqHours);
     const minOtDurationMins = otPolicy?.minimumOtDurationMinutes ?? 30;
     const minOtHours = minOtDurationMins / 60;
 
     if (rawOtHours >= minOtHours) {
-      const maxDaily = otPolicy?.maximumDailyOtHours ?? 4;
-      potentialOtHours = Math.min(rawOtHours, maxDaily);
+      const enforceCap = Boolean((otPolicy as any)?.enforceDailyOtCap);
+      const maxDaily = otPolicy?.maximumDailyOtHours;
+      potentialOtHours = (enforceCap && maxDaily && maxDaily > 0) ? Math.min(rawOtHours, maxDaily) : rawOtHours;
       potentialOtHours = Math.round(potentialOtHours * 100) / 100;
     }
   }
@@ -2921,14 +2938,19 @@ export function identifyEligibleOvertimeFromAttendance(params: {
     const shiftHours = elig.standardShiftHours || overtimePolicy?.defaultDailyPaidHours || 9;
     let workedHours = Number(att.workingHours ?? att.workHours) || 0;
     if (workedHours <= 0 && att.checkIn && att.checkOut) {
-      const inMins = parseTimeToMinutes(att.checkIn);
-      const outMins = parseTimeToMinutes(att.checkOut);
-      if (inMins !== null && outMins !== null) {
-        const grossMins = (outMins >= inMins ? outMins : outMins + 24 * 60) - inMins;
-        const breakMins = Number((att as any).breakMinutes ?? (att as any).breakDurationMinutes ?? 60);
-        const applicableBreak = grossMins > (breakMins + 120) ? breakMins : 0;
-        workedHours = Math.round((Math.max(0, grossMins - applicableBreak) / 60) * 100) / 100;
-      }
+      const breakMins = Number((att as any).breakMinutes ?? (att as any).breakDurationMinutes ?? 0);
+      const session = resolveOvernightAttendanceSession({
+        attendanceDate: String(att.shiftDate || att.date),
+        checkIn: att.checkIn,
+        checkOut: att.checkOut,
+        unpaidBreakMinutes: breakMins,
+        deductBreakAlways: false,
+        otThresholdHours: shiftHours,
+        allowAutoRollSameDateIsoCheckOut: true,
+      });
+      workedHours = session.isValid ? session.workingHours : 0;
+    } else if (workedHours < 0) {
+      workedHours = 0;
     }
 
     const isHolidayOrWeekOff = att.status === 'Holiday' || att.status === 'Week Off' || Boolean((att as any).isHoliday) || Boolean((att as any).isWeeklyOff);
@@ -2976,7 +2998,9 @@ export function identifyEligibleOvertimeFromAttendance(params: {
       continue;
     }
 
-    const cappedExtraHours = Math.min(rawExtraHours, elig.maxDailyOt || overtimePolicy?.maximumDailyOtHours || 4);
+    const enforceCap = Boolean((overtimePolicy as any)?.enforceDailyOtCap || (elig as any)?.enforceDailyOtCap);
+    const maxCapVal = Number(elig.maxDailyOt || overtimePolicy?.maximumDailyOtHours || 0);
+    const cappedExtraHours = (enforceCap && maxCapVal > 0) ? Math.min(rawExtraHours, maxCapVal) : rawExtraHours;
     const [attYearStr, attMonthStr] = normDate.split('-');
     const attYear = Number(attYearStr) || openYearNum;
     const attMonthNum = Number(attMonthStr) || 8;
@@ -3539,7 +3563,23 @@ export function buildEmployeeMonthlyAttendanceOtReport(params: {
         ? Number((assignedShift as any).workingHours)
         : (dateEligibility.standardShiftHours || baseEligibility.standardShiftHours || 9);
 
-    const workHrs = Math.round((Number(rec?.workingHours ?? (rec as any)?.workHours ?? 0) + Number.EPSILON) * 100) / 100;
+    let rawWorkHrs = Number(rec?.workingHours ?? (rec as any)?.workHours ?? 0);
+    if (rawWorkHrs <= 0 && rec?.checkIn && rec?.checkOut) {
+      const breakMins = Number((rec as any)?.breakDurationMinutes ?? (rec as any)?.breakMinutes ?? 0);
+      const session = resolveOvernightAttendanceSession({
+        attendanceDate: dateKey,
+        checkIn: rec.checkIn,
+        checkOut: rec.checkOut,
+        unpaidBreakMinutes: breakMins,
+        deductBreakAlways: breakMins > 0,
+        otThresholdHours: stdShiftHours,
+        allowAutoRollSameDateIsoCheckOut: true,
+      });
+      rawWorkHrs = session.isValid ? session.workingHours : 0;
+    } else if (rawWorkHrs < 0) {
+      rawWorkHrs = 0;
+    }
+    const workHrs = Math.round((rawWorkHrs + Number.EPSILON) * 100) / 100;
     totalShiftWorkHours += workHrs;
 
     let otHrs = 0;
@@ -3633,3 +3673,425 @@ export function buildEmployeeMonthlyAttendanceOtReport(params: {
     totalApprovedOtAmount: anyDayOtEligible ? Math.round((totalApprovedOtAmount + Number.EPSILON) * 100) / 100 : 0,
   };
 }
+
+export const MAX_OVERNIGHT_SESSION_MINUTES = 18 * 60; // 18 hours maximum permissible single attendance session
+export const DEFAULT_COMPANY_TIMEZONE = 'Asia/Kolkata';
+
+export function toTimezoneWallClockDate(instant: Date = new Date(), timeZone: string = DEFAULT_COMPANY_TIMEZONE): Date {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(instant);
+    const map: Record<string, number> = {};
+    for (const part of parts) {
+      if (part.type !== 'literal') {
+        map[part.type] = parseInt(part.value, 10);
+      }
+    }
+    const hour = map.hour === 24 ? 0 : map.hour;
+    return new Date(
+      map.year,
+      (map.month || 1) - 1,
+      map.day || 1,
+      hour || 0,
+      map.minute || 0,
+      map.second || 0,
+      instant.getMilliseconds()
+    );
+  } catch {
+    return new Date(instant.getTime());
+  }
+}
+
+function toWallDateStr(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function normalizeCalendarDateStr(raw?: string | Date | null, timeZone: string = DEFAULT_COMPANY_TIMEZONE): string {
+  if (!raw) return '';
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return '';
+    return toWallDateStr(toTimezoneWallClockDate(raw, timeZone));
+  }
+  const str = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if (/^\d{2}[/-]\d{2}[/-]\d{4}$/.test(str)) {
+    const [d, m, y] = str.split(/[/-]/);
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  if (str.includes('T') || (str.includes('-') && str.includes(':'))) {
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      return toWallDateStr(toTimezoneWallClockDate(parsed, timeZone));
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  return '';
+}
+
+export function addDaysToDateStr(dateStr: string, days: number): string {
+  const clean = normalizeCalendarDateStr(dateStr);
+  if (!clean) return dateStr;
+  const [y, m, d] = clean.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + days));
+  const ry = utc.getUTCFullYear();
+  const rm = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const rd = String(utc.getUTCDate()).padStart(2, '0');
+  return `${ry}-${rm}-${rd}`;
+}
+
+export function formatDurationHoursAndMinutes(totalMinutes: number): string {
+  const safeMins = Math.max(0, Math.round(Number(totalMinutes) || 0));
+  const hrs = Math.floor(safeMins / 60);
+  const mins = safeMins % 60;
+  return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+}
+
+export function parseTimeOrIsoInTimezone(
+  raw: string | Date | null | undefined,
+  anchorDateStr: string,
+  timeZone: string = DEFAULT_COMPANY_TIMEZONE
+): {
+  instant: Date;
+  wallDateStr: string;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  hasExplicitDate: boolean;
+  display12: string;
+} | null {
+  if (!raw) return null;
+  const cleanAnchor = normalizeCalendarDateStr(anchorDateStr, timeZone);
+  if (!cleanAnchor) return null;
+
+  const buildKolInstant = (ymd: string, h: number, m: number, s: number): Date | null => {
+    const [yy, mm, dd] = ymd.split('-').map(Number);
+    if (!yy || !mm || !dd) return null;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    if (timeZone === 'Asia/Kolkata' || timeZone === 'Asia/Calcutta') {
+      const d = new Date(`${yy}-${pad(mm)}-${pad(dd)}T${pad(h)}:${pad(m)}:${pad(s)}+05:30`);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const utcGuess = new Date(Date.UTC(yy, mm - 1, dd, h, m, s));
+    const wallAtGuess = toTimezoneWallClockDate(utcGuess, timeZone);
+    const diffMs = utcGuess.getTime() - Date.UTC(
+      wallAtGuess.getFullYear(),
+      wallAtGuess.getMonth(),
+      wallAtGuess.getDate(),
+      wallAtGuess.getHours(),
+      wallAtGuess.getMinutes(),
+      wallAtGuess.getSeconds()
+    );
+    return new Date(utcGuess.getTime() + diffMs);
+  };
+
+  const to12Hr = (h24: number, m: number): string => {
+    const ampm = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+  };
+
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return null;
+    const wall = toTimezoneWallClockDate(raw, timeZone);
+    const wallDateStr = toWallDateStr(wall);
+    return {
+      instant: new Date(raw.getTime()),
+      wallDateStr,
+      hours: wall.getHours(),
+      minutes: wall.getMinutes(),
+      seconds: wall.getSeconds(),
+      hasExplicitDate: true,
+      display12: to12Hr(wall.getHours(), wall.getMinutes()),
+    };
+  }
+
+  const str = String(raw).trim();
+  if (!str || str === '--:--' || str === '—' || str === '-' || str.toLowerCase().includes('progress') || str.toLowerCase().includes('missed') || str.toLowerCase().includes('none')) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}/.test(str)) {
+    const hasOffset = /[Zz]|[+-]\d{2}:?\d{2}$/.test(str);
+    const normalizedIso = hasOffset ? str.replace(' ', 'T') : `${str.replace(' ', 'T')}+05:30`;
+    const parsed = new Date(normalizedIso);
+    if (!isNaN(parsed.getTime())) {
+      const wall = toTimezoneWallClockDate(parsed, timeZone);
+      const wallDateStr = toWallDateStr(wall);
+      return {
+        instant: parsed,
+        wallDateStr,
+        hours: wall.getHours(),
+        minutes: wall.getMinutes(),
+        seconds: wall.getSeconds(),
+        hasExplicitDate: true,
+        display12: to12Hr(wall.getHours(), wall.getMinutes()),
+      };
+    }
+  }
+
+  const normalizedTime = str.replace(/\./g, ':');
+  const match = normalizedTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|A|P)?$/i);
+  if (!match) return null;
+
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  const s = match[3] ? parseInt(match[3], 10) : 0;
+  const mer = match[4]?.toUpperCase();
+
+  if (isNaN(h) || isNaN(m) || isNaN(s) || m < 0 || m > 59 || s < 0 || s > 59) return null;
+  if (mer) {
+    if (h < 1 || h > 12) return null;
+    const isPM = mer.startsWith('P');
+    if (isPM && h < 12) h += 12;
+    if (!isPM && h === 12) h = 0;
+  } else if (h < 0 || h > 23) {
+    return null;
+  }
+
+  const instant = buildKolInstant(cleanAnchor, h, m, s);
+  if (!instant) return null;
+
+  return {
+    instant,
+    wallDateStr: cleanAnchor,
+    hours: h,
+    minutes: m,
+    seconds: s,
+    hasExplicitDate: false,
+    display12: to12Hr(h, m),
+  };
+}
+
+export interface OvernightSessionResolution {
+  isValid: boolean;
+  errorCode?:
+    | 'MISSING_CHECK_IN'
+    | 'MISSING_CHECK_OUT'
+    | 'INVALID_REVERSED_TIMESTAMPS'
+    | 'EXCEEDS_MAX_SESSION_LENGTH'
+    | 'OVERLAPS_NEXT_SHIFT';
+  errorMessage?: string;
+  attendanceDate: string;
+  checkInDate: string;
+  checkOutDate: string | null;
+  checkInIso: string | null;
+  checkOutIso: string | null;
+  checkInDisplay: string | null;
+  checkOutDisplay: string | null;
+  isOvernight: boolean;
+  elapsedMinutes: number;
+  breakDeductedMinutes: number;
+  netWorkedMinutes: number;
+  workingHours: number;
+  formattedWorkingDuration: string;
+  otMinutes: number;
+  otHours: number;
+  formattedOtDuration: string;
+}
+
+export function resolveOvernightAttendanceSession(params: {
+  attendanceDate: string;
+  checkIn?: string | Date | null;
+  checkOut?: string | Date | null;
+  checkOutDate?: string | null;
+  unpaidBreakMinutes?: number;
+  deductBreakAlways?: boolean;
+  otThresholdHours?: number;
+  otEligible?: boolean;
+  minOtDurationMinutes?: number;
+  maxDailyOtHours?: number;
+  enforceDailyOtCap?: boolean;
+  otRoundingMinutes?: number;
+  maxSessionMinutes?: number;
+  nextDayCheckIn?: string | Date | null;
+  allowAutoRollSameDateIsoCheckOut?: boolean;
+  timeZone?: string;
+}): OvernightSessionResolution {
+  const timeZone = params.timeZone || DEFAULT_COMPANY_TIMEZONE;
+  const attendanceDate =
+    normalizeCalendarDateStr(params.attendanceDate, timeZone) ||
+    toWallDateStr(toTimezoneWallClockDate(new Date(), timeZone));
+  const maxSessionMinutes =
+    params.maxSessionMinutes !== undefined && params.maxSessionMinutes > 0
+      ? params.maxSessionMinutes
+      : MAX_OVERNIGHT_SESSION_MINUTES;
+
+  const emptyResult = (
+    errorCode: OvernightSessionResolution['errorCode'],
+    errorMessage: string,
+    inParsed?: ReturnType<typeof parseTimeOrIsoInTimezone> | null
+  ): OvernightSessionResolution => ({
+    isValid: false,
+    errorCode,
+    errorMessage,
+    attendanceDate,
+    checkInDate: inParsed?.wallDateStr || attendanceDate,
+    checkOutDate: null,
+    checkInIso: inParsed?.instant ? inParsed.instant.toISOString() : null,
+    checkOutIso: null,
+    checkInDisplay: inParsed?.display12 || null,
+    checkOutDisplay: null,
+    isOvernight: false,
+    elapsedMinutes: 0,
+    breakDeductedMinutes: 0,
+    netWorkedMinutes: 0,
+    workingHours: 0,
+    formattedWorkingDuration: '0h 00m',
+    otMinutes: 0,
+    otHours: 0,
+    formattedOtDuration: '0h 00m',
+  });
+
+  const inParsed = parseTimeOrIsoInTimezone(params.checkIn, attendanceDate, timeZone);
+  if (!inParsed) {
+    return emptyResult('MISSING_CHECK_IN', 'Valid check-in time is required.');
+  }
+
+  const explicitOutAnchor = params.checkOutDate
+    ? normalizeCalendarDateStr(params.checkOutDate, timeZone) || attendanceDate
+    : inParsed.wallDateStr;
+  const outParsedInitial = parseTimeOrIsoInTimezone(params.checkOut, explicitOutAnchor, timeZone);
+  if (!outParsedInitial) {
+    return emptyResult('MISSING_CHECK_OUT', 'Check-out time is not yet recorded.', inParsed);
+  }
+
+  let resolvedOut = outParsedInitial;
+  const rawDiffMs = resolvedOut.instant.getTime() - inParsed.instant.getTime();
+
+  if (rawDiffMs < 0) {
+    const hasExplicitEarlierDate =
+      (Boolean(params.checkOutDate) && normalizeCalendarDateStr(params.checkOutDate, timeZone) < inParsed.wallDateStr) ||
+      (outParsedInitial.hasExplicitDate && outParsedInitial.wallDateStr < inParsed.wallDateStr);
+
+    const canEvaluateNextDayRoll =
+      !hasExplicitEarlierDate &&
+      (!outParsedInitial.hasExplicitDate ||
+        (params.allowAutoRollSameDateIsoCheckOut !== false && outParsedInitial.wallDateStr === inParsed.wallDateStr));
+
+    if (!canEvaluateNextDayRoll) {
+      return emptyResult(
+        'INVALID_REVERSED_TIMESTAMPS',
+        'Check-out timestamp is earlier than check-in timestamp.',
+        inParsed
+      );
+    }
+
+    const nextDayStr = addDaysToDateStr(inParsed.wallDateStr, 1);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const nextDayTimeStr = `${pad(outParsedInitial.hours)}:${pad(outParsedInitial.minutes)}:${pad(outParsedInitial.seconds)}`;
+    const candidateNextDayOut = parseTimeOrIsoInTimezone(nextDayTimeStr, nextDayStr, timeZone);
+    if (!candidateNextDayOut) {
+      return emptyResult('INVALID_REVERSED_TIMESTAMPS', 'Unable to resolve overnight check-out timestamp.', inParsed);
+    }
+
+    const candidateElapsedMinutes = Math.round(
+      (candidateNextDayOut.instant.getTime() - inParsed.instant.getTime()) / 60_000
+    );
+
+    if (candidateElapsedMinutes <= 0 || candidateElapsedMinutes > maxSessionMinutes) {
+      return emptyResult(
+        'INVALID_REVERSED_TIMESTAMPS',
+        `Check-out time (${outParsedInitial.display12}) is earlier than check-in time (${inParsed.display12}) and rolling to the next day (${formatDurationHoursAndMinutes(candidateElapsedMinutes)}) exceeds the maximum permissible session duration (${Math.round(maxSessionMinutes / 60)} hours).`,
+        inParsed
+      );
+    }
+
+    resolvedOut = candidateNextDayOut;
+  }
+
+  const elapsedMinutes = Math.round((resolvedOut.instant.getTime() - inParsed.instant.getTime()) / 60_000);
+  if (elapsedMinutes < 0) {
+    return emptyResult('INVALID_REVERSED_TIMESTAMPS', 'Check-out timestamp cannot be earlier than check-in timestamp.', inParsed);
+  }
+  if (elapsedMinutes > maxSessionMinutes) {
+    return emptyResult(
+      'EXCEEDS_MAX_SESSION_LENGTH',
+      `Attendance session duration (${formatDurationHoursAndMinutes(elapsedMinutes)}) exceeds the maximum permissible session duration (${Math.round(maxSessionMinutes / 60)} hours).`,
+      inParsed
+    );
+  }
+
+  if (params.nextDayCheckIn) {
+    const nextDayAnchor = addDaysToDateStr(inParsed.wallDateStr, 1);
+    const nextDayInParsed = parseTimeOrIsoInTimezone(params.nextDayCheckIn, nextDayAnchor, timeZone);
+    if (nextDayInParsed && resolvedOut.instant.getTime() > nextDayInParsed.instant.getTime()) {
+      return emptyResult(
+        'OVERLAPS_NEXT_SHIFT',
+        `Overnight check-out (${resolvedOut.display12} on ${resolvedOut.wallDateStr}) overlaps with next shift check-in (${nextDayInParsed.display12} on ${nextDayInParsed.wallDateStr}).`,
+        inParsed
+      );
+    }
+  }
+
+  const rawBreakMins = Math.max(0, Math.round(Number(params.unpaidBreakMinutes) || 0));
+  const breakDeductedMinutes =
+    rawBreakMins > 0 && (params.deductBreakAlways || elapsedMinutes > rawBreakMins + 120)
+      ? Math.min(elapsedMinutes, rawBreakMins)
+      : 0;
+
+  const netWorkedMinutes = Math.max(0, elapsedMinutes - breakDeductedMinutes);
+  const workingHours = Math.round((netWorkedMinutes / 60 + Number.EPSILON) * 100) / 100;
+
+  const thresholdHours =
+    params.otThresholdHours !== undefined && Number(params.otThresholdHours) > 0
+      ? Number(params.otThresholdHours)
+      : 9;
+  const thresholdMinutes = Math.round(thresholdHours * 60);
+  const otEligible = params.otEligible !== false;
+  const minOtDurationMinutes =
+    params.minOtDurationMinutes !== undefined && Number(params.minOtDurationMinutes) >= 0
+      ? Number(params.minOtDurationMinutes)
+      : 0;
+
+  let otMinutes = 0;
+  if (otEligible && netWorkedMinutes > thresholdMinutes) {
+    const rawOtMinutes = netWorkedMinutes - thresholdMinutes;
+    if (rawOtMinutes >= minOtDurationMinutes) {
+      otMinutes = rawOtMinutes;
+      if (params.otRoundingMinutes && params.otRoundingMinutes > 1) {
+        const r = Math.round(params.otRoundingMinutes);
+        otMinutes = Math.floor(otMinutes / r) * r;
+      }
+      if (params.enforceDailyOtCap && params.maxDailyOtHours && params.maxDailyOtHours > 0) {
+        const capMinutes = Math.round(params.maxDailyOtHours * 60);
+        otMinutes = Math.min(otMinutes, capMinutes);
+      }
+    }
+  }
+
+  const otHours = Math.round((otMinutes / 60 + Number.EPSILON) * 100) / 100;
+  const isOvernight = resolvedOut.wallDateStr > inParsed.wallDateStr;
+
+  return {
+    isValid: true,
+    attendanceDate,
+    checkInDate: inParsed.wallDateStr,
+    checkOutDate: resolvedOut.wallDateStr,
+    checkInIso: inParsed.instant.toISOString(),
+    checkOutIso: resolvedOut.instant.toISOString(),
+    checkInDisplay: inParsed.display12,
+    checkOutDisplay: resolvedOut.display12,
+    isOvernight,
+    elapsedMinutes,
+    breakDeductedMinutes,
+    netWorkedMinutes,
+    workingHours,
+    formattedWorkingDuration: formatDurationHoursAndMinutes(netWorkedMinutes),
+    otMinutes,
+    otHours,
+    formattedOtDuration: formatDurationHoursAndMinutes(otMinutes),
+  };
+}
+

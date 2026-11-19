@@ -3,7 +3,7 @@ import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.j
 import { query, withTransaction } from '../config/database.js';
 import { employeeRepository } from './employeeRepository.js';
 import { shiftRepository } from './shiftRepository.js';
-import { evaluateBackendShiftAttendance, calculateShiftDateTimes, toTimezoneWallClockDate, toDateStr, DEFAULT_COMPANY_TIMEZONE, } from '../services/shiftAttendanceEngine.js';
+import { evaluateBackendShiftAttendance, calculateShiftDateTimes, toTimezoneWallClockDate, toDateStr, DEFAULT_COMPANY_TIMEZONE, resolveOvernightAttendanceSession, } from '../services/shiftAttendanceEngine.js';
 import { assertAttendanceTransition } from '../services/attendanceStateMachine.js';
 import { loadActiveLatePoliciesFromDb, resolveEffectiveLatePolicyForEmployee, countEmployeeMonthlyLateOccurrences, evaluateCheckInPunctualityAndPenalty, } from '../services/latePolicyService.js';
 import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
@@ -149,6 +149,20 @@ export class AttendanceRepository {
             baseLocationAddress;
         const checkInLocation = row.check_in ? String(rawInCandidate || '').trim() : undefined;
         const checkOutLocation = row.check_out ? String(rawOutCandidate || '').trim() : undefined;
+        const normalizedShiftDate = normalizeDateStr(row.shift_date || row.date);
+        let safeWorkingHours = Number(row.working_hours) || 0;
+        if (safeWorkingHours <= 0 && row.check_in && row.check_out) {
+            const resolvedSession = resolveOvernightAttendanceSession({
+                attendanceDate: normalizedShiftDate,
+                checkIn: row.check_in,
+                checkOut: row.check_out,
+                allowAutoRollSameDateIsoCheckOut: true,
+            });
+            safeWorkingHours = resolvedSession.isValid ? resolvedSession.workingHours : 0;
+        }
+        else if (safeWorkingHours < 0) {
+            safeWorkingHours = 0;
+        }
         return {
             id: row.id,
             employeeId: empCode || row.employees?.employee_id || row.employee_id,
@@ -157,14 +171,14 @@ export class AttendanceRepository {
             date: normalizeDateStr(row.date),
             checkIn: formatTime(row.check_in),
             checkOut: formatTime(row.check_out),
-            workingHours: Number(row.working_hours) || 0,
+            workingHours: safeWorkingHours,
             status: rawStatus || 'Present',
             lateStatus: rawLateStatus,
             lateDurationMinutes: lateDuration,
             method: row.method || 'Face Scan',
             inGeofence: row.in_geofence !== false,
             shiftId: row.shift_id || undefined,
-            shiftDate: normalizeDateStr(row.shift_date || row.date),
+            shiftDate: normalizedShiftDate,
             locationLat: row.location_lat ? Number(row.location_lat) : undefined,
             locationLng: row.location_lng ? Number(row.location_lng) : undefined,
             locationAddress: baseLocationAddress,
@@ -742,14 +756,73 @@ export class AttendanceRepository {
             }
             else {
                 // Punch OUT: preserve check_in, check_in_photo, status, late_status, late_duration_minutes, and checkInLocation in notes!
-                const checkInTime = new Date(currentRow.check_in);
-                const diffHours = Math.max(0, (serverInstant.getTime() - checkInTime.getTime()) / (1000 * 60 * 60));
-                const workingHours = Number(diffHours.toFixed(2));
-                // Calculate early checkout minutes or overtime hours relative to shiftEndDateTime
+                let otThresholdHours = Number(assignedShift.workingHours) > 0 ? Number(assignedShift.workingHours) : 9;
+                let otEligible = true;
+                let minOtDurationMinutes = 0;
+                try {
+                    const otSettingsRes = await client.query(`SELECT setting_key, setting_val
+             FROM public.company_settings
+             WHERE setting_key IN ('overtime_policy_data', 'department_ot_policies_data', 'employee_ot_policies_data')`);
+                    const settingsMap = new Map();
+                    for (const r of otSettingsRes.rows) {
+                        settingsMap.set(r.setting_key, r.setting_val);
+                    }
+                    const masterOt = settingsMap.get('overtime_policy_data');
+                    if (masterOt && typeof masterOt === 'object') {
+                        if (Number(masterOt.defaultDailyPaidHours) > 0) {
+                            otThresholdHours = Number(masterOt.defaultDailyPaidHours);
+                        }
+                    }
+                    const deptPolicies = Array.isArray(settingsMap.get('department_ot_policies_data'))
+                        ? settingsMap.get('department_ot_policies_data')
+                        : [];
+                    const empDept = String(employee.department_name || '').trim().toLowerCase();
+                    const matchedDeptPolicy = deptPolicies.find((dp) => String(dp?.department || '').trim().toLowerCase() === empDept);
+                    if (matchedDeptPolicy) {
+                        if (Number(matchedDeptPolicy.standardShiftHours) > 0) {
+                            otThresholdHours = Number(matchedDeptPolicy.standardShiftHours);
+                        }
+                        if (matchedDeptPolicy.otAllowed === false) {
+                            otEligible = false;
+                        }
+                    }
+                    const empPolicies = Array.isArray(settingsMap.get('employee_ot_policies_data'))
+                        ? settingsMap.get('employee_ot_policies_data')
+                        : [];
+                    const empCodeLow = String(employee.employee_id || '').trim().toLowerCase();
+                    const empUuidLow = String(employee.id || '').trim().toLowerCase();
+                    const matchedEmpPolicy = empPolicies.find((ep) => {
+                        const pid = String(ep?.employeeId || '').trim().toLowerCase();
+                        return pid === empCodeLow || pid === empUuidLow;
+                    });
+                    if (matchedEmpPolicy) {
+                        if (Number(matchedEmpPolicy.standardShiftHours) > 0) {
+                            otThresholdHours = Number(matchedEmpPolicy.standardShiftHours);
+                        }
+                        if (typeof matchedEmpPolicy.otAllowed === 'boolean') {
+                            otEligible = matchedEmpPolicy.otAllowed;
+                        }
+                    }
+                }
+                catch {
+                    // Fallback to default 9-hour standard shift threshold
+                }
+                const sessionCalc = resolveOvernightAttendanceSession({
+                    attendanceDate: targetShiftDate,
+                    checkIn: currentRow.check_in,
+                    checkOut: serverInstant,
+                    otThresholdHours,
+                    otEligible,
+                    minOtDurationMinutes,
+                    timeZone,
+                });
+                const workingHours = sessionCalc.isValid
+                    ? sessionCalc.workingHours
+                    : Number(Math.max(0, (serverInstant.getTime() - new Date(currentRow.check_in).getTime()) / 3_600_000).toFixed(2));
+                // Calculate early checkout minutes relative to shiftEndDateTime and overtime hours above applicable threshold
                 const earlyDiffMins = Math.floor((shiftTimes.shiftEndDateTime.getTime() - wallClockNow.getTime()) / 60_000);
                 const earlyCheckoutMinutes = earlyDiffMins > 0 ? earlyDiffMins : 0;
-                const otMins = Math.floor((wallClockNow.getTime() - shiftTimes.shiftEndDateTime.getTime()) / 60_000);
-                const calculatedOtHours = otMins >= 30 ? Number((otMins / 60).toFixed(2)) : 0;
+                const calculatedOtHours = sessionCalc.isValid ? sessionCalc.otHours : 0;
                 const cleanClientOutAddr = !isGenericPlaceholderLocation(params.locationAddress)
                     ? String(params.locationAddress).trim()
                     : null;

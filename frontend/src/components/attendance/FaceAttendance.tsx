@@ -45,7 +45,10 @@ import {
   parseTimeToMinutes,
   buildEmployeeMonthlyAttendanceOtReport,
   calculateEnterpriseOvertimeRateAndAmount,
-  buildEmployeeMonthlyAttendanceCalendar
+  buildEmployeeMonthlyAttendanceCalendar,
+  resolveOvernightAttendanceSession,
+  resolveEmployeeOtEligibility,
+  formatDurationHoursAndMinutes
 } from '../../services/attendanceCalculationEngine';
 import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { formatCurrency } from '../../utils/numbers';
@@ -2862,7 +2865,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       String(rec.checkOut).trim() !== '' &&
       !String(rec.checkOut).toLowerCase().includes('progress')
     );
-    const hrs = Number(rec?.workingHours || 0);
+    const hrs = getRecordResolvedWorkingHours(rec);
     if (hasOut && hrs > 0 && hrs < 9 * 0.7 && (statusNorm === 'present' || statusNorm === 'late')) {
       return 'Half Day';
     }
@@ -2870,6 +2873,34 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       return 'Late';
     }
     return rawStatus || 'Present';
+  };
+
+  const getRecordResolvedWorkingHours = (rec: any): number => {
+    const rawHrs = Number(rec?.workingHours ?? rec?.working_hours ?? 0);
+    if (Number.isFinite(rawHrs) && rawHrs > 0) {
+      return Math.round((rawHrs + Number.EPSILON) * 100) / 100;
+    }
+    const hasIn = Boolean(rec?.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+    const hasOut = Boolean(
+      rec?.checkOut &&
+      rec.checkOut !== '--:--' &&
+      String(rec.checkOut).trim() !== '' &&
+      !String(rec.checkOut).toLowerCase().includes('progress')
+    );
+    if (hasIn && hasOut) {
+      const recDate = normalizeToYYYYMMDD(rec?.shiftDate || rec?.date);
+      const breakMins = Number(rec?.breakDurationMinutes ?? rec?.breakMinutes ?? 0);
+      const session = resolveOvernightAttendanceSession({
+        attendanceDate: recDate,
+        checkIn: rec.checkIn,
+        checkOut: rec.checkOut,
+        unpaidBreakMinutes: breakMins,
+        deductBreakAlways: breakMins > 0,
+        allowAutoRollSameDateIsoCheckOut: true,
+      });
+      return session.isValid ? session.workingHours : 0;
+    }
+    return 0;
   };
 
   const getRecordDailyOt = (rec: any): { otHrs: number; otAmount: number } => {
@@ -2889,14 +2920,21 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       return isApproved && rEmpId === recEmpId && normalizeToYYYYMMDD(req.date) === recDate;
     });
 
-    const stdShiftHours = 9;
-    const workHrs = Number(rec?.workingHours || 0);
+    const elig = resolveEmployeeOtEligibility(
+      empMatch as any,
+      departmentOtPolicies,
+      employeeOtPolicies,
+      overtimePolicy,
+      recDate
+    );
+    const stdShiftHours = Number(elig?.standardShiftHours || overtimePolicy?.defaultDailyPaidHours || 9) || 9;
+    const workHrs = getRecordResolvedWorkingHours(rec);
     const explicitOt =
       matchedOtReq
         ? Number(matchedOtReq.approvedOtHours || (matchedOtReq as any).otHours || matchedOtReq.requestedOtHours || 0)
         : (rec?.approvedOtHours !== undefined && Number(rec.approvedOtHours) > 0
           ? Number(rec.approvedOtHours)
-          : Number((rec as any)?.otHours || rec?.overtimeHours || rec?.calculatedOtHours || 0));
+          : 0);
     const autoExcessOt = workHrs > stdShiftHours ? Math.round((workHrs - stdShiftHours + Number.EPSILON) * 100) / 100 : 0;
     const otHrs = explicitOt > 0 ? explicitOt : autoExcessOt;
     if (otHrs <= 0) return { otHrs: 0, otAmount: 0 };
@@ -2939,7 +2977,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       if (effStatus === 'Late' || (r.lateStatus && r.lateStatus !== 'On Time' && r.lateStatus !== 'N/A') || (r.lateDurationMinutes && r.lateDurationMinutes > 0)) {
         lateDays++;
       }
-      totalWorkedHours += Number(r.workingHours || 0);
+      totalWorkedHours += getRecordResolvedWorkingHours(r);
       const dailyOt = getRecordDailyOt(r);
       totalOtHours += dailyOt.otHrs;
       totalOtAmount += dailyOt.otAmount;
@@ -3385,7 +3423,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             const hasOut = Boolean(rec.checkOut && rec.checkOut !== '--:--' && String(rec.checkOut).trim() !== '');
             const checkInDisplay = hasIn ? formatAttendanceTime(rec.checkIn) : '—';
             const checkOutDisplay = hasOut ? formatAttendanceTime(rec.checkOut) : (hasIn ? 'In Progress' : '—');
-            const workHrsVal = Number(rec.workingHours || 0);
+            const workHrsVal = getRecordResolvedWorkingHours(rec);
             const workHrsDisplay = workHrsVal > 0 ? `${workHrsVal} hrs` : '—';
             const dailyOt = getRecordDailyOt(rec);
 
@@ -3796,12 +3834,19 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     </td>
 
                     {/* Working Hours */}
-                    <td data-testid="record-working-hours" style={{ padding: '11px 16px', whiteSpace: 'nowrap', color: '#334155', fontWeight: 500 }}>
-                      {rec.workingHours ?? 0} hrs
+                    <td
+                      data-testid="record-working-hours"
+                      title={formatDurationHoursAndMinutes(Math.round(getRecordResolvedWorkingHours(rec) * 60))}
+                      style={{ padding: '11px 16px', whiteSpace: 'nowrap', color: '#334155', fontWeight: 500 }}
+                    >
+                      {getRecordResolvedWorkingHours(rec)} hrs
                     </td>
 
                     {/* Daily OT Hours */}
-                    <td style={{ padding: '11px 16px', whiteSpace: 'nowrap', fontWeight: 500, color: '#334155' }}>
+                    <td
+                      title={dailyOt.otHrs > 0 ? formatDurationHoursAndMinutes(Math.round(dailyOt.otHrs * 60)) : undefined}
+                      style={{ padding: '11px 16px', whiteSpace: 'nowrap', fontWeight: 500, color: '#334155' }}
+                    >
                       {dailyOt.otHrs > 0 ? `${dailyOt.otHrs} hrs` : '0 hrs'}
                     </td>
 

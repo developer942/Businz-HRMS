@@ -206,7 +206,8 @@ import {
   resolveMonthNumber,
   getCalendarDaysInMonth,
   resolvePayrollSalaryDivisor,
-  calculateCalendarDayPayrollAttendance
+  calculateCalendarDayPayrollAttendance,
+  resolveOvernightAttendanceSession
 } from '../services/attendanceCalculationEngine';
 import {
   evaluateShiftAttendance,
@@ -2124,6 +2125,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Calculate working hours & OT
     let computedWorkingHours = existingRec.workingHours;
     const breakMins = params.breakDurationMinutes ?? existingRec.breakDurationMinutes ?? 0;
+    const shiftStandardHours = Number((matchedShift as any)?.workingHours) > 0 ? Number((matchedShift as any).workingHours) : 9.0;
+    let resolvedSessionForCorrection: ReturnType<typeof resolveOvernightAttendanceSession> | null = null;
 
     if (params.status === 'Absent' || params.status === 'Holiday' || params.status === 'Week Off') {
       computedWorkingHours = 0;
@@ -2132,15 +2135,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } else if (params.status === 'On Leave' || (params.status as string) === 'Leave') {
       computedWorkingHours = (params.leaveDuration === 'First Half' || params.leaveDuration === 'Second Half') ? 4.0 : 0;
     } else if (effectiveCheckIn && effectiveCheckOut) {
-      const inMins = parseTimeToMinutes(effectiveCheckIn);
-      const outMins = parseTimeToMinutes(effectiveCheckOut);
-      if (inMins !== null && outMins !== null) {
-        if (outMins < inMins) {
-          return { success: false, message: 'Check-out time cannot be earlier than check-in time.' };
-        }
-        const netMinutes = Math.max(0, outMins - inMins - breakMins);
-        computedWorkingHours = Math.round((netMinutes / 60) * 10) / 10;
+      resolvedSessionForCorrection = resolveOvernightAttendanceSession({
+        attendanceDate: String(existingRec.shiftDate || existingRec.date || ''),
+        checkIn: effectiveCheckIn,
+        checkOut: effectiveCheckOut,
+        unpaidBreakMinutes: breakMins,
+        deductBreakAlways: breakMins > 0,
+        otThresholdHours: shiftStandardHours,
+      });
+      if (!resolvedSessionForCorrection.isValid) {
+        return {
+          success: false,
+          message:
+            resolvedSessionForCorrection.errorMessage ||
+            'Check-out time cannot be earlier than check-in time (exceeds maximum overnight session limit).'
+        };
       }
+      computedWorkingHours = resolvedSessionForCorrection.workingHours;
     }
 
     // Dynamic punctuality & status resolution:
@@ -2186,18 +2197,17 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       finalLateMinutes = 0;
     }
 
-    const shiftStandardHours = Number((matchedShift as any)?.workingHours) > 0 ? Number((matchedShift as any).workingHours) : 9.0;
     if ((finalStatus === 'Present' || finalStatus === 'Late') && effectiveCheckIn && effectiveCheckOut && effectiveCheckOut !== '--:--') {
-      const inM = parseTimeToMinutes(effectiveCheckIn);
-      const outM = parseTimeToMinutes(effectiveCheckOut);
-      if (inM !== null && outM !== null) {
-        const grossHrs = Math.max(0, outM - inM) / 60;
-        if (grossHrs > 0 && grossHrs < shiftStandardHours * 0.7) {
-          finalStatus = 'Half Day';
-        }
+      const grossHrs = resolvedSessionForCorrection
+        ? resolvedSessionForCorrection.elapsedMinutes / 60
+        : computedWorkingHours;
+      if (grossHrs > 0 && grossHrs < shiftStandardHours * 0.7) {
+        finalStatus = 'Half Day';
       }
     }
-    const calculatedOtHours = computedWorkingHours > shiftStandardHours ? Math.round((computedWorkingHours - shiftStandardHours) * 10) / 10 : 0;
+    const calculatedOtHours = resolvedSessionForCorrection
+      ? resolvedSessionForCorrection.otHours
+      : (computedWorkingHours > shiftStandardHours ? Math.round((computedWorkingHours - shiftStandardHours + Number.EPSILON) * 100) / 100 : 0);
     const finalOtStatus = params.otStatus ?? existingRec.otStatus ?? 'Pending';
     const approvedOt = params.approvedOtHours !== undefined
       ? params.approvedOtHours
@@ -2237,13 +2247,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       effectiveCheckOut
     );
 
-    const checkInIso = effectiveCheckIn ? localDateTimeToIso(existingRec.date, effectiveCheckIn) : null;
-    const checkOutIso = effectiveCheckOut ? localDateTimeToIso(existingRec.date, effectiveCheckOut) : null;
+    const checkInIso =
+      resolvedSessionForCorrection?.checkInIso ||
+      (effectiveCheckIn ? localDateTimeToIso(existingRec.date, effectiveCheckIn) : null);
+    const checkOutIso =
+      resolvedSessionForCorrection?.checkOutIso ||
+      (effectiveCheckOut ? localDateTimeToIso(existingRec.date, effectiveCheckOut) : null);
     if (existingRec.id && existingRec.id.length === 36) {
       supabaseDirect.updateAttendanceRecord(existingRec.id, {
         check_in: checkInIso,
         check_out: checkOutIso,
         working_hours: computedWorkingHours,
+        calculated_ot_hours: calculatedOtHours,
         status: finalStatus,
         late_status: finalLateStatus,
         method: 'Manual Override'
@@ -2796,11 +2811,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
 
     const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    const missedPunchSession = resolveOvernightAttendanceSession({
+      attendanceDate: String(target.date || '').split('T')[0],
+      checkIn: targetCheckIn,
+      checkOut: targetCheckOut,
+      otThresholdHours: shiftModel.requiredWorkingHours || 9.0,
+      otEligible: otEligibility.isEligible,
+    });
     supabaseDirect.upsertAttendanceRecord({
       employee_id: targetEmpObj?.id || target.employeeId,
       date: String(target.date || '').split('T')[0],
-      check_in: targetCheckIn ? localDateTimeToIso(target.date, targetCheckIn) : null,
-      check_out: targetCheckOut ? localDateTimeToIso(target.date, targetCheckOut) : null,
+      check_in: missedPunchSession.checkInIso || (targetCheckIn ? localDateTimeToIso(target.date, targetCheckIn) : null),
+      check_out: missedPunchSession.checkOutIso || (targetCheckOut ? localDateTimeToIso(target.date, targetCheckOut) : null),
       working_hours: calc.workedHours || 0,
       status: calc.status,
       late_status: calc.lateStatus,
@@ -2998,11 +3020,18 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
 
     const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    const adjustedMissedPunchSession = resolveOvernightAttendanceSession({
+      attendanceDate: String(target.date || '').split('T')[0],
+      checkIn: adjustedCheckIn,
+      checkOut: adjustedCheckOut,
+      otThresholdHours: shiftModel.requiredWorkingHours || 9.0,
+      otEligible: otEligibility.isEligible,
+    });
     supabaseDirect.upsertAttendanceRecord({
       employee_id: targetEmpObj?.id || target.employeeId,
       date: String(target.date || '').split('T')[0],
-      check_in: adjustedCheckIn ? localDateTimeToIso(target.date, adjustedCheckIn) : null,
-      check_out: adjustedCheckOut ? localDateTimeToIso(target.date, adjustedCheckOut) : null,
+      check_in: adjustedMissedPunchSession.checkInIso || (adjustedCheckIn ? localDateTimeToIso(target.date, adjustedCheckIn) : null),
+      check_out: adjustedMissedPunchSession.checkOutIso || (adjustedCheckOut ? localDateTimeToIso(target.date, adjustedCheckOut) : null),
       working_hours: calc.workedHours || 0,
       status: calc.status,
       late_status: calc.lateStatus,
@@ -3695,7 +3724,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     const fullName = `${emp.firstName} ${emp.lastName}`.trim();
     const canonicalEmployeeId = emp.employeeId || emp.id;
-    const breakMins = entry.breakDurationMinutes ?? 45;
+    const breakMins = entry.breakDurationMinutes ?? 0;
+    let manualSession: ReturnType<typeof resolveOvernightAttendanceSession> | null = null;
+    if (entry.checkIn && entry.checkOut) {
+      manualSession = resolveOvernightAttendanceSession({
+        attendanceDate: entry.date,
+        checkIn: entry.checkIn,
+        checkOut: entry.checkOut,
+        unpaidBreakMinutes: breakMins,
+        deductBreakAlways: breakMins > 0,
+      });
+      if (!manualSession.isValid && manualSession.errorCode === 'INVALID_REVERSED_TIMESTAMPS') {
+        return {
+          success: false,
+          message: manualSession.errorMessage || 'Check-out time cannot be earlier than check-in time.',
+        };
+      }
+    }
 
     // Calculate working hours if not explicitly passed or if 0 due to missed check-out on a Present day
     let computedHours = entry.workingHours;
@@ -3707,45 +3752,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else if (entry.status === 'On Leave' || (entry.status as string) === 'Leave') {
         computedHours = 0;
       } else if (entry.checkIn && entry.checkOut) {
-        const parseTime = (timeStr: string) => {
-          if (!timeStr) return null;
-          const clean = timeStr.trim();
-          let hours = 0;
-          let mins = 0;
-          if (clean.includes('AM') || clean.includes('PM')) {
-            const [timePart, ampm] = clean.split(' ');
-            const [hh, mm] = timePart.split(':').map(Number);
-            hours = ampm.toUpperCase() === 'PM' && hh < 12 ? hh + 12 : (ampm.toUpperCase() === 'AM' && hh === 12 ? 0 : hh);
-            mins = mm || 0;
-          } else {
-            const [hh, mm] = clean.split(':').map(Number);
-            hours = hh || 0;
-            mins = mm || 0;
-          }
-          return hours * 60 + mins;
-        };
-
-        const inMins = parseTime(entry.checkIn);
-        const outMins = parseTime(entry.checkOut);
-        if (inMins !== null && outMins !== null) {
-          if (outMins >= inMins) {
-            const netMins = Math.max(0, outMins - inMins - breakMins);
-            computedHours = Math.round((netMins / 60) * 10) / 10;
-          } else {
-            computedHours = 8.0;
-          }
-        } else {
-          computedHours = 8.0;
-        }
+        computedHours = manualSession && manualSession.isValid ? manualSession.workingHours : 0;
       } else {
-        computedHours = entry.status === 'Present' ? 8.0 : 0;
+        computedHours = entry.status === 'Present' && !entry.checkIn && !entry.checkOut ? 8.0 : 0;
       }
+    } else if (manualSession && manualSession.isValid && (!computedHours || computedHours < 0)) {
+      computedHours = manualSession.workingHours;
     }
 
     const isNonWorking = entry.status === 'Absent' || entry.status === 'Holiday' || entry.status === 'Week Off';
     const cleanCheckIn = isNonWorking ? null : (entry.checkIn || null);
     const cleanCheckOut = isNonWorking ? null : (entry.checkOut || null);
-    const otHrs = entry.otHours || 0;
+    const otHrs = entry.otHours !== undefined && entry.otHours > 0
+      ? entry.otHours
+      : (manualSession && manualSession.isValid ? manualSession.otHours : 0);
 
     // Resolve employee shift & punctuality
     let matchedShift = resolveEmployeeAssignedShift(emp, shifts);
@@ -3906,14 +3926,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
 
     const employeeDbId = emp.id;
-    const checkInIso = cleanCheckIn ? localDateTimeToIso(entry.date, cleanCheckIn) : null;
-    const checkOutIso = cleanCheckOut ? localDateTimeToIso(entry.date, cleanCheckOut) : null;
+    const checkInIso =
+      (cleanCheckIn && manualSession?.checkInIso) ||
+      (cleanCheckIn ? localDateTimeToIso(entry.date, cleanCheckIn) : null);
+    const checkOutIso =
+      (cleanCheckOut && manualSession?.checkOutIso) ||
+      (cleanCheckOut ? localDateTimeToIso(entry.date, cleanCheckOut) : null);
 
     if (persistedAttendanceId && persistedAttendanceId.length === 36) {
       supabaseDirect.updateAttendanceRecord(persistedAttendanceId, {
         check_in: checkInIso,
         check_out: checkOutIso,
         working_hours: computedHours || 0,
+        calculated_ot_hours: otHrs || 0,
         status: finalStatus,
         late_status: finalLateStatus,
         method: resolvedMethod,
@@ -13147,6 +13172,22 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
         const resolvedBaseAddress = approvedWfh ? 'Work From Home (Approved)' : (a.location_address || 'Plant HQ');
         const checkInTimeVal = dbTimestampToLocalHHMM(a.check_in);
         const checkOutTimeVal = dbTimestampToLocalHHMM(a.check_out);
+        let safeWorkingHours = Number(a.working_hours ?? 0);
+        let safeCalculatedOtHours = Number(a.calculated_ot_hours ?? 0);
+        if (safeWorkingHours <= 0 && a.check_in && a.check_out) {
+          const resolvedDbSession = resolveOvernightAttendanceSession({
+            attendanceDate: recShiftDate || recDate,
+            checkIn: a.check_in,
+            checkOut: a.check_out,
+            allowAutoRollSameDateIsoCheckOut: true,
+          });
+          safeWorkingHours = resolvedDbSession.isValid ? resolvedDbSession.workingHours : 0;
+          if (safeCalculatedOtHours <= 0 && resolvedDbSession.isValid) {
+            safeCalculatedOtHours = resolvedDbSession.otHours;
+          }
+        } else if (safeWorkingHours < 0) {
+          safeWorkingHours = 0;
+        }
 
         return {
           id: a.id,
@@ -13158,7 +13199,8 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           shiftDate: recShiftDate,
           checkIn: checkInTimeVal,
           checkOut: checkOutTimeVal,
-          workingHours: a.working_hours ?? 0,
+          workingHours: safeWorkingHours,
+          calculatedOtHours: safeCalculatedOtHours > 0 ? safeCalculatedOtHours : undefined,
           status: approvedWfh ? 'Work From Home' : (a.status || 'Present'),
           wfhSource: approvedWfh ? 'Approved WFH Request' : undefined,
           wfhReason: approvedWfh ? (approvedWfh.reason || 'Work From Home Approved') : undefined,

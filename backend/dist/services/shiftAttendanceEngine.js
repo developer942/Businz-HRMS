@@ -144,12 +144,29 @@ export function evaluateBackendShiftAttendance(params) {
     const todayRecord = pickBestRecordForDate(todayStr);
     let targetShiftDateStr = todayStr;
     let activeRecord = todayRecord;
-    if (yesterdayRecord && hasValidIn(yesterdayRecord) && !hasValidOut(yesterdayRecord)) {
+    if (yesterdayRecord && hasValidIn(yesterdayRecord) && !hasValidOut(yesterdayRecord) && (!todayRecord || !hasValidIn(todayRecord))) {
         const yTimes = calculateShiftDateTimes(yesterdayStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
-        const maxCheckoutCutoff = new Date(yTimes.shiftEndDateTime.getTime() + 6 * 60 * 60 * 1000);
-        if (now.getTime() <= maxCheckoutCutoff.getTime()) {
-            targetShiftDateStr = yesterdayStr;
-            activeRecord = yesterdayRecord;
+        const todayTimes = calculateShiftDateTimes(todayStr, assignedShift, earlyWindowMinutes, policyGraceMinutes);
+        const [yYear, yMonth, yDay] = yesterdayStr.split('-').map(Number);
+        const yInParsed = parseShiftTime(yesterdayRecord.checkIn || assignedShift.startTime);
+        const yCheckInWall = new Date(yYear, (yMonth || 1) - 1, yDay || 1, yInParsed.hours, yInParsed.minutes, 0, 0);
+        const elapsedSinceYesterdayInMs = now.getTime() - yCheckInWall.getTime();
+        const maxOvernightElapsedMs = MAX_OVERNIGHT_SESSION_MINUTES * 60 * 1000;
+        if (yTimes.isNightShift) {
+            const maxCheckoutCutoff = new Date(yTimes.shiftEndDateTime.getTime() + 8 * 60 * 60 * 1000);
+            if (now.getTime() <= maxCheckoutCutoff.getTime() && elapsedSinceYesterdayInMs <= maxOvernightElapsedMs) {
+                targetShiftDateStr = yesterdayStr;
+                activeRecord = yesterdayRecord;
+            }
+        }
+        else {
+            // Day shift working extended overnight overtime past midnight (e.g., 10:04 AM to 01:00 AM next day):
+            // Keep yesterday's unclosed session active for punch-out until today's early check-in window opens (and within 18h max session).
+            const maxCheckoutCutoffMs = Math.min(yCheckInWall.getTime() + maxOvernightElapsedMs, todayTimes.earlyCheckInDateTime.getTime() - 60 * 1000);
+            if (elapsedSinceYesterdayInMs > 0 && now.getTime() <= maxCheckoutCutoffMs) {
+                targetShiftDateStr = yesterdayStr;
+                activeRecord = yesterdayRecord;
+            }
         }
     }
     else if (!todayRecord) {
@@ -333,6 +350,302 @@ export function evaluateBackendShiftAttendance(params) {
         holidayName: holidayInfo?.holidayName,
         isOnApprovedLeave: Boolean(leaveInfo?.isOnApprovedLeave),
         leaveType: leaveInfo?.leaveType,
+    };
+}
+export const MAX_OVERNIGHT_SESSION_MINUTES = 18 * 60; // 18 hours maximum permissible single attendance session
+/**
+ * Deterministically adds calendar days to a YYYY-MM-DD date string (handles month-end, leap-year, year-end).
+ */
+export function addDaysToDateStr(dateStr, days) {
+    const clean = normalizeCalendarDateStr(dateStr);
+    if (!clean)
+        return dateStr;
+    const [y, m, d] = clean.split('-').map(Number);
+    const utc = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + days));
+    const ry = utc.getUTCFullYear();
+    const rm = String(utc.getUTCMonth() + 1).padStart(2, '0');
+    const rd = String(utc.getUTCDate()).padStart(2, '0');
+    return `${ry}-${rm}-${rd}`;
+}
+export function normalizeCalendarDateStr(raw, timeZone = DEFAULT_COMPANY_TIMEZONE) {
+    if (!raw)
+        return '';
+    if (raw instanceof Date) {
+        if (isNaN(raw.getTime()))
+            return '';
+        const wall = toTimezoneWallClockDate(raw, timeZone);
+        return toDateStr(wall);
+    }
+    const str = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str))
+        return str;
+    if (/^\d{2}[/-]\d{2}[/-]\d{4}$/.test(str)) {
+        const [d, m, y] = str.split(/[/-]/);
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    if (str.includes('T') || (str.includes('-') && str.includes(':'))) {
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) {
+            return toDateStr(toTimezoneWallClockDate(parsed, timeZone));
+        }
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(str))
+        return str.slice(0, 10);
+    return '';
+}
+export function formatDurationHoursAndMinutes(totalMinutes) {
+    const safeMins = Math.max(0, Math.round(Number(totalMinutes) || 0));
+    const hrs = Math.floor(safeMins / 60);
+    const mins = safeMins % 60;
+    return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+}
+/**
+ * Extracts wall-clock { hours, minutes, seconds, hasExplicitDate, calendarDate } in Asia/Kolkata
+ * or parses a wall-clock time string ("10:04 AM", "01:00 AM", "22:00:00").
+ */
+export function parseTimeOrIsoInTimezone(raw, anchorDateStr, timeZone = DEFAULT_COMPANY_TIMEZONE) {
+    if (!raw)
+        return null;
+    const cleanAnchor = normalizeCalendarDateStr(anchorDateStr, timeZone);
+    if (!cleanAnchor)
+        return null;
+    const buildKolInstant = (ymd, h, m, s) => {
+        const [yy, mm, dd] = ymd.split('-').map(Number);
+        if (!yy || !mm || !dd)
+            return null;
+        const pad = (n) => String(n).padStart(2, '0');
+        // Authoritative Asia/Kolkata (+05:30) instant construction
+        if (timeZone === 'Asia/Kolkata' || timeZone === 'Asia/Calcutta') {
+            const d = new Date(`${yy}-${pad(mm)}-${pad(dd)}T${pad(h)}:${pad(m)}:${pad(s)}+05:30`);
+            return isNaN(d.getTime()) ? null : d;
+        }
+        const utcGuess = new Date(Date.UTC(yy, mm - 1, dd, h, m, s));
+        const wallAtGuess = toTimezoneWallClockDate(utcGuess, timeZone);
+        const diffMs = utcGuess.getTime() - Date.UTC(wallAtGuess.getFullYear(), wallAtGuess.getMonth(), wallAtGuess.getDate(), wallAtGuess.getHours(), wallAtGuess.getMinutes(), wallAtGuess.getSeconds());
+        return new Date(utcGuess.getTime() + diffMs);
+    };
+    const to12Hr = (h24, m) => {
+        const ampm = h24 >= 12 ? 'PM' : 'AM';
+        const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+        return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+    };
+    if (raw instanceof Date) {
+        if (isNaN(raw.getTime()))
+            return null;
+        const wall = toTimezoneWallClockDate(raw, timeZone);
+        const wallDateStr = toDateStr(wall);
+        return {
+            instant: new Date(raw.getTime()),
+            wallDateStr,
+            hours: wall.getHours(),
+            minutes: wall.getMinutes(),
+            seconds: wall.getSeconds(),
+            hasExplicitDate: true,
+            display12: to12Hr(wall.getHours(), wall.getMinutes()),
+        };
+    }
+    const str = String(raw).trim();
+    if (!str || str === '--:--' || str === '—' || str === '-' || str.toLowerCase().includes('progress') || str.toLowerCase().includes('missed')) {
+        return null;
+    }
+    // Case 1: Full ISO or SQL timestamp with explicit date part (e.g. "2026-11-05T04:34:00.000Z" or "2026-11-05 10:04:00+05:30")
+    if (/^\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}/.test(str)) {
+        const hasOffset = /[Zz]|[+-]\d{2}:?\d{2}$/.test(str);
+        const normalizedIso = hasOffset ? str.replace(' ', 'T') : `${str.replace(' ', 'T')}+05:30`;
+        const parsed = new Date(normalizedIso);
+        if (!isNaN(parsed.getTime())) {
+            const wall = toTimezoneWallClockDate(parsed, timeZone);
+            const wallDateStr = toDateStr(wall);
+            return {
+                instant: parsed,
+                wallDateStr,
+                hours: wall.getHours(),
+                minutes: wall.getMinutes(),
+                seconds: wall.getSeconds(),
+                hasExplicitDate: true,
+                display12: to12Hr(wall.getHours(), wall.getMinutes()),
+            };
+        }
+    }
+    // Case 2: Wall-clock time string ("10:04 AM", "01:00 AM", "22:00", "10:04:00")
+    const normalizedTime = str.replace(/\./g, ':');
+    const match = normalizedTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|A|P)?$/i);
+    if (!match)
+        return null;
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const s = match[3] ? parseInt(match[3], 10) : 0;
+    const mer = match[4]?.toUpperCase();
+    if (isNaN(h) || isNaN(m) || isNaN(s) || m < 0 || m > 59 || s < 0 || s > 59)
+        return null;
+    if (mer) {
+        if (h < 1 || h > 12)
+            return null;
+        const isPM = mer.startsWith('P');
+        if (isPM && h < 12)
+            h += 12;
+        if (!isPM && h === 12)
+            h = 0;
+    }
+    else if (h < 0 || h > 23) {
+        return null;
+    }
+    const instant = buildKolInstant(cleanAnchor, h, m, s);
+    if (!instant)
+        return null;
+    return {
+        instant,
+        wallDateStr: cleanAnchor,
+        hours: h,
+        minutes: m,
+        seconds: s,
+        hasExplicitDate: false,
+        display12: to12Hr(h, m),
+    };
+}
+/**
+ * Authoritative Timezone-Aware Overnight Attendance & Overtime Resolver.
+ * - Preserves actual check-in/check-out calendar dates in Asia/Kolkata.
+ * - Associates a valid overnight punch-out on the following date (e.g. 01:00 AM on 06/11/2026)
+ *   with the original punch-in and attendance/shift date (05/11/2026 10:04 AM -> 14h 56m / 14.93 hrs).
+ * - Never blindly adds 24 hours to invalid or reversed same-day timestamps: validates chronological order,
+ *   permissible session length (<= 18 hours by default), and non-overlap with next day's shift check-in.
+ * - Never produces negative working hours or negative overtime.
+ * - Calculates overtime using the employee's applicable threshold, break deduction rules, minimum OT duration,
+ *   rounding, and daily cap rules.
+ */
+export function resolveOvernightAttendanceSession(params) {
+    const timeZone = params.timeZone || DEFAULT_COMPANY_TIMEZONE;
+    const attendanceDate = normalizeCalendarDateStr(params.attendanceDate, timeZone) || toDateStr(toTimezoneWallClockDate(new Date(), timeZone));
+    const maxSessionMinutes = params.maxSessionMinutes !== undefined && params.maxSessionMinutes > 0
+        ? params.maxSessionMinutes
+        : MAX_OVERNIGHT_SESSION_MINUTES;
+    const emptyResult = (errorCode, errorMessage, inParsed) => ({
+        isValid: false,
+        errorCode,
+        errorMessage,
+        attendanceDate,
+        checkInDate: inParsed?.wallDateStr || attendanceDate,
+        checkOutDate: null,
+        checkInIso: inParsed?.instant ? inParsed.instant.toISOString() : null,
+        checkOutIso: null,
+        checkInDisplay: inParsed?.display12 || null,
+        checkOutDisplay: null,
+        isOvernight: false,
+        elapsedMinutes: 0,
+        breakDeductedMinutes: 0,
+        netWorkedMinutes: 0,
+        workingHours: 0,
+        formattedWorkingDuration: '0h 00m',
+        otMinutes: 0,
+        otHours: 0,
+        formattedOtDuration: '0h 00m',
+    });
+    const inParsed = parseTimeOrIsoInTimezone(params.checkIn, attendanceDate, timeZone);
+    if (!inParsed) {
+        return emptyResult('MISSING_CHECK_IN', 'Valid check-in time is required.');
+    }
+    const explicitOutAnchor = params.checkOutDate
+        ? normalizeCalendarDateStr(params.checkOutDate, timeZone) || attendanceDate
+        : inParsed.wallDateStr;
+    const outParsedInitial = parseTimeOrIsoInTimezone(params.checkOut, explicitOutAnchor, timeZone);
+    if (!outParsedInitial) {
+        return emptyResult('MISSING_CHECK_OUT', 'Check-out time is not yet recorded.', inParsed);
+    }
+    let resolvedOut = outParsedInitial;
+    const rawDiffMs = resolvedOut.instant.getTime() - inParsed.instant.getTime();
+    if (rawDiffMs < 0) {
+        // Check if check-out can legitimately roll to the following calendar day (inParsed.wallDateStr + 1 day)
+        // Valid when:
+        // 1. checkOut was supplied as a time-of-day string (!outParsedInitial.hasExplicitDate) without an earlier explicit checkOutDate, OR
+        // 2. allowAutoRollSameDateIsoCheckOut is enabled and outParsedInitial had the exact same wall-clock date in Asia/Kolkata as checkIn
+        //    (caused by legacy localDateTimeToIso anchoring an overnight punch-out time like 01:00 AM to the check-in date).
+        const hasExplicitEarlierDate = (Boolean(params.checkOutDate) && normalizeCalendarDateStr(params.checkOutDate, timeZone) < inParsed.wallDateStr) ||
+            (outParsedInitial.hasExplicitDate && outParsedInitial.wallDateStr < inParsed.wallDateStr);
+        const canEvaluateNextDayRoll = !hasExplicitEarlierDate &&
+            (!outParsedInitial.hasExplicitDate ||
+                (params.allowAutoRollSameDateIsoCheckOut !== false && outParsedInitial.wallDateStr === inParsed.wallDateStr));
+        if (!canEvaluateNextDayRoll) {
+            return emptyResult('INVALID_REVERSED_TIMESTAMPS', 'Check-out timestamp is earlier than check-in timestamp.', inParsed);
+        }
+        const nextDayStr = addDaysToDateStr(inParsed.wallDateStr, 1);
+        const pad = (n) => String(n).padStart(2, '0');
+        const nextDayTimeStr = `${pad(outParsedInitial.hours)}:${pad(outParsedInitial.minutes)}:${pad(outParsedInitial.seconds)}`;
+        const candidateNextDayOut = parseTimeOrIsoInTimezone(nextDayTimeStr, nextDayStr, timeZone);
+        if (!candidateNextDayOut) {
+            return emptyResult('INVALID_REVERSED_TIMESTAMPS', 'Unable to resolve overnight check-out timestamp.', inParsed);
+        }
+        const candidateElapsedMinutes = Math.round((candidateNextDayOut.instant.getTime() - inParsed.instant.getTime()) / 60_000);
+        // Do NOT blindly add 24 hours to reversed same-day timestamps (e.g., 09:32 AM to 07:30 AM = 21h 58m, or 10:00 PM to 07:30 PM = 21h 30m)
+        if (candidateElapsedMinutes <= 0 || candidateElapsedMinutes > maxSessionMinutes) {
+            return emptyResult('INVALID_REVERSED_TIMESTAMPS', `Check-out time (${outParsedInitial.display12}) is earlier than check-in time (${inParsed.display12}) and rolling to the next day (${formatDurationHoursAndMinutes(candidateElapsedMinutes)}) exceeds the maximum permissible session duration (${Math.round(maxSessionMinutes / 60)} hours).`, inParsed);
+        }
+        resolvedOut = candidateNextDayOut;
+    }
+    const elapsedMinutes = Math.round((resolvedOut.instant.getTime() - inParsed.instant.getTime()) / 60_000);
+    if (elapsedMinutes < 0) {
+        return emptyResult('INVALID_REVERSED_TIMESTAMPS', 'Check-out timestamp cannot be earlier than check-in timestamp.', inParsed);
+    }
+    if (elapsedMinutes > maxSessionMinutes) {
+        return emptyResult('EXCEEDS_MAX_SESSION_LENGTH', `Attendance session duration (${formatDurationHoursAndMinutes(elapsedMinutes)}) exceeds the maximum permissible session duration (${Math.round(maxSessionMinutes / 60)} hours).`, inParsed);
+    }
+    // Validate non-overlap with next day's shift check-in if provided
+    if (params.nextDayCheckIn) {
+        const nextDayAnchor = addDaysToDateStr(inParsed.wallDateStr, 1);
+        const nextDayInParsed = parseTimeOrIsoInTimezone(params.nextDayCheckIn, nextDayAnchor, timeZone);
+        if (nextDayInParsed && resolvedOut.instant.getTime() > nextDayInParsed.instant.getTime()) {
+            return emptyResult('OVERLAPS_NEXT_SHIFT', `Overnight check-out (${resolvedOut.display12} on ${resolvedOut.wallDateStr}) overlaps with next shift check-in (${nextDayInParsed.display12} on ${nextDayInParsed.wallDateStr}).`, inParsed);
+        }
+    }
+    const rawBreakMins = Math.max(0, Math.round(Number(params.unpaidBreakMinutes) || 0));
+    const breakDeductedMinutes = rawBreakMins > 0 && (params.deductBreakAlways || elapsedMinutes > rawBreakMins + 120)
+        ? Math.min(elapsedMinutes, rawBreakMins)
+        : 0;
+    const netWorkedMinutes = Math.max(0, elapsedMinutes - breakDeductedMinutes);
+    const workingHours = Math.round((netWorkedMinutes / 60 + Number.EPSILON) * 100) / 100;
+    const thresholdHours = params.otThresholdHours !== undefined && Number(params.otThresholdHours) > 0
+        ? Number(params.otThresholdHours)
+        : 9;
+    const thresholdMinutes = Math.round(thresholdHours * 60);
+    const otEligible = params.otEligible !== false;
+    const minOtDurationMinutes = params.minOtDurationMinutes !== undefined && Number(params.minOtDurationMinutes) >= 0
+        ? Number(params.minOtDurationMinutes)
+        : 0;
+    let otMinutes = 0;
+    if (otEligible && netWorkedMinutes > thresholdMinutes) {
+        const rawOtMinutes = netWorkedMinutes - thresholdMinutes;
+        if (rawOtMinutes >= minOtDurationMinutes) {
+            otMinutes = rawOtMinutes;
+            if (params.otRoundingMinutes && params.otRoundingMinutes > 1) {
+                const r = Math.round(params.otRoundingMinutes);
+                otMinutes = Math.floor(otMinutes / r) * r;
+            }
+            if (params.enforceDailyOtCap && params.maxDailyOtHours && params.maxDailyOtHours > 0) {
+                const capMinutes = Math.round(params.maxDailyOtHours * 60);
+                otMinutes = Math.min(otMinutes, capMinutes);
+            }
+        }
+    }
+    const otHours = Math.round((otMinutes / 60 + Number.EPSILON) * 100) / 100;
+    const isOvernight = resolvedOut.wallDateStr > inParsed.wallDateStr;
+    return {
+        isValid: true,
+        attendanceDate,
+        checkInDate: inParsed.wallDateStr,
+        checkOutDate: resolvedOut.wallDateStr,
+        checkInIso: inParsed.instant.toISOString(),
+        checkOutIso: resolvedOut.instant.toISOString(),
+        checkInDisplay: inParsed.display12,
+        checkOutDisplay: resolvedOut.display12,
+        isOvernight,
+        elapsedMinutes,
+        breakDeductedMinutes,
+        netWorkedMinutes,
+        workingHours,
+        formattedWorkingDuration: formatDurationHoursAndMinutes(netWorkedMinutes),
+        otMinutes,
+        otHours,
+        formattedOtDuration: formatDurationHoursAndMinutes(otMinutes),
     };
 }
 //# sourceMappingURL=shiftAttendanceEngine.js.map

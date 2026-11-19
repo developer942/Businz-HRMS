@@ -128,14 +128,19 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
 
     const inMins = parseTimeStr(checkInTime);
     const outMins = parseTimeStr(checkOutTime);
-    if (outMins < inMins) return 0;
+    let spanMins = outMins - inMins;
+    if (spanMins < 0) {
+      const overnightMins = spanMins + 24 * 60;
+      if (overnightMins <= 0 || overnightMins > 18 * 60) return 0;
+      spanMins = overnightMins;
+    }
 
-    const netMins = Math.max(0, outMins - inMins - (Number(breakDuration) || 0));
-    return Math.round((netMins / 60) * 10) / 10;
+    const netMins = Math.max(0, spanMins - (Number(breakDuration) || 0));
+    return Math.round((netMins / 60 + Number.EPSILON) * 100) / 100;
   };
 
   const previewHours = calculatePreviewHours();
-  const calculatedOtPreview = previewHours > 8.0 ? Math.round((previewHours - 8.0) * 10) / 10 : 0;
+  const calculatedOtPreview = previewHours > 9.0 ? Math.round((previewHours - 9.0 + Number.EPSILON) * 100) / 100 : 0;
 
   // Auto-update OT hours preview when hours change
   useEffect(() => {
@@ -170,8 +175,10 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
         return h * 60 + m;
       };
 
-      if (parseTimeStr(checkOutTime) < parseTimeStr(checkInTime)) {
-        setErrorMsg('Check-out time cannot be earlier than check-in time.');
+      const inM = parseTimeStr(checkInTime);
+      const outM = parseTimeStr(checkOutTime);
+      if (outM < inM && (outM + 24 * 60 - inM) > 18 * 60) {
+        setErrorMsg('Check-out time cannot be earlier than check-in time (exceeds 18-hour maximum overnight session limit).');
         return;
       }
     }

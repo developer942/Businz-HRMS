@@ -162,10 +162,14 @@ export const calculateNetWorkingHours = (params: {
   if (inMins === null || outMins === null) return 8.0;
   let totalSpanMins = outMins - inMins;
   if (totalSpanMins < 0) {
-    totalSpanMins += 24 * 60; // Overnight shift support
+    const overnightSpan = totalSpanMins + 24 * 60; // Overnight shift support (validated up to 18 hours)
+    if (overnightSpan <= 0 || overnightSpan > 18 * 60) {
+      return 0;
+    }
+    totalSpanMins = overnightSpan;
   }
   const netMins = Math.max(0, totalSpanMins - (Number(breakDurationMinutes) || 0));
-  return Math.round((netMins / 60) * 10) / 10;
+  return Math.round((netMins / 60 + Number.EPSILON) * 100) / 100;
 };
 
 interface ManualAttendanceEntryModalProps {
@@ -209,7 +213,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
   const [isMissedCheckIn, setIsMissedCheckIn] = useState<boolean>(true);
   const [isMissedCheckOut, setIsMissedCheckOut] = useState<boolean>(true);
   
-  const [breakDuration, setBreakDuration] = useState<number | string>(45);
+  const [breakDuration, setBreakDuration] = useState<number | string>(0);
   const [otHours, setOtHours] = useState<number>(0);
   
   const [error, setError] = useState<string>('');
@@ -443,10 +447,10 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       } else {
         setOtHours(0);
       }
-      if (existingRecord.breakDurationMinutes) {
+      if (existingRecord.breakDurationMinutes !== undefined) {
         setBreakDuration(existingRecord.breakDurationMinutes);
       } else {
-        setBreakDuration(45);
+        setBreakDuration(0);
       }
     } else if (selectedEmpId) {
       // Employee selected with no prior attendance record for this date:
@@ -456,7 +460,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       setIsMissedCheckIn(true);
       setIsMissedCheckOut(true);
       setOtHours(0);
-      setBreakDuration(45);
+      setBreakDuration(0);
       setStatus('Present');
     } else {
       setCheckInTime('');
@@ -464,7 +468,7 @@ export const ManualAttendanceEntryModal: React.FC<ManualAttendanceEntryModalProp
       setIsMissedCheckIn(true);
       setIsMissedCheckOut(true);
       setOtHours(0);
-      setBreakDuration(45);
+      setBreakDuration(0);
       setStatus('Present');
     }
   }, [isOpen, existingRecord, date, selectedEmpId, shiftStartTimeStr, shiftEndTimeStr]);

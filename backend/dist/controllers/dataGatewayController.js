@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { env } from '../config/env.js';
 import { query } from '../config/database.js';
 import { BCRYPT_ROUNDS, isBcryptPasswordHash, scrubProfilePasswordFields } from '../repositories/authRepository.js';
+import { resolveOvernightAttendanceSession } from '../services/shiftAttendanceEngine.js';
 const ALLOWED_TABLES = new Set([
     'employees',
     'departments',
@@ -296,6 +297,34 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
                     error: { code: 'FORBIDDEN', message: 'Only HR/CEO administrators can delete attendance records.' },
                 });
                 return;
+            }
+            else if (table === 'attendance_records' && (method === 'POST' || method === 'PATCH') && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+                // Normalize overnight check-in/check-out timestamps and prevent negative working_hours from ever entering PostgreSQL
+                if (payload.check_in && payload.check_out) {
+                    const baseDate = String(payload.shift_date || payload.date || payload.check_in).slice(0, 10);
+                    const session = resolveOvernightAttendanceSession({
+                        attendanceDate: baseDate,
+                        checkIn: payload.check_in,
+                        checkOut: payload.check_out,
+                        allowAutoRollSameDateIsoCheckOut: true,
+                    });
+                    if (session.isValid) {
+                        payload.check_in = session.checkInIso;
+                        payload.check_out = session.checkOutIso;
+                        if (payload.working_hours === undefined || Number(payload.working_hours) <= 0) {
+                            payload.working_hours = session.workingHours;
+                        }
+                        if (payload.calculated_ot_hours === undefined && session.otHours > 0) {
+                            payload.calculated_ot_hours = session.otHours;
+                        }
+                    }
+                    else if (payload.working_hours !== undefined && Number(payload.working_hours) < 0) {
+                        payload.working_hours = 0;
+                    }
+                }
+                else if (payload.working_hours !== undefined && Number(payload.working_hours) < 0) {
+                    payload.working_hours = 0;
+                }
             }
             else if (table === 'company_settings') {
                 // Protect employee_profiles_data from redacted/partial overwrites and scrub plaintext passwords (CRIT-02)
