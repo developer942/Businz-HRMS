@@ -1146,6 +1146,14 @@ export interface EmployeeCalendarDayRow {
   method?: string;
   checkInPhoto?: string;
   checkOutPhoto?: string;
+  checkInLocation?: string;
+  checkOutLocation?: string;
+  location?: {
+    lat?: number;
+    lng?: number;
+    address?: string;
+    inGeofence?: boolean;
+  };
   lateStatus?: string;
   lateDurationMinutes?: number;
   approvedOtHours?: number;
@@ -1341,6 +1349,16 @@ export function buildEmployeeMonthlyAttendanceCalendar(
         workingHours: finalHours > 0 ? finalHours : Number(base.workingHours || 0),
         checkInPhoto: existing.checkInPhoto || rec.checkInPhoto,
         checkOutPhoto: rec.checkOutPhoto || existing.checkOutPhoto,
+        checkInLocation:
+          existing.checkInLocation ||
+          rec.checkInLocation ||
+          existing.location?.address ||
+          rec.location?.address,
+        checkOutLocation:
+          rec.checkOutLocation ||
+          existing.checkOutLocation ||
+          rec.location?.address ||
+          existing.location?.address,
       });
     }
   }

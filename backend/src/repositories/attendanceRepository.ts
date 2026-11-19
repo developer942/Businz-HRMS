@@ -76,6 +76,13 @@ export class AttendanceRepository {
     const rawStatus = String(row.status || 'Present');
     const lateDuration = Number(row.late_duration_minutes ?? parsedNotes?.lateDurationMinutes ?? 0);
     const rawLateStatus = String(row.late_status || (rawStatus === 'Late' ? 'Late' : 'On Time'));
+    const baseLocationAddress = row.location_address || 'Main Plant HQ';
+    const checkInLocation = row.check_in
+      ? String(parsedNotes?.checkInLocation || row.check_in_location || baseLocationAddress).trim()
+      : undefined;
+    const checkOutLocation = row.check_out
+      ? String(parsedNotes?.checkOutLocation || row.check_out_location || baseLocationAddress).trim()
+      : undefined;
 
     return {
       id: row.id,
@@ -96,7 +103,9 @@ export class AttendanceRepository {
       shiftDate: normalizeDateStr(row.shift_date || row.date),
       locationLat: row.location_lat ? Number(row.location_lat) : undefined,
       locationLng: row.location_lng ? Number(row.location_lng) : undefined,
-      locationAddress: row.location_address || 'Main Plant HQ',
+      locationAddress: baseLocationAddress,
+      checkInLocation,
+      checkOutLocation,
       notes: row.notes || undefined,
       checkInPhoto: row.check_in_photo || undefined,
       checkOutPhoto: row.check_out_photo || undefined,
@@ -709,7 +718,22 @@ export class AttendanceRepository {
         const finalStatus = isFlexibleWorker ? 'Present' : lateEval.status;
         const finalLateStatus = isFlexibleWorker ? 'On-Time' : lateEval.lateStatus;
         const finalLateMins = isFlexibleWorker ? 0 : lateEval.lateDurationMinutes;
-        const finalNotes = params.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : lateEval.notes);
+        const resolvedInAddress =
+          params.locationAddress ||
+          (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence');
+        const rawNotesInput =
+          params.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : lateEval.notes);
+        let finalNotes = rawNotesInput;
+        try {
+          if (typeof rawNotesInput === 'string' && rawNotesInput.trim().startsWith('{')) {
+            const parsed = JSON.parse(rawNotesInput);
+            finalNotes = JSON.stringify({ ...parsed, checkInLocation: resolvedInAddress });
+          } else {
+            finalNotes = JSON.stringify({ note: rawNotesInput, checkInLocation: resolvedInAddress });
+          }
+        } catch {
+          finalNotes = rawNotesInput;
+        }
 
         if (!currentRow) {
           const inserted = await client.query(
@@ -743,7 +767,7 @@ export class AttendanceRepository {
               params.inGeofence ?? true,
               params.locationLat ?? null,
               params.locationLng ?? null,
-              params.locationAddress || (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence'),
+              resolvedInAddress,
               params.photoBase64 || null,
               finalNotes,
             ]
@@ -781,7 +805,7 @@ export class AttendanceRepository {
               params.inGeofence ?? true,
               params.locationLat ?? null,
               params.locationLng ?? null,
-              params.locationAddress || (isFlexibleWorker ? 'Daily Field Work (GPS Verified)' : 'Verified Office Geofence'),
+              resolvedInAddress,
               params.photoBase64 || null,
               finalNotes,
             ]
@@ -789,7 +813,7 @@ export class AttendanceRepository {
           savedRow = updated.rows[0];
         }
       } else {
-        // Punch OUT: preserve check_in, check_in_photo, status, late_status, late_duration_minutes, and notes!
+        // Punch OUT: preserve check_in, check_in_photo, status, late_status, late_duration_minutes, and checkInLocation in notes!
         const checkInTime = new Date(currentRow.check_in);
         const diffHours = Math.max(
           0,
@@ -807,6 +831,26 @@ export class AttendanceRepository {
         );
         const calculatedOtHours = otMins >= 30 ? Number((otMins / 60).toFixed(2)) : 0;
 
+        const resolvedOutAddress =
+          params.locationAddress || currentRow.location_address || 'Verified Office Geofence';
+        let updatedNotes = currentRow.notes || null;
+        try {
+          let existingNotesObj: Record<string, any> = {};
+          if (typeof currentRow.notes === 'string' && currentRow.notes.trim().startsWith('{')) {
+            existingNotesObj = JSON.parse(currentRow.notes);
+          } else if (typeof currentRow.notes === 'string' && currentRow.notes.trim()) {
+            existingNotesObj = { note: currentRow.notes };
+          }
+          updatedNotes = JSON.stringify({
+            ...existingNotesObj,
+            checkInLocation:
+              existingNotesObj.checkInLocation || currentRow.location_address || resolvedOutAddress,
+            checkOutLocation: resolvedOutAddress,
+          });
+        } catch {
+          updatedNotes = currentRow.notes || null;
+        }
+
         const updated = await client.query(
           `UPDATE public.attendance_records
            SET check_out = $2,
@@ -816,7 +860,8 @@ export class AttendanceRepository {
                calculated_ot_hours = $6,
                location_lat = COALESCE($7, location_lat),
                location_lng = COALESCE($8, location_lng),
-               location_address = COALESCE($9, location_address),
+               location_address = COALESCE(location_address, $9),
+               notes = COALESCE($10, notes),
                updated_at = NOW()
            WHERE id = $1
            RETURNING *`,
@@ -830,6 +875,7 @@ export class AttendanceRepository {
             params.locationLat ?? null,
             params.locationLng ?? null,
             params.locationAddress || null,
+            updatedNotes,
           ]
         );
         savedRow = updated.rows[0];

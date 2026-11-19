@@ -295,6 +295,8 @@ export interface AttendanceRecord {
     address: string;
     inGeofence: boolean;
   };
+  checkInLocation?: string;
+  checkOutLocation?: string;
   faceVerified?: boolean;
   method?: 'Face Recognition' | 'GPS Check-In' | 'Manual Punch' | 'System Auto';
   checkInPhoto?: string;

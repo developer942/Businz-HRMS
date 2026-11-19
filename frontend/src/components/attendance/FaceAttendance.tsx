@@ -16,19 +16,19 @@ import {
   GpsAcquisitionError,
   type GpsErrorCode
 } from '../../services/gpsAcquisitionService';
-import { 
-  ScanFace, 
-  Camera, 
-  CameraOff, 
-  CheckCircle2, 
-  RefreshCw, 
-  History, 
-  ShieldAlert, 
-  MapPin, 
-  XCircle, 
-  Navigation, 
-  X, 
-  Clock, 
+import {
+  ScanFace,
+  Camera,
+  CameraOff,
+  CheckCircle2,
+  RefreshCw,
+  History,
+  ShieldAlert,
+  MapPin,
+  XCircle,
+  Navigation,
+  X,
+  Clock,
   User,
   Users,
   FlipHorizontal,
@@ -121,17 +121,17 @@ export interface FaceAttendanceProps {
 }
 
 export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }) => {
-  const { 
-    employees, 
+  const {
+    employees,
     markAttendance,
-    addFaceLog, 
-    faceLogs, 
-    attendanceRecords, 
+    addFaceLog,
+    faceLogs,
+    attendanceRecords,
     applyServerAttendanceRecord,
-    geofenceConfig, 
-    updateGeofenceConfig, 
-    currentUser, 
-    setActiveModule, 
+    geofenceConfig,
+    updateGeofenceConfig,
+    currentUser,
+    setActiveModule,
     getTodayFieldAssignment,
     getEmployeeShiftAttendanceState,
     submitMissedPunchRequest,
@@ -198,6 +198,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     title: string;
     subtitle: string;
     time?: string;
+    location?: string;
   } | null>(null);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
@@ -286,10 +287,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const fromRecords = matches.length <= 1
       ? matches[0]
       : (
-          matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
-          matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
-          matches[0]
-        );
+        matches.find(a => a.checkIn && a.checkIn !== '--:--' && a.checkIn.trim() !== '') ||
+        matches.find(a => (a.method as string) === 'Manual Override' || a.method === 'Manual Punch' || Boolean(a.reason)) ||
+        matches[0]
+      );
 
     const isCommittedForToday =
       committedTodayRecord &&
@@ -370,7 +371,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       if (saved && !isNaN(Number(saved))) {
         savedEpochMs = Number(saved);
       }
-    } catch {}
+    } catch { }
 
     const isManualAdjusted = Boolean(
       todayAttendance &&
@@ -413,7 +414,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   // An active punch in progress exists if employee has checked in today without checking out,
   // OR if shiftEval explicitly indicates an active overnight shift punch
   const hasActiveCheckIn = Boolean(
-    (isCheckedIn && !isCheckedOut) || 
+    (isCheckedIn && !isCheckedOut) ||
     (shiftEval.canCheckOut && !shiftEval.canCheckIn && shiftEval.activeAttendance)
   );
 
@@ -787,7 +788,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           });
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Check geolocation permission state passively and reuse any recent cached reading without starting a background watch
     checkGpsPermissionState()
@@ -828,7 +829,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           });
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Ensure camera is never permanently active on the Attendance home screen
     stopCamera();
@@ -836,7 +837,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && mounted) {
         if (videoRef.current && videoRef.current.paused && mediaStreamRef.current) {
-          videoRef.current.play().catch(() => {});
+          videoRef.current.play().catch(() => { });
         }
       }
     };
@@ -892,7 +893,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const stopCamera = () => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => {
-        try { track.stop(); } catch {}
+        try { track.stop(); } catch { }
       });
       mediaStreamRef.current = null;
     }
@@ -902,9 +903,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         try {
           const stream = videoRef.current.srcObject as MediaStream;
           stream.getTracks().forEach(track => {
-            try { track.stop(); } catch {}
+            try { track.stop(); } catch { }
           });
-        } catch {}
+        } catch { }
         videoRef.current.srcObject = null;
       }
     }
@@ -1154,7 +1155,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     setCameraAccessDenied(false);
 
     // Start GPS acquisition simultaneously in parallel with camera initialization (non-blocking)
-    void startConcurrentGpsAcquisition().catch(() => {});
+    void startConcurrentGpsAcquisition().catch(() => { });
 
     // Open front camera and measure camera initialization latency
     const camStartMs = Date.now();
@@ -1262,10 +1263,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             longitude: reading.longitude,
             accuracy: reading.accuracy,
             address: fieldAssignment
-            ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
-            : isFlexibleEmp
-              ? 'Daily Field Work (GPS Verified)'
-              : (geofenceConfig.officeName || 'HQ Office'),
+              ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+              : isFlexibleEmp
+                ? 'Daily Field Work (GPS Verified)'
+                : (geofenceConfig.officeName || 'HQ Office'),
             distance,
             timestamp: reading.timestamp,
             readingAgeMs: reading.readingAgeMs,
@@ -1391,7 +1392,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     if (!capturedPhotoUrl) {
       setFullScreenError('Please capture your face photo first.');
       setFullScreenStep('CAMERA');
-      void startCameraStream().catch(() => {});
+      void startCameraStream().catch(() => { });
       return;
     }
 
@@ -1474,15 +1475,63 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         throw new Error(conciseMsg);
       }
 
+      const baseFallbackAddress = isFieldDutyAuthorized
+        ? (fieldAssignment
+          ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
+          : 'Daily Field Work (GPS Verified)')
+        : (geofenceConfig.officeName || 'HQ Office');
+
+      let resolvedHumanAddress = baseFallbackAddress;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1100);
+        const geoResp = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${reading.latitude}&lon=${reading.longitude}&zoom=16&addressdetails=1`,
+          { headers: { 'Accept-Language': 'en' }, signal: controller.signal }
+        );
+        clearTimeout(timer);
+        if (geoResp.ok) {
+          const geoData = await geoResp.json();
+          const addrObj = geoData?.address || {};
+          const area =
+            addrObj.suburb ||
+            addrObj.neighbourhood ||
+            addrObj.industrial ||
+            addrObj.quarter ||
+            addrObj.road ||
+            addrObj.village ||
+            addrObj.town ||
+            '';
+          const city =
+            addrObj.city ||
+            addrObj.town ||
+            addrObj.city_district ||
+            addrObj.county ||
+            addrObj.state_district ||
+            '';
+          const localityParts = Array.from(
+            new Set([area, city].map(s => String(s || '').trim()).filter(Boolean))
+          );
+          if (localityParts.length > 0) {
+            const localityStr = localityParts.join(', ');
+            if (isFieldDutyAuthorized && fieldAssignment?.customerSiteName) {
+              resolvedHumanAddress = `${fieldAssignment.customerSiteName} · ${localityStr}`;
+            } else {
+              resolvedHumanAddress = localityStr;
+            }
+          } else if (geoData?.display_name) {
+            resolvedHumanAddress = String(geoData.display_name);
+          }
+        }
+      } catch {
+        // Fallback immediately to baseFallbackAddress if reverse geocoding times out or is offline
+      }
+
       const gpsInfo = {
         latitude: reading.latitude,
         longitude: reading.longitude,
         accuracy: reading.accuracy,
-        address: isFieldDutyAuthorized
-          ? (fieldAssignment
-              ? `Authorized Field Duty (${fieldAssignment?.customerSiteName || fieldAssignment?.siteAddress || 'Field Site'})`
-              : 'Daily Field Work (GPS Verified)')
-          : (geofenceConfig.officeName || 'HQ Office'),
+        address: resolvedHumanAddress,
         distance,
         timestamp: reading.timestamp,
         readingAgeMs: reading.readingAgeMs,
@@ -1591,11 +1640,21 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           address: serverRecord.locationAddress || gpsInfo.address,
           inGeofence: serverRecord.inGeofence ?? true,
         },
+        checkInLocation:
+          (serverRecord as any).checkInLocation ||
+          (type === 'Check-In'
+            ? (gpsInfo.address || serverRecord.locationAddress)
+            : ((todayAttendance as any)?.checkInLocation || todayAttendance?.location?.address || serverRecord.locationAddress)),
+        checkOutLocation:
+          (serverRecord as any).checkOutLocation ||
+          (type === 'Check-Out'
+            ? (gpsInfo.address || serverRecord.locationAddress)
+            : (todayAttendance as any)?.checkOutLocation),
       };
       setCommittedTodayRecord(committedRecord);
       applyServerAttendanceRecord(committedRecord);
       // Synchronize full cloud state asynchronously in background without blocking UI confirmation
-      void syncAllWithCloud().catch(() => {});
+      void syncAllWithCloud().catch(() => { });
 
       if (type === 'Check-In') {
         const authoritativeEpoch = serverRecord.createdAt ? Date.parse(serverRecord.createdAt) : Date.now();
@@ -1608,7 +1667,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
           if (currentUser.employeeId) {
             localStorage.setItem(`vrm_punch_in_epoch_${currentUser.employeeId}_${todayStr}`, nowEpoch);
           }
-        } catch {}
+        } catch { }
       }
 
       addFaceLog({
@@ -1819,9 +1878,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     }
 
     const punchResult = markAttendance(
-      selectedEmpId, 
-      'Present', 
-      (type === 'Check-In' ? 'GPS Check-In' : 'GPS Check-Out') as any, 
+      selectedEmpId,
+      'Present',
+      (type === 'Check-In' ? 'GPS Check-In' : 'GPS Check-Out') as any,
       {
         lat,
         lng,
@@ -1868,7 +1927,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   const isEmployee = currentUser.role === 'Employee' || currentUser.role === 'Assignee';
 
   const currentUserEmp = useMemo(() => {
-    return employees.find(e => 
+    return employees.find(e =>
       (currentUser.employeeId && (e.employeeId?.toLowerCase() === currentUser.employeeId?.toLowerCase() || e.id?.toLowerCase() === currentUser.employeeId?.toLowerCase())) ||
       (currentUser.id && (e.id?.toLowerCase() === currentUser.id?.toLowerCase() || e.employeeId?.toLowerCase() === currentUser.id?.toLowerCase())) ||
       (currentUser.email && e.email?.toLowerCase() === currentUser.email?.toLowerCase()) ||
@@ -2081,8 +2140,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       const att = todayAttMap.get(empKey);
       const faceIn = todayFaceInMap.get(empKey);
       const faceOut = todayFaceOutMap.get(empKey);
-      const emp = employees.find(e => 
-        String(e.employeeId || '').toLowerCase() === empKey || 
+      const emp = employees.find(e =>
+        String(e.employeeId || '').toLowerCase() === empKey ||
         String(e.id || '').toLowerCase() === empKey
       );
       if (isOwnerOrCEO(emp || att)) {
@@ -2141,7 +2200,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         }
       });
       setMonthPhotosMap(prev => ({ ...prev, ...nextMap }));
-    }).catch(() => {});
+    }).catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -2171,6 +2230,79 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
     if (matchedLog?.photoUrl) return matchedLog.photoUrl;
     return null;
+  };
+
+  const formatCompactLocation = (rawLocation?: string | null): string => {
+    if (!rawLocation) return '';
+    const trimmed = String(rawLocation).trim();
+    if (!trimmed || trimmed === '—' || trimmed === '-' || trimmed === 'N/A') return '';
+    const lower = trimmed.toLowerCase();
+    if (lower === 'verified office geofence' || lower === 'plant hq' || lower === 'main plant hq' || lower === 'hq office') {
+      return geofenceConfig?.officeName || 'HQ Office';
+    }
+    if (lower === 'daily field work (gps verified)' || lower === 'daily field work (flexible attendance)') {
+      return 'Field Work (GPS)';
+    }
+    const authMatch = trimmed.match(/^Authorized Field Duty\s*\((.+)\)$/i);
+    if (authMatch && authMatch[1]) {
+      return authMatch[1].trim();
+    }
+    if (trimmed.includes(',')) {
+      const parts = trimmed
+        .split(',')
+        .map(p => p.trim())
+        .filter(
+          p =>
+            Boolean(p) &&
+            !/^\d{5,6}$/.test(p) &&
+            !/^(india|tamil nadu)$/i.test(p)
+        );
+      if (parts.length >= 2) {
+        return `${parts[0]}, ${parts[1]}`;
+      }
+      if (parts.length === 1) {
+        return parts[0];
+      }
+    }
+    return trimmed;
+  };
+
+  const getRecordLocation = (record: any, type: 'Check-In' | 'Check-Out'): string | null => {
+    if (!record) return null;
+    const isCheckIn = type === 'Check-In';
+    const rawTime = isCheckIn ? record.checkIn : record.checkOut;
+    const hasTime = Boolean(
+      rawTime &&
+      rawTime !== '--:--' &&
+      String(rawTime).trim() !== '' &&
+      !String(rawTime).toLowerCase().includes('progress')
+    );
+    if (!hasTime) return null;
+
+    let parsedNotes: any = null;
+    if (record.notes && typeof record.notes === 'string' && record.notes.trim().startsWith('{')) {
+      try {
+        parsedNotes = JSON.parse(record.notes);
+      } catch {
+        parsedNotes = null;
+      }
+    }
+
+    const specificLoc = isCheckIn
+      ? (record.checkInLocation || record.check_in_location || parsedNotes?.checkInLocation)
+      : (record.checkOutLocation || record.check_out_location || parsedNotes?.checkOutLocation);
+
+    const candidate =
+      specificLoc ||
+      record.location?.address ||
+      record.locationAddress ||
+      record.location_address ||
+      (String(record.method || '').toLowerCase() === 'work from home' ? 'Work From Home' : '') ||
+      geofenceConfig?.officeName ||
+      'HQ Office';
+
+    const clean = String(candidate || '').trim();
+    return clean || null;
   };
 
   // Today live photos for logged-in user
@@ -2303,8 +2435,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       matchedOtReq
         ? Number(matchedOtReq.approvedOtHours || (matchedOtReq as any).otHours || matchedOtReq.requestedOtHours || 0)
         : (rec?.approvedOtHours !== undefined && Number(rec.approvedOtHours) > 0
-            ? Number(rec.approvedOtHours)
-            : Number((rec as any)?.otHours || rec?.overtimeHours || rec?.calculatedOtHours || 0));
+          ? Number(rec.approvedOtHours)
+          : Number((rec as any)?.otHours || rec?.overtimeHours || rec?.calculatedOtHours || 0));
     const autoExcessOt = workHrs > stdShiftHours ? Math.round((workHrs - stdShiftHours + Number.EPSILON) * 100) / 100 : 0;
     const otHrs = explicitOt > 0 ? explicitOt : autoExcessOt;
     if (otHrs <= 0) return { otHrs: 0, otAmount: 0 };
@@ -2618,7 +2750,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     photoUrl: string | null,
     personName: string,
     recDate: string,
-    hasCheckIn?: boolean
+    hasCheckIn?: boolean,
+    locationText?: string | null
   ) => {
     const isCheckIn = type === 'Check-In';
     const hasTime = Boolean(timeVal && timeVal !== '--:--' && String(timeVal).trim() !== '');
@@ -2653,9 +2786,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     }
 
     const formatted = formatAttendanceTime(timeVal!);
+    const compactLoc = formatCompactLocation(locationText);
 
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         {photoUrl ? (
           <button
             type="button"
@@ -2666,7 +2800,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 url: photoUrl,
                 title: `${personName} – ${type} Photo`,
                 subtitle: formatDateDDMMYYYY(recDate),
-                time: formatted
+                time: formatted,
+                location: compactLoc || locationText || undefined
               });
             }}
             title={`View ${type} Photo`}
@@ -2685,17 +2820,47 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             <img src={photoUrl} alt={type} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           </button>
         ) : null}
-        <span
-          data-testid={isCheckIn ? 'record-checkin-time' : 'record-checkout-time'}
-          style={{
-            fontSize: '0.82rem',
-            fontWeight: 600,
-            color: '#0f172a',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {formatted}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+          <span
+            data-testid={isCheckIn ? 'record-checkin-time' : 'record-checkout-time'}
+            style={{
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              color: '#0f172a',
+              whiteSpace: 'nowrap',
+              lineHeight: 1.2
+            }}
+          >
+            {formatted}
+          </span>
+          {compactLoc ? (
+            <div
+              data-testid={isCheckIn ? 'record-checkin-location' : 'record-checkout-location'}
+              title={locationText || compactLoc}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                fontSize: '0.7rem',
+                color: '#64748b',
+                marginTop: '2px',
+                maxWidth: '170px',
+                lineHeight: 1.2
+              }}
+            >
+              <MapPin size={10} color="#64748b" style={{ flexShrink: 0 }} />
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {compactLoc}
+              </span>
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   };
@@ -2750,6 +2915,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             const isExpanded = expandedRecordId === recordKey;
             const inPhoto = getRecordPhoto(rec, 'Check-In');
             const outPhoto = getRecordPhoto(rec, 'Check-Out');
+            const inLocation = getRecordLocation(rec, 'Check-In');
+            const outLocation = getRecordLocation(rec, 'Check-Out');
+            const inLocCompact = formatCompactLocation(inLocation);
+            const outLocCompact = formatCompactLocation(outLocation);
             const effStatus = resolveEffectiveRecordStatus(rec);
             const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
             const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
@@ -2826,27 +2995,83 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     color: '#475569'
                   }}
                 >
-                  <div>
-                    <span style={{ color: '#64748b' }}>Check-in: </span>
-                    <span data-testid="record-checkin-time" style={{ fontWeight: 600, color: '#0f172a' }}>
-                      {checkInDisplay}
-                    </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Check-in: </span>
+                      <span data-testid="record-checkin-time" style={{ fontWeight: 600, color: '#0f172a' }}>
+                        {checkInDisplay}
+                      </span>
+                    </div>
+                    {inLocCompact ? (
+                      <div
+                        data-testid="record-checkin-location"
+                        title={inLocation || inLocCompact}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          fontSize: '0.68rem',
+                          color: '#64748b',
+                          marginTop: '2px',
+                          minWidth: 0
+                        }}
+                      >
+                        <MapPin size={10} color="#64748b" style={{ flexShrink: 0 }} />
+                        <span
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {inLocCompact}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
-                  <div>
-                    <span style={{ color: '#64748b' }}>Check-out: </span>
-                    <span
-                      data-testid="record-checkout-time"
-                      style={{
-                        fontWeight: 600,
-                        color: hasOut ? '#0f172a' : '#64748b',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
-                    >
-                      {!hasOut && hasIn && <Clock size={12} color="#64748b" />}
-                      {checkOutDisplay}
-                    </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Check-out: </span>
+                      <span
+                        data-testid="record-checkout-time"
+                        style={{
+                          fontWeight: 600,
+                          color: hasOut ? '#0f172a' : '#64748b',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        {!hasOut && hasIn && <Clock size={12} color="#64748b" />}
+                        {checkOutDisplay}
+                      </span>
+                    </div>
+                    {outLocCompact ? (
+                      <div
+                        data-testid="record-checkout-location"
+                        title={outLocation || outLocCompact}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          fontSize: '0.68rem',
+                          color: '#64748b',
+                          marginTop: '2px',
+                          minWidth: 0
+                        }}
+                      >
+                        <MapPin size={10} color="#64748b" style={{ flexShrink: 0 }} />
+                        <span
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {outLocCompact}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                   <div style={{ gridColumn: '1 / -1', marginTop: '2px' }}>
                     <span style={{ color: '#64748b' }}>Working Hours: </span>
@@ -2882,7 +3107,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                                 url: inPhoto,
                                 title: `${personName} – Check-In Photo`,
                                 subtitle: formatDateDDMMYYYY(recDate),
-                                time: hasIn ? formatAttendanceTime(rec.checkIn) : undefined
+                                time: hasIn ? formatAttendanceTime(rec.checkIn) : undefined,
+                                location: inLocCompact || inLocation || undefined
                               })
                             }
                             style={{
@@ -2916,7 +3142,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                                 url: outPhoto,
                                 title: `${personName} – Check-Out Photo`,
                                 subtitle: formatDateDDMMYYYY(recDate),
-                                time: hasOut ? formatAttendanceTime(rec.checkOut) : undefined
+                                time: hasOut ? formatAttendanceTime(rec.checkOut) : undefined,
+                                location: outLocCompact || outLocation || undefined
                               })
                             }
                             style={{
@@ -2970,6 +3197,24 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                         <span style={{ color: '#64748b' }}>Verification: </span>
                         <span style={{ fontWeight: 600, color: '#0f172a' }}>{rec.method || 'Face Verified'}</span>
                       </div>
+                      {inLocation ? (
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+                          <MapPin size={12} color="#64748b" style={{ flexShrink: 0, marginTop: '2px' }} />
+                          <span>
+                            <span style={{ color: '#64748b' }}>Punch-In Location: </span>
+                            <span style={{ fontWeight: 600, color: '#0f172a' }}>{inLocCompact || inLocation}</span>
+                          </span>
+                        </div>
+                      ) : null}
+                      {outLocation ? (
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+                          <MapPin size={12} color="#64748b" style={{ flexShrink: 0, marginTop: '2px' }} />
+                          <span>
+                            <span style={{ color: '#64748b' }}>Punch-Out Location: </span>
+                            <span style={{ fontWeight: 600, color: '#0f172a' }}>{outLocCompact || outLocation}</span>
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -3015,6 +3260,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 const recDate = rec.date || rec.shiftDate;
                 const inPhoto = getRecordPhoto(rec, 'Check-In');
                 const outPhoto = getRecordPhoto(rec, 'Check-Out');
+                const inLocation = getRecordLocation(rec, 'Check-In');
+                const outLocation = getRecordLocation(rec, 'Check-Out');
                 const effStatus = resolveEffectiveRecordStatus(rec);
                 const personName = showEmployeeCol ? (rec.employeeName || 'Employee') : (currentUser.name || 'You');
                 const hasIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
@@ -3080,12 +3327,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
                     {/* Check-In */}
                     <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
-                      {renderDesktopPunchInline('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn)}
+                      {renderDesktopPunchInline('Check-In', rec.checkIn, inPhoto, personName, recDate, hasIn, inLocation)}
                     </td>
 
                     {/* Check-Out */}
                     <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
-                      {renderDesktopPunchInline('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn)}
+                      {renderDesktopPunchInline('Check-Out', rec.checkOut, outPhoto, personName, recDate, hasIn, outLocation)}
                     </td>
 
                     {/* Working Hours */}
@@ -4178,7 +4425,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                             onClick={() => {
                               setIsMirrored(prev => {
                                 const next = !prev;
-                                try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch {}
+                                try { localStorage.setItem('vrm_hrms_camera_mirrored', String(next)); } catch { }
                                 return next;
                               });
                             }}
@@ -4663,7 +4910,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       {/* GPS CLOCK-IN MODAL DIALOG */}
       {showGpsModal && (
         <div className="modal-overlay" onClick={() => setShowGpsModal(false)}>
-          <div 
+          <div
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: '520px', borderRadius: '16px', overflow: 'hidden' }}
@@ -4691,7 +4938,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                   </span>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setShowGpsModal(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
               >
@@ -4700,12 +4947,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             </div>
 
             <div className="modal-body" style={{ padding: '24px', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              
+
               {/* Active Employee Selected */}
-              <div style={{ 
-                padding: '12px 16px', 
-                backgroundColor: '#f8fafc', 
-                borderRadius: '12px', 
+              <div style={{
+                padding: '12px 16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
                 border: '1px solid #e2e8f0',
                 display: 'flex',
                 alignItems: 'center',
@@ -4744,9 +4991,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                         LOCATION / GPS OFF OR UNAVAILABLE
                       </span>
                     </div>
-                    <button 
-                      type="button" 
-                      onClick={fetchGpsStatus} 
+                    <button
+                      type="button"
+                      onClick={fetchGpsStatus}
                       disabled={gpsLoading}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
                     >
@@ -4785,13 +5032,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                       }}>
                         {gpsLoading ? 'Acquiring High-Accuracy GPS...' :
                           gpsData?.classification === 'INSIDE' ? 'INSIDE GEOFENCE BOUNDARY' :
-                          gpsData?.classification === 'UNCERTAIN' ? 'GPS ACCURACY INSUFFICIENT' :
-                          'OUTSIDE GEOFENCE BOUNDARY'}
+                            gpsData?.classification === 'UNCERTAIN' ? 'GPS ACCURACY INSUFFICIENT' :
+                              'OUTSIDE GEOFENCE BOUNDARY'}
                       </span>
                     </div>
-                    <button 
-                      type="button" 
-                      onClick={fetchGpsStatus} 
+                    <button
+                      type="button"
+                      onClick={fetchGpsStatus}
                       disabled={gpsLoading}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
                     >
@@ -4933,8 +5180,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
 
       {/* PHOTO PREVIEW LIGHTBOX MODAL (CLEAN APPLE-STYLE WHITE MODAL) */}
       {previewPhoto && (
-        <div 
-          className="modal-overlay" 
+        <div
+          className="modal-overlay"
           data-testid="photo-preview-modal"
           onClick={() => setPreviewPhoto(null)}
           style={{
@@ -4950,7 +5197,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             overflowY: 'auto'
           }}
         >
-          <div 
+          <div
             className="modal-content"
             onClick={e => e.stopPropagation()}
             style={{
@@ -5039,6 +5286,12 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                 {previewPhoto.time && (
                   <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>
                     Punch Time: {previewPhoto.time}
+                  </div>
+                )}
+                {previewPhoto.location && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', color: '#64748b', marginTop: '2px' }}>
+                    <MapPin size={11} color="#64748b" style={{ flexShrink: 0 }} />
+                    <span>{previewPhoto.location}</span>
                   </div>
                 )}
               </div>

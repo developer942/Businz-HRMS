@@ -73,6 +73,8 @@ export interface AttendanceLogRecord {
   locationLat?: number;
   locationLng?: number;
   locationAddress?: string;
+  checkInLocation?: string;
+  checkOutLocation?: string;
   notes?: string;
   checkInPhoto?: string;
   checkOutPhoto?: string;

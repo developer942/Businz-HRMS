@@ -8202,6 +8202,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           lateStatus: finalLateStatus,
           method,
           location: location || copy[existingIdx].location,
+          checkInLocation: wantsCheckIn
+            ? (location?.address || copy[existingIdx].checkInLocation || copy[existingIdx].location?.address)
+            : (copy[existingIdx].checkInLocation || copy[existingIdx].location?.address),
+          checkOutLocation: wantsCheckOut
+            ? (location?.address || copy[existingIdx].checkOutLocation || copy[existingIdx].location?.address)
+            : copy[existingIdx].checkOutLocation,
           workingHours: wantsCheckOut ? workedHours : (copy[existingIdx].workingHours || 0),
           checkInPhoto: wantsCheckIn ? (photoUrl || copy[existingIdx].checkInPhoto) : copy[existingIdx].checkInPhoto,
           checkOutPhoto: wantsCheckOut ? (photoUrl || copy[existingIdx].checkOutPhoto) : copy[existingIdx].checkOutPhoto
@@ -8261,6 +8267,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           status: calculatedStatus,
           lateStatus: calculatedLateStatus,
           location: location || { lat: 13.151968, lng: 80.2086053, address: 'HQ Office', inGeofence: true },
+          checkInLocation: location?.address || 'HQ Office',
           faceVerified: method === 'Face Recognition',
           method,
           checkInPhoto: photoUrl
@@ -8338,6 +8345,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         checkOut: committedEntry.record.checkOut || next[index].checkOut,
         checkInPhoto: committedEntry.record.checkInPhoto || next[index].checkInPhoto,
         checkOutPhoto: committedEntry.record.checkOutPhoto || next[index].checkOutPhoto,
+        checkInLocation: committedEntry.record.checkInLocation || next[index].checkInLocation || next[index].location?.address,
+        checkOutLocation: committedEntry.record.checkOutLocation || next[index].checkOutLocation,
       };
       return next;
     });
@@ -13063,6 +13072,18 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           return matchEmp && recDate >= l.startDate && recDate <= l.endDate;
         });
 
+        let parsedNotes: any = null;
+        if (a.notes && typeof a.notes === 'string' && a.notes.trim().startsWith('{')) {
+          try {
+            parsedNotes = JSON.parse(a.notes);
+          } catch {
+            parsedNotes = null;
+          }
+        }
+        const resolvedBaseAddress = approvedWfh ? 'Work From Home (Approved)' : (a.location_address || 'Plant HQ');
+        const checkInTimeVal = dbTimestampToLocalHHMM(a.check_in);
+        const checkOutTimeVal = dbTimestampToLocalHHMM(a.check_out);
+
         return {
           id: a.id,
           employeeId: empCode,
@@ -13071,15 +13092,17 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           date: recDate,
           shiftId: a.shift_id,
           shiftDate: recShiftDate,
-          checkIn: dbTimestampToLocalHHMM(a.check_in),
-          checkOut: dbTimestampToLocalHHMM(a.check_out),
+          checkIn: checkInTimeVal,
+          checkOut: checkOutTimeVal,
           workingHours: a.working_hours ?? 0,
           status: approvedWfh ? 'Work From Home' : (a.status || 'Present'),
           wfhSource: approvedWfh ? 'Approved WFH Request' : undefined,
           wfhReason: approvedWfh ? (approvedWfh.reason || 'Work From Home Approved') : undefined,
           lateStatus: a.late_status || 'On Time',
           method: a.method || 'Face Scan',
-          location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: approvedWfh ? 'Work From Home (Approved)' : (a.location_address || 'Plant HQ'), inGeofence: a.in_geofence ?? true },
+          location: { lat: a.location_lat || 13.0827, lng: a.location_lng || 80.2707, address: resolvedBaseAddress, inGeofence: a.in_geofence ?? true },
+          checkInLocation: a.check_in_location || a.checkInLocation || parsedNotes?.checkInLocation || (checkInTimeVal ? resolvedBaseAddress : undefined),
+          checkOutLocation: a.check_out_location || a.checkOutLocation || parsedNotes?.checkOutLocation || (checkOutTimeVal ? resolvedBaseAddress : undefined),
           faceVerified: a.face_verified ?? false,
           checkInPhoto: a.check_in_photo || undefined,
           checkOutPhoto: a.check_out_photo || undefined,
@@ -13121,6 +13144,8 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
             checkOut: recentRec ? recentRec.checkOut : (rec.checkOut || null),
             checkInPhoto: rec.checkInPhoto || recentRec?.checkInPhoto || prevRec?.checkInPhoto,
             checkOutPhoto: rec.checkOutPhoto || recentRec?.checkOutPhoto || prevRec?.checkOutPhoto,
+            checkInLocation: recentRec?.checkInLocation || rec.checkInLocation || prevRec?.checkInLocation,
+            checkOutLocation: recentRec?.checkOutLocation || rec.checkOutLocation || prevRec?.checkOutLocation,
             workingHours: recentRec ? recentRec.workingHours : (rec.workingHours || 0),
           };
         });
