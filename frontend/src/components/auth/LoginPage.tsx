@@ -1184,6 +1184,72 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               )}
             </div>
           )}
+
+          {/* Public Policy Links Footer */}
+          <div
+            data-testid="login-policy-footer"
+            style={{
+              marginTop: '22px',
+              paddingTop: '16px',
+              borderTop: '1px solid #E2E8F0',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '8px',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '10px 16px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+              }}
+            >
+              <a
+                href="/privacy-policy"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.history.pushState({}, '', '/privacy-policy');
+                  window.dispatchEvent(new Event('vrm-public-nav'));
+                }}
+                style={{ color: '#0E7490', textDecoration: 'none' }}
+              >
+                Privacy Policy
+              </a>
+              <span style={{ color: '#CBD5E1' }}>•</span>
+              <a
+                href="/terms-of-service"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.history.pushState({}, '', '/terms-of-service');
+                  window.dispatchEvent(new Event('vrm-public-nav'));
+                }}
+                style={{ color: '#0E7490', textDecoration: 'none' }}
+              >
+                Terms of Service
+              </a>
+              <span style={{ color: '#CBD5E1' }}>•</span>
+              <a
+                href="/data-deletion"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.history.pushState({}, '', '/data-deletion');
+                  window.dispatchEvent(new Event('vrm-public-nav'));
+                }}
+                style={{ color: '#0E7490', textDecoration: 'none' }}
+              >
+                Data Deletion
+              </a>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
+              © {new Date().getFullYear()} VRM STRUCTURES INDIA PRIVATE LIMITED · BUSINZ HRMS
+            </div>
+          </div>
         </div>
       </div>
 

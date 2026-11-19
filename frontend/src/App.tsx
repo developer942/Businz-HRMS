@@ -5,6 +5,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './components/auth/LoginPage';
 import { authService, toAppUser } from './services/authService';
 import { initGlobalKeyboardGuard } from './utils/keyboardUtils';
+import { PublicPolicyPages, resolvePublicPolicyRoute, PublicPolicyRoute } from './components/public/PublicPolicyPages';
 
 const AuthenticatedApp: React.FC = () => {
   const { switchRole, updateCurrentUser, setActiveModule, resetToDashboard, syncAllWithCloud } = useHRMS();
@@ -82,12 +83,46 @@ const AuthenticatedApp: React.FC = () => {
   );
 };
 
-export const App: React.FC = () => (
-  <ErrorBoundary fallbackTitle="HRMS Portal Recovery">
-    <HRMSProvider>
-      <AuthenticatedApp />
-    </HRMSProvider>
-  </ErrorBoundary>
-);
+export const App: React.FC = () => {
+  const [publicRoute, setPublicRoute] = useState<PublicPolicyRoute | null>(() =>
+    typeof window !== 'undefined' ? resolvePublicPolicyRoute(window.location.pathname) : null
+  );
+
+  useEffect(() => {
+    const syncRoute = () => {
+      setPublicRoute(resolvePublicPolicyRoute(window.location.pathname));
+    };
+    window.addEventListener('popstate', syncRoute);
+    window.addEventListener('vrm-public-nav', syncRoute);
+    return () => {
+      window.removeEventListener('popstate', syncRoute);
+      window.removeEventListener('vrm-public-nav', syncRoute);
+    };
+  }, []);
+
+  const handlePublicNavigate = (targetPath: string) => {
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', targetPath);
+      setPublicRoute(resolvePublicPolicyRoute(targetPath));
+      window.dispatchEvent(new Event('vrm-public-nav'));
+    }
+  };
+
+  if (publicRoute) {
+    return (
+      <ErrorBoundary fallbackTitle="BUSINZ HRMS Policy Page">
+        <PublicPolicyPages route={publicRoute} onNavigate={handlePublicNavigate} />
+      </ErrorBoundary>
+    );
+  }
+
+  return (
+    <ErrorBoundary fallbackTitle="HRMS Portal Recovery">
+      <HRMSProvider>
+        <AuthenticatedApp />
+      </HRMSProvider>
+    </ErrorBoundary>
+  );
+};
 
 export default App;
