@@ -132,10 +132,13 @@ export const recordPunch = async (req, res, next) => {
             });
             return;
         }
+        const isTrackingFieldWorker = preloadedEmployee?.attendance_method === 'Tracking Field' ||
+            preloadedEmployee?.attendanceMethod === 'Tracking Field' ||
+            String(validated.method || '').toLowerCase().includes('tracking field');
         const isFlexibleWorker = preloadedEmployee?.attendance_method === 'Flexible' ||
             preloadedEmployee?.attendanceMethod === 'Flexible' ||
             String(validated.method || '').toLowerCase().includes('flexible');
-        const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized || dbFieldDuty.authorized || isFlexibleWorker);
+        const isAuthorizedFieldDuty = Boolean(validated.fieldDutyAuthorized || dbFieldDuty.authorized || isFlexibleWorker || isTrackingFieldWorker);
         if (isGpsOrFacePunch && !isCeo) {
             const geofenceEnabled = Boolean(geofence && (geofence.isEnabled || geofence.enabled));
             if (geofenceEnabled || isAuthorizedFieldDuty) {
@@ -287,8 +290,8 @@ export const recordPunch = async (req, res, next) => {
             employeeId: targetEmpId,
             inGeofence: isInsideGeofence,
             photoBase64: facePhoto,
-            bypassShiftWindow: isFlexibleWorker || isAuthorizedFieldDuty,
-            notes: validated.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : undefined),
+            bypassShiftWindow: isFlexibleWorker || isAuthorizedFieldDuty || isTrackingFieldWorker,
+            notes: validated.notes || (isTrackingFieldWorker ? 'Permanent Field Duty (Automatic GPS Tracking)' : (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : undefined)),
         });
         res.status(201).json({
             success: true,

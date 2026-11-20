@@ -279,7 +279,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     shifts,
     holidayPolicies,
     leaveRequests,
-    weeklySchedules
+    weeklySchedules,
+    startTrip,
+    endTrip,
+    tripSessions
   } = useHRMS();
   const [selectedEmpId, setSelectedEmpId] = useState<string>(() => currentUser.employeeId || employees[0]?.employeeId || 'EMP-001');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -901,7 +904,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? Number((geofenceConfig as any).maxAccuracyMeters)
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
-    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible';
+    const isTrackingFieldEmp = selectedEmp?.attendanceMethod === 'Tracking Field' || (selectedEmp as any)?.attendance_method === 'Tracking Field';
+    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible' || isTrackingFieldEmp;
     const isFieldDutyAuthorized = Boolean(fieldAssignment) || isFlexibleEmp;
     let verifiedOnRetry = false;
 
@@ -1523,7 +1527,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? Number((geofenceConfig as any).maxAccuracyMeters)
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
-    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible';
+    const isTrackingFieldEmp = selectedEmp?.attendanceMethod === 'Tracking Field' || (selectedEmp as any)?.attendance_method === 'Tracking Field';
+    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible' || isTrackingFieldEmp;
     const isFieldDutyAuthorized = Boolean(fieldAssignment) || isFlexibleEmp;
 
     // If a verified GPS reading was acquired within the last 45s, reuse it immediately (0ms wait)
@@ -1774,7 +1779,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       ? Number((geofenceConfig as any).maxAccuracyMeters)
       : undefined;
     const fieldAssignment = getTodayFieldAssignment(selectedEmpId);
-    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible';
+    const isTrackingFieldEmp = selectedEmp?.attendanceMethod === 'Tracking Field' || (selectedEmp as any)?.attendance_method === 'Tracking Field';
+    const isFlexibleEmp = selectedEmp?.attendanceMethod === 'Flexible' || (selectedEmp as any)?.attendance_method === 'Flexible' || isTrackingFieldEmp;
     const isFieldDutyAuthorized = Boolean(fieldAssignment) || isFlexibleEmp;
 
     try {
@@ -1966,6 +1972,29 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
         photoCaptureMs: perfMetrics.photoCaptureMs,
         confirmToSuccessMs: confirmElapsedMs
       });
+
+      // Automatic GPS Tracking Lifecycle for Permanent Field Employees (Tracking Field)
+      if (isTrackingFieldEmp && (selectedEmpId === currentUser.employeeId || selectedEmpId === currentUser.id)) {
+        if (type === 'Check-In') {
+          try {
+            const permAssignId = `perm-assign-${selectedEmpId}-${todayStr}`;
+            startTrip(permAssignId, reading.latitude, reading.longitude, resolvedHumanAddress || 'Starting Point');
+          } catch (tripErr) {
+            console.warn('[FaceAttendance] Auto startTrip warning:', tripErr);
+          }
+        } else if (type === 'Check-Out') {
+          try {
+            const activeTrip = tripSessions.find(
+              t => (t.employeeId === selectedEmpId || t.employeeId === currentUser.employeeId) && t.status === 'Active'
+            );
+            if (activeTrip) {
+              endTrip(activeTrip.id, reading.latitude, reading.longitude, resolvedHumanAddress || 'Destination (Field Duty Completed)');
+            }
+          } catch (endTripErr) {
+            console.warn('[FaceAttendance] Auto endTrip warning:', endTripErr);
+          }
+        }
+      }
 
       // If address resolution was still pending when Confirm completed, finish reverse-geocoding in background and update UI + DB
       if (isGenericPlaceholderAddress(resolvedHumanAddress)) {

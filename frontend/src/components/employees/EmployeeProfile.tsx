@@ -3435,12 +3435,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               value={
                 formData.attendanceMethod === 'Face Scan' ? 'Face Attendance' :
                 formData.attendanceMethod === 'Biometric' || (formData.attendanceMethod as any) === 'Biometric Device' ? 'Biometric Fingerprint' :
+                formData.attendanceMethod === 'Tracking Field' ? 'Tracking Field' :
                 formData.attendanceMethod || 'Face Attendance'
               }
               onChange={(e) => {
                 const val = e.target.value;
                 handleChange('attendanceMethod', val);
-                if (val === 'Flexible') {
+                if (val === 'Flexible' || val === 'Tracking Field') {
                   handleChange('gpsAllowed', true);
                 }
               }}
@@ -3449,13 +3450,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <option value="Face Attendance">Face Attendance</option>
               <option value="Biometric Fingerprint">Biometric Fingerprint</option>
               <option value="Flexible">Flexible</option>
+              <option value="Tracking Field">Tracking Field (NEW)</option>
             </select>
           ) : (
             <div style={viewValueStyle}>
               <span style={{
-                backgroundColor: formData.attendanceMethod === 'Flexible' ? '#ECFEFF' : '#F1F5F9',
-                color: formData.attendanceMethod === 'Flexible' ? '#0E7490' : '#1E293B',
-                border: `1px solid ${formData.attendanceMethod === 'Flexible' ? '#A5F3FC' : '#E2E8F0'}`,
+                backgroundColor: (formData.attendanceMethod === 'Flexible' || formData.attendanceMethod === 'Tracking Field') ? '#ECFEFF' : '#F1F5F9',
+                color: (formData.attendanceMethod === 'Flexible' || formData.attendanceMethod === 'Tracking Field') ? '#0E7490' : '#1E293B',
+                border: `1px solid ${(formData.attendanceMethod === 'Flexible' || formData.attendanceMethod === 'Tracking Field') ? '#A5F3FC' : '#E2E8F0'}`,
                 padding: '3px 10px',
                 borderRadius: '8px',
                 fontSize: '0.82rem',
@@ -3464,8 +3466,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 {formData.attendanceMethod === 'Face Scan' ? 'Face Attendance' :
                  formData.attendanceMethod === 'Biometric' || (formData.attendanceMethod as any) === 'Biometric Device' ? 'Biometric Fingerprint' :
                  formData.attendanceMethod === 'Flexible' ? 'Flexible (Daily Field Work)' :
+                 formData.attendanceMethod === 'Tracking Field' ? 'Tracking Field (Permanent GPS Duty)' :
                  (formData.attendanceMethod || 'Face Attendance')}
               </span>
+              {formData.attendanceMethod === 'Tracking Field' && (
+                <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#0E7490', fontWeight: 600 }}>
+                  🚗 Permanent Field Employee — Automatic GPS Tracking on Face Punch In / Out
+                </div>
+              )}
               {formData.attendanceMethod === 'Flexible' && (
                 <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#0E7490', fontWeight: 600 }}>
                   📍 Daily Field Work — Flexible Attendance Enabled

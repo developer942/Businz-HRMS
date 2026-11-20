@@ -41,10 +41,15 @@ export const TravelHistoryTab: React.FC = () => {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [orgDepartments, fieldAssignments]);
 
-  // Combine trips with assignments
+  // Combine trips with assignments (including permanent field employee trips)
   const historyRecords = useMemo(() => {
-    return fieldAssignments.map((assignment) => {
+    const records: any[] = [];
+    const processedTripIds = new Set<string>();
+
+    // 1. From Field Assignments
+    fieldAssignments.forEach((assignment) => {
       const trip = tripSessions.find((t) => t.assignmentId === assignment.id);
+      if (trip) processedTripIds.add(trip.id);
 
       const checkInFormatted = trip?.checkInTime
         ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
@@ -79,7 +84,7 @@ export const TravelHistoryTab: React.FC = () => {
           (alt) => alt.assignmentId === assignment.id || alt.employeeId === assignment.employeeId
         ).length + missingIntervalsCount;
 
-      return {
+      records.push({
         id: assignment.id,
         assignment,
         trip,
@@ -99,10 +104,100 @@ export const TravelHistoryTab: React.FC = () => {
         missingIntervalsCount,
         gpsDataQuality,
         gpsIssues: issues,
-        status: trip?.status || assignment.status
-      };
+        status: trip?.status || assignment.status,
+        isPermanentField: Boolean(assignment.isPermanentField || trip?.isPermanentField)
+      });
     });
-  }, [fieldAssignments, tripSessions, trackingAlerts]);
+
+    // 2. From Trip Sessions not covered by manual assignments (e.g. Permanent Field Employee automatic tracking trips)
+    tripSessions.forEach((trip) => {
+      if (processedTripIds.has(trip.id)) return;
+      const emp = employees.find(e => e.employeeId === trip.employeeId || e.id === trip.employeeId);
+      const assignmentFallback: FieldAssignment = {
+        id: trip.assignmentId || trip.id,
+        employeeId: trip.employeeId,
+        employeeName: trip.employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Staff'),
+        employeeAvatar: (emp as any)?.avatarUrl || emp?.avatar,
+        department: trip.department || emp?.department || 'Field Operations',
+        dutyType: trip.dutyType || 'Permanent Field',
+        scheduleType: 'One Day',
+        startDate: trip.tripStartTime ? trip.tripStartTime.split('T')[0] : '',
+        endDate: trip.tripEndTime ? trip.tripEndTime.split('T')[0] : (trip.tripStartTime ? trip.tripStartTime.split('T')[0] : ''),
+        startTime: '09:00',
+        endTime: '18:00',
+        customerSiteName: trip.customerSiteName || 'Regular Field Duty',
+        siteAddress: trip.startAddress || 'Field Location',
+        purpose: 'Permanent Field Duty & GPS Tracking',
+        trackingRequired: true,
+        travelKmRequired: true,
+        attendanceType: 'Flexible Field Check-in',
+        allowedRadiusMeters: 500,
+        status: trip.status === 'Completed' ? 'Completed' : 'Active',
+        isPermanentField: true,
+        createdAt: trip.createdAt || trip.tripStartTime,
+        updatedAt: trip.updatedAt || trip.tripStartTime,
+      };
+
+      const checkInRaw = trip.checkInTime || trip.tripStartTime;
+      const checkOutRaw = trip.checkOutTime || trip.tripEndTime;
+      const tripStartRaw = trip.tripStartTime;
+      const tripEndRaw = trip.tripEndTime;
+
+      const checkInFormatted = checkInRaw
+        ? new Date(checkInRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : '—';
+      const checkOutFormatted = checkOutRaw
+        ? new Date(checkOutRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : '—';
+      const tripStartFormatted = tripStartRaw
+        ? new Date(tripStartRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : '—';
+      const tripEndFormatted = tripEndRaw
+        ? new Date(tripEndRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : '—';
+
+      const metrics = calculateSequentialRouteMetrics(
+        trip.locationPoints || [],
+        trip.segments,
+        trip.tripEndTime || trip.checkOutTime
+      );
+
+      const km = metrics ? metrics.verifiedKm : trip.totalKm || 0;
+      const unverifiedGapKm = metrics ? metrics.unverifiedGapKm : 0;
+      const missingIntervalsCount = metrics ? metrics.missingIntervalsCount : 0;
+      const gpsDataQuality = metrics ? metrics.gpsDataQuality : 'Insufficient GPS Data';
+      const issues =
+        trackingAlerts.filter(
+          (alt) => alt.assignmentId === trip.assignmentId || alt.employeeId === trip.employeeId
+        ).length + missingIntervalsCount;
+
+      records.push({
+        id: trip.id,
+        assignment: assignmentFallback,
+        trip,
+        employeeName: assignmentFallback.employeeName,
+        employeeId: trip.employeeId,
+        employeeAvatar: assignmentFallback.employeeAvatar,
+        department: assignmentFallback.department,
+        dutyType: trip.dutyType || 'Permanent Field',
+        customerSiteName: assignmentFallback.customerSiteName,
+        date: assignmentFallback.startDate,
+        checkIn: checkInFormatted,
+        checkOut: checkOutFormatted,
+        tripStart: tripStartFormatted,
+        tripEnd: tripEndFormatted,
+        kmTravelled: km,
+        unverifiedGapKm,
+        missingIntervalsCount,
+        gpsDataQuality,
+        gpsIssues: issues,
+        status: trip.status,
+        isPermanentField: true
+      });
+    });
+
+    return records;
+  }, [fieldAssignments, tripSessions, employees, trackingAlerts]);
 
   // Filtered
   const filtered = useMemo(() => {
@@ -333,13 +428,14 @@ export const TravelHistoryTab: React.FC = () => {
                           borderRadius: '9999px',
                           fontSize: '0.74rem',
                           fontWeight: 700,
-                          backgroundColor: rec.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9',
-                          color: rec.dutyType === 'Site Visit' ? '#B45309' : '#334155',
+                          backgroundColor: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '#ECFEFF' : (rec.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9'),
+                          color: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '#0E7490' : (rec.dutyType === 'Site Visit' ? '#B45309' : '#334155'),
+                          border: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '1px solid #A5F3FC' : '1px solid transparent',
                           whiteSpace: 'nowrap',
                           display: 'inline-block'
                         }}
                       >
-                        {rec.dutyType}
+                        {rec.dutyType === 'Permanent Field' || rec.isPermanentField ? 'Permanent Field' : rec.dutyType}
                       </span>
                     </td>
 
@@ -508,11 +604,12 @@ export const TravelHistoryTab: React.FC = () => {
                         borderRadius: '9999px',
                         fontSize: '0.7rem',
                         fontWeight: 700,
-                        backgroundColor: rec.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9',
-                        color: rec.dutyType === 'Site Visit' ? '#B45309' : '#334155'
+                        backgroundColor: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '#ECFEFF' : (rec.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9'),
+                        color: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '#0E7490' : (rec.dutyType === 'Site Visit' ? '#B45309' : '#334155'),
+                        border: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '1px solid #A5F3FC' : '1px solid transparent'
                       }}
                     >
-                      {rec.dutyType}
+                      {rec.dutyType === 'Permanent Field' || rec.isPermanentField ? 'Permanent Field' : rec.dutyType}
                     </span>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0F172A', marginBottom: '8px' }}>

@@ -272,12 +272,12 @@ export const LiveTrackingTab: React.FC = () => {
                           color: isGpsActive ? '#16A34A' : '#EF4444'
                         }}
                       >
-                        ● {isGpsActive ? 'Active' : 'Lost'}
+                        ● {trip.trackingStatus || (isGpsActive ? 'Tracking Active' : 'GPS Unavailable')}
                       </span>
                     </div>
 
                     <div style={{ fontSize: '0.74rem', color: '#475569', marginBottom: '4px' }}>
-                      <strong>Duty:</strong> {assignment.dutyType} • {assignment.customerSiteName}
+                      <strong>Duty:</strong> {assignment.dutyType === 'Permanent Field' || (assignment as any).isPermanentField ? 'Permanent Field' : assignment.dutyType} • {assignment.customerSiteName || 'Regular Field Duty'}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>

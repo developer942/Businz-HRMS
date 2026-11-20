@@ -6,6 +6,7 @@ export type DutyType =
   | 'Vendor Visit' 
   | 'Travel' 
   | 'Field Work' 
+  | 'Permanent Field'
   | 'Other';
 
 export type ScheduleType = 
@@ -81,6 +82,8 @@ export interface FieldAssignment {
   siteLng?: number;
   allowedRadiusMeters: number;
   notes?: string;
+  isPermanentField?: boolean;
+  attendanceRecordId?: string;
   status: AssignmentStatus;
   createdBy?: string;
   createdAt: string;
@@ -179,6 +182,8 @@ export interface FieldTripSession {
   stopCount?: number;
   totalStopDurationSeconds?: number;
   routeGeometry?: string;
+  isPermanentField?: boolean;
+  attendanceRecordId?: string;
   status: TripStatus;
   checkInTime?: string;
   checkOutTime?: string;

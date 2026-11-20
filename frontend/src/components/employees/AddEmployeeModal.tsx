@@ -3708,6 +3708,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   value={
                     formData.attendanceMethod === 'Face Scan' ? 'Face Attendance' :
                     formData.attendanceMethod === 'Biometric' ? 'Biometric Fingerprint' :
+                    formData.attendanceMethod === 'Tracking Field' ? 'Tracking Field' :
                     formData.attendanceMethod || 'Face Attendance'
                   } 
                   onChange={e => handleChange('attendanceMethod', e.target.value)}
@@ -3715,7 +3716,22 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   <option value="Face Attendance">Face Attendance</option>
                   <option value="Biometric Fingerprint">Biometric Fingerprint</option>
                   <option value="Flexible">Flexible</option>
+                  <option value="Tracking Field">Tracking Field (NEW)</option>
                 </select>
+                {formData.attendanceMethod === 'Tracking Field' && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '10px 12px',
+                    backgroundColor: '#ECFEFF',
+                    border: '1px solid #A5F3FC',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    color: '#0E7490',
+                    lineHeight: 1.4
+                  }}>
+                    🚗 <strong>Permanent Field Employee:</strong> Automatic GPS tracking starts on Face Punch In and stops on Face Punch Out. Does not require daily manual field assignments. Uses face verification for attendance.
+                  </div>
+                )}
                 {formData.attendanceMethod === 'Flexible' && (
                   <div style={{
                     marginTop: '8px',

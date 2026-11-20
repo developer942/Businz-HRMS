@@ -4,6 +4,7 @@ import { query, withTransaction } from '../config/database.js';
 import { AttendanceLogRecord, AttendanceTodaySummary, ShiftWindowEvaluation, ShiftRecord } from '../types/hrms.js';
 import { employeeRepository } from './employeeRepository.js';
 import { shiftRepository } from './shiftRepository.js';
+import { toDeterministicUuid } from './trackingRepository.js';
 import {
   evaluateBackendShiftAttendance,
   calculateShiftDateTimes,
@@ -883,9 +884,12 @@ export class AttendanceRepository {
         });
 
         const isFlexibleWorker = employee.attendance_method === 'Flexible';
-        const finalStatus = isFlexibleWorker ? 'Present' : lateEval.status;
-        const finalLateStatus = isFlexibleWorker ? 'On-Time' : lateEval.lateStatus;
-        const finalLateMins = isFlexibleWorker ? 0 : lateEval.lateDurationMinutes;
+        const isTrackingFieldWorker =
+          employee.attendance_method === 'Tracking Field' ||
+          (params.method as string) === 'Tracking Field';
+        const finalStatus = (isFlexibleWorker || isTrackingFieldWorker) ? 'Present' : lateEval.status;
+        const finalLateStatus = (isFlexibleWorker || isTrackingFieldWorker) ? 'On-Time' : lateEval.lateStatus;
+        const finalLateMins = (isFlexibleWorker || isTrackingFieldWorker) ? 0 : lateEval.lateDurationMinutes;
         const cleanClientInAddr = !isGenericPlaceholderLocation(params.locationAddress)
           ? String(params.locationAddress).trim()
           : null;
@@ -895,7 +899,12 @@ export class AttendanceRepository {
           params.locationAddress ||
           'Verified Office Geofence';
         const rawNotesInput =
-          params.notes || (isFlexibleWorker ? 'Daily Field Work (Flexible Attendance)' : lateEval.notes);
+          params.notes ||
+          (isTrackingFieldWorker
+            ? 'Permanent Field Duty (Automatic GPS Tracking)'
+            : isFlexibleWorker
+              ? 'Daily Field Work (Flexible Attendance)'
+              : lateEval.notes);
         let finalNotes = rawNotesInput;
         try {
           if (typeof rawNotesInput === 'string' && rawNotesInput.trim().startsWith('{')) {
@@ -984,6 +993,94 @@ export class AttendanceRepository {
             ]
           );
           savedRow = updated.rows[0];
+        }
+
+        // Automatic GPS Tracking Session Start for Permanent Field Employees (Tracking Field)
+        if (isTrackingFieldWorker && savedRow?.id) {
+          try {
+            const startLat = typeof params.locationLat === 'number' ? params.locationLat : 13.0827;
+            const startLng = typeof params.locationLng === 'number' ? params.locationLng : 80.2707;
+            const startAddr = resolvedInAddress || 'Starting Point (Field Duty)';
+            const assignmentUuid = toDeterministicUuid(`perm-assign-${employee.id}-${targetShiftDate}`);
+            const tripUuid = toDeterministicUuid(`perm-trip-${savedRow.id}`);
+            const startPointUuid = toDeterministicUuid(`perm-pt-${savedRow.id}-start`);
+
+            // 1. Ensure permanent field duty assignment exists
+            await client.query(
+              `INSERT INTO public.field_duty_assignments (
+                id, employee_id, department, duty_type, schedule_type,
+                start_date, end_date, start_time, end_time,
+                customer_site_name, site_address, purpose,
+                tracking_required, travel_km_required, attendance_type,
+                site_lat, site_lng, allowed_radius_meters, status, is_permanent_field
+              ) VALUES ($1, $2, $3, 'Permanent Field', 'One Day', $4::date, $4::date, '09:00', '18:00',
+                'Regular Field Duty', $5, 'Permanent Field Duty & GPS Tracking',
+                TRUE, TRUE, 'Flexible Field Check-in', $6, $7, 500, 'Active', TRUE)
+              ON CONFLICT (id) DO UPDATE SET status = 'Active', updated_at = NOW()`,
+              [
+                assignmentUuid,
+                employee.id,
+                employee.department_name || 'Field Operations',
+                targetShiftDate,
+                startAddr,
+                startLat,
+                startLng,
+              ]
+            );
+
+            // 2. Ensure field trip session linked to attendance_record_id
+            await client.query(
+              `INSERT INTO public.field_trip_sessions (
+                id, assignment_id, employee_id, attendance_record_id, is_permanent_field,
+                trip_start_time, start_lat, start_lng, start_address,
+                total_km, recorded_distance_meters, road_matched_distance_meters, unverified_distance_meters,
+                status, tracking_status, gps_status, last_gps_update, raw_points_count, accepted_points_count, check_in_time
+              ) VALUES ($1, $2, $3, $4, TRUE,
+                $5, $6, $7, $8,
+                0.0, 0.0, 0.0, 0.0,
+                'Active', 'Travelling', $9, $5, 1, 1, $5)
+              ON CONFLICT (id) DO UPDATE SET
+                attendance_record_id = EXCLUDED.attendance_record_id,
+                status = 'Active',
+                tracking_status = 'Travelling',
+                last_gps_update = EXCLUDED.last_gps_update,
+                updated_at = NOW()`,
+              [
+                tripUuid,
+                assignmentUuid,
+                employee.id,
+                savedRow.id,
+                serverInstant.toISOString(),
+                startLat,
+                startLng,
+                startAddr,
+                typeof params.locationLat === 'number' ? 'GPS Active' : 'GPS Off',
+              ]
+            );
+
+            // 3. Insert initial location point if GPS coordinates provided
+            if (typeof params.locationLat === 'number' && typeof params.locationLng === 'number') {
+              await client.query(
+                `INSERT INTO public.field_location_points (
+                  id, trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
+                  accuracy, speed, heading, distance_from_prev_meters, is_rejected, source
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, FALSE, 'face_punch_in')
+                ON CONFLICT (id) DO NOTHING`,
+                [
+                  startPointUuid,
+                  tripUuid,
+                  assignmentUuid,
+                  employee.id,
+                  serverInstant.toISOString(),
+                  startLat,
+                  startLng,
+                  params.accuracyMeters ?? 15,
+                ]
+              );
+            }
+          } catch (trackingErr) {
+            console.error('[attendanceRepository] Failed to auto-start permanent field tracking session:', trackingErr);
+          }
         }
       } else {
         // Punch OUT: preserve check_in, check_in_photo, status, late_status, late_duration_minutes, and checkInLocation in notes!
@@ -1130,6 +1227,83 @@ export class AttendanceRepository {
           ]
         );
         savedRow = updated.rows[0];
+
+        // Automatic GPS Tracking Session Stop for Permanent Field Employees (Tracking Field)
+        const isTrackingFieldWorkerOut =
+          employee.attendance_method === 'Tracking Field' ||
+          (params.method as string) === 'Tracking Field';
+
+        if (isTrackingFieldWorkerOut && currentRow?.id) {
+          try {
+            const endLat = typeof params.locationLat === 'number' ? params.locationLat : null;
+            const endLng = typeof params.locationLng === 'number' ? params.locationLng : null;
+            const endAddr = resolvedOutAddress || 'Destination (Field Duty Completed)';
+            const outPointUuid = toDeterministicUuid(`perm-pt-${currentRow.id}-out`);
+
+            // Find active trip session linked to this attendance record or active permanent trip for this employee
+            const activeTripRes = await client.query<{ id: string; assignment_id: string; total_km: number }>(
+              `SELECT id, assignment_id, total_km FROM public.field_trip_sessions
+               WHERE (attendance_record_id = $1 OR (employee_id = $2 AND status = 'Active' AND is_permanent_field = TRUE))
+               ORDER BY created_at DESC LIMIT 1`,
+              [currentRow.id, employee.id]
+            );
+
+            if (activeTripRes.rows.length > 0) {
+              const activeTrip = activeTripRes.rows[0];
+
+              if (endLat !== null && endLng !== null) {
+                await client.query(
+                  `INSERT INTO public.field_location_points (
+                    id, trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
+                    accuracy, speed, distance_from_prev_meters, is_rejected, source
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, FALSE, 'face_punch_out')
+                  ON CONFLICT (id) DO NOTHING`,
+                  [
+                    outPointUuid,
+                    activeTrip.id,
+                    activeTrip.assignment_id,
+                    employee.id,
+                    serverInstant.toISOString(),
+                    endLat,
+                    endLng,
+                    params.accuracyMeters ?? 15,
+                  ]
+                );
+              }
+
+              await client.query(
+                `UPDATE public.field_trip_sessions
+                 SET end_lat = COALESCE($1, end_lat, start_lat),
+                     end_lng = COALESCE($2, end_lng, start_lng),
+                     end_address = $3,
+                     trip_end_time = $4,
+                     check_out_time = $4,
+                     status = 'Completed',
+                     tracking_status = 'Completed',
+                     updated_at = NOW()
+                 WHERE id = $5`,
+                [
+                  endLat,
+                  endLng,
+                  endAddr,
+                  serverInstant.toISOString(),
+                  activeTrip.id,
+                ]
+              );
+
+              if (activeTrip.assignment_id) {
+                await client.query(
+                  `UPDATE public.field_duty_assignments
+                   SET status = 'Completed', updated_at = NOW()
+                   WHERE id = $1`,
+                  [activeTrip.assignment_id]
+                );
+              }
+            }
+          } catch (trackingEndErr) {
+            console.error('[attendanceRepository] Failed to auto-stop permanent field tracking session:', trackingEndErr);
+          }
+        }
       }
 
       if (idempotencyKey && savedRow?.id) {

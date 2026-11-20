@@ -21,7 +21,7 @@ export interface TrackingOverviewProps {
 }
 
 export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
-  const { fieldAssignments, tripSessions, trackingAlerts, departments: orgDepartments } = useHRMS();
+  const { fieldAssignments, tripSessions, trackingAlerts, departments: orgDepartments, employees, attendanceRecords } = useHRMS();
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -31,6 +31,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [dutyTypeFilter, setDutyTypeFilter] = useState<'All' | 'Permanent Field' | 'Temporary Field'>('All');
 
   // Compute Today's field assignments
   const todayAssignments = useMemo(() => {
@@ -46,11 +47,16 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
     });
   }, [fieldAssignments, todayStr]);
 
-  // Merge with active/today trips
+  // Merge with active/today trips (both Temporary Assignments and Permanent Field Employees)
   const tableData: TodayFieldEmployeeItem[] = useMemo(() => {
-    return todayAssignments.map(assignment => {
+    const list: TodayFieldEmployeeItem[] = [];
+    const assignedEmpIds = new Set<string>();
+
+    // 1. Temporary Field Assignments for today
+    todayAssignments.forEach(assignment => {
+      assignedEmpIds.add(String(assignment.employeeId).toLowerCase());
       const trip = tripSessions.find(t => t.assignmentId === assignment.id) ||
-                   tripSessions.find(t => t.employeeId === assignment.employeeId);
+                   tripSessions.find(t => t.employeeId === assignment.employeeId && t.status === 'Active');
 
       const checkInFormatted = trip?.checkInTime
         ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
@@ -71,7 +77,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
       const gpsStatus = trip?.gpsStatus || (assignment.status === 'Active' ? 'GPS Active' : 'GPS Off');
       const trackingStatus = trip?.trackingStatus || (assignment.status === 'Active' ? 'Travelling' : 'Idle');
 
-      return {
+      list.push({
         id: assignment.id,
         assignmentId: assignment.id,
         employeeId: assignment.employeeId,
@@ -87,10 +93,101 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
         lastUpdated: lastUpdatedFormatted,
         currentLat: trip?.startLat,
         currentLng: trip?.startLng,
-        activeTripId: trip?.id
-      };
+        activeTripId: trip?.id,
+        isPermanentField: false
+      });
     });
-  }, [todayAssignments, tripSessions]);
+
+    // 2. Permanent Field Employees (Tracking Field mode) active or checked in today
+    employees.forEach(emp => {
+      const isPermField = emp.attendanceMethod === 'Tracking Field' || (emp as any).attendance_method === 'Tracking Field';
+      if (!isPermField) return;
+
+      const empCodeLower = String(emp.employeeId || '').toLowerCase();
+      const empUuidLower = String(emp.id || '').toLowerCase();
+      if (assignedEmpIds.has(empCodeLower) || assignedEmpIds.has(empUuidLower)) {
+        return; // Avoid duplicate if temporary assignment exists
+      }
+
+      // Check today's attendance record
+      const todayAtt = attendanceRecords.find(a => {
+        const aEmp = String(a.employeeId || '').toLowerCase();
+        const matches = aEmp === empCodeLower || aEmp === empUuidLower;
+        const recDate = a.date || a.shiftDate;
+        return matches && recDate && recDate.startsWith(todayStr);
+      });
+
+      // Find any trip session for this employee today or currently active
+      const trip = tripSessions.find(t => {
+        const tEmp = String(t.employeeId || '').toLowerCase();
+        const matches = tEmp === empCodeLower || tEmp === empUuidLower;
+        return matches && (t.status === 'Active' || (t.tripStartTime && t.tripStartTime.startsWith(todayStr)));
+      });
+
+      if (!todayAtt && !trip) return;
+
+      const checkInFormatted = todayAtt?.checkIn
+        ? (todayAtt.checkIn.includes('T')
+            ? new Date(todayAtt.checkIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+            : todayAtt.checkIn)
+        : trip?.checkInTime
+          ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+          : undefined;
+
+      const lastUpdatedFormatted = trip?.lastGpsUpdate
+        ? calculateRelativeTime(trip.lastGpsUpdate)
+        : 'Just now';
+
+      const metrics = trip
+        ? calculateSequentialRouteMetrics(
+            trip.locationPoints || [],
+            trip.segments,
+            trip.tripEndTime || trip.checkOutTime
+          )
+        : null;
+
+      const travelKm = metrics ? metrics.verifiedKm : trip?.totalKm || 0;
+      const isCheckedOut = Boolean(todayAtt?.checkOut && todayAtt.checkOut !== '--:--') || trip?.status === 'Completed';
+      const isPunchedIn = Boolean(todayAtt?.checkIn && todayAtt.checkIn !== '--:--');
+
+      let trackingStatus = 'Not Punched In';
+      let gpsStatus = 'GPS Off';
+
+      if (isCheckedOut) {
+        trackingStatus = 'Tracking Completed';
+        gpsStatus = 'GPS Off';
+      } else if (isPunchedIn || trip?.status === 'Active') {
+        trackingStatus = trip?.trackingStatus || 'Tracking Active';
+        gpsStatus = trip?.gpsStatus || 'GPS Active';
+      }
+
+      const lastLocPoint = trip?.locationPoints && trip.locationPoints.length > 0
+        ? trip.locationPoints[trip.locationPoints.length - 1]
+        : null;
+
+      list.push({
+        id: trip?.id || `perm-${emp.id}-${todayStr}`,
+        assignmentId: trip?.assignmentId || `perm-assign-${emp.id}-${todayStr}`,
+        employeeId: emp.employeeId,
+        employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+        employeeAvatar: (emp as any).avatarUrl || emp.avatar,
+        department: emp.department || 'Field Operations',
+        dutyType: 'Permanent Field',
+        customerSiteName: trip?.customerSiteName && trip.customerSiteName !== 'Site' ? trip.customerSiteName : 'Regular Field Duty',
+        checkInTime: checkInFormatted,
+        travelKm,
+        gpsStatus,
+        trackingStatus,
+        lastUpdated: lastUpdatedFormatted,
+        currentLat: lastLocPoint?.latitude || trip?.startLat,
+        currentLng: lastLocPoint?.longitude || trip?.startLng,
+        activeTripId: trip?.id,
+        isPermanentField: true
+      });
+    });
+
+    return list;
+  }, [todayAssignments, tripSessions, employees, attendanceRecords, todayStr]);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -100,9 +197,13 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
                           row.department.toLowerCase().includes(searchQuery.toLowerCase());
       const matchDept = departmentFilter === 'All' || row.department === departmentFilter;
       const matchStatus = statusFilter === 'All' || row.trackingStatus === statusFilter;
-      return matchSearch && matchDept && matchStatus;
+      const matchDutyType =
+        dutyTypeFilter === 'All' ||
+        (dutyTypeFilter === 'Permanent Field' && row.isPermanentField) ||
+        (dutyTypeFilter === 'Temporary Field' && !row.isPermanentField);
+      return matchSearch && matchDept && matchStatus && matchDutyType;
     });
-  }, [tableData, searchQuery, departmentFilter, statusFilter]);
+  }, [tableData, searchQuery, departmentFilter, statusFilter, dutyTypeFilter]);
 
   // Departments for filter: show Organization departments even when today's table is empty.
   const departments = useMemo(() => {
@@ -117,8 +218,8 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
   }, [orgDepartments, tableData]);
 
   // Compute 4 KPI values from actual data
-  const fieldEmployeesToday = todayAssignments.length;
-  const currentlyTravelling = tableData.filter(r => r.trackingStatus === 'Travelling').length;
+  const fieldEmployeesToday = tableData.length;
+  const currentlyTravelling = tableData.filter(r => r.trackingStatus === 'Travelling' || r.trackingStatus === 'Tracking Active').length;
   const openGpsAlertsCount = trackingAlerts.filter(a => a.status === 'Open').length;
   const totalKmToday = tableData.reduce((acc, curr) => acc + (curr.travelKm || 0), 0);
 
@@ -366,9 +467,29 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
             >
               <option value="All">All Statuses</option>
               <option value="Travelling">Travelling</option>
+              <option value="Tracking Active">Tracking Active</option>
               <option value="On Site">On Site</option>
               <option value="Interrupted">Interrupted</option>
               <option value="Completed">Completed</option>
+              <option value="Tracking Completed">Tracking Completed</option>
+            </select>
+
+            <select
+              value={dutyTypeFilter}
+              onChange={(e) => setDutyTypeFilter(e.target.value as any)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: '10px',
+                border: '1px solid #CBD5E1',
+                fontSize: '0.82rem',
+                backgroundColor: '#FFFFFF',
+                color: '#0E7490',
+                fontWeight: 650
+              }}
+            >
+              <option value="All">All Employees</option>
+              <option value="Permanent Field">Permanent Field Employees</option>
+              <option value="Temporary Field">Temporary Field Assignments</option>
             </select>
           </div>
         </div>
@@ -460,13 +581,14 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
                             borderRadius: '9999px',
                             fontSize: '0.74rem',
                             fontWeight: 700,
-                            backgroundColor: row.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9',
-                            color: row.dutyType === 'Site Visit' ? '#B45309' : '#334155',
+                            backgroundColor: row.isPermanentField || row.dutyType === 'Permanent Field' ? '#ECFEFF' : (row.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9'),
+                            color: row.isPermanentField || row.dutyType === 'Permanent Field' ? '#0E7490' : (row.dutyType === 'Site Visit' ? '#B45309' : '#334155'),
+                            border: row.isPermanentField || row.dutyType === 'Permanent Field' ? '1px solid #A5F3FC' : '1px solid transparent',
                             whiteSpace: 'nowrap',
                             display: 'inline-block'
                           }}
                         >
-                          {row.dutyType}
+                          {row.isPermanentField || row.dutyType === 'Permanent Field' ? 'Permanent Field' : `Temporary Field (${row.dutyType})`}
                         </span>
                       </td>
 

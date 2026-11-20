@@ -2436,7 +2436,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       department: currentUser.department,
     } as Employee);
 
-    if (emp.attendanceMethod === 'Flexible' || (emp as any).attendance_method === 'Flexible') {
+    if (
+      emp.attendanceMethod === 'Flexible' ||
+      (emp as any).attendance_method === 'Flexible' ||
+      emp.attendanceMethod === 'Tracking Field' ||
+      (emp as any).attendance_method === 'Tracking Field'
+    ) {
       const todayStr = getTrustedNow().toISOString().split('T')[0];
       const empCodeLower = String(emp.employeeId || '').trim().toLowerCase();
       const empUuidLower = String(emp.id || '').trim().toLowerCase();
