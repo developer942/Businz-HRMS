@@ -494,27 +494,36 @@
 
 .crm-search-icon {
   position: absolute;
-  left: 11px;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   color: #98A2B3;
   pointer-events: none;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .crm-search-input {
-  width: 100%;
-  height: 38px;
-  padding: 0 30px 0 34px;
-  border-radius: 9px;
-  border: 1px solid var(--wa-border);
-  background-color: var(--wa-bg);
-  color: var(--wa-text-primary);
-  font-size: 0.84rem;
-  outline: none;
-  box-sizing: border-box;
+  width: 100% !important;
+  height: 38px !important;
+  padding: 0 32px 0 38px !important;
+  padding-left: 38px !important;
+  padding-right: 32px !important;
+  border-radius: 9px !important;
+  border: 1px solid var(--wa-border) !important;
+  background-color: var(--wa-bg) !important;
+  color: var(--wa-text-primary) !important;
+  font-size: 0.84rem !important;
+  outline: none !important;
+  box-sizing: border-box !important;
 }
 
 .crm-search-input:focus {
-  background-color: var(--wa-surface);
-  border-color: var(--wa-teal);
+  background-color: var(--wa-surface) !important;
+  border-color: var(--wa-teal) !important;
+  box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.12) !important;
 }
 
 .crm-search-clear {
@@ -661,31 +670,41 @@
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
 }
 
 .crm-inbox-search-icon {
   position: absolute;
-  left: 11px;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   color: #98A2B3;
   pointer-events: none;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .crm-inbox-search-input {
-  width: 100%;
-  height: 36px;
-  padding: 0 28px 0 34px;
-  border-radius: 9px;
-  border: 1px solid var(--wa-border);
-  background-color: var(--wa-bg);
-  color: var(--wa-text-primary);
-  font-size: 0.83rem;
-  outline: none;
-  box-sizing: border-box;
+  width: 100% !important;
+  height: 38px !important;
+  padding: 0 32px 0 38px !important;
+  padding-left: 38px !important;
+  padding-right: 32px !important;
+  border-radius: 9px !important;
+  border: 1px solid var(--wa-border) !important;
+  background-color: var(--wa-bg) !important;
+  color: var(--wa-text-primary) !important;
+  font-size: 0.84rem !important;
+  outline: none !important;
+  box-sizing: border-box !important;
 }
 
 .crm-inbox-search-input:focus {
-  background-color: var(--wa-surface);
-  border-color: var(--wa-teal);
+  background-color: var(--wa-surface) !important;
+  border-color: var(--wa-teal) !important;
+  box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.12) !important;
 }
 
 .crm-inbox-search-clear {
@@ -1667,27 +1686,36 @@
 
 .crm-directory-search-icon {
   position: absolute;
-  left: 11px;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   color: #98A2B3;
   pointer-events: none;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .crm-directory-search-input {
-  width: 100%;
-  height: 38px;
-  padding: 0 30px 0 34px;
-  border-radius: 9px;
-  border: 1px solid var(--wa-border);
-  background-color: var(--wa-bg);
-  color: var(--wa-text-primary);
-  font-size: 0.84rem;
-  outline: none;
-  box-sizing: border-box;
+  width: 100% !important;
+  height: 38px !important;
+  padding: 0 32px 0 38px !important;
+  padding-left: 38px !important;
+  padding-right: 32px !important;
+  border-radius: 9px !important;
+  border: 1px solid var(--wa-border) !important;
+  background-color: var(--wa-bg) !important;
+  color: var(--wa-text-primary) !important;
+  font-size: 0.84rem !important;
+  outline: none !important;
+  box-sizing: border-box !important;
 }
 
 .crm-directory-search-input:focus {
-  background-color: var(--wa-surface);
-  border-color: var(--wa-teal);
+  background-color: var(--wa-surface) !important;
+  border-color: var(--wa-teal) !important;
+  box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.12) !important;
 }
 
 .crm-directory-search-clear {

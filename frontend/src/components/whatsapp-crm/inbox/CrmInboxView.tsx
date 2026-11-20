@@ -810,6 +810,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && loadConversations()}
               className="crm-inbox-search-input"
+              style={{ paddingLeft: '38px', paddingRight: '32px' }}
             />
             {searchQuery && (
               <button
@@ -960,25 +961,6 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
               {/* Desktop Header Actions */}
               <div className="crm-chat-header-actions desktop-only">
-                {/* Employee Assignment Dropdown */}
-                <div className="crm-agent-assign-wrap" title="Assigned team member">
-                  <UserCheck size={14} color="#0E7490" className="crm-agent-icon" />
-                  <span style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 500 }}>Assigned to:</span>
-                  <select
-                    value={activeConv.assignedEmployeeId || ''}
-                    onChange={e => handleAssignAgent(e.target.value)}
-                    aria-label="Assign conversation to team member"
-                    className="crm-agent-select"
-                  >
-                    <option value="">Unassigned</option>
-                    {employees.map(emp => (
-                      <option key={emp.id || emp.employeeId} value={emp.employeeId || emp.id}>
-                        {emp.firstName} {emp.lastName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 {/* Info Button */}
                 <button
                   type="button"
@@ -1015,20 +997,6 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
                 {mobileMenuOpen && (
                   <div className="crm-mobile-chat-dropdown" role="menu">
-                    <div className="crm-dropdown-item-header">Assign Team Member</div>
-                    <select
-                      value={activeConv.assignedEmployeeId || ''}
-                      onChange={e => handleAssignAgent(e.target.value)}
-                      className="crm-mobile-agent-select"
-                    >
-                      <option value="">Unassigned</option>
-                      {employees.map(emp => (
-                        <option key={emp.id || emp.employeeId} value={emp.employeeId || emp.id}>
-                          {emp.firstName} {emp.lastName}
-                        </option>
-                      ))}
-                    </select>
-
                     <button
                       type="button"
                       role="menuitem"
@@ -1738,6 +1706,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 value={contactSearchTerm}
                 onChange={e => setContactSearchTerm(e.target.value)}
                 className="crm-inbox-search-input"
+                style={{ paddingLeft: '38px', paddingRight: '32px' }}
               />
             </div>
 

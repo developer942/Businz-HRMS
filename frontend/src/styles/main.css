@@ -246,7 +246,7 @@ h4 { font-size: 0.92rem; font-weight: 750; color: var(--color-text-primary); }
 h5, h6 { font-size: 0.85rem; font-weight: 700; color: var(--color-text-primary); }
 
 .form-control,
-input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input):not(.crm-contacts-search-input):not(.crm-templates-search-input),
+input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input):not(.crm-contacts-search-input):not(.crm-templates-search-input):not(.crm-inbox-search-input):not(.crm-search-input):not(.crm-directory-search-input),
 select,
 textarea {
   font-family: var(--font-primary) !important;
@@ -263,7 +263,7 @@ textarea {
 }
 
 .form-control:focus,
-input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input):not(.crm-contacts-search-input):not(.crm-templates-search-input):focus,
+input:not([type="checkbox"]):not([type="radio"]):not(.header-search-input):not(.sidebar-search-input):not(.crm-contacts-search-input):not(.crm-templates-search-input):not(.crm-inbox-search-input):not(.crm-search-input):not(.crm-directory-search-input):focus,
 select:focus,
 textarea:focus {
   border-color: #0E7490 !important;
