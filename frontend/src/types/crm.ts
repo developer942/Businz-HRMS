@@ -70,6 +70,8 @@ export interface CrmMessage {
   contentText?: string;
   mediaUrl?: string;
   templateName?: string;
+  templateVariables?: any;
+  interactivePayload?: any;
   wamid?: string;
   status: CrmMessageStatus;
   failureReason?: string;

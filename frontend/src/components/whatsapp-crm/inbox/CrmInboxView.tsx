@@ -31,7 +31,8 @@ import {
   ChevronDown,
   RotateCcw,
   Download,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ExternalLink
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type {
@@ -592,14 +593,18 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     if (!selectedTemplate || !activeConv || sendingTemplate) return;
     setSendingTemplate(true);
     try {
+      const headerUrl = selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || (selectedTemplate.headerType === 'IMAGE' ? 'https://hrms.businz.com/brand-logo.png' : undefined);
+
       const msg = await crmService.sendTemplateMessage({
         contactId: activeConv.contactId,
         recipientPhone: activeConv.contactPhone || contactDetails?.phone,
         recipientName: activeConv.contactName || contactDetails?.name,
         templateName: selectedTemplate.name,
-        language: selectedTemplate.language || 'en_US',
+        language: selectedTemplate.language || 'en',
         category: (selectedTemplate.category as any) || 'UTILITY',
-        bodyParameters: templateVarValues.filter(v => v !== undefined)
+        bodyParameters: templateVarValues.filter(v => v !== undefined),
+        headerType: selectedTemplate.headerType || undefined,
+        headerUrl: headerUrl || undefined
       });
       setMessages(prev => [...prev, msg]);
       setConversations(prev =>
@@ -619,6 +624,51 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       alert(`Failed to send template: ${err.message || 'Meta API error'}`);
     } finally {
       setSendingTemplate(false);
+    }
+  };
+
+  const handleRetryMessage = async (failedMsg: CrmMessage) => {
+    if (sending || sendingTemplate) return;
+
+    if (failedMsg.contentType === 'template' || (failedMsg as any).templateName) {
+      // Dedicated template retry - PRESERVES type: "template", image header, variables, and buttons
+      setSendingTemplate(true);
+      try {
+        const bodyParams: string[] = [];
+        const bodyComp = failedMsg.templateVariables?.components?.find(
+          (c: any) => String(c?.type || '').toLowerCase() === 'body'
+        );
+        if (bodyComp?.parameters && Array.isArray(bodyComp.parameters)) {
+          bodyComp.parameters.forEach((p: any) => {
+            if (p?.text) bodyParams.push(String(p.text));
+          });
+        }
+
+        const templateName = (failedMsg as any).templateName || selectedTemplate?.name || '';
+        const headerUrl = failedMsg.mediaUrl || (failedMsg as any).templateVariables?.headerUrl || undefined;
+
+        const retried = await crmService.sendTemplateMessage({
+          contactId: activeConv?.contactId || '',
+          recipientPhone: activeConv?.contactPhone || contactDetails?.phone,
+          recipientName: activeConv?.contactName || contactDetails?.name,
+          templateName,
+          language: failedMsg.templateVariables?.language || 'en',
+          bodyParameters: bodyParams.length > 0 ? bodyParams : undefined,
+          components: failedMsg.templateVariables?.components || undefined,
+          headerUrl
+        });
+
+        // Update local messages state replacing the failed message
+        setMessages(prev => prev.map(m => (m.id === failedMsg.id ? { ...retried, id: failedMsg.id } : m)));
+        setTimeout(() => scrollToBottom(true), 50);
+      } catch (err: any) {
+        alert(`Failed to retry template message: ${err.message || 'Meta API error'}`);
+      } finally {
+        setSendingTemplate(false);
+      }
+    } else {
+      // Plain text messages retry as text
+      handleSendMessage(failedMsg.contentText);
     }
   };
 
@@ -1071,6 +1121,66 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                     (msg.contentText && msg.contentText.toLowerCase().includes('.pdf')) ||
                     (msg.mediaUrl && msg.mediaUrl.toLowerCase().includes('.pdf'));
 
+                  // Template identification & metadata resolution
+                  const isTemplate =
+                    msg.contentType === 'template' ||
+                    Boolean((msg as any).templateName) ||
+                    Boolean(msg.contentText && msg.contentText.includes('VRM Structures'));
+                  const templateName =
+                    (msg as any).templateName ||
+                    (msg.contentText?.includes('VRM Structures') ? 'vrm_expo_followup_v1' : '');
+
+                  // Resolve header image if template
+                  let templateHeaderImage: string | null = null;
+                  if (isTemplate) {
+                    if (msg.mediaUrl) {
+                      templateHeaderImage = msg.mediaUrl;
+                    } else if ((msg as any).templateVariables?.components) {
+                      const hComp = (msg as any).templateVariables.components.find(
+                        (c: any) => String(c?.type || '').toLowerCase() === 'header'
+                      );
+                      const imgParam = hComp?.parameters?.find((p: any) => p?.type === 'image' || p?.image);
+                      templateHeaderImage = imgParam?.image?.link || null;
+                    }
+                    if (
+                      !templateHeaderImage &&
+                      (templateName === 'vrm_expo_followup_v1' || msg.contentText?.includes('VRM Structures'))
+                    ) {
+                      templateHeaderImage = 'https://hrms.businz.com/brand-logo.png';
+                    }
+                  }
+
+                  // Resolve buttons if template
+                  let templateButtons: any[] = [];
+                  if (isTemplate) {
+                    if (
+                      (msg as any).interactivePayload?.buttons &&
+                      Array.isArray((msg as any).interactivePayload.buttons) &&
+                      (msg as any).interactivePayload.buttons.length > 0
+                    ) {
+                      templateButtons = (msg as any).interactivePayload.buttons;
+                    } else if (
+                      (msg as any).templateVariables?.buttons &&
+                      Array.isArray((msg as any).templateVariables.buttons) &&
+                      (msg as any).templateVariables.buttons.length > 0
+                    ) {
+                      templateButtons = (msg as any).templateVariables.buttons;
+                    } else {
+                      const tmplObj = approvedTemplates.find(t => t.name === templateName);
+                      if (tmplObj?.buttons && Array.isArray(tmplObj.buttons) && tmplObj.buttons.length > 0) {
+                        templateButtons = tmplObj.buttons;
+                      } else if (
+                        templateName === 'vrm_expo_followup_v1' ||
+                        msg.contentText?.includes('VRM Structures')
+                      ) {
+                        templateButtons = [
+                          { text: 'Call Support', type: 'PHONE_NUMBER', phoneNumber: '+919884330789' },
+                          { text: 'Visit Website', type: 'URL', url: 'https://vrmstructures.in/' }
+                        ];
+                      }
+                    }
+                  }
+
                   return (
                     <React.Fragment key={msg.id}>
                       {showDateDivider && (
@@ -1082,10 +1192,17 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                       <div className={`crm-msg-row ${isOutbound ? 'outbound' : 'inbound'}`}>
                         <div className={`crm-msg-bubble ${isOutbound ? 'outbound' : 'inbound'}`}>
                           {/* Template Header Badge */}
-                          {msg.contentType === 'template' && (msg as any).templateName && (
+                          {isTemplate && templateName && (
                             <div className="crm-msg-template-badge">
                               <FileText size={11} />
-                              <span>Template • {(msg as any).templateName}</span>
+                              <span>Template • {templateName}</span>
+                            </div>
+                          )}
+
+                          {/* Template Header Image */}
+                          {isTemplate && templateHeaderImage && (
+                            <div className="crm-msg-template-header-wrap">
+                              <img src={templateHeaderImage} alt="Template Header" className="crm-msg-template-header-img" />
                             </div>
                           )}
 
@@ -1121,8 +1238,8 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                             </div>
                           )}
 
-                          {/* Image Attachment Thumbnail */}
-                          {msg.contentType === 'image' && msg.mediaUrl && (
+                          {/* Image Attachment Thumbnail (for direct non-template image messages) */}
+                          {!isTemplate && msg.contentType === 'image' && msg.mediaUrl && (
                             <div className="crm-msg-image-wrap">
                               <img src={msg.mediaUrl} alt="WhatsApp Image" className="crm-msg-image-thumb" />
                             </div>
@@ -1131,7 +1248,37 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                           {/* Text Message Content */}
                           {(!isDocument || msg.contentText) && (
                             <div className="crm-msg-text">
-                              {msg.contentText || ((msg as any).templateName ? `Template: ${(msg as any).templateName}` : '')}
+                              {msg.contentText || (templateName ? `Template: ${templateName}` : '')}
+                            </div>
+                          )}
+
+                          {/* Template Action Buttons (Call Support, Visit Website) */}
+                          {isTemplate && templateButtons.length > 0 && (
+                            <div className="crm-template-buttons-container">
+                              {templateButtons.map((btn: any, bIdx: number) => {
+                                const isPhone = btn.type === 'PHONE_NUMBER';
+                                const phoneNum = btn.phoneNumber || btn.phone_number;
+                                const targetUrl = isPhone ? `tel:${phoneNum}` : (btn.url || '#');
+                                return (
+                                  <a
+                                    key={bIdx}
+                                    href={targetUrl}
+                                    target={!isPhone && btn.url ? '_blank' : undefined}
+                                    rel="noopener noreferrer"
+                                    className="crm-template-btn"
+                                    onClick={e => {
+                                      if (!isPhone && !btn.url) e.preventDefault();
+                                    }}
+                                  >
+                                    {isPhone ? (
+                                      <Phone size={13} className="crm-template-btn-icon" />
+                                    ) : (
+                                      <ExternalLink size={13} className="crm-template-btn-icon" />
+                                    )}
+                                    <span>{btn.text}</span>
+                                  </a>
+                                );
+                              })}
                             </div>
                           )}
 
@@ -1159,7 +1306,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                                 {parsedErr.actionType === 'retry' && (
                                   <button
                                     type="button"
-                                    onClick={() => handleSendMessage(msg.contentText)}
+                                    onClick={() => handleRetryMessage(msg)}
                                     className="crm-msg-error-action-btn outline"
                                   >
                                     <RotateCcw size={12} />
@@ -1737,7 +1884,51 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   whiteSpace: 'pre-wrap'
                 }}
               >
-                {selectedTemplate.bodyText}
+                {/* Header Preview */}
+                {selectedTemplate.headerType === 'IMAGE' && (
+                  <div style={{ marginBottom: '8px', borderRadius: '6px', overflow: 'hidden', border: '1px solid #E2E8F0', maxHeight: '120px' }}>
+                    <img
+                      src={selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || 'https://hrms.businz.com/brand-logo.png'}
+                      alt="Header"
+                      style={{ width: '100%', height: '120px', objectFit: 'cover', display: 'block' }}
+                    />
+                  </div>
+                )}
+                {selectedTemplate.headerType === 'TEXT' && selectedTemplate.headerContent && (
+                  <div style={{ fontWeight: 700, marginBottom: '6px', color: '#0E7490' }}>
+                    {selectedTemplate.headerContent}
+                  </div>
+                )}
+
+                {/* Body Text */}
+                <div>{selectedTemplate.bodyText}</div>
+
+                {/* Buttons Preview */}
+                {selectedTemplate.buttons && Array.isArray(selectedTemplate.buttons) && selectedTemplate.buttons.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px', borderTop: '1px solid #E2E8F0', paddingTop: '8px' }}>
+                    {selectedTemplate.buttons.map((b: any, bi: number) => (
+                      <div
+                        key={bi}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          padding: '6px 10px',
+                          backgroundColor: '#FFFFFF',
+                          border: '1px solid #CBD5E1',
+                          borderRadius: '6px',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          color: '#0E7490'
+                        }}
+                      >
+                        {b.type === 'PHONE_NUMBER' ? <Phone size={11} /> : <ExternalLink size={11} />}
+                        <span>{b.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

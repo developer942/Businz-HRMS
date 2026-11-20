@@ -293,7 +293,19 @@ export class CrmController {
   async sendTemplateMessage(req: Request, res: Response): Promise<void> {
     try {
       const companyId = req.user?.company_id || 'company-a';
-      const { contactId, recipientPhone, recipientName, templateName, language, components, category, bodyParameters } = req.body;
+      const {
+        contactId,
+        recipientPhone,
+        recipientName,
+        templateName,
+        language,
+        components,
+        category,
+        bodyParameters,
+        headerParameters,
+        headerUrl,
+        headerType
+      } = req.body;
       const agentEmployeeId = req.user?.employeeId || req.user?.id || 'AGENT-DEFAULT';
 
       let targetContactId = contactId;
@@ -316,19 +328,34 @@ export class CrmController {
         return;
       }
 
-      // Build components from bodyParameters if provided and components is empty
-      const finalComponents = (components && components.length > 0)
-        ? components
-        : (bodyParameters && Array.isArray(bodyParameters) && bodyParameters.length > 0)
-          ? [{ type: 'body', parameters: bodyParameters.map((p: any) => ({ type: 'text', text: String(p) })) }]
-          : [];
+      // If components provided directly, preserve them
+      let initialComponents = Array.isArray(components) && components.length > 0 ? [...components] : [];
+
+      // If headerParameters provided and no header component in initialComponents
+      if (headerParameters && Array.isArray(headerParameters) && headerParameters.length > 0 && !initialComponents.some((c: any) => String(c?.type || '').toLowerCase() === 'header')) {
+        initialComponents.unshift({
+          type: 'header',
+          parameters: headerParameters
+        });
+      }
+
+      // If bodyParameters provided and no body component in initialComponents
+      if (bodyParameters && Array.isArray(bodyParameters) && bodyParameters.length > 0 && !initialComponents.some((c: any) => String(c?.type || '').toLowerCase() === 'body')) {
+        initialComponents.push({
+          type: 'body',
+          parameters: bodyParameters.map((p: any) => ({ type: 'text', text: String(p) }))
+        });
+      }
 
       const msg = await crmMessageSender.sendTemplateMessage({
         contactId: targetContactId,
         templateName,
-        language: language || 'en',
-        components: finalComponents,
+        language: language || undefined,
+        components: initialComponents,
         category: category || 'UTILITY',
+        headerUrl,
+        headerType,
+        bodyParameters: Array.isArray(bodyParameters) ? bodyParameters : undefined,
         agentEmployeeId,
         companyId
       });

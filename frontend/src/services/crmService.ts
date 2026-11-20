@@ -210,6 +210,9 @@ export const crmService = {
     language?: string;
     languageCode?: string;
     bodyParameters?: string[];
+    headerParameters?: any[];
+    headerUrl?: string;
+    headerType?: string;
     components?: any[];
     category?: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
   }): Promise<CrmMessage> {
