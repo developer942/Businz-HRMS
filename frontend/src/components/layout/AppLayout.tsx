@@ -64,24 +64,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
         (window as any).__switchRole = (role: string) => switchRole(role as any);
     }, [setActiveModule, switchRole]);
 
-    // Idle background preloading of frequently accessed modules to eliminate loading delays
-    useEffect(() => {
-        const idleCallback = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 1500));
-        const handle = idleCallback(() => {
-            void import('../employees/EmployeeList');
-            void import('../leave/LeaveManagement');
-            void import('../attendance/AttendanceReportsView');
-            void import('../petty-cash/PettyCashManagement');
-            void import('../finance/ExpenseManagement');
-            void import('../field-allowance/FieldAllowanceModule');
-            void import('../payroll/PayrollManagement');
-        });
-        return () => {
-            if ((window as any).cancelIdleCallback) {
-                (window as any).cancelIdleCallback(handle);
-            }
-        };
-    }, []);
+    // Modules load lazily on demand (via lazyWithRetry) so initial startup never
+    // competes with Dashboard API calls for mobile bandwidth or CPU.
 
     // Monitor viewport resize for responsive mobile detection
     useEffect(() => {
@@ -229,7 +213,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
                     }}
                 />
 
-                <main className="hrms-content">
+                <main className={`hrms-content ${activeModule === 'whatsapp_crm' ? 'hrms-content-app-view' : ''}`}>
                     <ErrorBoundary fallbackTitle={`Error loading ${activeModule}`} onReset={() => setActiveModule('dashboard')}>
                         <Suspense fallback={<ModuleLoadingFallback />}>
                             {renderModuleView()}

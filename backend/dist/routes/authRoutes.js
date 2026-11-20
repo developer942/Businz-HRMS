@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { changePassword, forgotPassword, getOtpAuthConfig, login, me, requestEmailOtpLogin, requestMobileOtpLogin, resetPassword, verifyEmailOtpLogin, verifyMobileOtpLogin, verifyResetOtp, } from '../controllers/authController.js';
+import { changePassword, forgotPassword, getOtpAuthConfig, login, logout, me, refreshSession, requestEmailOtpLogin, requestMobileOtpLogin, resetPassword, verifyEmailOtpLogin, verifyMobileOtpLogin, verifyResetOtp, } from '../controllers/authController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { authRateLimiter } from '../middleware/rateLimiter.js';
 export const authRouter = Router();
 authRouter.post('/login', authRateLimiter, login);
+authRouter.post('/refresh', refreshSession);
+authRouter.post('/logout', logout);
 authRouter.get('/me', authenticateToken, me);
 authRouter.post('/change-password', authenticateToken, changePassword);
 // Public OTP Capability Status (exposes no credentials)

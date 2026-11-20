@@ -23,13 +23,14 @@ import { supabaseDirect } from '../../services/supabaseDirectService';
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
+  sessionNotice?: string | null;
 }
 
 type AuthMode = 'PASSWORD' | 'OTP';
 type OtpChannel = 'EMAIL' | 'MOBILE';
 type OtpFlowStep = 'ENTER_DESTINATION' | 'VERIFY_CODE';
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionNotice }) => {
   const { switchRole, updateCurrentUser, employees, setActiveModule, resetToDashboard } = useHRMS();
 
   const [authMode, setAuthMode] = useState<AuthMode>('PASSWORD');
@@ -663,6 +664,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             >
               <CheckCircle2 size={18} color="#16A34A" style={{ flexShrink: 0 }} />
               <span>{resetSuccessMessage}</span>
+            </div>
+          )}
+
+          {sessionNotice && !loginError && !resetSuccessMessage && (
+            <div
+              role="status"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '12px 14px',
+                borderRadius: '12px',
+                backgroundColor: '#FEF3C7',
+                border: '1px solid #FDE68A',
+                color: '#92400E',
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                marginBottom: '18px',
+              }}
+            >
+              <AlertCircle size={18} color="#D97706" style={{ flexShrink: 0 }} />
+              <span>{sessionNotice}</span>
             </div>
           )}
 

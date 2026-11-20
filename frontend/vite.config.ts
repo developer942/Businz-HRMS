@@ -29,5 +29,22 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('\\react\\')) return 'vendor-react';
+          if (id.includes('lucide-react')) return 'vendor-icons';
+          if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('canvg')) return 'vendor-pdf';
+          if (id.includes('xlsx')) return 'vendor-xlsx';
+          if (id.includes('leaflet')) return 'vendor-map';
+          if (id.includes('tesseract')) return 'vendor-ocr';
+          if (id.includes('libphonenumber-js')) return 'vendor-phone';
+          if (id.includes('@radix-ui') || id.includes('radix-ui')) return 'vendor-radix';
+          return 'vendor-misc';
+        },
+      },
+    },
   },
 })

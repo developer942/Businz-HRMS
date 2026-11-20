@@ -56,6 +56,8 @@ const resolveApproverDisplay = (row: any): string | undefined => {
   return undefined;
 };
 
+const INLINE_BLOB_THRESHOLD = 2048;
+
 const mapExpense = (row: any) => ({
   id: row.id,
   employeeId: row.employee_code || row.employee_id,
@@ -66,6 +68,7 @@ const mapExpense = (row: any) => ({
   date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date),
   description: row.description || '',
   receiptUrl: row.receipt_url || '',
+  hasReceipt: row.has_receipt !== undefined ? Boolean(row.has_receipt) : Boolean(row.receipt_url),
   status: row.status,
   approvedBy: resolveApproverDisplay(row),
   approvedAt: row.approved_at
@@ -78,11 +81,17 @@ const mapExpense = (row: any) => ({
   paymentMode: row.payment_mode || undefined,
   transactionRef: row.transaction_ref || undefined,
   paymentProofPath: row.payment_proof_path || undefined,
+  hasPaymentProof: row.has_payment_proof !== undefined ? Boolean(row.has_payment_proof) : Boolean(row.payment_proof_path),
   disbursementRemarks: row.disbursement_remarks || undefined,
 });
 
 export class ExpenseRepository {
-  async list(companyId: string, employeeId?: string, isAccountsStaff: boolean = false) {
+  async list(
+    companyId: string,
+    employeeId?: string,
+    isAccountsStaff: boolean = false,
+    options?: { includeInlineBlobs?: boolean }
+  ) {
     await ensureExpenseAuditSchema();
     const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
     if (!hasCompanyId && companyId !== 'company-a') {
@@ -103,8 +112,27 @@ export class ExpenseRepository {
       values.push(employeeId);
       conditions.push(`employee.employee_id = $${values.length}`);
     }
+    const includeBlobs = options?.includeInlineBlobs === true;
+    // Strip multi-MB base64 data URIs (>2KB) from list queries to keep payload <15KB instead of >5MB.
+    // Full receipt/proof images are fetched lazily via GET /api/v1/expenses/:id/receipt when viewed.
+    const receiptSelect = includeBlobs
+      ? `expense.receipt_url, (expense.receipt_url IS NOT NULL AND expense.receipt_url <> '') AS has_receipt`
+      : `CASE WHEN length(COALESCE(expense.receipt_url, '')) <= ${INLINE_BLOB_THRESHOLD} THEN expense.receipt_url ELSE '' END AS receipt_url,
+         (expense.receipt_url IS NOT NULL AND expense.receipt_url <> '') AS has_receipt`;
+    const proofSelect = includeBlobs
+      ? `expense.payment_proof_path, (expense.payment_proof_path IS NOT NULL AND expense.payment_proof_path <> '') AS has_payment_proof`
+      : `CASE WHEN length(COALESCE(expense.payment_proof_path, '')) <= ${INLINE_BLOB_THRESHOLD} THEN expense.payment_proof_path ELSE NULL END AS payment_proof_path,
+         (expense.payment_proof_path IS NOT NULL AND expense.payment_proof_path <> '') AS has_payment_proof`;
+
     const result = await query(
-      `SELECT expense.*, employee.employee_id AS employee_code, employee.first_name, employee.last_name,
+      `SELECT expense.id, expense.employee_id, expense.category, expense.amount, expense.date,
+              expense.description, expense.status, expense.approved_by, expense.approved_by_name,
+              expense.approved_by_role, expense.approved_at, expense.disbursed_amount,
+              expense.payment_mode, expense.transaction_ref, expense.disbursement_remarks,
+              expense.disbursed_by_name, expense.disbursed_at, expense.created_at, expense.updated_at,
+              ${receiptSelect},
+              ${proofSelect},
+              employee.employee_id AS employee_code, employee.first_name, employee.last_name,
               department.name AS department_name,
               approver_emp.first_name AS approver_first_name,
               approver_emp.last_name AS approver_last_name,
@@ -118,6 +146,38 @@ export class ExpenseRepository {
       values
     );
     return result.rows.map(mapExpense);
+  }
+
+  async getReceiptById(expenseId: string, companyId: string, employeeId?: string, isAccountsStaff: boolean = false) {
+    await ensureExpenseAuditSchema();
+    const hasCompanyId = await hasDatabaseColumn('employees', 'company_id');
+    const values: unknown[] = [expenseId];
+    const conditions: string[] = ['expense.id = $1'];
+    if (hasCompanyId) {
+      values.push(companyId);
+      conditions.push(`employee.company_id = $${values.length}`);
+    }
+    if (employeeId && isAccountsStaff) {
+      values.push(employeeId);
+      conditions.push(`(employee.employee_id = $${values.length} OR expense.status IN ('Approved', 'Reimbursed'))`);
+    } else if (employeeId) {
+      values.push(employeeId);
+      conditions.push(`employee.employee_id = $${values.length}`);
+    }
+    const result = await query(
+      `SELECT expense.id, expense.receipt_url, expense.payment_proof_path
+       FROM expenses expense
+       JOIN employees employee ON employee.id = expense.employee_id
+       WHERE ${conditions.join(' AND ')}
+       LIMIT 1`,
+      values
+    );
+    if (!result.rows.length) return null;
+    return {
+      id: result.rows[0].id,
+      receiptUrl: result.rows[0].receipt_url || '',
+      paymentProofPath: result.rows[0].payment_proof_path || '',
+    };
   }
 
   async create(companyId: string, input: CreateExpenseData) {

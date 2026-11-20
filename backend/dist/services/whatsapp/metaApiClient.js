@@ -161,9 +161,103 @@ export class MetaApiClient {
         }
     }
     /**
+     * Uploads a media file (Image, Video, Document) to Meta's Resumable Upload API
+     * to obtain a valid `header_handle` (h) for message template creation.
+     *
+     * Official Meta Resumable Upload Protocol:
+     * 1. POST /app/uploads?file_length={len}&file_type={mime} -> { id: "upload:..." }
+     * 2. POST /{upload_session_id} with binary buffer -> { h: "4::..." }
+     */
+    async uploadMediaHandle(mediaSource, mimeType = 'image/png', companyId = 'company-a') {
+        const config = await this.getConfig(companyId);
+        if (!config || !config.accessToken) {
+            return { success: false, error: 'Meta WhatsApp Access Token not configured.' };
+        }
+        try {
+            let fileBuffer;
+            let detectedMime = mimeType;
+            if (Buffer.isBuffer(mediaSource)) {
+                fileBuffer = mediaSource;
+            }
+            else if (typeof mediaSource === 'string') {
+                const trimmed = mediaSource.trim();
+                // If it's already a valid Meta handle format (e.g. "4::..."), reuse directly
+                if (trimmed.startsWith('4::') || (trimmed.startsWith('upload:') && !trimmed.startsWith('data:'))) {
+                    return { success: true, handle: trimmed };
+                }
+                // Data URL format: data:<mime>;base64,<data>
+                if (trimmed.startsWith('data:')) {
+                    const match = trimmed.match(/^data:([^;]+);base64,(.+)$/s);
+                    if (!match) {
+                        return { success: false, error: 'Invalid data URL format for header media.' };
+                    }
+                    detectedMime = match[1];
+                    fileBuffer = Buffer.from(match[2], 'base64');
+                }
+                else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                    // Public URL: fetch binary content
+                    const fetchRes = await fetch(trimmed);
+                    if (!fetchRes.ok) {
+                        return { success: false, error: `Failed to fetch media from URL (${fetchRes.status}): ${trimmed}` };
+                    }
+                    detectedMime = fetchRes.headers.get('content-type') || mimeType;
+                    const arrayBuf = await fetchRes.arrayBuffer();
+                    fileBuffer = Buffer.from(arrayBuf);
+                }
+                else {
+                    // Assume raw base64 string
+                    fileBuffer = Buffer.from(trimmed, 'base64');
+                }
+            }
+            else {
+                return { success: false, error: 'Unsupported media source format.' };
+            }
+            if (!fileBuffer || fileBuffer.length === 0) {
+                return { success: false, error: 'Media file is empty (0 bytes).' };
+            }
+            // Step 1: Initiate upload session
+            const initUrl = `${this.baseUrl}/app/uploads?file_length=${fileBuffer.length}&file_type=${encodeURIComponent(detectedMime)}`;
+            const initRes = await fetch(initUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.accessToken}`
+                }
+            });
+            const initData = await initRes.json();
+            if (!initRes.ok || !initData?.id) {
+                const errMsg = initData?.error?.error_user_msg || initData?.error?.message || `Initiate upload session failed (HTTP ${initRes.status})`;
+                return { success: false, error: `Meta Media Upload Error: ${errMsg}` };
+            }
+            const uploadSessionId = initData.id;
+            // Step 2: Upload binary data chunk
+            const uploadUrl = `${this.baseUrl}/${uploadSessionId}`;
+            const uploadRes = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `OAuth ${config.accessToken}`,
+                    'file_offset': '0',
+                    'Content-Type': 'application/octet-stream'
+                },
+                body: new Uint8Array(fileBuffer)
+            });
+            const uploadData = await uploadRes.json();
+            if (!uploadRes.ok || !uploadData?.h) {
+                const errMsg = uploadData?.error?.error_user_msg || uploadData?.error?.message || `Upload binary chunk failed (HTTP ${uploadRes.status})`;
+                return { success: false, error: `Meta Media Handle Error: ${errMsg}` };
+            }
+            return { success: true, handle: String(uploadData.h) };
+        }
+        catch (err) {
+            return {
+                success: false,
+                error: `Meta Media Upload Exception: ${err.message || 'Unknown network error'}`
+            };
+        }
+    }
+    /**
      * Builds official Meta components array from structured template fields
      */
-    buildMetaComponents(template) {
+    async buildMetaComponents(template, companyId = 'company-a') {
         const components = [];
         // 1. Header
         if (template.headerType && template.headerType !== 'NONE') {
@@ -185,15 +279,28 @@ export class MetaApiClient {
                     format
                 };
                 if (template.headerExample && template.headerExample.length > 0) {
-                    headerComp.example = { header_handle: template.headerExample };
+                    const rawItem = template.headerExample[0];
+                    if (rawItem) {
+                        let defaultMime = 'image/png';
+                        if (format === 'VIDEO')
+                            defaultMime = 'video/mp4';
+                        if (format === 'DOCUMENT')
+                            defaultMime = 'application/pdf';
+                        const uploadRes = await this.uploadMediaHandle(rawItem, defaultMime, companyId);
+                        if (!uploadRes.success || !uploadRes.handle) {
+                            throw new Error(uploadRes.error || `Failed to generate official Meta header handle for ${format.toLowerCase()}.`);
+                        }
+                        headerComp.example = { header_handle: [uploadRes.handle] };
+                    }
                 }
                 components.push(headerComp);
             }
         }
         // 2. Body
+        const cleanBody = (template.bodyText || '').trim();
         const bodyComp = {
             type: 'BODY',
-            text: template.bodyText
+            text: cleanBody
         };
         if (template.bodyExampleValues && template.bodyExampleValues.length > 0) {
             bodyComp.example = { body_text: [template.bodyExampleValues] };
@@ -203,23 +310,38 @@ export class MetaApiClient {
         if (template.footerText && template.footerText.trim()) {
             components.push({
                 type: 'FOOTER',
-                text: template.footerText.trim()
+                text: template.footerText.trim().slice(0, 60)
             });
         }
         // 4. Buttons
         if (template.buttons && template.buttons.length > 0) {
-            const btns = template.buttons.map((b) => {
+            const btns = template.buttons.slice(0, 3).map((b) => {
                 if (b.type === 'QUICK_REPLY') {
-                    return { type: 'QUICK_REPLY', text: b.text };
+                    return { type: 'QUICK_REPLY', text: (b.text || 'Quick Reply').slice(0, 25) };
                 }
                 else if (b.type === 'URL') {
-                    const btn = { type: 'URL', text: b.text, url: b.url };
+                    const btn = {
+                        type: 'URL',
+                        text: (b.text || 'Visit Website').slice(0, 25),
+                        url: (b.url || '').trim()
+                    };
                     if (b.example)
                         btn.example = [b.example];
                     return btn;
                 }
                 else if (b.type === 'PHONE_NUMBER') {
-                    return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phoneNumber || b.phone_number };
+                    const rawPhone = b.phoneNumber || b.phone_number || '';
+                    const digits = rawPhone.replace(/\D/g, '');
+                    const e164 = digits.startsWith('91') && digits.length === 12
+                        ? `+${digits}`
+                        : digits.length === 10
+                            ? `+91${digits}`
+                            : digits.startsWith('+') ? digits : `+${digits}`;
+                    return {
+                        type: 'PHONE_NUMBER',
+                        text: (b.text || 'Call Support').slice(0, 25),
+                        phone_number: e164
+                    };
                 }
                 return b;
             });
@@ -242,17 +364,17 @@ export class MetaApiClient {
         if (!config.accessToken) {
             return { success: false, error: 'Meta WhatsApp Access Token not configured.' };
         }
-        const components = template.components && template.components.length > 0
-            ? template.components
-            : this.buildMetaComponents(template);
-        const payload = {
-            name: template.name.toLowerCase().trim(),
-            category: template.category.toUpperCase(),
-            language: template.language,
-            components
-        };
-        const url = `${this.baseUrl}/${config.wabaId}/message_templates`;
         try {
+            const components = template.components && template.components.length > 0
+                ? template.components
+                : await this.buildMetaComponents(template, companyId);
+            const payload = {
+                name: template.name.toLowerCase().trim(),
+                category: template.category.toUpperCase(),
+                language: template.language,
+                components
+            };
+            const url = `${this.baseUrl}/${config.wabaId}/message_templates`;
             const res = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -263,8 +385,21 @@ export class MetaApiClient {
             });
             const data = await res.json();
             if (!res.ok) {
-                const errorMsg = data?.error?.error_user_msg || data?.error?.message || `Meta API Error (${res.status})`;
-                return { success: false, error: errorMsg };
+                const errObj = data?.error || {};
+                const errCode = errObj.code;
+                const errSubcode = errObj.error_subcode;
+                const errUserTitle = errObj.error_user_title;
+                const errUserMsg = errObj.error_user_msg;
+                const errMsg = errObj.message || `Meta API Error (${res.status})`;
+                const details = [
+                    errUserTitle ? `${errUserTitle}: ` : '',
+                    errUserMsg || errMsg,
+                    errCode ? ` (Meta Error #${errCode}${errSubcode ? ` / Subcode #${errSubcode}` : ''})` : ''
+                ].filter(Boolean).join('');
+                return {
+                    success: false,
+                    error: details || `Meta API Error (${res.status})`
+                };
             }
             return {
                 success: true,
@@ -318,7 +453,7 @@ export class MetaApiClient {
         if (!config || !config.wabaId) {
             return { success: false, error: 'WhatsApp WABA ID not configured' };
         }
-        const url = `${this.baseUrl}/${config.wabaId}/message_templates?fields=name,status,category,language,components,quality_score,rejected_reason&limit=100`;
+        const url = `${this.baseUrl}/${config.wabaId}/message_templates?fields=id,name,status,category,language,components,quality_score,rejected_reason&limit=100`;
         try {
             const res = await fetch(url, {
                 method: 'GET',

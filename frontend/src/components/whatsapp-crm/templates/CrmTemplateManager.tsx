@@ -18,7 +18,9 @@ import {
   ExternalLink,
   ShieldAlert,
   Phone,
-  X
+  X,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type { CrmTemplate, CrmTemplateStatus } from '../../../types/crm';
@@ -31,6 +33,8 @@ export const CrmTemplateManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [submittingCardId, setSubmittingCardId] = useState<string | null>(null);
+  const [actionAlert, setActionAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Modal State
   const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
@@ -58,12 +62,19 @@ export const CrmTemplateManager: React.FC = () => {
 
   const handleSyncMeta = async () => {
     setSyncing(true);
+    setActionAlert(null);
     try {
       const updated = await crmService.syncMetaTemplates();
       setTemplates(updated);
-      alert(`Synchronized ${updated.length} templates with Meta Cloud API.`);
+      setActionAlert({
+        type: 'success',
+        message: `Successfully synchronized ${updated.length} templates with Meta Cloud API.`
+      });
     } catch (err: any) {
-      alert(`Sync Failed: ${err.message || 'Error connecting to Meta'}`);
+      setActionAlert({
+        type: 'error',
+        message: `Sync Failed: ${err.message || 'Error connecting to Meta'}`
+      });
     } finally {
       setSyncing(false);
     }
@@ -237,6 +248,30 @@ export const CrmTemplateManager: React.FC = () => {
         </div>
       </div>
 
+      {/* Action Notification Alert Banner */}
+      {actionAlert && (
+        <div
+          className={actionAlert.type === 'success' ? 'crm-editor-submission-success' : 'crm-editor-submission-error'}
+          style={{ margin: '14px 16px 0 16px' }}
+        >
+          {actionAlert.type === 'success' ? (
+            <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+          ) : (
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+          )}
+          <div style={{ flex: 1 }}>{actionAlert.message}</div>
+          <button
+            type="button"
+            onClick={() => setActionAlert(null)}
+            className="crm-search-clear"
+            style={{ margin: '-4px -4px 0 0' }}
+            aria-label="Dismiss alert"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Templates Content */}
       {loading ? (
         <div className="crm-empty-inline">Loading templates...</div>
@@ -318,23 +353,44 @@ export const CrmTemplateManager: React.FC = () => {
 
                 <div className="crm-template-card-actions">
                   <div className="crm-template-primary-actions">
-                    {tmpl.status === 'DRAFT' && (
+                    {(tmpl.status === 'DRAFT' || tmpl.status === 'REJECTED') && (
                       <button
                         type="button"
+                        disabled={submittingCardId === tmpl.id}
                         onClick={async () => {
-                          if (window.confirm(`Submit "${tmpl.name}" to Meta Cloud API for review?`)) {
+                          if (window.confirm(`Submit "${tmpl.name}" to Meta Cloud API for official review?`)) {
+                            setSubmittingCardId(tmpl.id);
+                            setActionAlert(null);
                             try {
                               await crmService.submitTemplateToMeta(tmpl.id);
-                              loadTemplates();
+                              await loadTemplates();
+                              setActionAlert({
+                                type: 'success',
+                                message: `Template "${tmpl.name}" submitted to Meta for review successfully!`
+                              });
                             } catch (err: any) {
-                              alert(`Submission Failed: ${err.message}`);
+                              setActionAlert({
+                                type: 'error',
+                                message: `Submission Failed for "${tmpl.name}": ${err.message}`
+                              });
+                            } finally {
+                              setSubmittingCardId(null);
                             }
                           }
                         }}
                         className="crm-btn-sm-primary"
                       >
-                        <Send size={12} />
-                        <span>Submit to Meta</span>
+                        {submittingCardId === tmpl.id ? (
+                          <>
+                            <span className="crm-spinner-sm" />
+                            <span>Submitting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send size={12} />
+                            <span>Submit to Meta</span>
+                          </>
+                        )}
                       </button>
                     )}
 

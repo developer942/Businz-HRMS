@@ -1,15 +1,13 @@
 import { API_BASE_URL } from '../config/api';
 import { Expense } from '../types/hrms';
+import { authService } from './authService';
 
-const getToken = () => localStorage.getItem('vrm_auth_token') || sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+const getToken = () => authService.getToken();
 
 export const createExpenseClaim = async (expense: Omit<Expense, 'id' | 'status'>): Promise<Expense> => {
-  const response = await fetch(`${API_BASE_URL}/expenses`, {
+  const response = await authService.authFetch(`${API_BASE_URL}/expenses`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       employeeId: expense.employeeId,
       category: expense.category,
@@ -29,9 +27,7 @@ export const createExpenseClaim = async (expense: Omit<Expense, 'id' | 'status'>
 export const fetchExpenseClaims = async (): Promise<Expense[]> => {
   const token = getToken();
   if (!token) throw new Error('Authentication is required to load expense claims.');
-  const response = await fetch(`${API_BASE_URL}/expenses`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await authService.authFetch(`${API_BASE_URL}/expenses`);
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.success || !Array.isArray(body.data)) {
     throw new Error(body?.error?.message || 'Expense claims could not be loaded.');
@@ -39,14 +35,30 @@ export const fetchExpenseClaims = async (): Promise<Expense[]> => {
   return body.data as Expense[];
 };
 
+const expenseReceiptCache = new Map<string, { receiptUrl: string; paymentProofPath: string }>();
+
+export const fetchExpenseReceipt = async (
+  expenseId: string
+): Promise<{ receiptUrl: string; paymentProofPath: string }> => {
+  const cached = expenseReceiptCache.get(expenseId);
+  if (cached) return cached;
+  const response = await authService.authFetch(`${API_BASE_URL}/expenses/${encodeURIComponent(expenseId)}/receipt`);
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success || !body.data) {
+    throw new Error(body?.error?.message || 'Expense receipt could not be loaded.');
+  }
+  const result = {
+    receiptUrl: body.data.receiptUrl || '',
+    paymentProofPath: body.data.paymentProofPath || '',
+  };
+  expenseReceiptCache.set(expenseId, result);
+  return result;
+};
+
 export const approveExpenseApi = async (id: string): Promise<Expense> => {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/approve`, {
+  const response = await authService.authFetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
   });
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.success) {
@@ -56,13 +68,9 @@ export const approveExpenseApi = async (id: string): Promise<Expense> => {
 };
 
 export const rejectExpenseApi = async (id: string, rejectionReason: string): Promise<Expense> => {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/reject`, {
+  const response = await authService.authFetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/reject`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rejectionReason }),
   });
   const body = await response.json().catch(() => null);
@@ -80,18 +88,15 @@ export const disburseExpenseApi = async (id: string, details: {
   paymentProofPath?: string;
   remarks?: string;
 }): Promise<Expense> => {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/disburse`, {
+  const response = await authService.authFetch(`${API_BASE_URL}/expenses/${encodeURIComponent(id)}/disburse`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(details),
   });
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.success) {
     throw new Error(body?.error?.message || 'Expense claim disbursement recording failed.');
   }
+  expenseReceiptCache.delete(id);
   return body.data as Expense;
 };

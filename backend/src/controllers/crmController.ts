@@ -536,14 +536,26 @@ export class CrmController {
       }
 
       // Check dynamic variables in body: {{1}}, {{2}}...
-      const variableMatches = template.bodyText.match(/\{\{(\d+)\}\}/g) || [];
-      const varCount = variableMatches.length;
+      const uniqueVars = Array.from(new Set(template.bodyText.match(/\{\{(\d+)\}\}/g) || []));
+      const varCount = uniqueVars.length;
       if (varCount > 0) {
         const sampleValues = template.bodyExampleValues || [];
-        if (sampleValues.length < varCount || sampleValues.some(v => !v || !v.trim())) {
+        if (sampleValues.length < varCount || sampleValues.some(v => !v || !String(v).trim())) {
           res.status(400).json({
             success: false,
             error: `Body text has ${varCount} dynamic variable(s). Meta requires a non-empty sample value for each variable (e.g. {{1}} -> John).`
+          });
+          return;
+        }
+      }
+
+      // Check media header sample requirement
+      if (template.headerType && template.headerType !== 'NONE' && template.headerType !== 'TEXT') {
+        const hasSample = Array.isArray(template.headerExample) && template.headerExample.length > 0 && Boolean(template.headerExample[0]);
+        if (!hasSample) {
+          res.status(400).json({
+            success: false,
+            error: `Meta requires a sample ${template.headerType.toLowerCase()} file for review verification before submitting.`
           });
           return;
         }

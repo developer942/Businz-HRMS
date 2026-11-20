@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import { env } from '../config/env.js';
 import { query } from '../config/database.js';
-import { BCRYPT_ROUNDS, isBcryptPasswordHash, scrubProfilePasswordFields } from '../repositories/authRepository.js';
+import { authRepository, BCRYPT_ROUNDS, isBcryptPasswordHash, scrubProfilePasswordFields } from '../repositories/authRepository.js';
 import { resolveOvernightAttendanceSession } from '../services/shiftAttendanceEngine.js';
 
 const ALLOWED_TABLES = new Set([
@@ -485,6 +485,10 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
       if (Array.isArray(data)) {
         data = data.filter((row) => isRowOwnedByCaller(row, callerEmpCode, callerUuid));
       }
+    }
+
+    if (method !== 'GET' && table === 'employees') {
+      authRepository.invalidateUserCache();
     }
 
     res.status(200).json({

@@ -10,6 +10,7 @@
 
 const CRITICAL_AUTH_KEYS = new Set([
   'vrm_auth_token',
+  'vrm_refresh_token',
   'vrm_hrms_token',
   'hrms_auth_token',
   'token',
@@ -17,6 +18,7 @@ const CRITICAL_AUTH_KEYS = new Set([
   'vrm_hrms_current_user',
   'vrm_active_role',
   'vrm_active_emp_id',
+  'vrm_active_module',
   'vrm_hrms_storage_mode',
 ]);
 

@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import { authRepository, isPrivilegedRole } from '../repositories/authRepository.js';
 import { auditRepository } from '../repositories/auditRepository.js';
 import { passwordResetRepository } from '../repositories/passwordResetRepository.js';
+import { REFRESH_COOKIE_NAME, refreshSessionRepository } from '../repositories/refreshSessionRepository.js';
+import { env } from '../config/env.js';
 import { sendPasswordResetOtpEmail, sendEmailLoginOtpEmail, sendPasswordChangedNotificationEmail, } from '../services/emailService.js';
 import { smsOtpService, normalizeMobileToE164 } from '../services/smsOtpService.js';
 import { changePasswordSchema, loginSchema, forgotPasswordSchema, verifyResetOtpSchema, resetPasswordSchema, emailOtpLoginRequestSchema, emailOtpLoginVerifySchema, mobileOtpLoginRequestSchema, mobileOtpLoginVerifySchema, } from '../validators/authValidators.js';
@@ -12,6 +14,64 @@ const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_OTP_ATTEMPTS = 5;
 const MAX_OTP_REQUESTS_PER_WINDOW = 3;
 const OTP_RATE_WINDOW_MINUTES = 15;
+function parseCookies(cookieHeader) {
+    const cookies = {};
+    if (!cookieHeader)
+        return cookies;
+    for (const part of cookieHeader.split(';')) {
+        const idx = part.indexOf('=');
+        if (idx <= 0)
+            continue;
+        const key = part.slice(0, idx).trim();
+        const val = part.slice(idx + 1).trim();
+        if (key) {
+            try {
+                cookies[key] = decodeURIComponent(val);
+            }
+            catch {
+                cookies[key] = val;
+            }
+        }
+    }
+    return cookies;
+}
+function getIncomingRefreshToken(req) {
+    const cookies = parseCookies(req.headers.cookie);
+    const fromCookie = cookies[REFRESH_COOKIE_NAME];
+    if (fromCookie && fromCookie.trim())
+        return fromCookie.trim();
+    const fromBody = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '';
+    return fromBody || null;
+}
+function setRefreshCookie(res, refreshToken, expiresAt) {
+    const isProd = env.NODE_ENV === 'production';
+    const maxAgeSeconds = Math.max(60, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+    const segments = [
+        `${REFRESH_COOKIE_NAME}=${encodeURIComponent(refreshToken)}`,
+        'Path=/api',
+        'HttpOnly',
+        'SameSite=Lax',
+        `Max-Age=${maxAgeSeconds}`,
+        `Expires=${expiresAt.toUTCString()}`,
+    ];
+    if (isProd)
+        segments.push('Secure');
+    res.setHeader('Set-Cookie', segments.join('; '));
+}
+function clearRefreshCookie(res) {
+    const isProd = env.NODE_ENV === 'production';
+    const segments = [
+        `${REFRESH_COOKIE_NAME}=`,
+        'Path=/api',
+        'HttpOnly',
+        'SameSite=Lax',
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    ];
+    if (isProd)
+        segments.push('Secure');
+    res.setHeader('Set-Cookie', segments.join('; '));
+}
 function buildSessionUserPayload(user) {
     return {
         id: user.id,
@@ -79,13 +139,22 @@ export const login = async (req, res, next) => {
             });
             return;
         }
-        // Record last login and generate token
+        // Record last login and generate access + rotating refresh token
         await authRepository.recordLoginSuccess(user);
         const token = authRepository.generateToken(user, 'password');
+        const refreshSession = await refreshSessionRepository.createSession({
+            userId: user.id,
+            employeeCode: user.employeeId || user.email,
+            authMethod: 'password',
+            userAgent: req.headers['user-agent'],
+            ipAddress: req.ip,
+        });
+        setRefreshCookie(res, refreshSession.refreshToken, refreshSession.expiresAt);
         res.status(200).json({
             success: true,
             data: {
                 accessToken: token,
+                refreshToken: refreshSession.refreshToken,
                 user: buildSessionUserPayload(user),
             },
         });
@@ -142,10 +211,18 @@ export const changePassword = async (req, res, next) => {
             }).catch(() => { });
         }
         const accessToken = authRepository.generateToken(updatedUser, 'password');
+        const refreshSession = await refreshSessionRepository.createSession({
+            userId: updatedUser.id,
+            employeeCode: updatedUser.employeeId || updatedUser.email,
+            authMethod: 'password',
+            userAgent: req.headers['user-agent'],
+            ipAddress: req.ip,
+        });
+        setRefreshCookie(res, refreshSession.refreshToken, refreshSession.expiresAt);
         res.status(200).json({
             success: true,
             message: 'Password updated successfully. You may now access the full dashboard.',
-            data: { accessToken },
+            data: { accessToken, refreshToken: refreshSession.refreshToken },
         });
     }
     catch (err) {
@@ -168,6 +245,128 @@ export const me = async (req, res, next) => {
         res.status(200).json({
             success: true,
             data: req.user,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+/**
+ * Rotates a valid refresh token (from HttpOnly cookie or request body) into a fresh
+ * short-lived access JWT while safely tolerating simultaneous multi-tab refresh races.
+ */
+export const refreshSession = async (req, res, next) => {
+    try {
+        const incomingToken = getIncomingRefreshToken(req);
+        if (!incomingToken) {
+            res.status(401).json({
+                success: false,
+                error: {
+                    code: 'REFRESH_TOKEN_MISSING',
+                    message: 'Your session has expired. Please sign in again.',
+                    details: [],
+                },
+            });
+            return;
+        }
+        let rotated;
+        try {
+            rotated = await refreshSessionRepository.rotateSession(incomingToken, {
+                userAgent: req.headers['user-agent'],
+                ipAddress: req.ip,
+            });
+        }
+        catch (dbErr) {
+            console.error('[authController.refreshSession] Transient DB error:', dbErr instanceof Error ? dbErr.message : dbErr);
+            res.status(503).json({
+                success: false,
+                error: {
+                    code: 'AUTH_SERVICE_TEMPORARILY_UNAVAILABLE',
+                    message: 'Unable to refresh session right now. Please retry shortly.',
+                    details: [],
+                },
+            });
+            return;
+        }
+        if (rotated.status !== 'ROTATED' && rotated.status !== 'GRACE_REUSED' || !rotated.session) {
+            clearRefreshCookie(res);
+            const code = rotated.status === 'EXPIRED'
+                ? 'REFRESH_TOKEN_EXPIRED'
+                : rotated.status === 'REPLAY_DETECTED'
+                    ? 'HRMS_TOKEN_REVOKED'
+                    : 'REFRESH_TOKEN_INVALID';
+            res.status(401).json({
+                success: false,
+                error: {
+                    code,
+                    message: 'Your session has expired or was signed out. Please sign in again.',
+                    details: [],
+                },
+            });
+            return;
+        }
+        let user;
+        try {
+            user = await authRepository.findByIdentifier(rotated.session.employeeCode);
+        }
+        catch (dbErr) {
+            console.error('[authController.refreshSession] Transient user lookup error:', dbErr instanceof Error ? dbErr.message : dbErr);
+            res.status(503).json({
+                success: false,
+                error: {
+                    code: 'AUTH_SERVICE_TEMPORARILY_UNAVAILABLE',
+                    message: 'Unable to verify account right now. Please retry shortly.',
+                    details: [],
+                },
+            });
+            return;
+        }
+        if (!user || !user.isActive || user.accountStatus === 'DEACTIVATED' || user.accountStatus === 'DISABLED') {
+            await refreshSessionRepository.revokeAllForUser(rotated.session.employeeCode);
+            clearRefreshCookie(res);
+            res.status(401).json({
+                success: false,
+                error: {
+                    code: 'ACCOUNT_DEACTIVATED',
+                    message: 'Your account is unavailable or has been deactivated. Please contact HR.',
+                    details: [],
+                },
+            });
+            return;
+        }
+        const accessToken = authRepository.generateToken(user, rotated.session.authMethod || 'password');
+        if (rotated.status === 'ROTATED' && rotated.newRefreshToken && rotated.newExpiresAt) {
+            setRefreshCookie(res, rotated.newRefreshToken, rotated.newExpiresAt);
+        }
+        res.status(200).json({
+            success: true,
+            data: {
+                accessToken,
+                ...(rotated.status === 'ROTATED' && rotated.newRefreshToken ? { refreshToken: rotated.newRefreshToken } : {}),
+                user: buildSessionUserPayload(user),
+            },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+/**
+ * Explicit user logout: revokes server-side refresh session family and clears HttpOnly cookie.
+ */
+export const logout = async (req, res, next) => {
+    try {
+        const incomingToken = getIncomingRefreshToken(req);
+        if (incomingToken) {
+            await refreshSessionRepository.revokeByRawToken(incomingToken);
+        }
+        if (req.user?.employeeId) {
+            await auditRepository.recordLog('LOGOUT', req.user.employeeId, req.user.email, { ip: req.ip }).catch(() => { });
+        }
+        clearRefreshCookie(res);
+        res.status(200).json({
+            success: true,
+            message: 'Signed out cleanly.',
         });
     }
     catch (err) {
@@ -668,10 +867,19 @@ export const verifyEmailOtpLogin = async (req, res, next) => {
             ip: req.ip,
         });
         const token = authRepository.generateToken(user, 'email_otp');
+        const refreshSession = await refreshSessionRepository.createSession({
+            userId: user.id,
+            employeeCode: user.employeeId || user.email,
+            authMethod: 'email_otp',
+            userAgent: req.headers['user-agent'],
+            ipAddress: req.ip,
+        });
+        setRefreshCookie(res, refreshSession.refreshToken, refreshSession.expiresAt);
         res.status(200).json({
             success: true,
             data: {
                 accessToken: token,
+                refreshToken: refreshSession.refreshToken,
                 user: buildSessionUserPayload(user),
             },
         });
@@ -970,10 +1178,19 @@ export const verifyMobileOtpLogin = async (req, res, next) => {
             ip: req.ip,
         });
         const token = authRepository.generateToken(user, 'mobile_otp');
+        const refreshSession = await refreshSessionRepository.createSession({
+            userId: user.id,
+            employeeCode: user.employeeId || user.email,
+            authMethod: 'mobile_otp',
+            userAgent: req.headers['user-agent'],
+            ipAddress: req.ip,
+        });
+        setRefreshCookie(res, refreshSession.refreshToken, refreshSession.expiresAt);
         res.status(200).json({
             success: true,
             data: {
                 accessToken: token,
+                refreshToken: refreshSession.refreshToken,
                 user: buildSessionUserPayload(user),
             },
         });

@@ -62,12 +62,12 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
   }
 
   try {
-    const currentAccount = await authRepository.findByIdentifier(verifiedUser.employeeId || verifiedUser.email);
+    const currentAccount = await authRepository.findByIdentifierCached(verifiedUser.employeeId || verifiedUser.email);
     if (currentAccount) {
       if (!currentAccount.isActive || currentAccount.accountStatus === 'DEACTIVATED' || currentAccount.accountStatus === 'DISABLED') {
         res.status(401).json({
           success: false,
-          error: { code: 'HRMS_TOKEN_INVALID', message: 'Your account is unavailable or has been deactivated. Please sign in again.', details: [] },
+          error: { code: 'ACCOUNT_DEACTIVATED', message: 'Your account is unavailable or has been deactivated. Please sign in again.', details: [] },
         });
         return;
       }
@@ -112,7 +112,16 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
     if (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
       // In isolated test runner without external live database, proceed with verified token claims
     } else {
-      next(error);
+      // Transient database/network outage MUST NOT trigger a 401 logout; return 503 so clients preserve session & retry
+      console.error('[authMiddleware] Transient account verification failure:', error instanceof Error ? error.message : error);
+      res.status(503).json({
+        success: false,
+        error: {
+          code: 'AUTH_SERVICE_TEMPORARILY_UNAVAILABLE',
+          message: 'Session verification is temporarily unavailable. Please retry in a moment.',
+          details: [],
+        },
+      });
       return;
     }
   }

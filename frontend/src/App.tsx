@@ -8,8 +8,9 @@ import { initGlobalKeyboardGuard } from './utils/keyboardUtils';
 import { PublicPolicyPages, resolvePublicPolicyRoute, PublicPolicyRoute } from './components/public/PublicPolicyPages';
 
 const AuthenticatedApp: React.FC = () => {
-  const { switchRole, updateCurrentUser, setActiveModule, resetToDashboard, syncAllWithCloud } = useHRMS();
+  const { updateCurrentUser, setActiveModule, resetToDashboard, syncAllWithCloud } = useHRMS();
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'anonymous'>('checking');
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
   useEffect(() => {
     // Install global keyboard protection across entire HRMS
@@ -21,34 +22,84 @@ const AuthenticatedApp: React.FC = () => {
     let active = true;
 
     const restoreSession = async () => {
-      if (!authService.getToken()) {
-        if (active) setAuthState('anonymous');
-        return;
-      }
-
+      const hasAnyLocalCredential = Boolean(authService.getToken() || authService.getRefreshToken());
+      // Even if localStorage was cleared by mobile browser, attempt silent HttpOnly cookie refresh
       try {
         const authUser = await authService.getCurrentUser();
         if (!active) return;
         const appUser = toAppUser(authUser);
         updateCurrentUser(appUser);
-        void syncAllWithCloud?.();
-        // Primary Rule: Software must ALWAYS start from dashboard
-        resetToDashboard?.();
-        setActiveModule('dashboard');
+        setSessionNotice(null);
+        // Preserve the user's current module across valid page refreshes instead of
+        // forcibly bouncing them back to Dashboard (fresh login still opens Dashboard).
+        let restoredModule = 'dashboard';
+        try {
+          const savedModule = window.sessionStorage?.getItem('vrm_active_module');
+          if (savedModule && savedModule.trim()) {
+            restoredModule = savedModule.trim();
+          }
+        } catch {}
+        setActiveModule(restoredModule as any);
         setAuthState('authenticated');
-      } catch {
-        if (active) setAuthState('anonymous');
+        void syncAllWithCloud?.();
+      } catch (err: any) {
+        if (!active) return;
+        // Only display an expiry banner if the user actually had a prior session that expired/revoked
+        const msg = err instanceof Error ? err.message : '';
+        if (hasAnyLocalCredential && msg && !/no active session/i.test(msg)) {
+          setSessionNotice(msg);
+        }
+        setAuthState('anonymous');
       }
     };
 
     void restoreSession();
-    return () => { active = false; };
+
+    // Synchronize auth state cleanly across multiple open tabs & handle genuine server revocations
+    const unsubscribe = authService.subscribeSessionChanges({
+      onSessionExpired: (message) => {
+        if (!active) return;
+        setSessionNotice(message || 'Your session has expired. Please sign in again.');
+        setAuthState('anonymous');
+      },
+      onLoggedOutInOtherTab: () => {
+        if (!active) return;
+        setSessionNotice('You were signed out in another tab.');
+        setAuthState('anonymous');
+      },
+      onSessionUpdated: () => {
+        if (!active) return;
+        setSessionNotice(null);
+      },
+    });
+
+    // Silently re-verify session after a temporary mobile/desktop network disconnection
+    const handleOnline = () => {
+      if (!active || !authService.getToken()) return;
+      void authService.getCurrentUser()
+        .then((u) => {
+          if (active && u?.email) {
+            updateCurrentUser(toAppUser(u));
+          }
+        })
+        .catch(() => {
+          // Non-fatal; definitive revocations emit hrms:session-expired automatically
+        });
+    };
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      active = false;
+      unsubscribe();
+      window.removeEventListener('online', handleOnline);
+    };
   }, []); // Run only once on mount to restore initial session
 
   const logout = () => {
-    authService.clearSession();
+    void authService.logout();
     resetToDashboard?.();
     setActiveModule('dashboard');
+    setSessionNotice(null);
     updateCurrentUser({
       id: 'USR-001',
       name: 'Admin',
@@ -73,13 +124,17 @@ const AuthenticatedApp: React.FC = () => {
   return authState === 'authenticated' ? (
     <AppLayout onLogout={logout} />
   ) : (
-    <LoginPage onLoginSuccess={() => {
-      // Primary Rule: Software must ALWAYS start from dashboard upon logging in and refresh authoritative DB state
-      void syncAllWithCloud?.();
-      resetToDashboard?.();
-      setActiveModule('dashboard');
-      setAuthState('authenticated');
-    }} />
+    <LoginPage
+      sessionNotice={sessionNotice}
+      onLoginSuccess={() => {
+        // Fresh login always starts from Dashboard and triggers a single authoritative sync
+        setSessionNotice(null);
+        resetToDashboard?.();
+        setActiveModule('dashboard');
+        setAuthState('authenticated');
+        void syncAllWithCloud?.();
+      }}
+    />
   );
 };
 

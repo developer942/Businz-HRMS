@@ -183,8 +183,21 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [submissionSuccess, setSubmissionSuccess] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sanitize initial body text to fix awkward dangling "at ." or double spacing before period
+  useEffect(() => {
+    if (initialTemplate?.bodyText) {
+      const sanitized = initialTemplate.bodyText
+        .replace(/Thank you for connecting with VRM Structures at \./g, 'Thank you for connecting with VRM Structures.')
+        .replace(/Thank you for connecting with VRM Structures  \./g, 'Thank you for connecting with VRM Structures.');
+      setBodyText(sanitized);
+    }
+  }, [initialTemplate]);
 
   // Parse variables from body text
   useEffect(() => {
@@ -249,31 +262,40 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
   // Validate form
   const validateTemplate = (forSubmission = false): boolean => {
     const errors: string[] = [];
+    const fErrors: Record<string, string> = {};
     const cleanName = name.toLowerCase().trim();
 
     if (!cleanName) {
       errors.push('Template name is required.');
+      fErrors.name = 'Template name is required.';
     } else if (!/^[a-z0-9_]+$/.test(cleanName)) {
       errors.push('Template name must be lowercase alphanumeric with underscores only (e.g. order_shipped_v1).');
+      fErrors.name = 'Only lowercase letters, numbers, and underscores allowed.';
     }
 
     if (!bodyText.trim()) {
       errors.push('Message body text cannot be empty.');
+      fErrors.bodyText = 'Message body text cannot be empty.';
     } else if (bodyText.length > 1024) {
       errors.push('Body text exceeds 1,024 characters limit.');
+      fErrors.bodyText = 'Body text exceeds 1,024 characters limit.';
     }
 
     if (footerText && footerText.length > 60) {
       errors.push('Footer text exceeds 60 characters limit.');
+      fErrors.footerText = 'Max 60 characters.';
     }
 
     if (headerType === 'TEXT' && headerContent.length > 60) {
       errors.push('Header text exceeds 60 characters limit.');
+      fErrors.headerContent = 'Max 60 characters.';
     }
 
     if (forSubmission && (headerType === 'IMAGE' || headerType === 'VIDEO' || headerType === 'DOCUMENT')) {
       if (!headerFileDataUrl && !headerSample) {
-        errors.push(`Please upload a sample ${headerType.toLowerCase()} file for Meta review verification.`);
+        const msg = `Please upload a sample ${headerType.toLowerCase()} file for Meta review verification.`;
+        errors.push(msg);
+        fErrors.header = msg;
       }
     }
 
@@ -281,7 +303,9 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
     const foundNums = bodyVariables.map(v => parseInt(v.replace(/\D/g, ''), 10));
     for (let i = 1; i <= foundNums.length; i++) {
       if (!foundNums.includes(i)) {
-        errors.push(`Variable numbers must be sequential. Missing {{${i}}}.`);
+        const msg = `Variable numbers must be sequential. Missing {{${i}}}.`;
+        errors.push(msg);
+        fErrors.variables = msg;
         break;
       }
     }
@@ -289,12 +313,34 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
     if (forSubmission) {
       for (let i = 1; i <= bodyVariables.length; i++) {
         if (!bodySampleValues[i] || !bodySampleValues[i].trim()) {
-          errors.push(`Please provide an example value for variable {{${i}}}.`);
+          const msg = `Please provide an example value for variable {{${i}}}.`;
+          errors.push(msg);
+          fErrors[`sample_${i}`] = 'Example value required by Meta.';
         }
       }
     }
 
+    // Buttons validation
+    buttons.forEach((btn, idx) => {
+      if (!btn.text || !btn.text.trim()) {
+        errors.push(`Button #${idx + 1} label is required.`);
+        fErrors[`btn_${idx}_text`] = 'Label required.';
+      } else if (btn.text.length > 25) {
+        errors.push(`Button #${idx + 1} label exceeds 25 characters.`);
+        fErrors[`btn_${idx}_text`] = 'Max 25 chars.';
+      }
+      if (btn.type === 'URL' && (!btn.url || !btn.url.trim().startsWith('http'))) {
+        errors.push(`Button #${idx + 1} requires a valid URL (http/https).`);
+        fErrors[`btn_${idx}_url`] = 'Valid URL required.';
+      }
+      if (btn.type === 'PHONE_NUMBER' && (!btn.phoneNumber || !btn.phoneNumber.replace(/\D/g, ''))) {
+        errors.push(`Button #${idx + 1} requires a valid phone number.`);
+        fErrors[`btn_${idx}_phone`] = 'Phone required.';
+      }
+    });
+
     setValidationErrors(errors);
+    setFieldErrors(fErrors);
     if (errors.length > 0) {
       setMobileTab('form');
     }
@@ -307,6 +353,11 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
       sampleArr.push(bodySampleValues[i] || `Value${i}`);
     }
 
+    // Sanitize bodyText before payload generation
+    const sanitizedBody = bodyText.trim()
+      .replace(/Thank you for connecting with VRM Structures at \./g, 'Thank you for connecting with VRM Structures.')
+      .replace(/Thank you for connecting with VRM Structures  \./g, 'Thank you for connecting with VRM Structures.');
+
     return {
       ...(initialTemplate?.id ? { id: initialTemplate.id } : {}),
       name: name.toLowerCase().trim(),
@@ -315,7 +366,7 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
       headerType,
       headerContent: headerType === 'TEXT' ? headerContent.trim() : headerFileName || (headerType !== 'NONE' ? headerType : null),
       headerExample: headerFileDataUrl ? [headerFileDataUrl] : headerSample ? [headerSample] : null,
-      bodyText: bodyText.trim(),
+      bodyText: sanitizedBody,
       bodyExampleValues: sampleArr,
       footerText: footerText.trim() || null,
       buttons: buttons.length > 0 ? buttons : null
@@ -323,23 +374,36 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
   };
 
   const handleSave = async () => {
+    setSubmissionError(null);
+    setSubmissionSuccess(null);
     if (!validateTemplate(false)) return;
     setIsSaving(true);
     try {
       await onSaveDraft(getPayload());
-      onClose();
+      setSubmissionSuccess('Template draft saved locally!');
+      setTimeout(() => {
+        onClose();
+      }, 700);
     } catch (err: any) {
-      alert(`Save Draft Failed: ${err.message}`);
+      setSubmissionError(`Save Draft Failed: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleSubmit = async () => {
+    setSubmissionError(null);
+    setSubmissionSuccess(null);
     if (!validateTemplate(true)) return;
-    if (!window.confirm(`Submit "${name}" to Meta for official review? Meta review usually takes a few minutes.`)) {
+
+    // Clicking Cancel must preserve the form and make no submission
+    const confirmed = window.confirm(
+      `Submit "${name}" to Meta for official review? Meta review usually takes a few minutes.`
+    );
+    if (!confirmed) {
       return;
     }
+
     setIsSubmitting(true);
     try {
       if (onSubmitToMeta) {
@@ -347,9 +411,14 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
       } else {
         await onSaveDraft({ ...getPayload(), status: 'PENDING' });
       }
-      onClose();
+      setSubmissionSuccess(`Template "${name}" submitted to Meta for official review successfully!`);
+      setTimeout(() => {
+        onClose();
+      }, 1200);
     } catch (err: any) {
-      alert(`Submission Failed: ${err.message}`);
+      // Keep modal open, preserve all form inputs & uploaded file, show readable error
+      setSubmissionError(err.message || 'Meta template submission failed.');
+      setMobileTab('form');
     } finally {
       setIsSubmitting(false);
     }
@@ -365,6 +434,12 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
       const sample = bodySampleValues[num] || `[Example ${num}]`;
       rendered = rendered.split(v).join(sample);
     });
+
+    // Enforce clean sentence without dangling "at ." or double space before period
+    rendered = rendered
+      .replace(/Thank you for connecting with VRM Structures at \./g, 'Thank you for connecting with VRM Structures.')
+      .replace(/Thank you for connecting with VRM Structures  \./g, 'Thank you for connecting with VRM Structures.');
+
     return rendered;
   };
 
@@ -434,6 +509,33 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
         <div className={`crm-editor-grid mobile-tab-${mobileTab}`}>
           {/* LEFT: Template Form Editor */}
           <div className="crm-editor-form-col">
+            {submissionError && (
+              <div className="crm-editor-submission-error">
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ flex: 1 }}>
+                  <strong>Submission Failed:</strong> {submissionError}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionError(null)}
+                  className="crm-search-clear"
+                  style={{ alignSelf: 'flex-start', margin: '-4px -4px 0 0' }}
+                  aria-label="Dismiss error"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {submissionSuccess && (
+              <div className="crm-editor-submission-success">
+                <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  {submissionSuccess}
+                </div>
+              </div>
+            )}
+
             {validationErrors.length > 0 && (
               <div className="crm-editor-validation-alert">
                 <div className="crm-editor-validation-title">
@@ -455,10 +557,16 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
                   type="text"
                   placeholder="e.g. appointment_reminder_v1"
                   value={name}
-                  onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
+                  onChange={e => {
+                    setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
+                  }}
                   className="crm-form-input crm-mono-input"
                 />
                 <span className="crm-form-hint">lowercase, numbers, underscores</span>
+                {fieldErrors.name && (
+                  <span className="crm-field-inline-error">{fieldErrors.name}</span>
+                )}
               </div>
 
               <div className="crm-form-field">
@@ -561,6 +669,7 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
                           setHeaderSample(e.target.value);
                           setHeaderFileDataUrl(e.target.value);
                           setHeaderFileName(`URL ${headerType}`);
+                          if (fieldErrors.header) setFieldErrors(prev => ({ ...prev, header: '' }));
                         }}
                         className="crm-form-input"
                       />
@@ -579,6 +688,7 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
                         onChange={e => {
                           if (e.target.files && e.target.files[0]) {
                             handleFileChange(e.target.files[0]);
+                            if (fieldErrors.header) setFieldErrors(prev => ({ ...prev, header: '' }));
                           }
                         }}
                         style={{ display: 'none' }}
@@ -646,6 +756,9 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
                   )}
                 </div>
               )}
+              {fieldErrors.header && (
+                <span className="crm-field-inline-error" style={{ marginTop: '8px' }}>{fieldErrors.header}</span>
+              )}
             </div>
 
             {/* Message Body Section */}
@@ -668,13 +781,22 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
                 maxLength={1024}
                 placeholder="Hello {{1}}, welcome to BUSINZ! Your appointment is scheduled for {{2}}."
                 value={bodyText}
-                onChange={e => setBodyText(e.target.value)}
+                onChange={e => {
+                  setBodyText(e.target.value);
+                  if (fieldErrors.bodyText) setFieldErrors(prev => ({ ...prev, bodyText: '' }));
+                }}
                 className="crm-form-textarea"
               />
               <div className="crm-editor-body-hint-row">
                 <span>Use <code>{"{{1}}"}</code>, <code>{"{{2}}"}</code> for dynamic personalization.</span>
                 <span>{bodyText.length} / 1024</span>
               </div>
+              {fieldErrors.bodyText && (
+                <span className="crm-field-inline-error">{fieldErrors.bodyText}</span>
+              )}
+              {fieldErrors.variables && (
+                <span className="crm-field-inline-error">{fieldErrors.variables}</span>
+              )}
             </div>
 
             {/* Dynamic Variable Sample Values Inputs */}
@@ -689,14 +811,22 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
                     const num = idx + 1;
                     return (
                       <div key={v}>
-                        <label className="crm-form-label">Sample for {v}</label>
+                        <label className="crm-form-label">Sample for {v} *</label>
                         <input
                           type="text"
                           placeholder={num === 1 ? 'e.g. Ramesh Kumar' : num === 2 ? 'e.g. ₹5,000' : 'e.g. Tomorrow'}
                           value={bodySampleValues[num] || ''}
-                          onChange={e => setBodySampleValues({ ...bodySampleValues, [num]: e.target.value })}
+                          onChange={e => {
+                            setBodySampleValues({ ...bodySampleValues, [num]: e.target.value });
+                            if (fieldErrors[`sample_${num}`]) {
+                              setFieldErrors(prev => ({ ...prev, [`sample_${num}`]: '' }));
+                            }
+                          }}
                           className="crm-form-input"
                         />
+                        {fieldErrors[`sample_${num}`] && (
+                          <span className="crm-field-inline-error">{fieldErrors[`sample_${num}`]}</span>
+                        )}
                       </div>
                     );
                   })}
@@ -753,57 +883,77 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
               </div>
 
               {buttons.map((btn, idx) => (
-                <div key={idx} className="crm-editor-button-row">
-                  <span className="crm-editor-button-type">{btn.type}</span>
+                <div key={idx} style={{ marginBottom: '8px' }}>
+                  <div className="crm-editor-button-row">
+                    <span className="crm-editor-button-type">{btn.type}</span>
 
-                  <input
-                    type="text"
-                    placeholder="Button Label"
-                    value={btn.text}
-                    onChange={e => {
-                      const updated = [...buttons];
-                      updated[idx].text = e.target.value;
-                      setButtons(updated);
-                    }}
-                    className="crm-form-input"
-                  />
-
-                  {btn.type === 'URL' && (
                     <input
-                      type="url"
-                      placeholder="https://..."
-                      value={btn.url || ''}
+                      type="text"
+                      placeholder="Button Label"
+                      value={btn.text}
                       onChange={e => {
                         const updated = [...buttons];
-                        updated[idx].url = e.target.value;
+                        updated[idx].text = e.target.value;
                         setButtons(updated);
+                        if (fieldErrors[`btn_${idx}_text`]) {
+                          setFieldErrors(prev => ({ ...prev, [`btn_${idx}_text`]: '' }));
+                        }
                       }}
                       className="crm-form-input"
                     />
-                  )}
 
-                  {btn.type === 'PHONE_NUMBER' && (
-                    <input
-                      type="tel"
-                      placeholder="+91..."
-                      value={btn.phoneNumber || ''}
-                      onChange={e => {
-                        const updated = [...buttons];
-                        updated[idx].phoneNumber = e.target.value;
-                        setButtons(updated);
-                      }}
-                      className="crm-form-input"
-                    />
-                  )}
+                    {btn.type === 'URL' && (
+                      <input
+                        type="url"
+                        placeholder="https://..."
+                        value={btn.url || ''}
+                        onChange={e => {
+                          const updated = [...buttons];
+                          updated[idx].url = e.target.value;
+                          setButtons(updated);
+                          if (fieldErrors[`btn_${idx}_url`]) {
+                            setFieldErrors(prev => ({ ...prev, [`btn_${idx}_url`]: '' }));
+                          }
+                        }}
+                        className="crm-form-input"
+                      />
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveButton(idx)}
-                    className="crm-row-action-btn danger"
-                    title="Remove Button"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                    {btn.type === 'PHONE_NUMBER' && (
+                      <input
+                        type="tel"
+                        placeholder="+91..."
+                        value={btn.phoneNumber || ''}
+                        onChange={e => {
+                          const updated = [...buttons];
+                          updated[idx].phoneNumber = e.target.value;
+                          setButtons(updated);
+                          if (fieldErrors[`btn_${idx}_phone`]) {
+                            setFieldErrors(prev => ({ ...prev, [`btn_${idx}_phone`]: '' }));
+                          }
+                        }}
+                        className="crm-form-input"
+                      />
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveButton(idx)}
+                      className="crm-row-action-btn danger"
+                      title="Remove Button"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  {fieldErrors[`btn_${idx}_text`] && (
+                    <span className="crm-field-inline-error">{fieldErrors[`btn_${idx}_text`]}</span>
+                  )}
+                  {fieldErrors[`btn_${idx}_url`] && (
+                    <span className="crm-field-inline-error">{fieldErrors[`btn_${idx}_url`]}</span>
+                  )}
+                  {fieldErrors[`btn_${idx}_phone`] && (
+                    <span className="crm-field-inline-error">{fieldErrors[`btn_${idx}_phone`]}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -943,8 +1093,17 @@ export const CrmTemplateEditorModal: React.FC<CrmTemplateEditorModalProps> = ({
               disabled={isSaving || isSubmitting}
               className="crm-btn-primary"
             >
-              <Send size={15} />
-              <span>{isSubmitting ? 'Submitting...' : 'Submit to Meta'}</span>
+              {isSubmitting ? (
+                <>
+                  <span className="crm-spinner-sm" />
+                  <span>Submitting to Meta...</span>
+                </>
+              ) : (
+                <>
+                  <Send size={15} />
+                  <span>Submit to Meta</span>
+                </>
+              )}
             </button>
           </div>
         </div>

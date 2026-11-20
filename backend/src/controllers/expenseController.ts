@@ -37,12 +37,44 @@ export const listExpenses = async (req: Request, res: Response, next: NextFuncti
       res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Employee profile is required.', details: [{ field: 'employeeId', message: 'Employee profile is required.' }] } });
       return;
     }
+    const includeInlineBlobs = req.query.includeReceipts === 'true';
     const expenses = await expenseRepository.list(
+      req.user?.company_id || req.user?.companyId || 'company-a',
+      ownEmployeeId,
+      isAccounts,
+      { includeInlineBlobs }
+    );
+    res.json({ success: true, data: expenses });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getExpenseReceipt = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Expense ID is required.', details: [] } });
+      return;
+    }
+    const role = String(req.user?.role || '');
+    const isAccounts = Boolean(
+      role === 'Finance Manager' || role === 'Finance' || role === 'Accountant' ||
+      (req.user?.department && (req.user.department.toLowerCase().includes('accounts') || req.user.department.toLowerCase().includes('finance')))
+    );
+    const isEmployee = role === 'Employee' && !isAccounts;
+    const ownEmployeeId = (isEmployee || isAccounts) ? req.user?.employeeId : undefined;
+    const receipt = await expenseRepository.getReceiptById(
+      id,
       req.user?.company_id || req.user?.companyId || 'company-a',
       ownEmployeeId,
       isAccounts
     );
-    res.json({ success: true, data: expenses });
+    if (!receipt) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Expense receipt not found.', details: [] } });
+      return;
+    }
+    res.json({ success: true, data: receipt });
   } catch (error) {
     next(error);
   }

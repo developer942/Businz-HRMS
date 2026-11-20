@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../config/api';
-import Tesseract from 'tesseract.js';
+import { authService } from './authService';
 import { getStoredGeminiApiKey, getStoredGeminiOcrModel, cleanApiKey } from './geminiApiService';
 import type {
   CustomerContact,
@@ -14,23 +14,7 @@ import { validateExtractedCardData } from '../utils/cardValidator';
 const getApiBase = () => `${API_BASE_URL}`;
 
 const getAuthToken = (): string | null => {
-  let token = (
-    localStorage.getItem('vrm_auth_token') ||
-    sessionStorage.getItem('vrm_auth_token') ||
-    localStorage.getItem('token') ||
-    null
-  );
-  if (!token) {
-    const rawUser = localStorage.getItem('vrm_hrms_current_user');
-    if (rawUser) {
-      try {
-        const u = JSON.parse(rawUser);
-        const payload = btoa(unescape(encodeURIComponent(JSON.stringify(u))));
-        token = 'vrm_session_' + payload;
-      } catch {}
-    }
-  }
-  return token;
+  return authService.getToken() || localStorage.getItem('token') || null;
 };
 
 const getHeaders = (extra: Record<string, string> = {}) => {
@@ -526,6 +510,7 @@ SAFETY & ACCURACY RULES:
     try {
       console.log('[OCR Tier 3] Running client-side Tesseract.js on visiting card...');
       const cleanImg = imageBase64.startsWith('data:') ? imageBase64 : `data:${cleanMime};base64,${cleanBase64}`;
+      const { default: Tesseract } = await import('tesseract.js');
       const workerRes = await Tesseract.recognize(cleanImg, 'eng');
       const extractedText = workerRes.data?.text || '';
       console.log('[Tesseract OCR] Recognized text:\n', extractedText);

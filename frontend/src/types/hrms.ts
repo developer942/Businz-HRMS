@@ -479,6 +479,7 @@ export interface Expense {
   date: string;
   description: string;
   receiptUrl?: string;
+  hasReceipt?: boolean;
   status: 'Pending Manager' | 'Pending Finance' | 'Approved' | 'Rejected' | 'Reimbursed';
   approvedBy?: string;
   approvedAt?: string;
@@ -489,6 +490,7 @@ export interface Expense {
   paymentMode?: 'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque';
   transactionRef?: string;
   paymentProofUrl?: string;
+  hasPaymentProof?: boolean;
   paymentRemarks?: string;
   disbursedAmount?: number;
 }

@@ -4,24 +4,102 @@ import { API_BASE_URL } from '../config/api';
 
 const getApiBase = () => `${API_BASE_URL}`;
 const TOKEN_KEY = 'vrm_auth_token';
-let memoryToken: string | null = null;
+const REFRESH_TOKEN_KEY = 'vrm_refresh_token';
+const SESSION_EXPIRED_EVENT = 'hrms:session-expired';
+const SESSION_UPDATED_EVENT = 'hrms:session-updated';
+const PROACTIVE_REFRESH_BUFFER_MS = 5 * 60 * 1000; // Refresh if access token expires within 5 minutes
+const SESSION_REQUEST_TIMEOUT_MS = 8000;
 
+let memoryToken: string | null = null;
+let memoryRefreshToken: string | null = null;
+let refreshInFlightPromise: Promise<string | null> | null = null;
+
+/**
+ * Decodes a JWT payload safely using proper base64url padding and UTF-8 decoding.
+ * Fixes the root cause where unpadded base64url strings threw InvalidCharacterError
+ * in atob() on ~67% of tokens during network-fallback session restoration.
+ */
+export const decodeJwtPayload = (token: string | null | undefined): Record<string, any> | null => {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || !parts[1]) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad === 2) b64 += '==';
+    else if (pad === 3) b64 += '=';
+    else if (pad === 1) return null;
+
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const jsonStr =
+      typeof TextDecoder !== 'undefined'
+        ? new TextDecoder('utf-8').decode(bytes)
+        : decodeURIComponent(escape(binary));
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+};
+
+export const isJwtExpired = (token: string | null | undefined, bufferMs = 0): boolean => {
+  const payload = decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== 'number') return false;
+  return payload.exp * 1000 <= Date.now() + bufferMs;
+};
+
+/**
+ * Reads the canonical access token from localStorage FIRST (shared across all tabs),
+ * falling back to sessionStorage and in-memory state.
+ * Fixes the multi-tab race where a stale tab-local sessionStorage token overrode
+ * a freshly rotated/re-logged-in localStorage token and triggered a false 401 logout.
+ */
 const safeGetToken = (): string | null => {
   if (typeof window === 'undefined') return memoryToken;
   try {
-    const s = window.sessionStorage?.getItem(TOKEN_KEY);
-    if (s) return s;
+    const l = window.localStorage?.getItem(TOKEN_KEY);
+    if (l) {
+      memoryToken = l;
+      return l;
+    }
   } catch {}
   try {
-    const l = window.localStorage?.getItem(TOKEN_KEY);
-    if (l) return l;
+    const s = window.sessionStorage?.getItem(TOKEN_KEY);
+    if (s) {
+      memoryToken = s;
+      return s;
+    }
   } catch {}
   return memoryToken;
+};
+
+const safeGetRefreshToken = (): string | null => {
+  if (typeof window === 'undefined') return memoryRefreshToken;
+  try {
+    const l = window.localStorage?.getItem(REFRESH_TOKEN_KEY);
+    if (l) {
+      memoryRefreshToken = l;
+      return l;
+    }
+  } catch {}
+  try {
+    const s = window.sessionStorage?.getItem(REFRESH_TOKEN_KEY);
+    if (s) {
+      memoryRefreshToken = s;
+      return s;
+    }
+  } catch {}
+  return memoryRefreshToken;
 };
 
 const safeSetStorageItem = (key: string, value: string, alsoSession = false) => {
   if (key === TOKEN_KEY) {
     memoryToken = value;
+  } else if (key === REFRESH_TOKEN_KEY) {
+    memoryRefreshToken = value;
   }
   if (typeof window === 'undefined') return;
   if (alsoSession) {
@@ -35,7 +113,7 @@ const safeSetStorageItem = (key: string, value: string, alsoSession = false) => 
   } catch {
     // QuotaExceededError or SecurityError fallback: clear non-critical keys and retry
     try {
-      const keepKeys = new Set([TOKEN_KEY, 'vrm_hrms_current_user', 'vrm_active_role', 'vrm_active_emp_id']);
+      const keepKeys = new Set([TOKEN_KEY, REFRESH_TOKEN_KEY, 'vrm_hrms_current_user', 'vrm_active_role', 'vrm_active_emp_id', 'vrm_active_module']);
       const keysToDelete: string[] = [];
       for (let i = 0; i < window.localStorage.length; i++) {
         const k = window.localStorage.key(i);
@@ -54,6 +132,8 @@ const safeSetStorageItem = (key: string, value: string, alsoSession = false) => 
 const safeRemoveStorageItem = (key: string, alsoSession = false) => {
   if (key === TOKEN_KEY) {
     memoryToken = null;
+  } else if (key === REFRESH_TOKEN_KEY) {
+    memoryRefreshToken = null;
   }
   if (typeof window === 'undefined') return;
   if (alsoSession) {
@@ -64,6 +144,16 @@ const safeRemoveStorageItem = (key: string, alsoSession = false) => {
   try {
     window.localStorage?.removeItem(key);
   } catch {}
+};
+
+const emitSessionExpired = (message: string, code?: string) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { message, code } }));
+};
+
+const emitSessionUpdated = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(SESSION_UPDATED_EVENT));
 };
 
 export interface AuthUser {
@@ -233,95 +323,406 @@ export const authService = {
     return safeGetToken();
   },
 
-  clearSession: () => {
+  getRefreshToken: () => {
+    return safeGetRefreshToken();
+  },
+
+  clearSession: (reasonMessage?: string, reasonCode?: string) => {
     safeRemoveStorageItem(TOKEN_KEY, true);
+    safeRemoveStorageItem(REFRESH_TOKEN_KEY, true);
     safeRemoveStorageItem('vrm_active_role');
     safeRemoveStorageItem('vrm_active_emp_id');
     safeRemoveStorageItem('vrm_hrms_current_user');
     try {
       sessionStorage.removeItem('vrm_task_active_tab');
+      sessionStorage.removeItem('vrm_active_module');
     } catch {}
+    if (reasonMessage) {
+      emitSessionExpired(reasonMessage, reasonCode);
+    }
   },
 
-  async login(identifier: string, password: string): Promise<{ user: AuthUser; accessToken: string }> {
+  async logout(): Promise<void> {
+    const refreshToken = safeGetRefreshToken();
+    const token = safeGetToken();
+    try {
+      await fetch(`${getApiBase()}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+      });
+    } catch {
+      // Offline logout must still clear local credentials immediately
+    } finally {
+      this.clearSession();
+    }
+  },
+
+  /**
+   * Single-flight token refresh: concurrent 401s or multi-widget mounts share ONE
+   * in-flight /auth/refresh request, preventing refresh rotation races.
+   * Returns new accessToken on success, null if definitively revoked/expired,
+   * or throws on transient network/5xx errors (without clearing session!).
+   */
+  async refreshAccessToken(): Promise<string | null> {
+    if (refreshInFlightPromise) {
+      return refreshInFlightPromise;
+    }
+
+    refreshInFlightPromise = (async (): Promise<string | null> => {
+      const storedRefreshToken = safeGetRefreshToken();
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), SESSION_REQUEST_TIMEOUT_MS) : null;
+
+      try {
+        const response = await fetch(`${getApiBase()}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(storedRefreshToken ? { refreshToken: storedRefreshToken } : {}),
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+
+        if (response.status === 401) {
+          const body = (await response.json().catch(() => ({}))) as ApiResponse<unknown> & {
+            error?: { code?: string; message?: string };
+          };
+          const code = body?.error?.code || 'REFRESH_TOKEN_EXPIRED';
+          const msg = body?.error?.message || 'Your session has expired. Please sign in again.';
+          this.clearSession(msg, code);
+          return null;
+        }
+
+        if (!response.ok) {
+          // 500/502/503/504 or transient proxy error — DO NOT log out!
+          throw new Error(`Transient session refresh failure (HTTP ${response.status})`);
+        }
+
+        const body = (await response.json()) as ApiResponse<{
+          accessToken?: string;
+          refreshToken?: string;
+          user?: AuthUser;
+        }>;
+        if (!body.data?.accessToken) {
+          throw new Error('Refresh response missing accessToken');
+        }
+
+        safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+        if (body.data.refreshToken) {
+          safeSetStorageItem(REFRESH_TOKEN_KEY, body.data.refreshToken, true);
+        }
+        if (body.data.user?.email) {
+          safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+        }
+        emitSessionUpdated();
+        return body.data.accessToken;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    })();
+
+    try {
+      return await refreshInFlightPromise;
+    } finally {
+      refreshInFlightPromise = null;
+    }
+  },
+
+  /**
+   * Authenticated fetch wrapper with proactive refresh, single-flight 401 retry,
+   * and safe distinction between definitive auth revocation vs transient failures.
+   */
+  async authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    let token = this.getToken();
+
+    // Proactively refresh access token if expired or expiring within 5 minutes
+    if (token && isJwtExpired(token, PROACTIVE_REFRESH_BUFFER_MS)) {
+      try {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) token = refreshed;
+      } catch {
+        // Keep existing token if offline/transiently unreachable; let request proceed or fail cleanly
+      }
+    }
+
+    const buildHeaders = (bearer: string | null): Headers => {
+      const headers = new Headers(init.headers || {});
+      if (bearer && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${bearer}`);
+      } else if (bearer && headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${bearer}`);
+      }
+      return headers;
+    };
+
+    const response = await fetch(input, {
+      ...init,
+      credentials: init.credentials || 'include',
+      headers: buildHeaders(token),
+    });
+
+    if (response.status !== 401) {
+      return response;
+    }
+
+    // Inspect 401 error code without consuming the caller's response body
+    const cloned = response.clone();
+    const errBody = (await cloned.json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
+    const errCode = errBody?.error?.code || '';
+
+    if (errCode === 'HRMS_TOKEN_REVOKED' || errCode === 'ACCOUNT_DEACTIVATED') {
+      this.clearSession(
+        errBody?.error?.message || 'Your session is no longer active. Please sign in again.',
+        errCode
+      );
+      return response;
+    }
+
+    // Attempt single-flight refresh on expired/invalid access token and retry once
+    if (errCode === 'HRMS_TOKEN_EXPIRED' || errCode === 'HRMS_TOKEN_INVALID' || errCode === 'HRMS_UNAUTHENTICATED' || !errCode) {
+      try {
+        const freshToken = await this.refreshAccessToken();
+        if (freshToken) {
+          return await fetch(input, {
+            ...init,
+            credentials: init.credentials || 'include',
+            headers: buildHeaders(freshToken),
+          });
+        }
+      } catch {
+        // Transient network error during refresh: do NOT wipe session; return original response
+      }
+    }
+
+    return response;
+  },
+
+  subscribeSessionChanges(callbacks: {
+    onSessionExpired?: (message: string, code?: string) => void;
+    onSessionUpdated?: () => void;
+    onLoggedOutInOtherTab?: () => void;
+  }): () => void {
+    if (typeof window === 'undefined') return () => {};
+
+    const handleExpired = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ message?: string; code?: string }>).detail;
+      callbacks.onSessionExpired?.(
+        detail?.message || 'Your session has expired. Please sign in again.',
+        detail?.code
+      );
+    };
+
+    const handleUpdated = () => {
+      callbacks.onSessionUpdated?.();
+    };
+
+    const handleStorage = (ev: StorageEvent) => {
+      if (ev.key === TOKEN_KEY) {
+        if (!ev.newValue) {
+          memoryToken = null;
+          memoryRefreshToken = null;
+          try {
+            window.sessionStorage?.removeItem(TOKEN_KEY);
+            window.sessionStorage?.removeItem(REFRESH_TOKEN_KEY);
+          } catch {}
+          callbacks.onLoggedOutInOtherTab?.();
+        } else {
+          memoryToken = ev.newValue;
+          try {
+            window.sessionStorage?.setItem(TOKEN_KEY, ev.newValue);
+          } catch {}
+          callbacks.onSessionUpdated?.();
+        }
+      } else if (ev.key === REFRESH_TOKEN_KEY) {
+        memoryRefreshToken = ev.newValue;
+        try {
+          if (ev.newValue) window.sessionStorage?.setItem(REFRESH_TOKEN_KEY, ev.newValue);
+          else window.sessionStorage?.removeItem(REFRESH_TOKEN_KEY);
+        } catch {}
+      }
+    };
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    window.addEventListener(SESSION_UPDATED_EVENT, handleUpdated);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+      window.removeEventListener(SESSION_UPDATED_EVENT, handleUpdated);
+      window.removeEventListener('storage', handleStorage);
+    };
+  },
+
+  async login(identifier: string, password: string): Promise<{ user: AuthUser; accessToken: string; refreshToken?: string }> {
     const cleanId = identifier.trim().toLowerCase();
     const cleanPass = password.trim();
     const response = await safeFetch(`${getApiBase()}/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier: cleanId, password: cleanPass }),
     });
     if (!response.ok) throw new Error(await readError(response, 'Invalid User ID / Email or password.'));
-    const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
+    const body = (await response.json()) as ApiResponse<{ accessToken: string; refreshToken?: string; user: AuthUser }>;
     if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
     safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+    if (body.data.refreshToken) {
+      safeSetStorageItem(REFRESH_TOKEN_KEY, body.data.refreshToken, true);
+    }
     safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    emitSessionUpdated();
     return body.data;
   },
 
-  async getCurrentUser(): Promise<AuthUser> {
+  getCachedSessionUser(allowExpiredForOffline = false): AuthUser | null {
     const token = this.getToken();
-    if (!token) throw new Error('No active session');
-
-    const getFallbackSessionUser = (): AuthUser | null => {
+    const payload = decodeJwtPayload(token);
+    if (payload && !allowExpiredForOffline && typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) {
+      return null;
+    }
+    if (typeof window !== 'undefined') {
       try {
-        const parts = token.split('.');
-        if (parts.length === 3) {
-          const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
-          const payload = JSON.parse(payloadJson);
-          if (payload?.exp && payload.exp * 1000 < Date.now()) {
-            return null;
-          }
-          if (typeof window !== 'undefined') {
-            const cachedRaw = window.localStorage?.getItem('vrm_hrms_current_user');
-            if (cachedRaw) {
-              const cached = JSON.parse(cachedRaw);
-              if (cached?.email) return cached as AuthUser;
-            }
-          }
-          if (payload?.email) {
-            return {
-              id: payload.id || payload.employeeId || 'USR-001',
-              email: payload.email,
-              name: payload.name || 'Employee',
-              role: payload.role || 'Employee',
-              employeeId: payload.employeeId,
-              department: payload.department,
-              designation: payload.designation,
-              company_id: payload.company_id,
-              mustChangePassword: payload.mustChangePassword,
-            };
+        const cachedRaw = window.localStorage?.getItem('vrm_hrms_current_user');
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached?.email && (payload || allowExpiredForOffline)) {
+            return cached as AuthUser;
           }
         }
       } catch {}
-      return null;
-    };
+    }
+    if (payload?.email) {
+      return {
+        id: payload.id || payload.employeeId || 'USR-001',
+        email: payload.email,
+        name: payload.name || 'Employee',
+        role: payload.role || 'Employee',
+        employeeId: payload.employeeId,
+        department: payload.department,
+        designation: payload.designation,
+        company_id: payload.company_id,
+        mustChangePassword: payload.mustChangePassword,
+      };
+    }
+    return null;
+  },
+
+  async getCurrentUser(): Promise<AuthUser> {
+    let token = this.getToken();
+    const refreshToken = this.getRefreshToken();
+
+    // If access token is missing or expired/near-expiry, try refreshing first (supports HttpOnly cookie too)
+    if ((!token && refreshToken) || (token && isJwtExpired(token, PROACTIVE_REFRESH_BUFFER_MS))) {
+      try {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          token = refreshed;
+        } else if (!this.getToken()) {
+          throw new Error('Your session has expired. Please sign in again.');
+        }
+      } catch (refreshErr) {
+        // Transient network/server error while refreshing: fall back to cached user if available
+        const fallback = this.getCachedSessionUser(true);
+        if (fallback) return fallback;
+        throw refreshErr;
+      }
+    }
+
+    if (!token) {
+      // One last silent check in case HttpOnly cookie is present after browser cleared localStorage
+      try {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          token = refreshed;
+        }
+      } catch {
+        // Offline with no local token -> truly anonymous
+      }
+    }
+
+    if (!token) throw new Error('No active session');
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), SESSION_REQUEST_TIMEOUT_MS) : null;
 
     let response: Response;
     try {
       response = await safeFetch(`${getApiBase()}/auth/me`, {
+        credentials: 'include',
         headers: { Authorization: `Bearer ${token}` },
+        ...(controller ? { signal: controller.signal } : {}),
       });
     } catch (networkErr) {
-      const fallbackUser = getFallbackSessionUser();
+      // Temporary network outage / timeout MUST NOT log out a user with a valid session
+      const fallbackUser = this.getCachedSessionUser(true);
       if (fallbackUser) return fallbackUser;
       throw networkErr;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
+    // If /auth/me rejected with 401, attempt single-flight refresh before giving up
+    if (response.status === 401) {
+      const errBody = (await response.clone().json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
+      const errCode = errBody?.error?.code || '';
+      if (errCode === 'HRMS_TOKEN_REVOKED' || errCode === 'ACCOUNT_DEACTIVATED') {
+        const msg = errBody?.error?.message || 'Your session has ended. Please sign in again.';
+        this.clearSession(msg, errCode);
+        throw new Error(msg);
+      }
+
+      try {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          const retryRes = await safeFetch(`${getApiBase()}/auth/me`, {
+            credentials: 'include',
+            headers: { Authorization: `Bearer ${refreshed}` },
+          });
+          if (retryRes.ok) {
+            const retryBody = (await retryRes.json()) as ApiResponse<AuthUser>;
+            if (retryBody.data?.email) {
+              safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(retryBody.data)));
+              return retryBody.data;
+            }
+          }
+        }
+      } catch {
+        // Network/5xx during refresh: fall back gracefully without clearing session
+        const fallbackUser = this.getCachedSessionUser(true);
+        if (fallbackUser) return fallbackUser;
+      }
+
+      const msg = errBody?.error?.message || 'Your session has expired. Please sign in again.';
+      this.clearSession(msg, errCode || 'HRMS_TOKEN_EXPIRED');
+      throw new Error(msg);
+    }
+
+    if (response.status === 403) {
+      // Do NOT clearSession on 403 (e.g. PASSWORD_CHANGE_REQUIRED or role guard)
+      const errBody = (await response.clone().json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
+      const fallbackUser = this.getCachedSessionUser(false);
+      if (errBody?.error?.code === 'PASSWORD_CHANGE_REQUIRED' && fallbackUser) {
+        return { ...fallbackUser, mustChangePassword: true };
+      }
+      if (fallbackUser) return fallbackUser;
+      throw new Error(errBody?.error?.message || 'Access denied.');
     }
 
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        this.clearSession();
-        throw new Error(await readError(response, 'Your session has expired. Please sign in again.'));
-      }
-      const fallbackUser = getFallbackSessionUser();
+      // 500/502/503/504 backend restart / temporary outage -> preserve session!
+      const fallbackUser = this.getCachedSessionUser(true);
       if (fallbackUser) return fallbackUser;
       throw new Error(await readError(response, 'Unable to verify session at this moment.'));
     }
+
     const body = (await response.json()) as ApiResponse<AuthUser>;
     if (!body.data?.email) {
-      const fallbackUser = getFallbackSessionUser();
+      const fallbackUser = this.getCachedSessionUser(true);
       if (fallbackUser) return fallbackUser;
-      this.clearSession();
       throw new Error('Authentication response was incomplete.');
     }
     safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data)));
@@ -332,19 +733,20 @@ export const authService = {
     const token = this.getToken();
     if (!token) throw new Error('Your session has expired. Please sign in again.');
 
-    const response = await safeFetch(`${getApiBase()}/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
-      });
+    const response = await this.authFetch(`${getApiBase()}/auth/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+    });
     if (!response.ok) throw new Error(await readError(response, 'Password could not be changed.'));
-    const body = (await response.json()) as ApiResponse<{ accessToken?: string }>;
+    const body = (await response.json()) as ApiResponse<{ accessToken?: string; refreshToken?: string }>;
     if (body.data?.accessToken) {
       safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
     }
+    if (body.data?.refreshToken) {
+      safeSetStorageItem(REFRESH_TOKEN_KEY, body.data.refreshToken, true);
+    }
+    emitSessionUpdated();
   },
 
   /**
@@ -495,19 +897,24 @@ export const authService = {
   /**
    * Verifies the 6-digit Email OTP and creates an authenticated session.
    */
-  async verifyEmailOtpLogin(email: string, otp: string): Promise<{ user: AuthUser; accessToken: string }> {
+  async verifyEmailOtpLogin(email: string, otp: string): Promise<{ user: AuthUser; accessToken: string; refreshToken?: string }> {
     const cleanEmail = email.trim().toLowerCase();
     const cleanOtp = otp.trim();
     const response = await safeFetch(`${getApiBase()}/auth/otp-login/verify`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: cleanEmail, otp: cleanOtp }),
     });
     if (!response.ok) throw new Error(await readError(response, 'Invalid or expired verification code.'));
-    const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
+    const body = (await response.json()) as ApiResponse<{ accessToken: string; refreshToken?: string; user: AuthUser }>;
     if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
     safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+    if (body.data.refreshToken) {
+      safeSetStorageItem(REFRESH_TOKEN_KEY, body.data.refreshToken, true);
+    }
     safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    emitSessionUpdated();
     return body.data;
   },
 
@@ -546,17 +953,22 @@ export const authService = {
   /**
    * Verifies the 6-digit Mobile SMS OTP and creates an authenticated session.
    */
-  async verifyMobileOtpLogin(mobileNumber: string, otp: string): Promise<{ user: AuthUser; accessToken: string }> {
+  async verifyMobileOtpLogin(mobileNumber: string, otp: string): Promise<{ user: AuthUser; accessToken: string; refreshToken?: string }> {
     const response = await safeFetch(`${getApiBase()}/auth/mobile-otp/verify`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mobile_number: mobileNumber.trim(), otp: otp.trim() }),
     });
     if (!response.ok) throw new Error(await readError(response, 'Invalid or expired SMS verification code.'));
-    const body = (await response.json()) as ApiResponse<{ accessToken: string; user: AuthUser }>;
+    const body = (await response.json()) as ApiResponse<{ accessToken: string; refreshToken?: string; user: AuthUser }>;
     if (!body.data?.accessToken || !body.data.user) throw new Error('Authentication response was incomplete.');
     safeSetStorageItem(TOKEN_KEY, body.data.accessToken, true);
+    if (body.data.refreshToken) {
+      safeSetStorageItem(REFRESH_TOKEN_KEY, body.data.refreshToken, true);
+    }
     safeSetStorageItem('vrm_hrms_current_user', JSON.stringify(toAppUser(body.data.user)));
+    emitSessionUpdated();
     return body.data;
   },
 };

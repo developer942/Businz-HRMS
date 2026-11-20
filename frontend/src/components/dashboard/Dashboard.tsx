@@ -75,8 +75,26 @@ export const Dashboard: React.FC = () => {
     overtimePolicy,
     departmentOtPolicies = [],
     employeeOtPolicies = [],
-    payrollSettingsConfig
+    payrollSettingsConfig,
+    isInitialDataLoading
   } = useHRMS();
+
+  const isDashboardHydrating = Boolean(isInitialDataLoading && employees.length === 0 && attendanceRecords.length === 0);
+  const renderMetricSkeleton = (width = '56px', height = '1.2em') => (
+    <span
+      aria-busy="true"
+      aria-label="Loading"
+      style={{
+        display: 'inline-block',
+        width,
+        height,
+        borderRadius: '6px',
+        backgroundColor: '#E2E8F0',
+        verticalAlign: 'middle',
+        opacity: 0.75,
+      }}
+    />
+  );
 
   const isCEO = 
     currentUser.role === 'CEO' || 
@@ -822,7 +840,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                   <div className="mobile-kpi-metric-main">
                     <span className="mobile-kpi-value">
-                      {employeeAttendanceStats.workedDays} / {employeeAttendanceStats.scheduledWorkingDays}
+                      {isDashboardHydrating ? renderMetricSkeleton('64px') : `${employeeAttendanceStats.workedDays} / ${employeeAttendanceStats.scheduledWorkingDays}`}
                     </span>
                   </div>
                   <div className="mobile-kpi-badge-wrap">
@@ -868,7 +886,9 @@ export const Dashboard: React.FC = () => {
                     <span className="mobile-kpi-label">Leave Balance</span>
                   </div>
                   <div className="mobile-kpi-metric-main">
-                    <span className="mobile-kpi-value">{employeeAttendanceStats.remainingLeaves} Days</span>
+                    <span className="mobile-kpi-value">
+                      {isDashboardHydrating ? renderMetricSkeleton('58px') : `${employeeAttendanceStats.remainingLeaves} Days`}
+                    </span>
                   </div>
                   <div className="mobile-kpi-badge-wrap">
                     <span className="mobile-kpi-trend purple">{employeeAttendanceStats.adjLeave} Days Taken</span>
@@ -888,7 +908,9 @@ export const Dashboard: React.FC = () => {
                     <span className="mobile-kpi-label">Monthly OT</span>
                   </div>
                   <div className="mobile-kpi-metric-main">
-                    <span className="mobile-kpi-value">{employeeOtHours} hrs</span>
+                    <span className="mobile-kpi-value">
+                      {isDashboardHydrating ? renderMetricSkeleton('52px') : `${employeeOtHours} hrs`}
+                    </span>
                   </div>
                   <div className="mobile-kpi-badge-wrap">
                     <span className="mobile-kpi-trend green">{formatCurrency(employeeOtAmount)}</span>
@@ -1150,22 +1172,22 @@ export const Dashboard: React.FC = () => {
             <div className="ceo-mobile-metrics-grid">
               <div className="ceo-metric-card" onClick={() => setSelectedCategory('total')}>
                 <span className="ceo-metric-label">Total Staff</span>
-                <div className="ceo-metric-val">{totalStaff}</div>
-                <span className="ceo-metric-trend green">{activeDepartmentsCount} Depts</span>
+                <div className="ceo-metric-val">{isDashboardHydrating ? renderMetricSkeleton('40px') : totalStaff}</div>
+                <span className="ceo-metric-trend green">{isDashboardHydrating ? 'Loading…' : `${activeDepartmentsCount} Depts`}</span>
               </div>
               <div className="ceo-metric-card" onClick={() => setSelectedCategory('present')}>
                 <span className="ceo-metric-label">Present Today</span>
-                <div className="ceo-metric-val" style={{ color: '#059669' }}>{presentToday}</div>
-                <span className="ceo-metric-trend green">{presentRatePct}% On Duty</span>
+                <div className="ceo-metric-val" style={{ color: '#059669' }}>{isDashboardHydrating ? renderMetricSkeleton('40px') : presentToday}</div>
+                <span className="ceo-metric-trend green">{isDashboardHydrating ? 'Loading…' : `${presentRatePct}% On Duty`}</span>
               </div>
               <div className="ceo-metric-card" onClick={() => setSelectedCategory('absent')}>
                 <span className="ceo-metric-label">Absent Today</span>
-                <div className="ceo-metric-val" style={{ color: absentToday > 0 ? '#DC2626' : 'inherit' }}>{absentToday}</div>
-                <span className="ceo-metric-trend red">{absentRatePct}% Absent</span>
+                <div className="ceo-metric-val" style={{ color: absentToday > 0 ? '#DC2626' : 'inherit' }}>{isDashboardHydrating ? renderMetricSkeleton('40px') : absentToday}</div>
+                <span className="ceo-metric-trend red">{isDashboardHydrating ? 'Loading…' : `${absentRatePct}% Absent`}</span>
               </div>
               <div className="ceo-metric-card" onClick={() => setActiveModule('leaves')}>
                 <span className="ceo-metric-label">Leave Pending</span>
-                <div className="ceo-metric-val" style={{ color: pendingLeaves.length > 0 ? '#7C3AED' : 'inherit' }}>{pendingLeaves.length}</div>
+                <div className="ceo-metric-val" style={{ color: pendingLeaves.length > 0 ? '#7C3AED' : 'inherit' }}>{isDashboardHydrating ? renderMetricSkeleton('32px') : pendingLeaves.length}</div>
                 <span className="ceo-metric-trend purple">Pending</span>
               </div>
             </div>
@@ -1487,14 +1509,16 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" data-testid="desktop-today-status" style={{ color: '#059669' }}>
-                  {employeeAttendanceStats.todayStatus}
+                  {isDashboardHydrating ? renderMetricSkeleton('84px') : employeeAttendanceStats.todayStatus}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span className="kpi-trend-badge green" data-testid="desktop-checkin-time">
-                    In: {employeeAttendanceStats.checkInTime}
+                    {isDashboardHydrating ? 'Loading…' : `In: ${employeeAttendanceStats.checkInTime}`}
                   </span>
                   <span data-testid="desktop-checkout-time">
-                    {employeeAttendanceStats.checkOutTime !== '--:--'
+                    {isDashboardHydrating
+                      ? ''
+                      : employeeAttendanceStats.checkOutTime !== '--:--'
                       ? `Out: ${employeeAttendanceStats.checkOutTime}`
                       : employeeAttendanceStats.checkInTime !== '--:--'
                       ? 'Face Verified'
@@ -1517,10 +1541,14 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: '#0E7490' }}>
-                  {employeeOtHours} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>hrs</span>
+                  {isDashboardHydrating ? renderMetricSkeleton('64px') : (
+                    <>
+                      {employeeOtHours} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>hrs</span>
+                    </>
+                  )}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green" style={{ border: 'none' }}>{formatCurrency(employeeOtAmount)}</span>
+                  <span className="kpi-trend-badge green" style={{ border: 'none' }}>{isDashboardHydrating ? 'Loading…' : formatCurrency(employeeOtAmount)}</span>
                   <span>{employeeAttendanceStats.monthLabel}</span>
                 </div>
               </div>
@@ -1540,14 +1568,22 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: '#0F172A' }}>
-                  {employeeAttendanceStats.workedDays} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>/ {employeeAttendanceStats.scheduledWorkingDays}</span>
+                  {isDashboardHydrating ? renderMetricSkeleton('68px') : (
+                    <>
+                      {employeeAttendanceStats.workedDays} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>/ {employeeAttendanceStats.scheduledWorkingDays}</span>
+                    </>
+                  )}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span className="kpi-trend-badge green" style={{ border: 'none' }}>
-                    Full: {employeeAttendanceStats.fullPresentDays}
-                    {employeeAttendanceStats.halfDays > 0 ? ` · Half: ${employeeAttendanceStats.halfDays}` : ''}
+                    {isDashboardHydrating ? 'Loading…' : (
+                      <>
+                        Full: {employeeAttendanceStats.fullPresentDays}
+                        {employeeAttendanceStats.halfDays > 0 ? ` · Half: ${employeeAttendanceStats.halfDays}` : ''}
+                      </>
+                    )}
                   </span>
-                  <span>Paid: {employeeAttendanceStats.paidDays}/{employeeAttendanceStats.calendarDaysElapsed}</span>
+                  {!isDashboardHydrating && <span>Paid: {employeeAttendanceStats.paidDays}/{employeeAttendanceStats.calendarDaysElapsed}</span>}
                 </div>
               </div>
             </div>
@@ -1565,10 +1601,10 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ fontSize: '1.14rem', color: '#B45309', whiteSpace: 'nowrap' }}>
-                  {employeeAttendanceStats.shiftTimes}
+                  {isDashboardHydrating ? renderMetricSkeleton('92px') : employeeAttendanceStats.shiftTimes}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge amber">{employeeAttendanceStats.shiftName}</span>
+                  <span className="kpi-trend-badge amber">{isDashboardHydrating ? 'Loading…' : employeeAttendanceStats.shiftName}</span>
                   <span>9h Regular</span>
                 </div>
               </div>
@@ -1588,11 +1624,15 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: '#7C3AED' }}>
-                  {employeeAttendanceStats.remainingLeaves} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>Days</span>
+                  {isDashboardHydrating ? renderMetricSkeleton('68px') : (
+                    <>
+                      {employeeAttendanceStats.remainingLeaves} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748B' }}>Days</span>
+                    </>
+                  )}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge purple">{employeeAttendanceStats.adjLeave} Days Taken</span>
-                  <span>Annual ({employeeAttendanceStats.remainingLeaves} of {employeeAttendanceStats.annualQuota || 14}d)</span>
+                  <span className="kpi-trend-badge purple">{isDashboardHydrating ? 'Loading…' : `${employeeAttendanceStats.adjLeave} Days Taken`}</span>
+                  {!isDashboardHydrating && <span>Annual ({employeeAttendanceStats.remainingLeaves} of {employeeAttendanceStats.annualQuota || 14}d)</span>}
                 </div>
               </div>
             </div>
@@ -1609,10 +1649,10 @@ export const Dashboard: React.FC = () => {
                 <Users size={15} color="#64748B" />
               </div>
               <div className="kpi-card-body">
-                <div className="kpi-value">{totalStaff}</div>
+                <div className="kpi-value">{isDashboardHydrating ? renderMetricSkeleton('44px') : totalStaff}</div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green">Active</span>
-                  <span>{activeDepartmentsCount} Active Depts</span>
+                  <span className="kpi-trend-badge green">{isDashboardHydrating ? 'Syncing' : 'Active'}</span>
+                  <span>{isDashboardHydrating ? 'Loading…' : `${activeDepartmentsCount} Active Depts`}</span>
                 </div>
               </div>
             </div>
@@ -1627,9 +1667,9 @@ export const Dashboard: React.FC = () => {
                 <UserCheck size={15} color="#059669" />
               </div>
               <div className="kpi-card-body">
-                <div className="kpi-value" style={{ color: '#059669' }}>{presentToday}</div>
+                <div className="kpi-value" style={{ color: '#059669' }}>{isDashboardHydrating ? renderMetricSkeleton('44px') : presentToday}</div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span className="kpi-trend-badge green">{presentRatePct}%</span>
+                  <span className="kpi-trend-badge green">{isDashboardHydrating ? '—' : `${presentRatePct}%`}</span>
                   <span>Active On Duty</span>
                 </div>
               </div>
@@ -1646,10 +1686,10 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: absentToday > 0 ? '#DC2626' : 'inherit' }}>
-                  {absentToday}
+                  {isDashboardHydrating ? renderMetricSkeleton('44px') : absentToday}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
-                  <span className="kpi-trend-badge red">{absentRatePct}%</span>
+                  <span className="kpi-trend-badge red">{isDashboardHydrating ? '—' : `${absentRatePct}%`}</span>
                   <span>Unplanned Leave</span>
                 </div>
               </div>
@@ -1666,7 +1706,7 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: earlyClockOut > 0 ? '#B45309' : 'inherit' }}>
-                  {earlyClockOut}
+                  {isDashboardHydrating ? renderMetricSkeleton('40px') : earlyClockOut}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span className="kpi-trend-badge amber">Left Early</span>
@@ -1686,7 +1726,7 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="kpi-card-body">
                 <div className="kpi-value" style={{ color: missClockOut > 0 ? '#7C3AED' : 'inherit' }}>
-                  {missClockOut}
+                  {isDashboardHydrating ? renderMetricSkeleton('40px') : missClockOut}
                 </div>
                 <div className="kpi-caption" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span className="kpi-trend-badge purple">Pending</span>

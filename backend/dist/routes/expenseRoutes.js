@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { createExpense, listExpenses, approveExpenseClaim, rejectExpenseClaim, disburseExpenseClaim } from '../controllers/expenseController.js';
+import { createExpense, listExpenses, getExpenseReceipt, approveExpenseClaim, rejectExpenseClaim, disburseExpenseClaim } from '../controllers/expenseController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
 export const expenseRouter = Router();
 expenseRouter.use(authenticateToken);
 expenseRouter.get('/', listExpenses);
+expenseRouter.get('/:id/receipt', getExpenseReceipt);
 expenseRouter.post('/', createExpense);
 // HR and CEO can approve or reject expense claims
 expenseRouter.post('/:id/approve', requireRoles(['CEO', 'Super Admin', 'HR Manager', 'HR Admin', 'HR', 'Admin']), approveExpenseClaim);

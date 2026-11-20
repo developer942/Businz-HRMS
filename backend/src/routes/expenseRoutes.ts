@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { 
   createExpense, 
   listExpenses, 
+  getExpenseReceipt,
   approveExpenseClaim, 
   rejectExpenseClaim, 
   disburseExpenseClaim 
@@ -13,6 +14,7 @@ export const expenseRouter = Router();
 expenseRouter.use(authenticateToken);
 
 expenseRouter.get('/', listExpenses);
+expenseRouter.get('/:id/receipt', getExpenseReceipt);
 expenseRouter.post('/', createExpense);
 
 // HR and CEO can approve or reject expense claims

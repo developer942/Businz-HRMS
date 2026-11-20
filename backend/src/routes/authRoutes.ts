@@ -4,7 +4,9 @@ import {
   forgotPassword,
   getOtpAuthConfig,
   login,
+  logout,
   me,
+  refreshSession,
   requestEmailOtpLogin,
   requestMobileOtpLogin,
   resetPassword,
@@ -18,6 +20,8 @@ import { authRateLimiter } from '../middleware/rateLimiter.js';
 export const authRouter = Router();
 
 authRouter.post('/login', authRateLimiter, login);
+authRouter.post('/refresh', refreshSession);
+authRouter.post('/logout', logout);
 authRouter.get('/me', authenticateToken, me);
 authRouter.post('/change-password', authenticateToken, changePassword);
 

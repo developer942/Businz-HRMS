@@ -744,6 +744,7 @@ export class CrmRepository {
       footer_text: footerText,
       buttons: buttons,
       raw_components: metaTmpl.components || [],
+      meta_template_id: (metaTmpl as any).id ? String((metaTmpl as any).id) : null,
       rejection_reason: metaTmpl.rejected_reason || null,
       quality_score: metaTmpl.quality_score || null,
       last_synced_at: new Date().toISOString(),

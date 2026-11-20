@@ -27,35 +27,27 @@ export class ErrorBoundary extends Component<Props, State> {
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[VRM ErrorBoundary] Uncaught runtime error caught:', error, errorInfo);
     this.setState({ errorInfo });
-
-    // Handle chunk loading failure (e.g. after a new production deployment)
-    const isChunkFailure =
-      error?.name === 'ChunkLoadError' ||
-      /loading chunk|failed to fetch dynamically imported module|unexpected token '<'/i.test(error?.message || '');
-
-    if (isChunkFailure) {
-      try {
-        const alreadyReloaded = window.sessionStorage.getItem('vrm_chunk_reload_attempted');
-        if (!alreadyReloaded) {
-          console.warn('[VRM ErrorBoundary] New deployment detected or chunk failed. Auto-reloading with latest assets...');
-          window.sessionStorage.setItem('vrm_chunk_reload_attempted', 'true');
-          window.location.reload();
-        }
-      } catch {
-        // Ignore sessionStorage SecurityError / QuotaExceededError
-      }
-    }
+    // Never auto-call window.location.reload(): show a non-disruptive recovery card
+    // so users can retry the view or explicitly choose to refresh without losing work.
   }
 
   private handleReset = () => {
     try {
       window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
     } catch {}
+    const isChunkFailure =
+      this.state.error?.name === 'ChunkLoadError' ||
+      /loading chunk|failed to fetch dynamically imported module|unexpected token '<'/i.test(
+        this.state.error?.message || ''
+      );
     this.setState({ hasError: false, error: null, errorInfo: null });
+    if (isChunkFailure) {
+      // Only reload when the user explicitly clicks "Update & Refresh"
+      window.location.reload();
+      return;
+    }
     if (this.props.onReset) {
       this.props.onReset();
-    } else {
-      window.location.reload();
     }
   };
 

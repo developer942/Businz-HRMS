@@ -91,7 +91,7 @@ export const WhatsAppCRMModule: React.FC = () => {
   };
 
   return (
-    <div className="crm-module-wrapper">
+    <div className={`crm-module-wrapper ${activeTab === 'inbox' ? 'crm-module-inbox-mode' : ''}`}>
       {/* Compact Apple + WhatsApp Top Bar */}
       <div className="crm-top-bar">
         <div className="crm-brand-group">
@@ -193,7 +193,7 @@ export const WhatsAppCRMModule: React.FC = () => {
       </div>
 
       {/* Active Section Content */}
-      <div className="crm-section-body">
+      <div className={`crm-section-body ${activeTab === 'inbox' ? 'crm-section-body-inbox' : ''}`}>
         {activeTab === 'inbox' && (
           <CrmInboxView initialContactId={targetContactIdForChat} />
         )}

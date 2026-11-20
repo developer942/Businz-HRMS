@@ -3,6 +3,7 @@
 // ==============================================================================
 
 import { API_BASE_URL } from '../config/api';
+import { authService } from './authService';
 import {
   FieldAssignment,
   FieldTripSession,
@@ -15,10 +16,9 @@ const getApiBase = () => `${API_BASE_URL}`;
 
 const getAuthToken = (): string | null => {
   return (
-    sessionStorage.getItem('vrm_auth_token') ||
-    localStorage.getItem('vrm_auth_token') ||
-    sessionStorage.getItem('vrm_hrms_auth_token') ||
+    authService.getToken() ||
     localStorage.getItem('vrm_hrms_auth_token') ||
+    sessionStorage.getItem('vrm_hrms_auth_token') ||
     localStorage.getItem('token') ||
     null
   );
@@ -36,6 +36,8 @@ const getHeaders = (extra: Record<string, string> = {}) => {
   return headers;
 };
 
+const trackingFetch = (url: string, init?: RequestInit) => authService.authFetch(url, init);
+
 export const trackingApiService = {
   // Assignments
   async getAssignments(filters?: { date?: string; status?: string; employeeId?: string }): Promise<FieldAssignment[]> {
@@ -45,7 +47,7 @@ export const trackingApiService = {
       if (filters?.status) params.append('status', filters.status);
       if (filters?.employeeId) params.append('employeeId', filters.employeeId);
 
-      const res = await fetch(`${getApiBase()}/tracking/assignments?${params.toString()}`, {
+      const res = await trackingFetch(`${getApiBase()}/tracking/assignments?${params.toString()}`, {
         headers: getHeaders(),
       });
       const data = await res.json();
@@ -157,7 +159,7 @@ export const trackingApiService = {
       if (filters?.employeeId) params.append('employeeId', filters.employeeId);
       if (filters?.status) params.append('status', filters.status);
 
-      const res = await fetch(`${getApiBase()}/tracking/trips?${params.toString()}`, {
+      const res = await trackingFetch(`${getApiBase()}/tracking/trips?${params.toString()}`, {
         headers: getHeaders(),
       });
       const data = await res.json();

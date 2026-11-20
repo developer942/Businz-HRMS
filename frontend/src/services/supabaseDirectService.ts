@@ -650,13 +650,107 @@ export const supabaseDirect = {
   },
 
   /**
-   * Fetches all company settings from VPS database in a single batch request
+   * Lightweight settings metadata fetch (~1.5 KB) so background syncs can skip
+   * re-downloading unchanged heavy keys (company_info, employee_profiles_data, payroll_records_data).
+   */
+  async getCompanySettingsMetadata(): Promise<Record<string, string>> {
+    try {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,updated_at`, {
+        headers: getHeaders(),
+      });
+      if (!res.ok) return {};
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return {};
+      const map: Record<string, string> = {};
+      for (const row of rows) {
+        if (row.setting_key) {
+          map[row.setting_key] = String(row.updated_at || '');
+        }
+      }
+      return map;
+    } catch {
+      return {};
+    }
+  },
+
+  /**
+   * Fetches core lightweight company settings (~45 KB instead of 6.2 MB!)
+   * Excludes heavy/redundant blobs (face_logs_data, expenses_data, employee_profiles_data,
+   * company_info logos, payroll_records_data, candidates_data, trip_sessions_data) which are
+   * either authoritative in dedicated SQL tables or loaded lazily on demand.
+   */
+  async getCoreCompanySettings(): Promise<Record<string, any>> {
+    try {
+      const excluded = [
+        'face_logs_data',
+        'expenses_data',
+        'employee_profiles_data',
+        'company_info',
+        'company_info_company-b',
+        'payroll_records_data',
+        'candidates_data',
+        'trip_sessions_data',
+        'field_assignments_data',
+      ].join(',');
+      const res = await fetch(
+        `${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val&setting_key=not.in.(${excluded})`,
+        { headers: getHeaders() }
+      );
+      if (!res.ok) {
+        return this.getAllCompanySettings();
+      }
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return {};
+      const result: Record<string, any> = {};
+      for (const row of rows) {
+        if (row.setting_key) {
+          result[row.setting_key] = row.setting_val;
+        }
+      }
+      return result;
+    } catch (err) {
+      console.warn('[DatabaseRest] getCoreCompanySettings error:', err);
+      return {};
+    }
+  },
+
+  /**
+   * Fetches a specific subset of company settings by key (e.g. deferred heavy keys when changed).
+   */
+  async getCompanySettingsByKeys(keys: string[]): Promise<Record<string, any>> {
+    const cleanKeys = Array.from(new Set(keys.map(k => k.trim()).filter(Boolean)));
+    if (cleanKeys.length === 0) return {};
+    try {
+      const inList = cleanKeys.map(k => encodeURIComponent(k)).join(',');
+      const res = await fetch(
+        `${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val&setting_key=in.(${inList})`,
+        { headers: getHeaders() }
+      );
+      if (!res.ok) return {};
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return {};
+      const result: Record<string, any> = {};
+      for (const row of rows) {
+        if (row.setting_key) {
+          result[row.setting_key] = row.setting_val;
+        }
+      }
+      return result;
+    } catch (err) {
+      console.warn('[DatabaseRest] getCompanySettingsByKeys error:', err);
+      return {};
+    }
+  },
+
+  /**
+   * Fetches company settings from VPS database (always excluding face_logs_data & redundant 5MB expenses_data).
    */
   async getAllCompanySettings(): Promise<Record<string, any>> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val&setting_key=neq.face_logs_data`, {
-        headers: getHeaders(),
-      });
+      const res = await fetch(
+        `${DATABASE_REST_URL}/rest/v1/company_settings?select=setting_key,setting_val&setting_key=not.in.(face_logs_data,expenses_data)`,
+        { headers: getHeaders() }
+      );
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
         console.error('[DatabaseRest] getAllCompanySettings failed:', res.status, errorText);
@@ -1215,19 +1309,20 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   // ATTENDANCE RECORDS
   // --------------------------------------------------------------------------
-  async getAttendanceRecords(): Promise<any[]> {
+  async getAttendanceRecords(options?: { sinceDate?: string }): Promise<any[]> {
     try {
       const cols = 'id,employee_id,date,shift_id,shift_date,check_in,check_out,working_hours,status,late_status,method,in_geofence,face_verified,location_lat,location_lng,location_address,notes,created_at,updated_at';
-      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols},employees(employee_id,first_name,last_name)&order=date.desc,check_in.desc.nullslast,updated_at.desc.nullslast`, {
+      const dateFilter = options?.sinceDate ? `&date=gte.${encodeURIComponent(options.sinceDate)}` : '';
+      let res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols},employees(employee_id,first_name,last_name)${dateFilter}&order=date.desc,check_in.desc.nullslast,updated_at.desc.nullslast`, {
         headers: getHeaders(),
       });
       if (!res.ok) {
-        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols}&order=date.desc,check_in.desc.nullslast,updated_at.desc.nullslast`, {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=${cols}${dateFilter}&order=date.desc,check_in.desc.nullslast,updated_at.desc.nullslast`, {
           headers: getHeaders(),
         });
       }
       if (!res.ok) {
-        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=*&order=date.desc`, {
+        res = await fetch(`${DATABASE_REST_URL}/rest/v1/attendance_records?select=*${dateFilter}&order=date.desc`, {
           headers: getHeaders(),
         });
       }
@@ -1613,9 +1708,13 @@ export const supabaseDirect = {
   // --------------------------------------------------------------------------
   // EXPENSES
   // --------------------------------------------------------------------------
-  async getExpenses(): Promise<any[]> {
+  async getExpenses(options?: { includeReceipts?: boolean }): Promise<any[]> {
     try {
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/expenses?select=*,employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
+      // Omit multi-MB inline receipt_url / payment_proof_path blobs on list queries by default
+      const cols = options?.includeReceipts
+        ? '*'
+        : 'id,employee_id,category,amount,date,description,status,approved_by,approved_by_name,approved_by_role,approved_at,disbursed_amount,payment_mode,transaction_ref,disbursement_remarks,disbursed_by_name,disbursed_at,created_at,updated_at';
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/expenses?select=${cols},employee:employees(employee_id,first_name,last_name)&order=date.desc`, {
         headers: getHeaders(),
       });
       if (!res.ok) return [];

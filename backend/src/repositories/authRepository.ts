@@ -7,6 +7,11 @@ import { generateTemporaryPassword, validatePasswordComplexity } from '../servic
 import { sendCredentialEmail } from '../services/emailService.js';
 import { normalizeMobileToE164 } from '../services/smsOtpService.js';
 import { auditRepository } from './auditRepository.js';
+import { memoryCache } from '../services/cacheService.js';
+import { refreshSessionRepository } from './refreshSessionRepository.js';
+
+const AUTH_USER_CACHE_PREFIX = 'auth:user:';
+const AUTH_USER_CACHE_TTL_MS = 15_000; // 15s short TTL, invalidated immediately on mutations
 
 export const BCRYPT_ROUNDS = 12;
 
@@ -273,7 +278,9 @@ export class AuthRepository {
     const accountStatus: AccountStatus = (data.account_status as AccountStatus) || (data.status === 'Active' ? 'ACTIVE' : 'DEACTIVATED');
     const rawDbPass = String(data.password || '');
     const alreadyHashed = isBcryptPasswordHash(rawDbPass);
-    const passwordHash = alreadyHashed ? rawDbPass : (rawDbPass ? await bcrypt.hash(rawDbPass, BCRYPT_ROUNDS) : '');
+    // Performance fix: never run 12-round bcrypt.hash (~300ms CPU) during read-only auth lookups.
+    // Legacy plaintext passwords are verified safely in verifyPassword() and upgraded once in recordLoginSuccess().
+    const passwordHash = alreadyHashed ? rawDbPass : '';
     const portalPass = typeof profileData?.portalPassword === 'string'
       && profileData.portalPassword.trim()
       && !isBcryptPasswordHash(profileData.portalPassword.trim())
@@ -405,6 +412,52 @@ export class AuthRepository {
       }
       throw error;
     }
+  }
+
+  invalidateUserCache(userOrIdentifier?: string | Partial<UserAccount> | null): void {
+    if (!userOrIdentifier) {
+      memoryCache.invalidatePattern(AUTH_USER_CACHE_PREFIX);
+      return;
+    }
+    if (typeof userOrIdentifier === 'string') {
+      memoryCache.invalidate(`${AUTH_USER_CACHE_PREFIX}${userOrIdentifier.trim().toLowerCase()}`);
+      return;
+    }
+    const keys = [userOrIdentifier.email, userOrIdentifier.employeeId, userOrIdentifier.id]
+      .filter((k): k is string => Boolean(k && String(k).trim()))
+      .map((k) => `${AUTH_USER_CACHE_PREFIX}${String(k).trim().toLowerCase()}`);
+    for (const k of keys) {
+      memoryCache.invalidate(k);
+    }
+  }
+
+  /**
+   * Short-TTL cached account lookup for hot-path authMiddleware validation.
+   * Eliminates repeated PostgreSQL queries on every API request while preserving
+   * instant invalidation on password change, deactivation, or profile updates.
+   */
+  async findByIdentifierCached(identifier: string): Promise<UserAccount | null> {
+    const clean = (identifier || '').trim().toLowerCase();
+    if (!clean) return null;
+
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || (env.NODE_ENV as string) === 'test';
+    if (isTestEnv || inMemoryTestOverrides.size > 0) {
+      return this.findByIdentifier(identifier);
+    }
+
+    const cacheKey = `${AUTH_USER_CACHE_PREFIX}${clean}`;
+    const cached = memoryCache.get<UserAccount | null>(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const fresh = await this.findByIdentifier(identifier);
+    if (fresh) {
+      memoryCache.set(cacheKey, fresh, AUTH_USER_CACHE_TTL_MS);
+      if (fresh.email) memoryCache.set(`${AUTH_USER_CACHE_PREFIX}${fresh.email.toLowerCase()}`, fresh, AUTH_USER_CACHE_TTL_MS);
+      if (fresh.employeeId) memoryCache.set(`${AUTH_USER_CACHE_PREFIX}${fresh.employeeId.toLowerCase()}`, fresh, AUTH_USER_CACHE_TTL_MS);
+    }
+    return fresh;
   }
 
   async findByEmail(email: string): Promise<UserAccount | null> {
@@ -602,6 +655,9 @@ export class AuthRepository {
       console.warn('[authRepository] company_settings employee_profiles_data sync warning:', csErr);
     }
 
+    this.invalidateUserCache(user);
+    await refreshSessionRepository.revokeAllForUser(user.employeeId);
+
     return { success: true };
   }
 
@@ -702,6 +758,9 @@ export class AuthRepository {
     } catch (csErr) {
       console.warn('[authRepository] company_settings resetLoginCredentials sync warning:', csErr);
     }
+
+    this.invalidateUserCache(user);
+    await refreshSessionRepository.revokeAllForUser(user.employeeId);
 
     return {
       success: true,
@@ -828,6 +887,9 @@ export class AuthRepository {
       { email: user.email, sessionsRevoked: true }
     );
 
+    this.invalidateUserCache(user);
+    await refreshSessionRepository.revokeAllForUser(user.employeeId);
+
     return true;
   }
 
@@ -902,6 +964,11 @@ export class AuthRepository {
       console.warn('[authRepository] company_settings updateAccountStatus sync warning:', csErr);
     }
 
+    this.invalidateUserCache(user);
+    if (status !== 'ACTIVE') {
+      await refreshSessionRepository.revokeAllForUser(user.employeeId);
+    }
+
     return { success: true };
   }
 
@@ -933,6 +1000,10 @@ export class AuthRepository {
         return;
       }
       try {
+        const plainToUpgrade = user.plainPassword || user.additionalPlainPasswords?.[0];
+        if (plainToUpgrade && !isBcryptPasswordHash(user.passwordHash)) {
+          user.passwordHash = await bcrypt.hash(plainToUpgrade, BCRYPT_ROUNDS);
+        }
         if ((user.plainPassword || user.additionalPlainPasswords?.length) && user.passwordHash && isBcryptPasswordHash(user.passwordHash)) {
           user.plainPassword = undefined;
           user.additionalPlainPasswords = undefined;
@@ -948,6 +1019,7 @@ export class AuthRepository {
              WHERE LOWER(employee_id) = LOWER($3)`,
             [user.passwordHash, timestamp, user.employeeId]
           );
+          this.invalidateUserCache(user);
         } else {
           await query(
             `UPDATE employees SET last_login_at = $1, updated_at = NOW()
@@ -980,7 +1052,8 @@ export class AuthRepository {
       passwordChangedAt: user.passwordChangedAt,
       authMethod,
     };
-    return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '30d' });
+    const accessExpiresIn = (env.JWT_ACCESS_EXPIRES_IN || '12h') as jwt.SignOptions['expiresIn'];
+    return jwt.sign(payload, env.JWT_SECRET, { expiresIn: accessExpiresIn });
   }
 
   async verifyPassword(password: string, hash?: string, plain?: string, additionalPlainPasswords: string[] = []): Promise<boolean> {

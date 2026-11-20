@@ -189,20 +189,16 @@ export interface ApiPayslip {
   netSalary: number;
 }
 
-// Request helper with automatic auth header and error unwrapping
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = sessionStorage.getItem('vrm_auth_token');
+import { authService } from './authService';
 
+// Request helper with automatic auth header, single-flight token refresh, and error unwrapping
+async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const response = await authService.authFetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
   });

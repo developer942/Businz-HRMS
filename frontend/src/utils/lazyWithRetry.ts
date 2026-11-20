@@ -1,25 +1,27 @@
 import React, { ComponentType, lazy, LazyExoticComponent } from 'react';
 
 /**
- * Enhanced lazy loader with automatic retry and stale-chunk recovery.
- * Handles:
- * 1. Transient network dropouts (retries up to 2 times with delay).
- * 2. Deployments where old chunk hashes no longer exist on server (auto-refreshes once).
+ * Enhanced lazy loader with exponential backoff retries.
+ * NEVER triggers automatic window.location.reload() — prevents unexpected full-page
+ * reloads and form data loss on transient mobile network dropouts or deployments.
+ * If all retries fail, rejects cleanly so ErrorBoundary displays a user-controlled
+ * "Retry" / "Reload" recovery view.
  */
 export function lazyWithRetry<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T } | Record<string, any>>,
   exportName: string = 'default',
-  retriesLeft = 2,
-  interval = 1000
+  retriesLeft = 3,
+  interval = 700
 ): LazyExoticComponent<T> {
   return lazy(() => {
     return new Promise<{ default: T }>((resolve, reject) => {
-      const attempt = (retries: number) => {
+      const attempt = (retries: number, delayMs: number) => {
         factory()
           .then((module) => {
-            // Reset refresh guard on success
             if (typeof window !== 'undefined' && window.sessionStorage) {
-              window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
+              try {
+                window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
+              } catch {}
             }
 
             const component =
@@ -30,34 +32,17 @@ export function lazyWithRetry<T extends ComponentType<any>>(
             resolve({ default: component });
           })
           .catch((error) => {
-            const isChunkError =
-              error?.name === 'ChunkLoadError' ||
-              /loading chunk|failed to fetch dynamically imported module|unexpected token '<'/i.test(
-                error?.message || ''
-              );
-
             if (retries > 0) {
               setTimeout(() => {
-                attempt(retries - 1);
-              }, interval);
-            } else if (isChunkError) {
-              // Stale chunk from previous deployment: reload once with latest HTML
-              if (typeof window !== 'undefined' && window.sessionStorage) {
-                const alreadyReloaded = window.sessionStorage.getItem('vrm_chunk_reload_attempted');
-                if (!alreadyReloaded) {
-                  window.sessionStorage.setItem('vrm_chunk_reload_attempted', 'true');
-                  window.location.reload();
-                  return;
-                }
-              }
-              reject(error);
+                attempt(retries - 1, Math.min(delayMs * 2, 3000));
+              }, delayMs);
             } else {
               reject(error);
             }
           });
       };
 
-      attempt(retriesLeft);
+      attempt(retriesLeft, interval);
     });
   });
 }

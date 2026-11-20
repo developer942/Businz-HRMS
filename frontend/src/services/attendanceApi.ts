@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config/api';
+import { authService } from './authService';
 import type { GpsDiagnosticSummary } from './gpsAcquisitionService';
 
 export type AttendancePunchType = 'IN' | 'OUT';
@@ -28,8 +29,7 @@ export interface AttendancePunchResult {
 export const getStoredAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
   return (
-    sessionStorage.getItem('vrm_auth_token') ||
-    localStorage.getItem('vrm_auth_token') ||
+    authService.getToken() ||
     localStorage.getItem('vrm_hrms_token') ||
     localStorage.getItem('hrms_auth_token') ||
     localStorage.getItem('token') ||
@@ -40,12 +40,9 @@ export const getStoredAuthToken = (): string | null => {
 const apiRequest = async <T>(path: string, body: unknown, method: 'POST' | 'PUT' = 'POST'): Promise<T> => {
   const token = getStoredAuthToken();
   if (!token) throw new Error('Your session has expired. Please sign in again.');
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await authService.authFetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const payload = await response.json().catch(() => null);

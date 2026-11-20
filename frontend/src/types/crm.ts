@@ -72,6 +72,8 @@ export interface CrmMessage {
   templateName?: string;
   wamid?: string;
   status: CrmMessageStatus;
+  failureReason?: string;
+  metadata?: any;
   createdAt: string;
 }
 

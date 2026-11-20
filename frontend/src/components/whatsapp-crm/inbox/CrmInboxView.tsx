@@ -1,9 +1,11 @@
 /**
  * WhatsApp CRM Inbox View for BUSINZ HRMS
- * Desktop: WhatsApp Web Style | Mobile: Native iOS WhatsApp App Experience
+ * Desktop: WhatsApp Web Style Stable Two-Pane Layout
+ * Mobile: Native WhatsApp Chat Flow with Independent Scrolling
+ * Copyright (c) 2026 Arnas Donauskas - MIT License
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search,
   Send,
@@ -24,7 +26,12 @@ import {
   ArrowLeft,
   Info,
   Paperclip,
-  FileText
+  FileText,
+  MoreVertical,
+  ChevronDown,
+  RotateCcw,
+  Download,
+  Image as ImageIcon
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type {
@@ -38,6 +45,118 @@ import { useHRMS } from '../../../context/HRMSContext';
 
 interface CrmInboxViewProps {
   initialContactId?: string;
+}
+
+export interface ParsedDeliveryError {
+  type: '24h_window' | 'auth' | 'invalid_phone' | 'rate_limit' | 'billing' | 'generic';
+  badge: string;
+  title: string;
+  shortDesc: string;
+  actionType?: 'template' | 'retry' | 'none';
+  actionLabel?: string;
+  rawDetails: string;
+}
+
+export function parseDeliveryError(rawError?: string | null): ParsedDeliveryError {
+  const err = (rawError || '').trim();
+  const lower = err.toLowerCase();
+
+  // 1. 24-hour customer window expired (Code 131047 or text)
+  if (
+    lower.includes('131047') ||
+    lower.includes('24 hour') ||
+    lower.includes('24-hour') ||
+    lower.includes('re-engagement') ||
+    lower.includes('window')
+  ) {
+    return {
+      type: '24h_window',
+      badge: '24h Window Expired',
+      title: '24-Hour Reply Window Expired',
+      shortDesc:
+        'Customer has not replied in the last 24 hours. Meta requires an Approved Template to message this contact.',
+      actionType: 'template',
+      actionLabel: 'Send Approved Template',
+      rawDetails: err
+    };
+  }
+
+  // 2. Auth / Token Expired (Code 190)
+  if (
+    lower.includes('190') ||
+    lower.includes('oauth') ||
+    lower.includes('access token') ||
+    lower.includes('session has expired') ||
+    lower.includes('authorization')
+  ) {
+    return {
+      type: 'auth',
+      badge: 'API Auth Error',
+      title: 'Meta API Authentication Failed',
+      shortDesc:
+        'Your Meta WhatsApp System User token is invalid or expired. Please refresh the token in CRM Settings.',
+      actionType: 'none',
+      rawDetails: err
+    };
+  }
+
+  // 3. Not on WhatsApp (Code 131026 / recipient not registered)
+  if (
+    lower.includes('131026') ||
+    lower.includes('not a whatsapp') ||
+    lower.includes('undeliverable') ||
+    lower.includes('not registered')
+  ) {
+    return {
+      type: 'invalid_phone',
+      badge: 'Not on WhatsApp',
+      title: 'Recipient Not on WhatsApp',
+      shortDesc: 'This phone number is not registered on WhatsApp or cannot receive business messages.',
+      actionType: 'none',
+      rawDetails: err
+    };
+  }
+
+  // 4. Rate limiting or spam thresholds
+  if (
+    lower.includes('rate limit') ||
+    lower.includes('throughput') ||
+    lower.includes('too many requests') ||
+    lower.includes('131048')
+  ) {
+    return {
+      type: 'rate_limit',
+      badge: 'Rate Limit',
+      title: 'Sending Rate Limit Reached',
+      shortDesc: 'Meta Cloud API throughput limit reached for this number. Please wait a minute before retrying.',
+      actionType: 'retry',
+      actionLabel: 'Retry Send',
+      rawDetails: err
+    };
+  }
+
+  // 5. Payment / Billing
+  if (lower.includes('payment') || lower.includes('billing') || lower.includes('credit card') || lower.includes('tier')) {
+    return {
+      type: 'billing',
+      badge: 'Billing Alert',
+      title: 'Meta Account Billing Notice',
+      shortDesc: 'Please check the payment method configured on your WhatsApp Business Account in Meta Business Suite.',
+      actionType: 'none',
+      rawDetails: err
+    };
+  }
+
+  // 6. Generic failure
+  return {
+    type: 'generic',
+    badge: 'Delivery Failed',
+    title: 'Message Delivery Failed',
+    shortDesc: err.length > 95 ? `${err.substring(0, 92)}...` : err || 'Network or Meta Cloud API delivery failure.',
+    actionType: 'retry',
+    actionLabel: 'Retry Send',
+    rawDetails: err
+  };
 }
 
 export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) => {
@@ -57,61 +176,152 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
 
-  // Contact Info Panel State (Shown only when requested/toggled)
+  // Contact Info Drawer / Mobile Sheet State
   const [showContactInfo, setShowContactInfo] = useState<boolean>(false);
   const [contactDetails, setContactDetails] = useState<CrmContact | null>(null);
   const [availableTags, setAvailableTags] = useState<CrmTag[]>([]);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [newTagName, setNewTagName] = useState('');
 
-  // New Chat & In-Chat Template Picker Modal States
+  // Mobile More Menu State
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  // Error details expansion state
+  const [expandedErrorIds, setExpandedErrorIds] = useState<Set<string>>(new Set());
+
+  // New Chat Modal State
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [directoryContacts, setDirectoryContacts] = useState<CrmContact[]>([]);
   const [contactSearchTerm, setContactSearchTerm] = useState('');
   const [loadingDirectoryContacts, setLoadingDirectoryContacts] = useState(false);
 
+  // Template Picker Modal State
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [approvedTemplates, setApprovedTemplates] = useState<CrmTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<CrmTemplate | null>(null);
   const [templateVarValues, setTemplateVarValues] = useState<string[]>([]);
   const [sendingTemplate, setSendingTemplate] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Scroll Tracking & New Messages Indicator
+  const [showScrollBottomPill, setShowScrollBottomPill] = useState(false);
+  const [unreadNewCount, setUnreadNewCount] = useState(0);
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+  const prevMessagesLengthRef = useRef<number>(0);
+
+  // Concurrency & Stale Request Guard
+  const selectedConvIdRef = useRef<string | null>(null);
+  const loadRequestSeqRef = useRef<number>(0);
+
+  // Drafts Memory per Conversation
+  const draftsRef = useRef<Record<string, string>>({});
+
+  // Input & Attachment refs
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
-  // Load conversations on mount & filter change
+  // Sync ref with state
+  useEffect(() => {
+    selectedConvIdRef.current = selectedConvId;
+  }, [selectedConvId]);
+
+  // Click outside mobile menu listener
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    if (mobileMenuOpen) {
+      document.addEventListener('mousedown', handleOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [mobileMenuOpen]);
+
+  // Load conversations on mount & filter changes
   useEffect(() => {
     loadConversations();
     loadTags();
   }, [statusFilter]);
 
-  // Handle initialContactId if passed from Contacts directory
+  // Handle initialContactId passed from Contacts Directory
   useEffect(() => {
     if (initialContactId) {
       handleOpenContactConversation(initialContactId);
     }
   }, [initialContactId]);
 
-  // Load conversation details & messages when active conversation changes
+  // Handle active conversation change
   useEffect(() => {
     if (selectedConvId) {
       loadConversationData(selectedConvId);
       const interval = setInterval(() => {
         pollMessages(selectedConvId);
-      }, 6000);
+      }, 5000);
       return () => clearInterval(interval);
     } else {
       setActiveConv(null);
       setMessages([]);
       setContactDetails(null);
       setShowContactInfo(false);
+      setInputText('');
     }
   }, [selectedConvId]);
 
-  // Auto scroll to bottom on new messages
+  // Auto-scroll logic: scroll to bottom if near bottom or initial load
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (chatAreaRef.current) {
+      chatAreaRef.current.scrollTo({
+        top: chatAreaRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto'
+      });
+      isNearBottomRef.current = true;
+      setShowScrollBottomPill(false);
+      setUnreadNewCount(0);
+    }
+  }, []);
+
+  // Watch messages change to handle scroll & notification
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const currentLength = messages.length;
+    const prevLength = prevMessagesLengthRef.current;
+    prevMessagesLengthRef.current = currentLength;
+
+    if (currentLength === 0) return;
+
+    // If initial load for a conversation, jump immediately to bottom without smooth transition
+    if (prevLength === 0 || loadingMessages) {
+      scrollToBottom(false);
+      return;
+    }
+
+    // If new messages arrived:
+    if (currentLength > prevLength) {
+      const lastMsg = messages[currentLength - 1];
+      const isMySend = lastMsg.senderType === 'agent' || lastMsg.senderType === 'bot';
+
+      if (isMySend || isNearBottomRef.current) {
+        scrollToBottom(true);
+      } else {
+        // User has scrolled up reading history: show "New Messages" pill
+        setUnreadNewCount(prev => prev + (currentLength - prevLength));
+        setShowScrollBottomPill(true);
+      }
+    }
+  }, [messages, loadingMessages, scrollToBottom]);
+
+  const handleChatScroll = () => {
+    if (!chatAreaRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatAreaRef.current;
+    const threshold = 90;
+    const near = scrollHeight - scrollTop - clientHeight <= threshold;
+    isNearBottomRef.current = near;
+    if (near) {
+      setShowScrollBottomPill(false);
+      setUnreadNewCount(0);
+    }
+  };
 
   const loadConversations = async () => {
     setLoadingConvs(true);
@@ -121,9 +331,11 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
         search: searchQuery || undefined
       });
       setConversations(data);
-      if (data.length > 0 && !selectedConvId && !initialContactId) {
-        if (typeof window !== 'undefined' && window.innerWidth > 768) {
-          setSelectedConvId(data[0].id);
+
+      // On desktop (> 900px), automatically select the first conversation if none selected
+      if (data.length > 0 && !selectedConvIdRef.current && !initialContactId) {
+        if (typeof window !== 'undefined' && window.innerWidth > 900) {
+          handleSelectConversation(data[0]);
         }
       }
     } catch (err) {
@@ -142,6 +354,43 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     }
   };
 
+  // Safe conversation selection with Draft Preservation
+  const handleSelectConversation = (conv: CrmConversation) => {
+    // 1. Save draft of previously selected conversation
+    if (selectedConvIdRef.current && selectedConvIdRef.current !== conv.id) {
+      draftsRef.current[selectedConvIdRef.current] = inputText;
+    }
+
+    // 2. Set active conversation optimistically to update header immediately
+    setActiveConv(conv);
+    setSelectedConvId(conv.id);
+    selectedConvIdRef.current = conv.id;
+
+    // 3. Restore draft for the newly selected conversation
+    const savedDraft = draftsRef.current[conv.id] || '';
+    setInputText(savedDraft);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
+    // 4. Reset scroll state
+    setShowScrollBottomPill(false);
+    setUnreadNewCount(0);
+    isNearBottomRef.current = true;
+    prevMessagesLengthRef.current = 0;
+  };
+
+  const handleBackToList = () => {
+    // Save draft of current conversation before leaving
+    if (selectedConvIdRef.current) {
+      draftsRef.current[selectedConvIdRef.current] = inputText;
+    }
+    setSelectedConvId(null);
+    selectedConvIdRef.current = null;
+    setActiveConv(null);
+    setShowContactInfo(false);
+  };
+
   const handleOpenContactConversation = async (contactId: string) => {
     try {
       const conv = await crmService.startOrGetConversation(contactId);
@@ -150,13 +399,149 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
           const exists = prev.some(c => c.id === conv.id);
           return exists ? prev.map(c => (c.id === conv.id ? { ...c, ...conv } : c)) : [conv, ...prev];
         });
-        setActiveConv(conv);
-        setSelectedConvId(conv.id);
+        handleSelectConversation(conv);
       } else {
         await loadConversations();
       }
     } catch (err) {
       console.error('Error opening contact conversation:', err);
+    }
+  };
+
+  const loadConversationData = async (convId: string) => {
+    const currentSeq = ++loadRequestSeqRef.current;
+    setLoadingMessages(true);
+
+    try {
+      const conv = await crmService.getConversationById(convId);
+      if (currentSeq !== loadRequestSeqRef.current || selectedConvIdRef.current !== convId) return;
+
+      setActiveConv(conv);
+
+      if (conv?.contactId) {
+        const contact = await crmService.getContactById(conv.contactId);
+        if (currentSeq !== loadRequestSeqRef.current) return;
+        setContactDetails(contact);
+      }
+
+      const msgs = await crmService.getMessages(convId);
+      if (currentSeq !== loadRequestSeqRef.current || selectedConvIdRef.current !== convId) return;
+
+      setMessages(msgs);
+
+      // Mark conversation as read
+      await crmService.markAsRead(convId);
+      setConversations(prev =>
+        prev.map(c => (c.id === convId ? { ...c, unreadCount: 0 } : c))
+      );
+    } catch (err) {
+      console.error('Error loading conversation data:', err);
+    } finally {
+      if (currentSeq === loadRequestSeqRef.current) {
+        setLoadingMessages(false);
+      }
+    }
+  };
+
+  const pollMessages = async (convId: string) => {
+    if (selectedConvIdRef.current !== convId) return;
+    try {
+      const msgs = await crmService.getMessages(convId);
+      if (selectedConvIdRef.current === convId) {
+        setMessages(msgs);
+      }
+    } catch (err) {
+      console.error('Error polling messages:', err);
+    }
+  };
+
+  // Textarea multi-line height auto-expand
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+    if (selectedConvId) {
+      draftsRef.current[selectedConvId] = val;
+    }
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+  };
+
+  // Desktop: Enter sends message; Shift + Enter creates a new line
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // If mobile screen, allow normal enter key for typing
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        return;
+      }
+      e.preventDefault();
+      void handleSendMessage();
+    }
+  };
+
+  const handleSendMessage = async (textOverride?: string) => {
+    const textToSend = (textOverride || inputText).trim();
+    if (!textToSend || !selectedConvId || sending) return;
+
+    if (!textOverride) {
+      setInputText('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+      if (selectedConvId) {
+        delete draftsRef.current[selectedConvId];
+      }
+    }
+
+    setSending(true);
+
+    try {
+      const newMsg = await crmService.sendMessage(selectedConvId, textToSend);
+      setMessages(prev => [...prev, newMsg]);
+
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === selectedConvId
+            ? {
+                ...c,
+                lastMessageText: textToSend,
+                lastMessageTimestamp: new Date().toISOString()
+              }
+            : c
+        )
+      );
+
+      // Scroll immediately after sending
+      setTimeout(() => scrollToBottom(true), 50);
+    } catch (err: any) {
+      // If sending failed, restore text into input and draft for retry
+      setInputText(textToSend);
+      if (selectedConvId) {
+        draftsRef.current[selectedConvId] = textToSend;
+      }
+      alert(`Message failed to send: ${err.message || 'WhatsApp Cloud API error'}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleAssignAgent = async (employeeId: string) => {
+    if (!selectedConvId) return;
+    const emp = employees.find(e => e.id === employeeId || e.employeeId === employeeId);
+    const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Assigned Agent';
+
+    try {
+      await crmService.assignConversation(selectedConvId, employeeId, empName);
+      setActiveConv(prev => (prev ? { ...prev, assignedEmployeeId: employeeId, assignedEmployeeName: empName } : null));
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === selectedConvId
+            ? { ...c, assignedEmployeeId: employeeId, assignedEmployeeName: empName }
+            : c
+        )
+      );
+      setMobileMenuOpen(false);
+    } catch (err) {
+      console.error('Failed to assign agent:', err);
     }
   };
 
@@ -229,94 +614,11 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
         )
       );
       setShowTemplateModal(false);
+      setTimeout(() => scrollToBottom(true), 50);
     } catch (err: any) {
       alert(`Failed to send template: ${err.message || 'Meta API error'}`);
     } finally {
       setSendingTemplate(false);
-    }
-  };
-
-  const loadConversationData = async (convId: string) => {
-    setLoadingMessages(true);
-    try {
-      const conv = await crmService.getConversationById(convId);
-      setActiveConv(conv);
-
-      if (conv?.contactId) {
-        const contact = await crmService.getContactById(conv.contactId);
-        setContactDetails(contact);
-      }
-
-      const msgs = await crmService.getMessages(convId);
-      setMessages(msgs);
-
-      await crmService.markAsRead(convId);
-      setConversations(prev =>
-        prev.map(c => (c.id === convId ? { ...c, unreadCount: 0 } : c))
-      );
-    } catch (err) {
-      console.error('Error loading conversation data:', err);
-    } finally {
-      setLoadingMessages(false);
-    }
-  };
-
-  const pollMessages = async (convId: string) => {
-    try {
-      const msgs = await crmService.getMessages(convId);
-      setMessages(msgs);
-    } catch (err) {
-      console.error('Error polling messages:', err);
-    }
-  };
-
-  const handleSendMessage = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!inputText.trim() || !selectedConvId || sending) return;
-
-    const text = inputText.trim();
-    setInputText('');
-    setSending(true);
-
-    try {
-      const newMsg = await crmService.sendMessage(selectedConvId, text);
-      setMessages(prev => [...prev, newMsg]);
-
-      setConversations(prev =>
-        prev.map(c =>
-          c.id === selectedConvId
-            ? {
-                ...c,
-                lastMessageText: text,
-                lastMessageTimestamp: new Date().toISOString()
-              }
-            : c
-        )
-      );
-    } catch (err: any) {
-      alert(`Message failed to send: ${err.message || 'WhatsApp API error'}`);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const handleAssignAgent = async (employeeId: string) => {
-    if (!selectedConvId) return;
-    const emp = employees.find(e => e.id === employeeId || e.employeeId === employeeId);
-    const empName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Assigned Agent';
-
-    try {
-      await crmService.assignConversation(selectedConvId, employeeId, empName);
-      setActiveConv(prev => (prev ? { ...prev, assignedEmployeeId: employeeId, assignedEmployeeName: empName } : null));
-      setConversations(prev =>
-        prev.map(c =>
-          c.id === selectedConvId
-            ? { ...c, assignedEmployeeId: employeeId, assignedEmployeeName: empName }
-            : c
-        )
-      );
-    } catch (err) {
-      console.error('Failed to assign agent:', err);
     }
   };
 
@@ -390,8 +692,23 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const handleAttachmentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setInputText(prev => (prev ? `${prev} [Attachment: ${file.name}]` : `[Attachment: ${file.name}]`));
+    setInputText(prev => (prev ? `${prev}\n[Attachment: ${file.name}]` : `[Attachment: ${file.name}]`));
     e.target.value = '';
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const toggleErrorDetails = (msgId: string) => {
+    setExpandedErrorIds(prev => {
+      const next = new Set(prev);
+      if (next.has(msgId)) {
+        next.delete(msgId);
+      } else {
+        next.add(msgId);
+      }
+      return next;
+    });
   };
 
   const showRightDrawer = Boolean(activeConv && contactDetails && showContactInfo);
@@ -403,9 +720,9 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       }`}
     >
       {/* ============================================================
-          1. LEFT PANEL: Conversation Search, Filters & List
+          1. LEFT SIDEBAR: Chats List, Search & Filters (Fixed 320px)
           ============================================================ */}
-      <div className="crm-inbox-left">
+      <aside className="crm-inbox-left" aria-label="Conversation list">
         <div className="crm-inbox-left-header">
           <div className="crm-inbox-title-row">
             <h2 className="crm-inbox-heading">Chats</h2>
@@ -415,19 +732,8 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 onClick={handleOpenNewChatModal}
                 title="Start New Chat"
                 aria-label="Start New Chat"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '5px 10px',
-                  borderRadius: '8px',
-                  border: '1px solid #E5E7EB',
-                  backgroundColor: '#FFFFFF',
-                  color: '#0E7490',
-                  fontSize: '0.76rem',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
+                className="crm-btn-sm-primary"
+                style={{ padding: '5px 10px', fontSize: '0.78rem' }}
               >
                 <Plus size={14} />
                 <span>New Chat</span>
@@ -444,12 +750,12 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             </div>
           </div>
 
-          {/* Search Input */}
+          {/* Search Box */}
           <div className="crm-inbox-search-box">
             <Search size={15} className="crm-inbox-search-icon" />
             <input
               type="text"
-              placeholder="Search name or phone..."
+              placeholder="Search chats..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && loadConversations()}
@@ -470,9 +776,9 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             )}
           </div>
 
-          {/* Compact Filter Chips: All / Open / Snoozed / Closed */}
-          <div className="crm-inbox-filter-chips" role="tablist" aria-label="Conversation status filter">
-            {(['all', 'open', 'snoozed', 'closed'] as const).map(st => {
+          {/* Filter Chips: All / Unread / Open */}
+          <div className="crm-inbox-filter-chips" role="tablist" aria-label="Conversation filters">
+            {(['all', 'unread', 'open'] as const).map(st => {
               const isActive = statusFilter === st;
               return (
                 <button
@@ -490,9 +796,9 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
           </div>
         </div>
 
-        {/* Conversation List */}
+        {/* Conversation List Stream (Scrolls Internally) */}
         <div className="crm-conv-list">
-          {loadingConvs ? (
+          {loadingConvs && conversations.length === 0 ? (
             <div className="crm-conv-empty">Loading chats...</div>
           ) : conversations.length === 0 ? (
             <div className="crm-conv-empty">
@@ -504,19 +810,8 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               <button
                 type="button"
                 onClick={handleOpenNewChatModal}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  backgroundColor: '#0E7490',
-                  color: '#FFFFFF',
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
+                className="crm-btn-primary"
+                style={{ fontSize: '0.8rem', padding: '6px 14px' }}
               >
                 <Plus size={15} />
                 <span>Start New Chat</span>
@@ -525,24 +820,24 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
           ) : (
             conversations.map(conv => {
               const isSelected = conv.id === selectedConvId;
-              const resolvedName = conv.contactName || (conv as any).contact?.name || conv.contactPhone || (conv as any).contact?.phone || 'Unknown';
+              const resolvedName =
+                conv.contactName || (conv as any).contact?.name || conv.contactPhone || (conv as any).contact?.phone || 'Unknown';
               const resolvedPhone = conv.contactPhone || (conv as any).contact?.phone || '';
               const resolvedTime = conv.lastMessageTimestamp || (conv as any).lastMessageAt;
               const initial = resolvedName.charAt(0).toUpperCase();
+
               return (
                 <button
                   key={conv.id}
                   type="button"
-                  onClick={() => setSelectedConvId(conv.id)}
+                  onClick={() => handleSelectConversation(conv)}
                   className={`crm-conv-row ${isSelected ? 'selected' : ''}`}
                 >
                   <div className="crm-conv-avatar">{initial}</div>
 
                   <div className="crm-conv-main">
                     <div className="crm-conv-top-line">
-                      <span className="crm-conv-name">
-                        {resolvedName}
-                      </span>
+                      <span className="crm-conv-name">{resolvedName}</span>
                       <span className={`crm-conv-time ${conv.unreadCount > 0 ? 'unread' : ''}`}>
                         {formatListDate(resolvedTime)}
                       </span>
@@ -562,23 +857,24 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             })
           )}
         </div>
-      </div>
+      </aside>
 
       {/* ============================================================
-          2. CENTER PANEL: Active Chat Thread & Composer
+          2. CENTER PANE: Fixed Contact Header, Scrolling Messages, Fixed Composer
           ============================================================ */}
-      <div className="crm-inbox-center">
+      <main className="crm-inbox-center" aria-label="Conversation chat">
         {activeConv ? (
           <>
-            {/* Chat Header */}
-            <div className="crm-chat-header">
+            {/* Top Contact Header (Always Pinned) */}
+            <header className="crm-chat-header">
               <div className="crm-chat-header-left">
+                {/* Mobile Back Button: returns to full list */}
                 <button
                   type="button"
-                  onClick={() => setSelectedConvId(null)}
+                  onClick={handleBackToList}
                   className="crm-chat-back-btn"
                   title="Back to Chats"
-                  aria-label="Back to Chats"
+                  aria-label="Back to Chats list"
                 >
                   <ArrowLeft size={20} />
                 </button>
@@ -590,30 +886,38 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   title="View contact info"
                 >
                   <div className="crm-chat-header-avatar">
-                    {(activeConv.contactName || contactDetails?.name || activeConv.contactPhone || contactDetails?.phone || 'U').charAt(0).toUpperCase()}
+                    {(activeConv.contactName || contactDetails?.name || activeConv.contactPhone || 'U')
+                      .charAt(0)
+                      .toUpperCase()}
                   </div>
                   <div className="crm-chat-header-meta">
                     <div className="crm-chat-header-name-row">
                       <span className="crm-chat-header-name">
-                        {activeConv.contactName || contactDetails?.name || activeConv.contactPhone || contactDetails?.phone}
+                        {activeConv.contactName || contactDetails?.name || activeConv.contactPhone}
                       </span>
                       {(activeConv.contactCategory || contactDetails?.category) && (
-                        <span className="crm-chat-category-tag">{activeConv.contactCategory || contactDetails?.category}</span>
+                        <span className="crm-chat-category-tag">
+                          {activeConv.contactCategory || contactDetails?.category}
+                        </span>
                       )}
                     </div>
-                    <div className="crm-chat-header-phone">{activeConv.contactPhone || contactDetails?.phone}</div>
+                    <div className="crm-chat-header-phone">
+                      {activeConv.contactPhone || contactDetails?.phone || ''}
+                    </div>
                   </div>
                 </button>
               </div>
 
-              {/* Header Right Controls: Agent Assign & Contact Info Toggle */}
-              <div className="crm-chat-header-actions">
-                <div className="crm-agent-assign-wrap" title="Assign team member">
-                  <UserCheck size={14} color="#667085" className="crm-agent-icon" />
+              {/* Desktop Header Actions */}
+              <div className="crm-chat-header-actions desktop-only">
+                {/* Employee Assignment Dropdown */}
+                <div className="crm-agent-assign-wrap" title="Assigned team member">
+                  <UserCheck size={14} color="#0E7490" className="crm-agent-icon" />
+                  <span style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 500 }}>Assigned to:</span>
                   <select
                     value={activeConv.assignedEmployeeId || ''}
                     onChange={e => handleAssignAgent(e.target.value)}
-                    aria-label="Assign conversation to employee"
+                    aria-label="Assign conversation to team member"
                     className="crm-agent-select"
                   >
                     <option value="">Unassigned</option>
@@ -625,17 +929,85 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   </select>
                 </div>
 
+                {/* Info Button */}
                 <button
                   type="button"
                   onClick={() => setShowContactInfo(prev => !prev)}
                   className={`crm-icon-btn ${showContactInfo ? 'active' : ''}`}
                   title={showContactInfo ? 'Hide contact info' : 'Show contact info'}
+                  aria-label="Toggle contact info"
+                >
+                  <Info size={19} />
+                </button>
+              </div>
+
+              {/* Mobile Header Actions (Compact: Info + 3-Dot Menu) */}
+              <div className="crm-chat-header-actions mobile-only" ref={mobileMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowContactInfo(prev => !prev)}
+                  className={`crm-icon-btn ${showContactInfo ? 'active' : ''}`}
+                  title="Contact info"
                   aria-label="Contact info"
                 >
                   <Info size={18} />
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(prev => !prev)}
+                  className="crm-icon-btn"
+                  title="More actions"
+                  aria-label="More actions"
+                >
+                  <MoreVertical size={18} />
+                </button>
+
+                {mobileMenuOpen && (
+                  <div className="crm-mobile-chat-dropdown" role="menu">
+                    <div className="crm-dropdown-item-header">Assign Team Member</div>
+                    <select
+                      value={activeConv.assignedEmployeeId || ''}
+                      onChange={e => handleAssignAgent(e.target.value)}
+                      className="crm-mobile-agent-select"
+                    >
+                      <option value="">Unassigned</option>
+                      {employees.map(emp => (
+                        <option key={emp.id || emp.employeeId} value={emp.employeeId || emp.id}>
+                          {emp.firstName} {emp.lastName}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        handleOpenTemplatePicker();
+                      }}
+                      className="crm-dropdown-btn-item"
+                    >
+                      <FileText size={15} />
+                      <span>Send Template</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setShowContactInfo(true);
+                      }}
+                      className="crm-dropdown-btn-item"
+                    >
+                      <User size={15} />
+                      <span>View Contact Info</span>
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
+            </header>
 
             {/* Anti-Spam Consent Warning Banner */}
             {contactDetails?.consentStatus === 'Opted Out' && (
@@ -647,34 +1019,34 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               </div>
             )}
 
-            {/* Chat Messages Scroll Area */}
-            <div className="crm-chat-messages-area">
+            {/* Message Stream (Middle Scrolling Section) */}
+            <div
+              className="crm-chat-messages-area"
+              ref={chatAreaRef}
+              onScroll={handleChatScroll}
+            >
               {loadingMessages ? (
                 <div className="crm-chat-status-msg">Loading messages...</div>
               ) : messages.length === 0 ? (
                 <div className="crm-chat-status-msg">
                   <MessageSquare size={28} style={{ margin: '0 auto 8px', opacity: 0.35 }} />
                   <div style={{ fontWeight: 600, color: '#17212C' }}>No messages yet</div>
-                  <div style={{ fontSize: '0.78rem', color: '#667085', marginTop: '4px', maxWidth: '340px', marginInline: 'auto' }}>
-                    To start a new WhatsApp chat (before the contact messages you), send an approved template first or type a reply below.
+                  <div
+                    style={{
+                      fontSize: '0.78rem',
+                      color: '#667085',
+                      marginTop: '4px',
+                      maxWidth: '340px',
+                      marginInline: 'auto'
+                    }}
+                  >
+                    To start a new WhatsApp chat (before the contact messages you), send an approved template first.
                   </div>
                   <button
                     type="button"
                     onClick={handleOpenTemplatePicker}
-                    style={{
-                      marginTop: '12px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      border: '1px solid #0E7490',
-                      backgroundColor: '#ECFEFF',
-                      color: '#0E7490',
-                      fontSize: '0.8rem',
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
+                    className="crm-btn-primary"
+                    style={{ marginTop: '12px', padding: '6px 14px', fontSize: '0.8rem' }}
                   >
                     <FileText size={15} />
                     <span>Send Approved Template</span>
@@ -689,6 +1061,16 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   const prevDateLabel = prevMsg ? formatDateSeparator(prevMsg.createdAt) : '';
                   const showDateDivider = currDateLabel && currDateLabel !== prevDateLabel;
 
+                  // Parse delivery failure if failed
+                  const parsedErr = msg.status === 'failed' ? parseDeliveryError(msg.failureReason) : null;
+                  const isErrorExpanded = expandedErrorIds.has(msg.id);
+
+                  // Check if document attachment
+                  const isDocument =
+                    msg.contentType === 'document' ||
+                    (msg.contentText && msg.contentText.toLowerCase().includes('.pdf')) ||
+                    (msg.mediaUrl && msg.mediaUrl.toLowerCase().includes('.pdf'));
+
                   return (
                     <React.Fragment key={msg.id}>
                       {showDateDivider && (
@@ -699,46 +1081,124 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
                       <div className={`crm-msg-row ${isOutbound ? 'outbound' : 'inbound'}`}>
                         <div className={`crm-msg-bubble ${isOutbound ? 'outbound' : 'inbound'}`}>
+                          {/* Template Header Badge */}
                           {msg.contentType === 'template' && (msg as any).templateName && (
-                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#0E7490', marginBottom: '3px', textTransform: 'uppercase' }}>
-                              Template • {(msg as any).templateName}
+                            <div className="crm-msg-template-badge">
+                              <FileText size={11} />
+                              <span>Template • {(msg as any).templateName}</span>
                             </div>
                           )}
-                          <div className="crm-msg-text">{msg.contentText || ((msg as any).templateName ? `Template: ${(msg as any).templateName}` : '')}</div>
-                          {msg.status === 'failed' && (
-                            <div style={{ marginTop: '6px', paddingTop: '5px', borderTop: '1px solid rgba(220,38,38,0.2)', fontSize: '0.72rem', color: '#DC2626', fontWeight: 600 }}>
-                              <div>Delivery failed: {(msg as any).failureReason || 'Outside 24-hour customer reply window — send an Approved Template first.'}</div>
+
+                          {/* Document Attachment Card */}
+                          {isDocument && (
+                            <div className="crm-msg-doc-card">
+                              <div className="crm-msg-doc-icon-box">
+                                <FileText size={18} color="#DC2626" />
+                              </div>
+                              <div className="crm-msg-doc-meta">
+                                <div className="crm-msg-doc-name">
+                                  {(msg as any).fileName || 'VRM Product Catalogue.pdf'}
+                                </div>
+                                <div className="crm-msg-doc-size">
+                                  {(msg as any).fileSize || '2.4 MB • PDF'}
+                                </div>
+                              </div>
                               <button
                                 type="button"
-                                onClick={handleOpenTemplatePicker}
-                                style={{
-                                  marginTop: '4px',
-                                  padding: '3px 8px',
-                                  borderRadius: '6px',
-                                  border: '1px solid #DC2626',
-                                  backgroundColor: '#FEF2F2',
-                                  color: '#DC2626',
-                                  fontSize: '0.7rem',
-                                  fontWeight: 700,
-                                  cursor: 'pointer'
+                                className="crm-msg-doc-download-btn"
+                                title="Download attachment"
+                                aria-label="Download attachment"
+                                onClick={() => {
+                                  if (msg.mediaUrl) {
+                                    window.open(msg.mediaUrl, '_blank');
+                                  } else {
+                                    alert('Downloading attachment...');
+                                  }
                                 }}
                               >
-                                Send Approved Template
+                                <Download size={15} />
                               </button>
                             </div>
                           )}
+
+                          {/* Image Attachment Thumbnail */}
+                          {msg.contentType === 'image' && msg.mediaUrl && (
+                            <div className="crm-msg-image-wrap">
+                              <img src={msg.mediaUrl} alt="WhatsApp Image" className="crm-msg-image-thumb" />
+                            </div>
+                          )}
+
+                          {/* Text Message Content */}
+                          {(!isDocument || msg.contentText) && (
+                            <div className="crm-msg-text">
+                              {msg.contentText || ((msg as any).templateName ? `Template: ${(msg as any).templateName}` : '')}
+                            </div>
+                          )}
+
+                          {/* Smart Delivery Error Card */}
+                          {msg.status === 'failed' && parsedErr && (
+                            <div className="crm-msg-error-card">
+                              <div className="crm-msg-error-head">
+                                <AlertCircle size={14} className="crm-msg-error-icon" />
+                                <span className="crm-msg-error-title">{parsedErr.title}</span>
+                              </div>
+                              <div className="crm-msg-error-desc">{parsedErr.shortDesc}</div>
+
+                              <div className="crm-msg-error-actions">
+                                {parsedErr.actionType === 'template' && (
+                                  <button
+                                    type="button"
+                                    onClick={handleOpenTemplatePicker}
+                                    className="crm-msg-error-action-btn primary"
+                                  >
+                                    <FileText size={12} />
+                                    <span>Send Approved Template</span>
+                                  </button>
+                                )}
+
+                                {parsedErr.actionType === 'retry' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendMessage(msg.contentText)}
+                                    className="crm-msg-error-action-btn outline"
+                                  >
+                                    <RotateCcw size={12} />
+                                    <span>Retry Send</span>
+                                  </button>
+                                )}
+
+                                {parsedErr.rawDetails && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleErrorDetails(msg.id)}
+                                    className="crm-msg-error-toggle-btn"
+                                  >
+                                    <span>{isErrorExpanded ? 'Hide details' : 'View details'}</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              {isErrorExpanded && parsedErr.rawDetails && (
+                                <div className="crm-msg-error-details-box">
+                                  {parsedErr.rawDetails}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Message Metadata: Timestamp & Delivery Indicators */}
                           <div className="crm-msg-meta">
                             <span>{formatTime(msg.createdAt)}</span>
                             {isOutbound && (
                               <span className="crm-msg-tick">
                                 {msg.status === 'read' ? (
-                                  <CheckCheck size={14} color="#0284C7" />
+                                  <CheckCheck size={14} color="#0E7490" />
                                 ) : msg.status === 'delivered' ? (
-                                  <CheckCheck size={14} color="#667085" />
+                                  <CheckCheck size={14} color="#64748B" />
                                 ) : msg.status === 'failed' ? (
                                   <AlertCircle size={13} color="#DC2626" />
                                 ) : (
-                                  <Check size={14} color="#667085" />
+                                  <Check size={14} color="#64748B" />
                                 )}
                               </span>
                             )}
@@ -749,11 +1209,23 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   );
                 })
               )}
-              <div ref={messagesEndRef} />
             </div>
 
-            {/* Bottom Message Composer */}
-            <form onSubmit={handleSendMessage} className="crm-chat-composer">
+            {/* Floating "New Messages" Pill Button when scrolled up */}
+            {showScrollBottomPill && (
+              <button
+                type="button"
+                onClick={() => scrollToBottom(true)}
+                className="crm-scroll-bottom-pill"
+                aria-label="Scroll to newest messages"
+              >
+                <ChevronDown size={14} />
+                <span>{unreadNewCount > 0 ? `${unreadNewCount} new messages` : 'Latest messages'}</span>
+              </button>
+            )}
+
+            {/* Bottom Message Composer (Always Pinned at Bottom) */}
+            <footer className="crm-chat-composer">
               <input
                 ref={attachmentInputRef}
                 type="file"
@@ -763,9 +1235,9 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               <button
                 type="button"
                 onClick={() => attachmentInputRef.current?.click()}
-                className="crm-composer-attach-btn"
-                title="Attach file"
-                aria-label="Attach file"
+                className="crm-composer-icon-btn"
+                title="Attach Document or Image"
+                aria-label="Attach Document or Image"
               >
                 <Paperclip size={18} />
               </button>
@@ -773,7 +1245,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               <button
                 type="button"
                 onClick={handleOpenTemplatePicker}
-                className="crm-composer-attach-btn"
+                className="crm-composer-icon-btn"
                 title="Send Approved WhatsApp Template"
                 aria-label="Send Approved WhatsApp Template"
                 style={{ color: '#0E7490' }}
@@ -781,40 +1253,46 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 <FileText size={18} />
               </button>
 
-              <input
-                type="text"
-                placeholder="Message..."
+              {/* Multiline Expandable Input (Enter sends on desktop, Shift+Enter new line) */}
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                placeholder="Type a message..."
                 value={inputText}
-                onChange={e => setInputText(e.target.value)}
+                onChange={handleTextareaChange}
+                onKeyDown={handleKeyDown}
                 disabled={sending}
-                className="crm-composer-input"
+                className="crm-composer-textarea"
+                aria-label="Type message content"
               />
 
+              {/* Circular Send Button */}
               <button
-                type="submit"
+                type="button"
+                onClick={() => handleSendMessage()}
                 disabled={sending || !inputText.trim()}
                 className={`crm-composer-send-btn ${inputText.trim() && !sending ? 'ready' : ''}`}
-                aria-label="Send message"
+                aria-label="Send WhatsApp message"
               >
-                <Send size={16} />
+                {sending ? <span className="crm-spinner-sm" /> : <Send size={16} />}
               </button>
-            </form>
+            </footer>
           </>
         ) : (
           <div className="crm-inbox-empty-state">
             <div className="crm-inbox-empty-icon">
-              <MessageSquare size={26} />
+              <MessageSquare size={28} />
             </div>
             <h3 className="crm-inbox-empty-title">Select a conversation</h3>
             <p className="crm-inbox-empty-desc">
-              Choose a contact from the left panel to view messages or send a reply.
+              Choose a contact from the left panel to read message history or send a WhatsApp reply.
             </p>
           </div>
         )}
-      </div>
+      </main>
 
       {/* ============================================================
-          3. RIGHT PANEL: On-Demand Contact Info Drawer / Mobile Sheet
+          3. RIGHT PANEL: Contact Details Drawer (Desktop) & Bottom Sheet (Mobile)
           ============================================================ */}
       {showRightDrawer && contactDetails && (
         <div className="crm-contact-drawer-backdrop" onClick={() => setShowContactInfo(false)}>
@@ -849,7 +1327,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               )}
             </div>
 
-            {/* Consent Status */}
+            {/* Consent Status Card */}
             <div
               className={`crm-consent-card ${
                 contactDetails.consentStatus === 'Opted In'
@@ -878,7 +1356,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
             {/* Contact Details List */}
             <div className="crm-contact-section">
-              <div className="crm-contact-section-label">Details</div>
+              <div className="crm-contact-section-label">Contact Channels</div>
               <div className="crm-contact-detail-list">
                 <div className="crm-contact-detail-row">
                   <Phone size={14} color="#667085" />
@@ -1049,17 +1527,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               <button
                 type="button"
                 onClick={() => setShowAddTagModal(false)}
-                style={{
-                  minHeight: '40px',
-                  padding: '0 14px',
-                  borderRadius: '10px',
-                  border: '1px solid #E5E7EB',
-                  backgroundColor: '#FFFFFF',
-                  color: '#667085',
-                  fontWeight: 600,
-                  fontSize: '0.84rem',
-                  cursor: 'pointer'
-                }}
+                className="crm-btn-secondary"
               >
                 Cancel
               </button>
@@ -1067,17 +1535,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 type="button"
                 onClick={handleCreateNewTag}
                 disabled={!newTagName.trim()}
-                style={{
-                  minHeight: '40px',
-                  padding: '0 16px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  backgroundColor: newTagName.trim() ? '#0E7490' : '#E5E7EB',
-                  color: newTagName.trim() ? '#FFFFFF' : '#94A3B8',
-                  fontWeight: 600,
-                  fontSize: '0.84rem',
-                  cursor: newTagName.trim() ? 'pointer' : 'default'
-                }}
+                className="crm-btn-primary"
               >
                 Create &amp; Assign
               </button>
@@ -1243,7 +1701,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             </div>
 
             <div style={{ fontSize: '0.78rem', color: '#667085', marginBottom: '14px', lineHeight: 1.45 }}>
-              Meta requires an <strong>Approved Template</strong> to initiate a new conversation when the recipient has not messaged your business number in the last 24 hours.
+              Meta requires an <strong>Approved Template</strong> to message a contact when the recipient has not messaged your business number in the last 24 hours.
             </div>
 
             <div style={{ marginBottom: '14px' }}>
@@ -1256,16 +1714,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   const found = approvedTemplates.find(t => t.id === e.target.value) || null;
                   handleSelectTemplateForSend(found);
                 }}
-                style={{
-                  width: '100%',
-                  minHeight: '42px',
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  border: '1px solid #E5E7EB',
-                  fontSize: '0.86rem',
-                  fontWeight: 600,
-                  color: '#17212C'
-                }}
+                className="crm-form-input"
               >
                 {approvedTemplates.map(t => (
                   <option key={t.id} value={t.id}>
@@ -1306,15 +1755,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                       next[i] = e.target.value;
                       setTemplateVarValues(next);
                     }}
-                    style={{
-                      width: '100%',
-                      minHeight: '38px',
-                      padding: '6px 10px',
-                      borderRadius: '8px',
-                      border: '1px solid #E5E7EB',
-                      fontSize: '0.84rem',
-                      boxSizing: 'border-box'
-                    }}
+                    className="crm-form-input"
                   />
                 ))}
               </div>
@@ -1324,17 +1765,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               <button
                 type="button"
                 onClick={() => setShowTemplateModal(false)}
-                style={{
-                  minHeight: '40px',
-                  padding: '0 14px',
-                  borderRadius: '10px',
-                  border: '1px solid #E5E7EB',
-                  backgroundColor: '#FFFFFF',
-                  color: '#667085',
-                  fontWeight: 600,
-                  fontSize: '0.84rem',
-                  cursor: 'pointer'
-                }}
+                className="crm-btn-secondary"
               >
                 Cancel
               </button>
@@ -1342,17 +1773,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 type="button"
                 onClick={handleSendSelectedTemplate}
                 disabled={!selectedTemplate || sendingTemplate}
-                style={{
-                  minHeight: '40px',
-                  padding: '0 16px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  backgroundColor: selectedTemplate && !sendingTemplate ? '#0E7490' : '#E5E7EB',
-                  color: selectedTemplate && !sendingTemplate ? '#FFFFFF' : '#94A3B8',
-                  fontWeight: 700,
-                  fontSize: '0.84rem',
-                  cursor: selectedTemplate && !sendingTemplate ? 'pointer' : 'default'
-                }}
+                className="crm-btn-primary"
               >
                 {sendingTemplate ? 'Sending...' : 'Send Template'}
               </button>

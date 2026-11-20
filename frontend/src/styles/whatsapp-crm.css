@@ -576,31 +576,64 @@
    3. SHARED INBOX (CrmInboxView.tsx)
    ============================================================================ */
 
+/* App View Layout Container: Locks viewport below header & eliminates window scrolling */
+.hrms-content.hrms-content-app-view {
+  height: calc(100vh - 72px) !important;
+  max-height: calc(100vh - 72px) !important;
+  padding: 12px 18px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+}
+
+.crm-module-wrapper.crm-module-inbox-mode {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.crm-section-body.crm-section-body-inbox {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Master Shared Inbox Container: Desktop Stable Two-Pane Flex Layout */
 .crm-inbox-container {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  height: calc(100vh - 205px);
-  min-height: 520px;
-  max-height: 780px;
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
   background-color: var(--wa-surface);
   border-radius: 14px;
   border: 1px solid var(--wa-border);
   overflow: hidden;
   position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.crm-inbox-container.with-contact-drawer {
-  grid-template-columns: 320px 1fr 290px;
-}
-
-/* Left Panel */
+/* Left Sidebar (Chats List): Stable 320px */
 .crm-inbox-left {
-  border-right: 1px solid var(--wa-border);
+  width: 320px;
+  min-width: 300px;
+  max-width: 340px;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  border-right: 1px solid var(--wa-border);
   background-color: var(--wa-surface);
-  min-width: 0;
-  height: 100%;
+  flex-shrink: 0;
 }
 
 .crm-inbox-left-header {
@@ -985,26 +1018,209 @@
 }
 
 .crm-msg-bubble {
-  max-width: min(72%, 520px);
-  padding: 8px 12px;
+  max-width: min(78%, 560px);
+  padding: 9px 13px;
   border-radius: 12px;
-  box-shadow: 0 1px 1px rgba(16, 24, 40, 0.05);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .crm-msg-bubble.outbound,
 .crm-msg-bubble.outgoing {
-  background-color: var(--wa-bubble-out);
-  color: var(--wa-text-primary);
+  background-color: #DCFCE7; /* Soft green-tinted teal matching WhatsApp reference */
+  border: 1px solid #BBF7D0;
+  color: #1E293B;
   border-top-right-radius: 3px;
 }
 
 .crm-msg-bubble.inbound,
 .crm-msg-bubble.incoming {
-  background-color: var(--wa-bubble-in);
-  color: var(--wa-text-primary);
-  border: 1px solid var(--wa-border);
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  color: #1E293B;
   border-top-left-radius: 3px;
+}
+
+/* Template Badge */
+.crm-msg-template-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #0E7490;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+/* Document Card inside Bubble */
+.crm-msg-doc-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.crm-msg-doc-icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background-color: #FEE2E2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.crm-msg-doc-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.crm-msg-doc-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1E293B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crm-msg-doc-size {
+  font-size: 0.7rem;
+  color: #64748B;
+  margin-top: 1px;
+}
+
+.crm-msg-doc-download-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #E2E8F0;
+  background-color: #F8FAFC;
+  color: var(--wa-teal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.crm-msg-doc-download-btn:hover {
+  background-color: #ECFEFF;
+  border-color: var(--wa-teal);
+}
+
+/* Image Attachment Wrapper */
+.crm-msg-image-wrap {
+  margin-bottom: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.crm-msg-image-thumb {
+  max-height: 240px;
+  width: auto;
+  max-width: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 8px;
+}
+
+/* Smart Delivery Error Card inside Bubble */
+.crm-msg-error-card {
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+}
+
+.crm-msg-error-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #991B1B;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.crm-msg-error-icon {
+  flex-shrink: 0;
+  color: #DC2626;
+}
+
+.crm-msg-error-title {
+  font-size: 0.78rem;
+}
+
+.crm-msg-error-desc {
+  color: #4B5563;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.crm-msg-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.crm-msg-error-action-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+}
+
+.crm-msg-error-action-btn.primary {
+  background-color: #0E7490;
+  color: #FFFFFF;
+}
+
+.crm-msg-error-action-btn.outline {
+  border: 1px solid #DC2626;
+  background-color: #FFFFFF;
+  color: #DC2626;
+}
+
+.crm-msg-error-toggle-btn {
+  background: none;
+  border: none;
+  color: #64748B;
+  font-size: 0.68rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 2px 4px;
+}
+
+.crm-msg-error-details-box {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.67rem;
+  color: #334155;
+  max-height: 80px;
+  overflow-y: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .crm-msg-text {
@@ -1018,7 +1234,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 0.67rem;
   color: var(--wa-text-secondary);
 }
@@ -1028,17 +1244,45 @@
   align-items: center;
 }
 
-/* Composer */
+/* Floating Scroll to Bottom Pill Button */
+.crm-scroll-bottom-pill {
+  position: absolute;
+  bottom: 68px;
+  right: 20px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background-color: #0E7490;
+  color: #FFFFFF;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  box-shadow: 0 4px 12px rgba(14, 116, 144, 0.32);
+  cursor: pointer;
+  z-index: 15;
+  animation: crm-fade-in 0.2s ease;
+}
+
+@keyframes crm-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Composer: Pinned at bottom, multiline expandable */
 .crm-chat-composer {
-  padding: 10px 12px;
+  padding: 10px 14px;
   background-color: var(--wa-surface);
   border-top: 1px solid var(--wa-border);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
-.crm-composer-attach-btn {
+.crm-composer-icon-btn {
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -1050,28 +1294,36 @@
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  transition: all 0.15s ease;
 }
 
-.crm-composer-attach-btn:hover {
+.crm-composer-icon-btn:hover {
   background-color: var(--wa-bg);
-  color: var(--wa-text-primary);
+  color: var(--wa-teal);
 }
 
-.crm-composer-input {
+.crm-composer-textarea {
   flex: 1;
-  height: 40px;
-  padding: 0 14px;
-  border-radius: 9999px;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 9px 14px;
+  border-radius: 20px;
   border: 1px solid var(--wa-border);
   background-color: var(--wa-bg);
   color: var(--wa-text-primary);
   font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.4;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
-.crm-composer-input:focus {
+.crm-composer-textarea:focus {
   background-color: var(--wa-surface);
   border-color: var(--wa-teal);
+  box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.12);
 }
 
 .crm-composer-send-btn {
@@ -1086,11 +1338,84 @@
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 .crm-composer-send-btn.ready {
-  background-color: var(--wa-green);
+  background-color: var(--wa-teal);
+  box-shadow: 0 2px 6px rgba(14, 116, 144, 0.28);
+}
+
+.crm-composer-send-btn.ready:hover {
+  background-color: var(--wa-teal-hover);
+  transform: scale(1.03);
+}
+
+/* Desktop vs Mobile Header Navigation Toggles */
+.crm-chat-header-actions.desktop-only {
+  display: flex;
+}
+
+.crm-chat-header-actions.mobile-only {
+  display: none;
+  position: relative;
+}
+
+.crm-mobile-chat-dropdown {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.16);
+  padding: 8px;
+  width: 210px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crm-dropdown-item-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748B;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+
+.crm-mobile-agent-select {
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid #CBD5E1;
+  background-color: #F8FAFC;
+  font-size: 0.8rem;
+  color: #1E293B;
+  outline: none;
+}
+
+.crm-dropdown-btn-item {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #1E293B;
+  font-size: 0.82rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.crm-dropdown-btn-item:hover {
+  background-color: #F1F5F9;
+  color: #0E7490;
 }
 
 .crm-inbox-empty-state {
@@ -2579,6 +2904,52 @@
   padding-left: 18px;
 }
 
+.crm-editor-submission-error {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background-color: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  color: #991B1B;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.crm-editor-submission-success {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background-color: #F0FDF4;
+  border: 1px solid #86EFAC;
+  color: #166534;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.crm-field-inline-error {
+  font-size: 0.73rem;
+  color: #DC2626;
+  font-weight: 600;
+  margin-top: 3px;
+  display: block;
+}
+
+.crm-spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #FFFFFF;
+  border-radius: 50%;
+  animation: crm-spin-kf 0.75s linear infinite;
+  display: inline-block;
+}
+
+@keyframes crm-spin-kf {
+  to { transform: rotate(360deg); }
+}
+
 /* ============================================================================
    6. ANALYTICS & KPIs DASHBOARD
    ============================================================================ */
@@ -2786,10 +3157,6 @@
    ============================================================================ */
 
 @media (max-width: 1024px) {
-  .crm-inbox-container.with-contact-drawer {
-    grid-template-columns: 300px 1fr;
-  }
-
   .crm-inbox-right {
     position: absolute;
     top: 0;
@@ -2802,6 +3169,80 @@
 
   .crm-editor-grid {
     grid-template-columns: 1fr 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .crm-module-wrapper.crm-module-inbox-mode {
+    gap: 6px !important;
+  }
+
+  .crm-inbox-left {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    border-right: none !important;
+  }
+
+  .crm-inbox-center {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+
+  /* Native Mobile / Tablet Portrait: Full-Width List OR Full-Width Chat */
+  .crm-inbox-container.mobile-show-chat .crm-inbox-left {
+    display: none !important;
+  }
+
+  .crm-inbox-container:not(.mobile-show-chat) .crm-inbox-center {
+    display: none !important;
+  }
+
+  .crm-chat-back-btn {
+    display: inline-flex !important;
+  }
+
+  .crm-chat-header-actions.desktop-only {
+    display: none !important;
+  }
+
+  .crm-chat-header-actions.mobile-only {
+    display: flex !important;
+  }
+
+  .crm-chat-messages-area {
+    padding: 10px 12px !important;
+  }
+
+  .crm-msg-bubble {
+    max-width: 88% !important;
+  }
+
+  .crm-chat-composer {
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)) 10px !important;
+  }
+
+  .crm-contact-drawer-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background-color: rgba(15, 23, 42, 0.45) !important;
+    z-index: 1500 !important;
+  }
+
+  .crm-inbox-right {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-height: 82vh !important;
+    border-left: none !important;
+    border-radius: 18px 18px 0 0 !important;
+    z-index: 1501 !important;
+    padding-bottom: env(safe-area-inset-bottom, 16px) !important;
+    box-shadow: 0 -8px 25px rgba(15, 23, 42, 0.16) !important;
   }
 }
 
@@ -2824,52 +3265,6 @@
 
   .crm-mobile-nav-wrap {
     display: block;
-  }
-
-  /* Native Mobile Inbox: List View OR Dedicated Chat Screen */
-  .crm-inbox-container,
-  .crm-inbox-container.with-contact-drawer {
-    grid-template-columns: 1fr;
-    height: calc(100vh - 220px);
-    min-height: 460px;
-  }
-
-  .crm-inbox-container.mobile-show-chat .crm-inbox-left {
-    display: none;
-  }
-
-  .crm-inbox-container:not(.mobile-show-chat) .crm-inbox-center {
-    display: none;
-  }
-
-  .crm-chat-back-btn {
-    display: inline-flex;
-  }
-
-  .crm-contact-drawer-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background-color: rgba(15, 23, 42, 0.45);
-    z-index: 1500;
-  }
-
-  .crm-inbox-right {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    width: 100%;
-    max-height: 82vh;
-    border-left: none;
-    border-radius: 18px 18px 0 0;
-    z-index: 1501;
-    padding-bottom: env(safe-area-inset-bottom, 16px);
-  }
-
-  .crm-msg-bubble {
-    max-width: 85%;
   }
 
   /* Contacts & Broadcasts: Switch from Table to Native Mobile List */

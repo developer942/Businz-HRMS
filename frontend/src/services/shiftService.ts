@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config/api';
 import { getTodayKolkata } from '../utils/requestValidation';
 import { supabaseDirect } from './supabaseDirectService';
+import { authService } from './authService';
 
 export interface ShiftAssignmentEmployee {
   id: string;
@@ -16,13 +17,10 @@ export interface ShiftAssignmentSummary {
   employees: ShiftAssignmentEmployee[];
 }
 
-const getToken = () => localStorage.getItem('vrm_auth_token') || sessionStorage.getItem('vrm_auth_token') || localStorage.getItem('token');
+const getToken = () => authService.getToken() || localStorage.getItem('token');
 
 export const getShiftAssignmentSummary = async (): Promise<ShiftAssignmentSummary[]> => {
-  const token = getToken();
-  const response = await fetch(`${API_BASE_URL}/shifts/assignment-summary?date=${encodeURIComponent(getTodayKolkata())}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await authService.authFetch(`${API_BASE_URL}/shifts/assignment-summary?date=${encodeURIComponent(getTodayKolkata())}`);
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.success || !Array.isArray(body.data)) {
     throw new Error(body?.error?.message || 'Unable to load assigned staff counts.');

@@ -5,6 +5,7 @@
  */
 
 import { API_BASE_URL } from '../config/api';
+import { authService } from './authService';
 import type {
   CrmContact,
   CrmTag,
@@ -21,23 +22,7 @@ const getApiBase = () => {
 };
 
 const getAuthToken = (): string | null => {
-  let token = (
-    localStorage.getItem('vrm_auth_token') ||
-    sessionStorage.getItem('vrm_auth_token') ||
-    localStorage.getItem('token') ||
-    null
-  );
-  if (!token) {
-    const rawUser = localStorage.getItem('vrm_hrms_current_user');
-    if (rawUser) {
-      try {
-        const u = JSON.parse(rawUser);
-        const payload = btoa(unescape(encodeURIComponent(JSON.stringify(u))));
-        token = 'vrm_session_' + payload;
-      } catch {}
-    }
-  }
-  return token;
+  return authService.getToken() || localStorage.getItem('token') || null;
 };
 
 const getHeaders = (extra: Record<string, string> = {}) => {
