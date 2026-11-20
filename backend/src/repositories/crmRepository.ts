@@ -6,6 +6,7 @@
  */
 
 import { getSupabaseAdmin } from '../config/supabase.js';
+import { query } from '../config/database.js';
 import {
   CrmContact,
   CrmTag,
@@ -63,17 +64,21 @@ export class CrmRepository {
   }
 
   async getContactById(idOrPhone: string, companyId = 'company-a'): Promise<CrmContact | null> {
-    const supabase = getSupabaseAdmin();
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(idOrPhone || '').trim());
     let data: any = null;
 
     if (isUuid) {
-      const res = await supabase.from('crm_contacts')
-        .select('*')
-        .eq('company_id', companyId)
-        .eq('id', idOrPhone.trim())
-        .maybeSingle();
-      data = res.data;
+      try {
+        const sqlRes = await query(
+          `SELECT * FROM public.crm_contacts WHERE company_id = $1 AND id = $2 LIMIT 1`,
+          [companyId, idOrPhone.trim()]
+        );
+        if (sqlRes.rows.length > 0) {
+          data = sqlRes.rows[0];
+        }
+      } catch (err) {
+        console.warn('[CrmRepository] SQL getContactById uuid failed:', err);
+      }
     }
 
     if (!data) {
@@ -81,13 +86,54 @@ export class CrmRepository {
       if (cleanPhone) {
         const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
         const with91 = last10.length === 10 ? `91${last10}` : cleanPhone;
+        try {
+          const sqlRes = await query(
+            `SELECT * FROM public.crm_contacts 
+             WHERE company_id = $1 
+               AND (
+                 phone = $2 
+                 OR phone_normalized = $3 
+                 OR phone_normalized = $4 
+                 OR phone_normalized = $5 
+                 OR phone_normalized LIKE '%' || $4
+                 OR phone LIKE '%' || $4
+               )
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            [companyId, idOrPhone, cleanPhone, last10, with91]
+          );
+          if (sqlRes.rows.length > 0) {
+            data = sqlRes.rows[0];
+          }
+        } catch (err) {
+          console.warn('[CrmRepository] SQL getContactById phone failed:', err);
+        }
+      }
+    }
+
+    // Fallback to PostgREST if direct SQL didn't find or errored
+    if (!data) {
+      const supabase = getSupabaseAdmin();
+      if (isUuid) {
         const res = await supabase.from('crm_contacts')
           .select('*')
           .eq('company_id', companyId)
-          .or(`phone.eq.${idOrPhone},phone_normalized.eq.${cleanPhone},phone_normalized.eq.${last10},phone_normalized.eq.${with91},phone.eq.+${with91},phone.eq.${last10}`)
-          .limit(1)
+          .eq('id', idOrPhone.trim())
           .maybeSingle();
         data = res.data;
+      }
+      if (!data) {
+        const cleanPhone = String(idOrPhone || '').replace(/\D/g, '');
+        if (cleanPhone) {
+          const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+          const res = await supabase.from('crm_contacts')
+            .select('*')
+            .eq('company_id', companyId)
+            .or(`phone.eq.${idOrPhone},phone_normalized.eq.${cleanPhone},phone_normalized.eq.${last10}`)
+            .limit(1)
+            .maybeSingle();
+          data = res.data;
+        }
       }
     }
 
@@ -102,12 +148,42 @@ export class CrmRepository {
   }): Promise<CrmContact> {
     const supabase = getSupabaseAdmin();
     const cleanPhone = data.phone.replace(/\D/g, '');
+    const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+    const with91 = last10.length === 10 ? `91${last10}` : cleanPhone;
 
-    const { data: existing } = await supabase.from('crm_contacts')
-      .select('id')
-      .eq('company_id', data.companyId || 'company-a')
-      .or(`phone.eq.${data.phone},phone_normalized.eq.${cleanPhone}`)
-      .maybeSingle();
+    // Check existing contact by phone variations with direct SQL
+    let existing: any = null;
+    try {
+      const existRes = await query(
+        `SELECT * FROM public.crm_contacts 
+         WHERE company_id = $1 
+           AND (
+             phone = $2 
+             OR phone_normalized = $3 
+             OR phone_normalized = $4 
+             OR phone_normalized = $5 
+             OR phone_normalized LIKE '%' || $4
+             OR phone LIKE '%' || $4
+           )
+         ORDER BY created_at ASC
+         LIMIT 1`,
+        [data.companyId || 'company-a', data.phone, cleanPhone, last10, with91]
+      );
+      if (existRes.rows.length > 0) {
+        existing = existRes.rows[0];
+      }
+    } catch (err) {
+      console.warn('[CrmRepository] SQL upsertContact check failed:', err);
+    }
+
+    if (!existing) {
+      const { data: pExisting } = await supabase.from('crm_contacts')
+        .select('*')
+        .eq('company_id', data.companyId || 'company-a')
+        .or(`phone.eq.${data.phone},phone_normalized.eq.${cleanPhone},phone_normalized.eq.${last10}`)
+        .maybeSingle();
+      existing = pExisting;
+    }
 
     const record: any = {
       company_id: data.companyId || 'company-a',
@@ -117,7 +193,7 @@ export class CrmRepository {
       email: data.email || null,
       company_name: data.companyName || null,
       designation: data.designation || null,
-      category: data.category || 'Customer',
+      category: data.category || 'Customers',
       source_type: data.sourceType || 'MANUAL',
       source_id: data.sourceId || null,
       consent_status: data.consentStatus || 'Pending',
@@ -130,6 +206,10 @@ export class CrmRepository {
     };
 
     if (existing?.id) {
+      // Do not overwrite existing human name if incoming is just fallback
+      if (existing.name && existing.name !== existing.phone && (!data.name || data.name.startsWith('Customer '))) {
+        delete record.name;
+      }
       const { data: updated, error } = await supabase.from('crm_contacts')
         .update(record)
         .eq('id', existing.id)
@@ -361,6 +441,23 @@ export class CrmRepository {
     failureReason?: string;
   }): Promise<CrmMessage> {
     const supabase = getSupabaseAdmin();
+
+    // Prevent duplicate insertion if wamid already exists
+    if (data.wamid) {
+      try {
+        const existRes = await query(
+          `SELECT * FROM public.crm_messages WHERE wamid = $1 LIMIT 1`,
+          [data.wamid]
+        );
+        if (existRes.rows.length > 0) {
+          console.log(`[CrmRepository] Message with wamid ${data.wamid} already exists. Returning existing.`);
+          return this.mapMessageRow(existRes.rows[0]);
+        }
+      } catch (err) {
+        console.warn('[CrmRepository] Deduplication check failed:', err);
+      }
+    }
+
     const { data: created, error } = await supabase.from('crm_messages')
       .insert({
         conversation_id: data.conversationId,
@@ -382,14 +479,36 @@ export class CrmRepository {
 
     if (error) throw new Error(error.message);
 
-    // Update conversation last message snippet
-    await supabase.from('crm_conversations')
-      .update({
-        last_message_text: data.contentText || (data.templateName ? `Template: ${data.templateName}` : data.contentType),
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', data.conversationId);
+    // Update conversation: last message, timestamp, reopen if customer message, and increment unread count
+    const isCustomer = data.senderType === 'customer';
+    const lastSnippet = data.contentText || (data.templateName ? `Template: ${data.templateName}` : data.contentType);
+    const nowIso = new Date().toISOString();
+
+    try {
+      if (isCustomer) {
+        await query(
+          `UPDATE public.crm_conversations 
+           SET last_message_text = $1,
+               last_message_at = $2,
+               updated_at = $2,
+               status = 'open',
+               unread_count = unread_count + 1
+           WHERE id = $3`,
+          [lastSnippet, nowIso, data.conversationId]
+        );
+      } else {
+        await query(
+          `UPDATE public.crm_conversations 
+           SET last_message_text = $1,
+               last_message_at = $2,
+               updated_at = $2
+           WHERE id = $3`,
+          [lastSnippet, nowIso, data.conversationId]
+        );
+      }
+    } catch (convErr) {
+      console.warn('[CrmRepository] Error updating conversation metadata:', convErr);
+    }
 
     return this.mapMessageRow(created);
   }

@@ -38,12 +38,23 @@ export class CrmWebhookController {
   async handleWebhookPayload(req: Request, res: Response): Promise<void> {
     // Immediate 200 OK acknowledgment to Meta to prevent retry loops
     res.status(200).json({ success: true });
-    await this.processWebhookEventBody(req.body);
+    try {
+      await this.processWebhookEventBody(req.body);
+    } catch (err) {
+      console.error('[CrmWebhook] Top-level error in handleWebhookPayload:', err);
+    }
   }
 
   async processWebhookEventBody(body: any): Promise<void> {
     try {
-      if (!body || body.object !== 'whatsapp_business_account') return;
+      if (!body) return;
+
+      console.log('[CrmWebhook] Inbound webhook event received:', JSON.stringify(body));
+
+      if (body.object !== 'whatsapp_business_account') {
+        console.log('[CrmWebhook] Ignored non-WABA event:', body.object);
+        return;
+      }
 
       const entries = body.entry || [];
       for (const entry of entries) {
@@ -54,86 +65,101 @@ export class CrmWebhookController {
           if (!value) continue;
 
           // 1. Process Message Delivery Status Updates (sent, delivered, read, failed)
+          // Processed independently so any status error never blocks incoming customer messages
           const statuses = value.statuses || [];
           for (const st of statuses) {
-            const wamid = st.id;
-            const status = st.status; // 'sent' | 'delivered' | 'read' | 'failed'
-            const failureReason = st.errors ? JSON.stringify(st.errors) : undefined;
-            if (wamid && status) {
-              await crmRepository.updateMessageStatusByWamid(wamid, status, failureReason).catch(err => {
-                console.warn('[CrmWebhook] Error updating message status:', err);
-              });
+            try {
+              const wamid = st.id;
+              const status = st.status; // 'sent' | 'delivered' | 'read' | 'failed'
+              const failureReason = st.errors ? JSON.stringify(st.errors) : undefined;
+              if (wamid && status) {
+                console.log(`[CrmWebhook] Status update: wamid=${wamid}, status=${status}`);
+                await crmRepository.updateMessageStatusByWamid(wamid, status, failureReason);
+              }
+            } catch (err) {
+              console.warn('[CrmWebhook] Error updating message status:', err);
             }
           }
 
           // 2. Process Inbound Messages from Customers
+          // Processed independently from statuses
           const messages = value.messages || [];
           const contactsMeta = value.contacts || [];
 
           for (const msg of messages) {
-            const senderPhone = msg.from;
-            const wamid = msg.id;
-            const contactMeta = contactsMeta.find((c: any) => c.wa_id === senderPhone);
-            const customerName = contactMeta?.profile?.name || `Customer ${senderPhone}`;
+            try {
+              const senderPhone = msg.from;
+              const wamid = msg.id;
+              const contactMeta = contactsMeta.find((c: any) => c.wa_id === senderPhone);
+              const customerName = contactMeta?.profile?.name || `Customer ${senderPhone}`;
 
-            // Find or create contact
-            let contact = await crmRepository.getContactById(senderPhone, 'company-a');
-            if (!contact) {
-              contact = await crmRepository.upsertContact({
+              console.log(`[CrmWebhook] Inbound customer message from ${customerName} (${senderPhone}), wamid: ${wamid}`);
+
+              // Find or create contact using normalized matching across phone formats
+              let contact = await crmRepository.getContactById(senderPhone, 'company-a');
+              if (!contact) {
+                console.log(`[CrmWebhook] No existing contact found for ${senderPhone}. Upserting new contact...`);
+                contact = await crmRepository.upsertContact({
+                  companyId: 'company-a',
+                  phone: senderPhone,
+                  name: customerName,
+                  category: 'Customers',
+                  sourceType: 'INBOUND_CHAT',
+                  consentStatus: 'Opted In', // Inbound customer initiation provides explicit communication consent
+                  consentSource: 'Inbound WhatsApp Message',
+                  consentTimestamp: new Date().toISOString()
+                });
+              } else {
+                console.log(`[CrmWebhook] Matched existing contact: ${contact.id} (${contact.name}, ${contact.phone})`);
+              }
+
+              // Get or create conversation thread
+              const conv = await crmRepository.getOrCreateConversation(contact.id, 'company-a');
+              console.log(`[CrmWebhook] Conversation ID: ${conv.id} for contact: ${contact.id}`);
+
+              // Determine message content
+              let contentType: 'text' | 'template' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'interactive' = 'text';
+              let contentText = '';
+              let mediaUrl: string | undefined;
+
+              if (msg.type === 'text') {
+                contentType = 'text';
+                contentText = msg.text?.body || '';
+              } else if (msg.type === 'image') {
+                contentType = 'image';
+                contentText = msg.image?.caption || '';
+                mediaUrl = msg.image?.id; // Meta Media ID
+              } else if (msg.type === 'document') {
+                contentType = 'document';
+                contentText = msg.document?.caption || msg.document?.filename || 'Document';
+                mediaUrl = msg.document?.id;
+              } else if (msg.type === 'audio') {
+                contentType = 'audio';
+                mediaUrl = msg.audio?.id;
+              } else if (msg.type === 'button') {
+                contentType = 'interactive';
+                contentText = msg.button?.text || '';
+              } else if (msg.type === 'interactive') {
+                contentType = 'interactive';
+                contentText = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || 'Interactive Response';
+              }
+
+              // Save inbound message
+              const saved = await crmRepository.insertMessage({
+                conversationId: conv.id,
                 companyId: 'company-a',
-                phone: senderPhone,
-                name: customerName,
-                category: 'Customers',
-                sourceType: 'INBOUND_CHAT',
-                consentStatus: 'Opted In', // Inbound customer initiation provides explicit communication consent
-                consentSource: 'Inbound WhatsApp Message',
-                consentTimestamp: new Date().toISOString()
+                senderType: 'customer',
+                contentType,
+                contentText,
+                mediaUrl,
+                wamid,
+                status: 'delivered'
               });
+
+              console.log(`[CrmWebhook] Recorded inbound message: id=${saved.id}, conversationId=${conv.id}, sender=${customerName}, text="${contentText}"`);
+            } catch (msgErr) {
+              console.error('[CrmWebhook] Error processing individual inbound message:', msgErr);
             }
-
-            // Get or create conversation thread
-            const conv = await crmRepository.getOrCreateConversation(contact.id, 'company-a');
-
-            // Determine message content
-            let contentType: 'text' | 'template' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'interactive' = 'text';
-            let contentText = '';
-            let mediaUrl: string | undefined;
-
-            if (msg.type === 'text') {
-              contentType = 'text';
-              contentText = msg.text?.body || '';
-            } else if (msg.type === 'image') {
-              contentType = 'image';
-              contentText = msg.image?.caption || '';
-              mediaUrl = msg.image?.id; // Meta Media ID
-            } else if (msg.type === 'document') {
-              contentType = 'document';
-              contentText = msg.document?.caption || msg.document?.filename || 'Document';
-              mediaUrl = msg.document?.id;
-            } else if (msg.type === 'audio') {
-              contentType = 'audio';
-              mediaUrl = msg.audio?.id;
-            } else if (msg.type === 'button') {
-              contentType = 'interactive';
-              contentText = msg.button?.text || '';
-            } else if (msg.type === 'interactive') {
-              contentType = 'interactive';
-              contentText = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || 'Interactive Response';
-            }
-
-            // Save inbound message
-            await crmRepository.insertMessage({
-              conversationId: conv.id,
-              companyId: 'company-a',
-              senderType: 'customer',
-              contentType,
-              contentText,
-              mediaUrl,
-              wamid,
-              status: 'delivered'
-            });
-
-            console.log(`[CrmWebhook] Recorded inbound message from ${customerName} (${senderPhone})`);
           }
         }
       }
