@@ -69,10 +69,10 @@ export const TravelHistoryTab: React.FC = () => {
 
       const metrics = trip
         ? calculateSequentialRouteMetrics(
-            trip.locationPoints || [],
-            trip.segments,
-            trip.tripEndTime || trip.checkOutTime
-          )
+          trip.locationPoints || [],
+          trip.segments,
+          trip.tripEndTime || trip.checkOutTime
+        )
         : null;
 
       const km = metrics ? metrics.verifiedKm : trip?.totalKm || 0;

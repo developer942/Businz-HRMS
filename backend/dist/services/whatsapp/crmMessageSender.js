@@ -75,10 +75,11 @@ export class CrmMessageSender {
                 }
                 // Determine header URL
                 if (templateHeaderType === 'IMAGE') {
+                    const content = matchedTmpl.headerContent;
                     finalHeaderUrl = headerUrl
-                        || matchedTmpl.headerContent
+                        || (content && !content.includes('brand-logo.png') ? content : null)
                         || (matchedTmpl.headerExample && matchedTmpl.headerExample[0] && !matchedTmpl.headerExample[0].startsWith('https://scontent.') ? matchedTmpl.headerExample[0] : null)
-                        || 'https://hrms.businz.com/brand-logo.png';
+                        || 'https://hrms.businz.com/vrm-banner.png';
                 }
                 else if (templateHeaderType === 'DOCUMENT') {
                     finalHeaderUrl = headerUrl

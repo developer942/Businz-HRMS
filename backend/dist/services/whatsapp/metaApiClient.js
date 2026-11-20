@@ -71,6 +71,7 @@ export class MetaApiClient {
         }
         const cleanTo = this.normalizeRecipientPhone(to);
         const url = `${this.baseUrl}/${config.phoneNumberId}/messages`;
+        const targetWabaId = config.wabaId || undefined;
         try {
             const res = await fetch(url, {
                 method: 'POST',
@@ -80,6 +81,7 @@ export class MetaApiClient {
                 },
                 body: JSON.stringify({
                     messaging_product: 'whatsapp',
+                    ...(targetWabaId ? { messaging_account_id: targetWabaId } : {}),
                     recipient_type: 'individual',
                     to: cleanTo,
                     type: 'text',
@@ -112,13 +114,14 @@ export class MetaApiClient {
     /**
      * Sends an outbound template message
      */
-    async sendTemplateMessage(to, templateName, language = 'en', components = [], companyId = 'company-a') {
+    async sendTemplateMessage(to, templateName, language = 'en', components = [], companyId = 'company-a', messagingAccountId) {
         const config = await this.getConfig(companyId);
         if (!config) {
             return { success: false, error: 'WhatsApp Meta credentials not configured' };
         }
         const cleanTo = this.normalizeRecipientPhone(to);
         const url = `${this.baseUrl}/${config.phoneNumberId}/messages`;
+        const targetWabaId = messagingAccountId || config.wabaId || undefined;
         try {
             const res = await fetch(url, {
                 method: 'POST',
@@ -128,6 +131,7 @@ export class MetaApiClient {
                 },
                 body: JSON.stringify({
                     messaging_product: 'whatsapp',
+                    ...(targetWabaId ? { messaging_account_id: targetWabaId } : {}),
                     recipient_type: 'individual',
                     to: cleanTo,
                     type: 'template',

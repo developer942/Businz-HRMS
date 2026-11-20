@@ -543,7 +543,7 @@ export class CrmRepository {
             for (const comp of metaTmpl.components) {
                 if (comp.type === 'HEADER') {
                     headerType = comp.format || 'TEXT';
-                    headerContent = comp.text || null;
+                    headerContent = comp.text || (headerType === 'IMAGE' ? 'https://hrms.businz.com/vrm-banner.png' : null);
                     headerExample = comp.example?.header_text || comp.example?.header_handle || null;
                 }
                 else if (comp.type === 'BODY') {

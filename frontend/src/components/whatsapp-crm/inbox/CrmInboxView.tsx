@@ -593,7 +593,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     if (!selectedTemplate || !activeConv || sendingTemplate) return;
     setSendingTemplate(true);
     try {
-      const headerUrl = selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || (selectedTemplate.headerType === 'IMAGE' ? 'https://hrms.businz.com/brand-logo.png' : undefined);
+      const headerUrl = selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || (selectedTemplate.headerType === 'IMAGE' ? 'https://hrms.businz.com/vrm-banner.png' : undefined);
 
       const msg = await crmService.sendTemplateMessage({
         contactId: activeConv.contactId,
@@ -1146,7 +1146,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                       !templateHeaderImage &&
                       (templateName === 'vrm_expo_followup_v1' || msg.contentText?.includes('VRM Structures'))
                     ) {
-                      templateHeaderImage = 'https://hrms.businz.com/brand-logo.png';
+                      templateHeaderImage = 'https://hrms.businz.com/vrm-banner.png';
                     }
                   }
 
@@ -1888,7 +1888,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 {selectedTemplate.headerType === 'IMAGE' && (
                   <div style={{ marginBottom: '8px', borderRadius: '6px', overflow: 'hidden', border: '1px solid #E2E8F0', maxHeight: '120px' }}>
                     <img
-                      src={selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || 'https://hrms.businz.com/brand-logo.png'}
+                      src={selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || 'https://hrms.businz.com/vrm-banner.png'}
                       alt="Header"
                       style={{ width: '100%', height: '120px', objectFit: 'cover', display: 'block' }}
                     />
