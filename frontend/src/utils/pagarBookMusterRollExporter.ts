@@ -16,6 +16,7 @@ import * as XLSX from 'xlsx';
 import { applyBoldStylesToXlsxBuffer } from './exportUtils';
 import { calculateEnterpriseOvertimeRateAndAmount } from '../services/attendanceCalculationEngine';
 import { resolveEffectiveLatePolicy, isCheckInLate } from '../services/policyEngine';
+import { isShiftEnded } from '../services/shiftAttendanceEngine';
 
 export interface PagarBookMusterRollExportOptions {
   overtimePolicy?: OvertimePolicy | null;
@@ -422,7 +423,18 @@ export function buildPagarBookMusterRollExcelData(
       } else if (rec) {
         const stLower = (rec.status || '').toLowerCase();
         const methodLower = (rec.method || '').toLowerCase();
-        if (stLower === 'holiday' || stLower === 'week off' || methodLower.includes('holiday')) {
+        const isMuStatus =
+          stLower === 'mu' ||
+          stLower === 'missed punch-out' ||
+          stLower === 'missing punch';
+        const hasRecIn = Boolean(rec.checkIn && rec.checkIn !== '--:--' && String(rec.checkIn).trim() !== '');
+        const hasRecOut = Boolean(rec.checkOut && rec.checkOut !== '--:--' && String(rec.checkOut).trim() !== '' && !String(rec.checkOut).toLowerCase().includes('progress'));
+        const shiftEnded = isShiftEnded(dStr, assignedShift);
+
+        if (isMuStatus || (hasRecIn && !hasRecOut && shiftEnded)) {
+          state = 'MU';
+          // Incomplete attendance / MU must not earn present days or hours
+        } else if (stLower === 'holiday' || stLower === 'week off' || methodLower.includes('holiday')) {
           state = isHoliday && !isSunday ? 'H' : 'WO';
           totalPaidLeaves++;
         } else if (stLower.includes('wfh') || stLower.includes('home') || stLower.includes('wfo') || stLower.includes('office')) {
@@ -445,7 +457,7 @@ export function buildPagarBookMusterRollExcelData(
         } else if (rec.status === 'On Leave') {
           state = 'PL';
           totalPaidLeaves++;
-        } else if (rec.checkIn && rec.checkIn !== '--:--') {
+        } else if (hasRecIn) {
           state = '1P';
           totalPresent++;
         } else {
@@ -454,10 +466,10 @@ export function buildPagarBookMusterRollExcelData(
         }
 
         inTime = state === 'A' || state === 'H' || state === 'WO' ? '-' : formatPunchTimeForSheet(rec.checkIn);
-        outTime = state === 'A' || state === 'H' || state === 'WO' ? '-' : formatPunchTimeForSheet(rec.checkOut);
+        outTime = state === 'A' || state === 'H' || state === 'WO' || state === 'MU' ? '-' : formatPunchTimeForSheet(rec.checkOut);
 
         let whMins = 0;
-        if (state !== 'A' && state !== 'H' && state !== 'WO' && state !== 'PL') {
+        if (state !== 'A' && state !== 'H' && state !== 'WO' && state !== 'PL' && state !== 'MU') {
           if (inTime !== '-' && outTime !== '-') {
             const inM = parseTimeToMins(rec.checkIn);
             const outM = parseTimeToMins(rec.checkOut);

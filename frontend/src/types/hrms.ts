@@ -287,7 +287,7 @@ export interface AttendanceRecord {
   checkIn: string | null;
   checkOut: string | null;
   workingHours: number;
-  status: 'Present' | 'Absent' | 'Late' | 'Half Day' | 'Work From Home' | 'On Leave' | 'Holiday' | 'Week Off' | 'Missing Punch';
+  status: 'Present' | 'Absent' | 'Late' | 'Half Day' | 'Work From Home' | 'On Leave' | 'Holiday' | 'Week Off' | 'Missing Punch' | 'Missed Punch-Out' | 'MU';
   lateStatus?: 'On Time' | 'Late (<30m)' | 'Severely Late' | 'N/A';
   location?: {
     lat: number;

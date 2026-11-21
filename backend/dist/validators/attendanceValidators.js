@@ -68,4 +68,29 @@ export const attendanceFilterSchema = z.object({
     employeeId: z.string().max(50).optional(),
     status: z.string().max(50).optional(),
 });
+export const attendanceCorrectionSchema = z.object({
+    employeeId: z.string().min(1, 'Employee ID is required').max(50),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+    status: z.enum([
+        'Present',
+        'Half Day',
+        'Paid Leave',
+        'On Leave',
+        'Unpaid Leave',
+        'Absent',
+        'Holiday',
+        'Week Off',
+        'Work From Home',
+        'Field Visit',
+        'Missed Punch-Out',
+        'MU',
+    ]),
+    checkIn: z.string().nullable().optional(),
+    checkOut: z.string().nullable().optional(),
+    breakDurationMinutes: z.number().min(0).max(480).optional(),
+    workingHours: z.number().min(0).max(24).optional(),
+    reason: z.string().trim().min(3, 'Correction reason / remarks is mandatory'),
+    halfDayType: z.enum(['First Half', 'Second Half']).optional(),
+    otHours: z.number().min(0).max(24).optional(),
+});
 //# sourceMappingURL=attendanceValidators.js.map

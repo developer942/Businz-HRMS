@@ -2880,6 +2880,9 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     if (statusNorm === 'pending leave') {
       return 'Pending Leave';
     }
+    if (statusNorm === 'mu' || statusNorm === 'missed punch-out' || statusNorm === 'missing punch') {
+      return 'Missed Punch-Out';
+    }
     if (statusNorm === 'on leave' || statusNorm === 'leave') {
       const lt = String(rec?.leaveType || rec?.reason || '').toLowerCase();
       if (lt.includes('unpaid') || lt.includes('lop') || lt.includes('loss of pay')) {
@@ -2907,6 +2910,10 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
   };
 
   const getRecordResolvedWorkingHours = (rec: any): number => {
+    const statusNorm = String(rec?.status || rec?.effectiveStatus || '').toLowerCase();
+    if (statusNorm === 'mu' || statusNorm === 'missed punch-out' || statusNorm === 'missing punch') {
+      return 0;
+    }
     const rawHrs = Number(rec?.workingHours ?? rec?.working_hours ?? 0);
     if (Number.isFinite(rawHrs) && rawHrs > 0) {
       return Math.round((rawHrs + Number.EPSILON) * 100) / 100;
@@ -3219,6 +3226,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
     if (statusStr === 'Paid Leave') return '#7c3aed';
     if (statusStr === 'Unpaid Leave' || statusStr === 'Pending Leave') return '#d97706';
     if (statusStr === 'Holiday') return '#2563eb';
+    if (statusStr === 'MU' || statusStr === 'Missed Punch-Out' || statusStr === 'Missing Punch') return '#f59e0b';
     return '#dc2626';
   };
 

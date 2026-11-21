@@ -139,6 +139,17 @@ export function calculateShiftDateTimes(
 }
 
 /**
+ * Evaluates whether an employee's assigned shift on a given calendar date has concluded.
+ * Handles normal same-day shifts and overnight/night shifts crossing midnight.
+ */
+export function isShiftEnded(shiftDateStr: string, shift?: ShiftRecord | null, nowInput?: Date): boolean {
+  if (!shiftDateStr || !shift) return true;
+  const now = nowInput || new Date();
+  const { shiftEndDateTime } = calculateShiftDateTimes(shiftDateStr, shift);
+  return now.getTime() > shiftEndDateTime.getTime();
+}
+
+/**
  * Authoritative Backend Shift Window Evaluator.
  * Enforces:
  * - Check-in opens strictly 3 hours before assigned shift start.

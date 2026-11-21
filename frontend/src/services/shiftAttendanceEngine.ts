@@ -270,6 +270,17 @@ export function calculateShiftDateTimes(shiftDateStr: string, shift: Shift, grac
 }
 
 /**
+ * Evaluates whether an employee's assigned shift on a given calendar date has concluded.
+ * Handles normal same-day shifts and overnight/night shifts crossing midnight.
+ */
+export function isShiftEnded(shiftDateStr: string, shift?: Shift | null, nowInput?: Date): boolean {
+  if (!shiftDateStr || !shift) return true;
+  const now = nowInput || new Date();
+  const { endDateTime } = calculateShiftDateTimes(shiftDateStr, shift);
+  return now.getTime() > endDateTime.getTime();
+}
+
+/**
  * Formats time countdown e.g. "Starts in 2h 15m" or "Starts in 45m"
  */
 export function formatCountdown(diffMs: number): string {

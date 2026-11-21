@@ -18,6 +18,7 @@ import {
   OtSalaryDivisorMode
 } from '../types/attendanceEnterprise';
 import { PayrollSettingsConfig } from '../types/settings';
+import { isShiftEnded, resolveEmployeeAssignedShift } from './shiftAttendanceEngine';
 
 /**
  * Parses time string (e.g. "09:00 AM", "07:15 PM", "09:30", "18:45") into total minutes from midnight.
@@ -1137,7 +1138,9 @@ export type CanonicalCalendarDayStatus =
   | 'Pending Leave'
   | 'Holiday'
   | 'Absent'
-  | 'Not Marked';
+  | 'Not Marked'
+  | 'MU'
+  | 'Missed Punch-Out';
 
 export interface EmployeeCalendarDayRow {
   id: string;
@@ -1208,6 +1211,7 @@ export interface EmployeeMonthlyAttendanceCalendarResult {
   confirmedPaidDays: number;
   provisionalInProgressDays: number;
   lopDays: number;
+  muDays?: number;
   rows: EmployeeCalendarDayRow[];
 }
 
@@ -1229,6 +1233,9 @@ export interface BuildEmployeeMonthlyAttendanceCalendarParams {
   attendanceRecords?: any[];
   leaveRequests?: any[];
   stdShiftHours?: number;
+  shifts?: any[];
+  assignedShift?: any;
+  nowInput?: Date;
 }
 
 /**
@@ -1248,6 +1255,7 @@ export function buildEmployeeMonthlyAttendanceCalendar(
   const monthEnd = `${monthKey}-${String(calendarDaysInMonth).padStart(2, '0')}`;
 
   const todayIst = normalizeDateToISO(params.todayStr) || getIstTodayDateStr();
+  const refNow = params.nowInput || new Date();
 
   const emp = params.employee || {};
   const canonicalEmpCode = String(params.employeeId || emp.employeeId || emp.id || '').trim();
@@ -1527,12 +1535,17 @@ export function buildEmployeeMonthlyAttendanceCalendar(
       confirmedPaidDays: 0,
       provisionalInProgressDays: 0,
       lopDays: 0,
+      muDays: 0,
       rows: [],
     };
   }
 
   const startDayNum = Number(effectiveStart.slice(8, 10)) || 1;
   const endDayNum = Number(effectiveEnd.slice(8, 10)) || calendarDaysInMonth;
+
+  const assignedShift =
+    params.assignedShift ||
+    (params.shifts ? resolveEmployeeAssignedShift(emp as Employee, params.shifts) : null);
 
   const rows: EmployeeCalendarDayRow[] = [];
   let calendarDaysElapsed = 0;
@@ -1549,6 +1562,7 @@ export function buildEmployeeMonthlyAttendanceCalendar(
   let paidDays = 0;
   let provisionalInProgressDays = 0;
   let lopDays = 0;
+  let muDays = 0;
 
   for (let day = startDayNum; day <= endDayNum; day++) {
     const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`;
@@ -1791,7 +1805,49 @@ export function buildEmployeeMonthlyAttendanceCalendar(
       }
       const cleanCheckIn = hasCheckIn ? rawCheckIn : null;
       const cleanCheckOut = hasCheckOut ? rawCheckOut : null;
-      const isInProgress = hasCheckIn && !hasCheckOut && dateStr === todayIst;
+
+      const isMuStatus =
+        attStatusNorm === 'mu' ||
+        attStatusNorm === 'missed punch-out' ||
+        attStatusNorm === 'missing punch';
+
+      const shiftEnded = dateStr < todayIst ? true : isShiftEnded(dateStr, assignedShift, refNow);
+      const isMissedPunchOut = isMuStatus || (hasCheckIn && !hasCheckOut && shiftEnded);
+      const isInProgress = hasCheckIn && !hasCheckOut && !shiftEnded;
+
+      if (isMissedPunchOut) {
+        muDays += 1;
+        lopDays += 1;
+        rows.push({
+          ...att,
+          id: att?.id || `ATT-MU-${canonicalEmpCode || 'EMP'}-${dateStr}`,
+          employeeId: canonicalEmpCode,
+          employeeName: canonicalEmpName,
+          department: canonicalDept,
+          designation: emp.designation || '',
+          avatar: emp.avatar || '',
+          date: dateStr,
+          shiftDate: dateStr,
+          checkIn: cleanCheckIn,
+          checkOut: null,
+          workingHours: 0,
+          status: 'MU',
+          effectiveStatus: 'MU',
+          isInProgress: false,
+          isProvisional: false,
+          isHoliday: false,
+          isWeeklyOff: false,
+          isScheduledWorkingDay: true,
+          method: att?.method || 'Biometric',
+          remarks: att?.reason || 'Missed Punch-Out (MU)',
+          workedDayEquivalent: 0,
+          paidDayEquivalent: 0,
+          provisionalDayEquivalent: 0,
+          lopDayEquivalent: 1,
+        });
+        continue;
+      }
+
       const isHalfDay =
         !isInProgress &&
         (attStatusNorm === 'half day' ||
@@ -2009,6 +2065,7 @@ export function buildEmployeeMonthlyAttendanceCalendar(
     confirmedPaidDays,
     provisionalInProgressDays,
     lopDays,
+    muDays,
     rows,
   };
 }

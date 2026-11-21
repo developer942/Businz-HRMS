@@ -7,6 +7,7 @@ import {
   getShiftStatus,
   reportGpsDiagnostic,
   getGpsDiagnostics,
+  correctAttendance,
 } from '../controllers/attendanceController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
@@ -21,3 +22,4 @@ attendanceRouter.post('/verify-face', verifyFace);
 attendanceRouter.get('/summary', getTodaySummary);
 attendanceRouter.post('/gps-diagnostics', reportGpsDiagnostic);
 attendanceRouter.get('/gps-diagnostics', getGpsDiagnostics);
+attendanceRouter.post('/correct', correctAttendance);

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { attendanceRepository, AttendancePunchError } from '../repositories/attendanceRepository.js';
 import { auditRepository } from '../repositories/auditRepository.js';
-import { punchSchema, verifyFaceSchema, gpsDiagnosticSchema } from '../validators/attendanceValidators.js';
+import { punchSchema, verifyFaceSchema, gpsDiagnosticSchema, attendanceCorrectionSchema } from '../validators/attendanceValidators.js';
 import { settingsRepository } from '../repositories/settingsRepository.js';
 import { employeeRepository } from '../repositories/employeeRepository.js';
 import {
@@ -10,6 +10,8 @@ import {
   getRecentGpsDiagnostics,
 } from '../services/geofenceService.js';
 import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
+import { resolveOvernightAttendanceSession } from '../services/shiftAttendanceEngine.js';
+import { query } from '../config/database.js';
 
 export const getAttendanceLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -515,6 +517,228 @@ export const getGpsDiagnostics = async (req: Request, res: Response, next: NextF
     res.status(200).json({
       success: true,
       data: getRecentGpsDiagnostics(limit),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const correctAttendance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const isHrOrAdmin = ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(user.role);
+    if (!isHrOrAdmin) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Access denied: Only HR or CEO administrators can correct attendance records.',
+        },
+      });
+      return;
+    }
+
+    const validated = attendanceCorrectionSchema.parse(req.body);
+
+    const emp = await employeeRepository.getEmployeeById(validated.employeeId);
+    if (!emp) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: 'EMPLOYEE_NOT_FOUND',
+          message: `Employee with ID '${validated.employeeId}' not found.`,
+        },
+      });
+      return;
+    }
+
+    const canonicalEmpId = emp.employeeId || emp.id;
+    const employeeDbId = emp.id;
+
+    let computedHours = validated.workingHours;
+    let cleanCheckIn = validated.checkIn || null;
+    let cleanCheckOut = validated.checkOut || null;
+    let otHours = validated.otHours || 0;
+
+    const isNonWorking = ['Absent', 'Holiday', 'Week Off', 'Paid Leave', 'On Leave', 'Unpaid Leave'].includes(validated.status);
+
+    if (isNonWorking) {
+      cleanCheckIn = null;
+      cleanCheckOut = null;
+      computedHours = 0;
+      otHours = 0;
+    } else if (validated.status === 'MU' || validated.status === 'Missed Punch-Out') {
+      // Missed punch-out: check-out is missing, working hours & OT are strictly 0
+      cleanCheckOut = null;
+      computedHours = 0;
+      otHours = 0;
+    } else if (cleanCheckIn && cleanCheckOut && cleanCheckOut !== '-' && cleanCheckOut !== '--:--') {
+      const session = resolveOvernightAttendanceSession({
+        attendanceDate: validated.date,
+        checkIn: cleanCheckIn,
+        checkOut: cleanCheckOut,
+        unpaidBreakMinutes: validated.breakDurationMinutes || 0,
+        deductBreakAlways: (validated.breakDurationMinutes || 0) > 0,
+        allowAutoRollSameDateIsoCheckOut: true,
+      });
+
+      if (!session.isValid) {
+        res.status(422).json({
+          success: false,
+          error: {
+            code: 'INVALID_TIMESTAMPS',
+            message: session.errorMessage || 'Check-out time cannot be earlier than check-in time.',
+          },
+        });
+        return;
+      }
+
+      cleanCheckIn = session.checkInIso;
+      cleanCheckOut = session.checkOutIso;
+      if (computedHours === undefined || computedHours <= 0) {
+        computedHours = session.workingHours;
+      }
+      if (otHours <= 0 && session.otHours > 0) {
+        otHours = session.otHours;
+      }
+    } else if (validated.status === 'Half Day') {
+      if (!computedHours || computedHours <= 0) {
+        computedHours = 4.0;
+      }
+    }
+
+    // Try finding existing record in PostgreSQL
+    let existingRec: any = null;
+    try {
+      const existingRecResult = await query<any>(
+        `SELECT * FROM public.attendance_records
+         WHERE (employee_id = $1 OR employee_id = $2)
+           AND (date = $3 OR shift_date = $3)
+         LIMIT 1`,
+        [employeeDbId, canonicalEmpId, validated.date]
+      );
+      existingRec = existingRecResult.rows[0];
+    } catch (err: any) {
+      console.warn('[correctAttendance] Error fetching existing record:', err?.message || err);
+    }
+
+    const oldValues = existingRec
+      ? {
+          status: existingRec.status,
+          checkIn: existingRec.check_in,
+          checkOut: existingRec.check_out,
+          workingHours: existingRec.working_hours,
+        }
+      : null;
+
+    const finalStatus = validated.status === 'MU' ? 'Missed Punch-Out' : validated.status;
+    const newValues = {
+      status: finalStatus,
+      checkIn: cleanCheckIn,
+      checkOut: cleanCheckOut,
+      workingHours: computedHours || 0,
+      otHours,
+    };
+
+    let updatedRecord: any = null;
+    try {
+      if (existingRec) {
+        const updateResult = await query<any>(
+          `UPDATE public.attendance_records
+           SET status = $1,
+               check_in = $2,
+               check_out = $3,
+               working_hours = $4,
+               calculated_ot_hours = $5,
+               notes = COALESCE(notes || ' | ', '') || $6,
+               updated_at = NOW()
+           WHERE id = $7
+           RETURNING *`,
+          [
+            newValues.status,
+            cleanCheckIn,
+            cleanCheckOut,
+            computedHours || 0,
+            otHours,
+            `Correction (${user.email}): ${validated.reason}`,
+            existingRec.id,
+          ]
+        );
+        updatedRecord = updateResult.rows[0];
+      } else {
+        const insertResult = await query<any>(
+          `INSERT INTO public.attendance_records (
+             id, employee_id, date, shift_date, status, check_in, check_out, working_hours, calculated_ot_hours, method, notes, created_at, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, $2, $2, $3, $4, $5, $6, $7, 'Manual', $8, NOW(), NOW()
+           ) RETURNING *`,
+          [
+            employeeDbId,
+            validated.date,
+            newValues.status,
+            cleanCheckIn,
+            cleanCheckOut,
+            computedHours || 0,
+            otHours,
+            `Correction (${user.email}): ${validated.reason}`,
+          ]
+        );
+        updatedRecord = insertResult.rows[0];
+      }
+    } catch (err: any) {
+      console.warn('[correctAttendance] Error saving attendance record in DB:', err?.message || err);
+      updatedRecord = {
+        id: existingRec?.id || `att-corrected-${Date.now()}`,
+        employee_id: employeeDbId,
+        date: validated.date,
+        shift_date: validated.date,
+        status: newValues.status,
+        check_in: cleanCheckIn,
+        check_out: cleanCheckOut,
+        working_hours: computedHours || 0,
+        calculated_ot_hours: otHours,
+      };
+    }
+
+    // Record audit trail in auth_audit_logs
+    try {
+      await auditRepository.recordLog(
+        'ATTENDANCE_CORRECTION' as any,
+        canonicalEmpId,
+        user.email,
+        {
+          targetEmployeeId: canonicalEmpId,
+          date: validated.date,
+          reason: validated.reason,
+          editor: user.email,
+          role: user.role,
+          oldValues,
+          newValues,
+        }
+      );
+    } catch (auditErr: any) {
+      console.warn('[correctAttendance] Error recording audit log:', auditErr?.message || auditErr);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Attendance for employee ${canonicalEmpId} on ${validated.date} corrected successfully.`,
+      data: {
+        record: updatedRecord,
+        audit: {
+          fieldChanged: `Attendance Correction (${oldValues?.status || 'None'} -> ${newValues.status})`,
+          oldValue: oldValues ? `Status: ${oldValues.status}, In: ${oldValues.checkIn || '-'}, Out: ${oldValues.checkOut || '-'}` : 'No Previous Record',
+          newValue: `Status: ${newValues.status}, In: ${newValues.checkIn || '-'}, Out: ${newValues.checkOut || '-'}, Hours: ${newValues.workingHours}`,
+          reason: validated.reason,
+          changedBy: user.email,
+          timestamp: new Date().toISOString(),
+        },
+      },
     });
   } catch (err) {
     next(err);

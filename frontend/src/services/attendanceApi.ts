@@ -227,3 +227,18 @@ export const reportClientGpsDiagnostic = async (
     // Non-blocking diagnostic telemetry
   }
 };
+
+export const correctAttendanceRecord = async (params: {
+  employeeId: string;
+  date: string;
+  status: string;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  breakDurationMinutes?: number;
+  workingHours?: number;
+  reason: string;
+  halfDayType?: 'First Half' | 'Second Half';
+  otHours?: number;
+}): Promise<{ record: any; audit: any }> => {
+  return apiRequest<{ record: any; audit: any }>('/attendance/correct', params, 'POST');
+};

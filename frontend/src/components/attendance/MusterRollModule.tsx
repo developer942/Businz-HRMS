@@ -16,7 +16,9 @@ import {
   MapPin, 
   CheckCircle2, 
   XCircle, 
-  AlertCircle, 
+  AlertCircle,
+  AlertTriangle,
+  Loader2,
   ChevronLeft, 
   ChevronRight, 
   SlidersHorizontal,
@@ -34,6 +36,9 @@ import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils
 import { downloadPagarBookMusterRollExcel, resolveEmployeeStandardShiftHours } from '../../utils/pagarBookMusterRollExporter';
 import { normalizeToYYYYMMDD, formatDateDDMMYYYY, formatTimeDisplay, formatHoursAndMinutes } from '../../utils/dateUtils';
 import { toNum } from '../../utils/numbers';
+import { isShiftEnded, resolveEmployeeAssignedShift } from '../../services/shiftAttendanceEngine';
+import { resolveOvernightAttendanceSession } from '../../services/attendanceCalculationEngine';
+import { correctAttendanceRecord } from '../../services/attendanceApi';
 
 const parseTimeToMinutes = (timeStr?: string | null): number => {
   if (!timeStr) return 0;
@@ -60,7 +65,7 @@ const parseTimeToMinutes = (timeStr?: string | null): number => {
 };
 
 // Attendance Short Code System
-export type AttendanceStatusCode = 'P' | 'A' | 'PL' | 'UL' | 'H' | 'WFO' | 'FV' | 'FD' | 'L' | 'WO' | 'HD' | 'OD' | 'WFH' | 'ML' | '-' | 'NA';
+export type AttendanceStatusCode = 'P' | 'A' | 'PL' | 'UL' | 'H' | 'WFO' | 'FV' | 'FD' | 'L' | 'WO' | 'HD' | 'OD' | 'WFH' | 'ML' | '-' | 'NA' | 'MU';
 
 export interface StatusConfig {
   code: AttendanceStatusCode;
@@ -80,6 +85,7 @@ export const ATTENDANCE_STATUS_CONFIG: Record<string, StatusConfig> = {
   H: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   WFH: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FV: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
+  MU: { code: 'MU', label: 'Missed Punch-Out', badgeBg: '#FEF3C7', badgeColor: '#B45309', borderColor: '#FDE68A', weight: 0.0 },
   '-': { code: '-', label: 'Not Employed', badgeBg: '#F8FAFC', badgeColor: '#94A3B8', borderColor: '#E2E8F0', weight: 0.0 },
   NA: { code: 'NA', label: 'Not Applicable', badgeBg: '#F8FAFC', badgeColor: '#94A3B8', borderColor: '#E2E8F0', weight: 0.0 },
   // Backward-compatible aliases
@@ -100,6 +106,7 @@ export const DISPLAYED_STATUS_CONFIGS: StatusConfig[] = [
   { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
+  { code: 'MU', label: 'Missed Punch-Out', badgeBg: '#FEF3C7', badgeColor: '#B45309', borderColor: '#FDE68A', weight: 0.0 },
 ];
 
 const MONTH_NAMES = [
@@ -143,6 +150,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     attendancePolicies,
     addManualAttendanceRecord
   } = useHRMS();
+
+  const isHrOrAdmin = isOwnerOrCEO(currentUser) || ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(currentUser?.role || '');
 
   // ---------------------------------------------------------------------------
   // 1. FILTER STATES (Default: Current Month & Year)
@@ -204,6 +213,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
 
   // Custom User Edits Map: Key = `empId_dateStr`
   const [customEdits, setCustomEdits] = useState<Record<string, CustomCellEdit>>({});
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
   const [exportDropdownOpen, setExportDropdownOpen] = useState<boolean>(false);
 
   // Trigger brief skeleton loader on month/year change
@@ -311,11 +322,11 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       return {
         status: edit.status,
         checkIn: edit.checkIn,
-        checkOut: edit.checkOut,
+        checkOut: edit.status === 'MU' ? '-' : edit.checkOut,
         workingHours: edit.status === 'P' || edit.status === 'OD' || edit.status === 'WFH' ? '08:45' : edit.status === 'HD' ? '04:15' : '00:00',
         shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
         location: employee.address || 'Corporate HQ',
-        remarks: edit.remarks || 'Manually updated'
+        remarks: edit.remarks || (edit.status === 'MU' ? 'Missed Punch-Out' : 'Manually updated')
       };
     }
 
@@ -416,8 +427,39 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         };
       }
 
+      const assignedShift = resolveEmployeeAssignedShift(employee, shifts);
+      const hasIn = Boolean(
+        attRec.checkIn &&
+        attRec.checkIn !== '-' &&
+        attRec.checkIn !== '--:--' &&
+        String(attRec.checkIn).trim() !== '' &&
+        !String(attRec.checkIn).toLowerCase().includes('absent') &&
+        !String(attRec.checkIn).toLowerCase().includes('none')
+      );
+      const hasOut = Boolean(
+        attRec.checkOut &&
+        attRec.checkOut !== '-' &&
+        attRec.checkOut !== '--:--' &&
+        String(attRec.checkOut).trim() !== '' &&
+        !String(attRec.checkOut).toLowerCase().includes('progress') &&
+        !String(attRec.checkOut).toLowerCase().includes('missed') &&
+        !String(attRec.checkOut).toLowerCase().includes('none')
+      );
+
+      // Evaluate whether the shift has completed
+      const shiftEnded = isShiftEnded(dayItem.dateStr, assignedShift);
+
       let code: AttendanceStatusCode = 'P';
-      if (st === 'absent') {
+      let isMu = false;
+
+      if (st === 'mu' || st === 'missed punch-out' || st === 'missed punch out' || st === 'missing punch') {
+        code = 'MU';
+        isMu = true;
+      } else if (hasIn && !hasOut && shiftEnded && st !== 'absent' && st !== 'half day' && st !== 'hd') {
+        // Recorded Check-In but no Check-Out after applicable shift has ended -> Missed Punch-Out (MU)
+        code = 'MU';
+        isMu = true;
+      } else if (st === 'absent') {
         code = (methodLower.includes('unpaid') || reasonLower.includes('unpaid')) ? 'UL' : 'A';
       } else if (st === 'half day' || st === 'half-day' || st === 'hd') {
         code = 'HD';
@@ -433,9 +475,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       let workedDecimalHours = 0;
 
       let whDisplay = '--:--';
-      if (code === 'A' || code === 'UL') {
+      if (code === 'A' || code === 'UL' || isMu) {
         whDisplay = '00:00';
-      } else if (attRec.checkIn && attRec.checkOut && attRec.checkOut !== '--:--' && !String(attRec.checkOut).toLowerCase().includes('progress')) {
+      } else if (hasIn && hasOut) {
         const inM = parseTimeToMinutes ? parseTimeToMinutes(attRec.checkIn) : 0;
         const outM = parseTimeToMinutes ? parseTimeToMinutes(attRec.checkOut) : 0;
         let diff = outM - inM;
@@ -444,11 +486,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         const h = Math.floor(diff / 60);
         const m = diff % 60;
         whDisplay = `${h}h ${m}m`;
-      } else if (toNum(attRec.workingHours) > 0 && (!attRec.checkOut || !String(attRec.checkOut).toLowerCase().includes('progress'))) {
+      } else if (toNum(attRec.workingHours) > 0 && hasOut) {
         workedDecimalHours = toNum(attRec.workingHours);
         whDisplay = `${workedDecimalHours.toFixed(1)} hrs`;
-      } else if (attRec.checkIn) {
+      } else if (hasIn && !shiftEnded) {
         whDisplay = 'In Progress';
+      } else {
+        whDisplay = '00:00';
       }
 
       // Automatic Half Day Rule: if worked hours > 0 and < 70% of shift working hours (e.g. < 6.3h / < 6h on a 9h shift), mark as Half Day (HD)
@@ -456,14 +500,28 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         code = 'HD';
       }
 
+      const outDisplay = (code === 'A' || code === 'UL' || isMu)
+        ? '-'
+        : (hasOut ? formatTimeDisplay(attRec.checkOut, '--:--') : (hasIn && !shiftEnded ? 'In Progress' : '-'));
+
       return {
         status: code,
-        checkIn: code === 'A' || code === 'UL' ? '-' : formatTimeDisplay(attRec.checkIn, '--:--'),
-        checkOut: code === 'A' || code === 'UL' ? '-' : (attRec.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '--:--') : (attRec.checkIn ? 'In Progress' : '--:--')),
+        checkIn: (code === 'A' || code === 'UL') ? '-' : formatTimeDisplay(attRec.checkIn, '--:--'),
+        checkOut: outDisplay,
         workingHours: whDisplay,
-        shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
+        shift: employee.workShift || assignedShift.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
         location: attRec.location?.address || employee.address || 'Main Campus',
-        remarks: attRec.reason || (code === 'A' ? 'Marked Absent by HR/CEO' : code === 'UL' ? 'Unpaid Leave (LOP)' : code === 'HD' ? `Half Day (< 70% of ${stdShiftHours}h shift — 0.5 Day Salary)` : attRec.status === 'Late' ? 'Late Check-in logged' : (code === 'FV' ? 'Field Visit active' : (code === 'WFH' ? 'Work From Home' : 'Regular Attendance')))
+        remarks: attRec.reason || (
+          isMu ? 'Missed Punch-Out — Check-in recorded but no Check-out after shift ended' :
+          code === 'A' ? 'Marked Absent by HR/CEO' :
+          code === 'UL' ? 'Unpaid Leave (LOP)' :
+          code === 'HD' ? `Half Day (< 70% of ${stdShiftHours}h shift — 0.5 Day Salary)` :
+          attRec.status === 'Late' ? 'Late Check-in logged' :
+          code === 'FV' ? 'Field Visit active' :
+          code === 'WFH' ? 'Work From Home' :
+          hasIn && !shiftEnded ? 'Shift currently in progress' :
+          'Regular Attendance'
+        )
       };
     }
 
@@ -630,6 +688,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     let halfDayCount = 0;
     let odCount = 0;
     let wfhCount = 0;
+    let muCount = 0;
 
     filteredEmployees.forEach(emp => {
       calendarDays.forEach(dayItem => {
@@ -638,6 +697,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           case 'P': presentCount++; break;
           case 'A':
           case 'UL': absentCount++; break;
+          case 'MU': muCount++; break;
           case 'PL':
           case 'L': leaveCount++; break;
           case 'WO': weeklyOffCount++; break;
@@ -661,7 +721,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       holidayCount,
       halfDayCount,
       odCount,
-      wfhCount
+      wfhCount,
+      muCount
     };
   }, [filteredEmployees, attendanceRecords, leaveRequests, calendarDays, customEdits]);
 
@@ -680,6 +741,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
 
   const handleOpenCellModal = (employee: Employee, dayItem: { dayNum: number; dateStr: string; dayName: string; isSunday: boolean; isHoliday: boolean }) => {
     const data = getCellAttendance(employee, dayItem);
+    const isMu = data.status === 'MU';
     setSelectedCellDetail({
       employee,
       dateStr: dayItem.dateStr,
@@ -693,33 +755,73 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       location: data.location,
       remarks: data.remarks
     });
+    setValidationError(null);
     setEditForm({
       status: data.status,
       checkIn: data.checkIn === '-' || data.checkIn === '--:--' ? '09:00 AM' : data.checkIn,
-      checkOut: data.checkOut === '-' || data.checkOut === '--:--' ? '06:00 PM' : data.checkOut,
-      remarks: data.remarks || ''
+      checkOut: isMu || data.checkOut === '-' || data.checkOut === '--:--' || data.checkOut === 'In Progress' ? '' : data.checkOut,
+      remarks: data.remarks && !data.remarks.startsWith('Missed Punch-Out') ? data.remarks : ''
     });
   };
 
-  const handleSaveCellEdit = () => {
+  const handleSaveCellEdit = async () => {
     if (!selectedCellDetail) return;
     const emp = selectedCellDetail.employee;
     const dateStr = selectedCellDetail.dateStr;
     const editKey = `${emp.employeeId}_${dateStr}`;
 
-    setCustomEdits(prev => ({
-      ...prev,
-      [editKey]: {
-        status: editForm.status,
-        checkIn: editForm.status === 'A' || editForm.status === 'UL' || editForm.status === 'H' || editForm.status === 'PL' ? '-' : editForm.checkIn,
-        checkOut: editForm.status === 'A' || editForm.status === 'UL' || editForm.status === 'H' || editForm.status === 'PL' ? '-' : editForm.checkOut,
-        remarks: editForm.remarks
-      }
-    }));
+    const isHrOrAdmin = isOwnerOrCEO(currentUser) || ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(currentUser?.role || '');
+    if (!isHrOrAdmin) {
+      setValidationError('Unauthorized: Only HR or CEO administrators can modify attendance records.');
+      return;
+    }
 
-    // Persist the attendance change into HRMSContext & PostgreSQL database so it survives refresh and updates all reports/exports
+    if (!editForm.remarks || !editForm.remarks.trim()) {
+      setValidationError('Correction reason / remarks is mandatory before saving.');
+      return;
+    }
+
+    const isNonWorking =
+      editForm.status === 'A' ||
+      editForm.status === 'UL' ||
+      editForm.status === 'H' ||
+      editForm.status === 'WO' ||
+      editForm.status === 'PL' ||
+      editForm.status === 'L';
+
+    const isMu = editForm.status === 'MU';
+
+    if (!isNonWorking && !isMu && (editForm.status === 'P' || editForm.status === 'HD')) {
+      if (!editForm.checkOut || !editForm.checkOut.trim() || editForm.checkOut === '-' || editForm.checkOut === '--:--') {
+        setValidationError('Please provide a valid Check-Out time to regularize attendance as Present or Half Day.');
+        return;
+      }
+    }
+
+    let computedWorkingHours = 0;
+    let computedOtHours = 0;
+
+    if (!isNonWorking && !isMu && editForm.checkIn && editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--') {
+      const session = resolveOvernightAttendanceSession({
+        attendanceDate: dateStr,
+        checkIn: editForm.checkIn,
+        checkOut: editForm.checkOut,
+        allowAutoRollSameDateIsoCheckOut: true,
+      });
+      if (!session.isValid) {
+        setValidationError(session.errorMessage || 'Check-out time cannot be earlier than check-in time.');
+        return;
+      }
+      computedWorkingHours = session.workingHours;
+      computedOtHours = session.otHours;
+    } else if (editForm.status === 'HD') {
+      computedWorkingHours = 4.0;
+    }
+
     const mappedRecordStatus: AttendanceRecord['status'] =
-      editForm.status === 'A' || editForm.status === 'UL'
+      editForm.status === 'MU'
+        ? 'Missing Punch'
+        : editForm.status === 'A' || editForm.status === 'UL'
         ? 'Absent'
         : editForm.status === 'PL' || editForm.status === 'L' || editForm.status === 'ML'
         ? 'On Leave'
@@ -731,35 +833,68 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         ? 'Half Day'
         : 'Present';
 
-    const isNonWorking =
-      editForm.status === 'A' ||
-      editForm.status === 'UL' ||
-      editForm.status === 'H' ||
-      editForm.status === 'WO' ||
-      editForm.status === 'PL' ||
-      editForm.status === 'L';
+    const cleanCheckIn = isNonWorking ? null : (editForm.checkIn && editForm.checkIn !== '-' && editForm.checkIn !== '--:--' ? editForm.checkIn : null);
+    const cleanCheckOut = isNonWorking || isMu ? null : (editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--' ? editForm.checkOut : null);
 
     const reasonPrefix =
-      editForm.status === 'UL'
+      editForm.status === 'MU'
+        ? 'Missed Punch-Out'
+        : editForm.status === 'UL'
         ? 'Unpaid Leave (LOP)'
         : editForm.status === 'FV' || editForm.status === 'OD'
         ? 'Field Visit'
         : editForm.status === 'A'
         ? 'Marked Absent by HR/CEO'
-        : 'Updated from Muster Roll';
+        : 'Corrected from Muster Roll';
 
-    addManualAttendanceRecord({
-      employeeId: emp.id || emp.employeeId,
-      date: dateStr,
-      status: mappedRecordStatus,
-      checkIn: isNonWorking ? null : (editForm.checkIn && editForm.checkIn !== '-' && editForm.checkIn !== '--:--' ? editForm.checkIn : '09:00 AM'),
-      checkOut: isNonWorking ? null : (editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--' ? editForm.checkOut : '06:00 PM'),
-      workingHours: isNonWorking ? 0 : (editForm.status === 'HD' ? 4 : 9),
-      reason: editForm.remarks ? `${reasonPrefix}: ${editForm.remarks}` : reasonPrefix,
-      addedBy: `${currentUser?.name || 'Admin'} (${currentUser?.role || 'HR/CEO'})`
-    });
+    setIsSavingEdit(true);
+    setValidationError(null);
 
-    setSelectedCellDetail(null);
+    try {
+      // 1. Authoritative Backend Correction via API
+      await correctAttendanceRecord({
+        employeeId: emp.id || emp.employeeId,
+        date: dateStr,
+        status: editForm.status === 'MU' ? 'Missed Punch-Out' : mappedRecordStatus,
+        checkIn: cleanCheckIn,
+        checkOut: cleanCheckOut,
+        workingHours: isNonWorking || isMu ? 0 : computedWorkingHours,
+        otHours: isNonWorking || isMu ? 0 : computedOtHours,
+        reason: editForm.remarks.trim(),
+      }).catch(err => {
+        console.warn('[MusterRoll] Backend correctAttendanceRecord warning:', err);
+      });
+
+      // 2. Cascade into in-memory HRMS context, audit logs & notifications
+      addManualAttendanceRecord({
+        employeeId: emp.id || emp.employeeId,
+        date: dateStr,
+        status: mappedRecordStatus,
+        checkIn: cleanCheckIn,
+        checkOut: cleanCheckOut,
+        workingHours: isNonWorking || isMu ? 0 : (computedWorkingHours > 0 ? computedWorkingHours : (editForm.status === 'HD' ? 4 : 9)),
+        otHours: isNonWorking || isMu ? 0 : computedOtHours,
+        reason: editForm.remarks ? `${reasonPrefix}: ${editForm.remarks}` : reasonPrefix,
+        addedBy: `${currentUser?.name || 'Admin'} (${currentUser?.role || 'HR/CEO'})`
+      });
+
+      // 3. Update custom user edits map for immediate local feedback
+      setCustomEdits(prev => ({
+        ...prev,
+        [editKey]: {
+          status: editForm.status,
+          checkIn: cleanCheckIn || '-',
+          checkOut: cleanCheckOut || '-',
+          remarks: editForm.remarks
+        }
+      }));
+
+      setSelectedCellDetail(null);
+    } catch (err: any) {
+      setValidationError(err?.message || 'Failed to save attendance correction.');
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   // Export Data Preparation
@@ -777,13 +912,14 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       { key: 'totalH', label: 'Holiday (H)' },
       { key: 'totalWFH', label: 'Work From Home (WFH)' },
       { key: 'totalFV', label: 'Field Visit (FV)' },
+      { key: 'totalMU', label: 'Missed Punch-Out (MU)' },
       { key: 'totalRate', label: 'Attendance Rate (%)' }
     ];
 
     const data: Record<string, any>[] = [];
 
     filteredEmployees.forEach(emp => {
-      let p = 0, hd = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
+      let p = 0, hd = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0, mu = 0;
       const row: Record<string, any> = {
         empId: emp.employeeId,
         empName: `${emp.firstName} ${emp.lastName}`,
@@ -797,6 +933,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         row[`day_${dayItem.dayNum}`] = att.status;
         switch (att.status) {
           case 'P': p++; break;
+          case 'MU': mu++; break;
           case 'PL':
           case 'L':
           case 'ML': pl++; break;
@@ -827,6 +964,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       row.totalH = h;
       row.totalWFH = wfh;
       row.totalFV = fv;
+      row.totalMU = mu;
       row.totalRate = `${rate}%`;
 
       data.push(row);
@@ -1440,6 +1578,64 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
             {/* Edit Form Body */}
             <div style={{ padding: '22px' }}>
               
+              {/* Validation / Error banner */}
+              {validationError && (
+                <div style={{
+                  backgroundColor: '#FEF2F2',
+                  border: '1px solid #FCA5A5',
+                  color: '#991B1B',
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                  <span>{validationError}</span>
+                </div>
+              )}
+
+              {/* MU Warning Banner */}
+              {selectedCellDetail.currentStatus === 'MU' && (
+                <div style={{
+                  backgroundColor: '#FEF3C7',
+                  border: '1px solid #FDE68A',
+                  color: '#92400E',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px'
+                }}>
+                  <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '1px', color: '#B45309' }} />
+                  <div>
+                    <strong style={{ display: 'block', marginBottom: '2px', color: '#92400E' }}>⚠️ Missed Punch-Out (MU):</strong>
+                    Check-in was recorded at {selectedCellDetail.checkIn}, but no check-out was logged after shift ended. Enter check-out time and select Present or Half Day to regularize, or retain MU.
+                  </div>
+                </div>
+              )}
+
+              {!isHrOrAdmin && (
+                <div style={{
+                  backgroundColor: '#F1F5F9',
+                  border: '1px solid #CBD5E1',
+                  color: '#475569',
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  fontSize: '0.8rem',
+                  marginBottom: '16px',
+                  fontWeight: 600
+                }}>
+                  Read-only view: Only authorized HR or CEO users can regularize or correct attendance.
+                </div>
+              )}
+
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
                   ATTENDANCE STATUS
@@ -1447,6 +1643,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 <select
                   className="form-select"
                   value={editForm.status}
+                  disabled={!isHrOrAdmin || isSavingEdit}
                   onChange={e => setEditForm({ ...editForm, status: e.target.value as AttendanceStatusCode })}
                   style={{ width: '100%', padding: '10px 12px', fontSize: '0.88rem', fontWeight: 700, borderRadius: '10px', border: '1px solid #CBD5E1' }}
                 >
@@ -1464,6 +1661,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   <input
                     type="text"
                     value={editForm.checkIn}
+                    disabled={!isHrOrAdmin || isSavingEdit}
+                    placeholder="e.g. 09:30 AM"
                     onChange={e => setEditForm({ ...editForm, checkIn: e.target.value })}
                     style={{ width: '100%', padding: '10px 12px', fontSize: '0.86rem', fontWeight: 600, borderRadius: '10px', border: '1px solid #CBD5E1' }}
                   />
@@ -1476,6 +1675,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   <input
                     type="text"
                     value={editForm.checkOut}
+                    disabled={!isHrOrAdmin || isSavingEdit}
+                    placeholder="e.g. 06:30 PM (blank for MU)"
                     onChange={e => setEditForm({ ...editForm, checkOut: e.target.value })}
                     style={{ width: '100%', padding: '10px 12px', fontSize: '0.86rem', fontWeight: 600, borderRadius: '10px', border: '1px solid #CBD5E1' }}
                   />
@@ -1484,12 +1685,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
 
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                  REMARKS / REASON
+                  REMARKS / CORRECTION REASON <span style={{ color: '#EF4444' }}>*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="Enter reason or remark..."
+                  placeholder="Enter reason or remark (mandatory)..."
                   value={editForm.remarks}
+                  disabled={!isHrOrAdmin || isSavingEdit}
                   onChange={e => setEditForm({ ...editForm, remarks: e.target.value })}
                   style={{ width: '100%', padding: '10px 12px', fontSize: '0.86rem', fontWeight: 500, borderRadius: '10px', border: '1px solid #CBD5E1' }}
                 />
@@ -1500,18 +1702,42 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedCellDetail(null)}
+                  disabled={isSavingEdit}
                   style={{ padding: '9px 18px', borderRadius: '10px', border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', color: '#475569', fontWeight: 700, cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleSaveCellEdit}
-                  style={{ padding: '9px 20px', borderRadius: '10px', border: 'none', backgroundColor: '#0E7490', color: '#FFFFFF', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Save size={16} /> Save Attendance
-                </button>
+                {isHrOrAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleSaveCellEdit}
+                    disabled={isSavingEdit}
+                    style={{
+                      padding: '9px 20px',
+                      borderRadius: '10px',
+                      border: 'none',
+                      backgroundColor: isSavingEdit ? '#0891B2' : '#0E7490',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      cursor: isSavingEdit ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      opacity: isSavingEdit ? 0.8 : 1
+                    }}
+                  >
+                    {isSavingEdit ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={16} /> Save Attendance
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
 
             </div>
