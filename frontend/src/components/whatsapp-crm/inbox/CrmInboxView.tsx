@@ -43,6 +43,7 @@ import type {
   CrmTemplate
 } from '../../../types/crm';
 import { useHRMS } from '../../../context/HRMSContext';
+import { RecordConsentModal } from '../contacts/RecordConsentModal';
 
 interface CrmInboxViewProps {
   initialContactId?: string;
@@ -203,6 +204,10 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const [selectedTemplate, setSelectedTemplate] = useState<CrmTemplate | null>(null);
   const [templateVarValues, setTemplateVarValues] = useState<string[]>([]);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [templateSendError, setTemplateSendError] = useState<{ message: string; isConsentError: boolean } | null>(null);
+
+  // Record WhatsApp Consent Modal State
+  const [showConsentModal, setShowConsentModal] = useState(false);
 
   // Scroll Tracking & New Messages Indicator
   const [showScrollBottomPill, setShowScrollBottomPill] = useState(false);
@@ -560,6 +565,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   };
 
   const handleOpenTemplatePicker = async () => {
+    setTemplateSendError(null);
     setShowTemplateModal(true);
     try {
       const tmpls = await crmService.getTemplates({ status: 'APPROVED' });
@@ -574,6 +580,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
   const handleSelectTemplateForSend = (tmpl: CrmTemplate | null) => {
     setSelectedTemplate(tmpl);
+    setTemplateSendError(null);
     if (!tmpl || !tmpl.bodyText) {
       setTemplateVarValues([]);
       return;
@@ -592,6 +599,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const handleSendSelectedTemplate = async () => {
     if (!selectedTemplate || !activeConv || sendingTemplate) return;
     setSendingTemplate(true);
+    setTemplateSendError(null);
     try {
       const headerUrl = selectedTemplate.headerContent || (selectedTemplate.headerExample && selectedTemplate.headerExample[0] && !selectedTemplate.headerExample[0].startsWith('https://scontent.') ? selectedTemplate.headerExample[0] : null) || (selectedTemplate.headerType === 'IMAGE' ? 'https://hrms.businz.com/vrm-banner.png' : undefined);
 
@@ -619,9 +627,15 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
         )
       );
       setShowTemplateModal(false);
+      setTemplateSendError(null);
       setTimeout(() => scrollToBottom(true), 50);
     } catch (err: any) {
-      alert(`Failed to send template: ${err.message || 'Meta API error'}`);
+      const errorMsg = err.message || 'Meta API error';
+      const isConsent = /consent/i.test(errorMsg);
+      setTemplateSendError({
+        message: errorMsg,
+        isConsentError: isConsent
+      });
     } finally {
       setSendingTemplate(false);
     }
@@ -1452,21 +1466,83 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   : 'pending'
               }`}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {contactDetails.consentStatus === 'Opted In' ? (
-                  <ShieldCheck size={16} color="#16A34A" />
-                ) : contactDetails.consentStatus === 'Opted Out' ? (
-                  <ShieldAlert size={16} color="#DC2626" />
-                ) : (
-                  <ShieldQuestion size={16} color="#D97706" />
-                )}
-                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#17212C' }}>
-                  {contactDetails.consentStatus}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {contactDetails.consentStatus === 'Opted In' ? (
+                    <ShieldCheck size={16} color="#16A34A" />
+                  ) : contactDetails.consentStatus === 'Opted Out' ? (
+                    <ShieldAlert size={16} color="#DC2626" />
+                  ) : (
+                    <ShieldQuestion size={16} color="#D97706" />
+                  )}
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#17212C' }}>
+                    {contactDetails.consentStatus}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowConsentModal(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#0E7490',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                    borderRadius: '4px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Record or update consent"
+                >
+                  Edit
+                </button>
               </div>
+
               <div style={{ fontSize: '0.74rem', color: '#667085', marginTop: '4px' }}>
                 Source: {contactDetails.consentSource || contactDetails.sourceType || 'Direct'}
               </div>
+              {contactDetails.consentTimestamp && (
+                <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginTop: '2px' }}>
+                  Date: {new Date(contactDetails.consentTimestamp).toLocaleDateString()}
+                </div>
+              )}
+              {contactDetails.consentRecordedByName && (
+                <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginTop: '1px' }}>
+                  Recorded by: {contactDetails.consentRecordedByName}
+                </div>
+              )}
+              {contactDetails.consentNotes && (
+                <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '4px', fontStyle: 'italic', background: 'rgba(255,255,255,0.6)', padding: '3px 6px', borderRadius: '4px' }}>
+                  &ldquo;{contactDetails.consentNotes}&rdquo;
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowConsentModal(true)}
+                style={{
+                  marginTop: '8px',
+                  width: '100%',
+                  padding: '6px 10px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '6px',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#0E7490',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <ShieldCheck size={13} />
+                <span>Record WhatsApp Consent</span>
+              </button>
             </div>
 
             {/* Contact Details List */}
@@ -1921,6 +1997,62 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               </div>
             )}
 
+            {/* Inline Error Banner */}
+            {templateSendError && (
+              <div
+                style={{
+                  marginBottom: '16px',
+                  padding: '12px 14px',
+                  backgroundColor: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <AlertCircle size={18} color="#DC2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div style={{ flex: 1, fontSize: '0.82rem', color: '#991B1B', lineHeight: '1.4' }}>
+                    <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+                      {templateSendError.isConsentError ? 'Consent Policy Violation' : 'Template Send Failed'}
+                    </div>
+                    <div>{templateSendError.message}</div>
+                    {templateSendError.isConsentError && (
+                      <div style={{ marginTop: '4px', color: '#7F1D1D', fontSize: '0.78rem' }}>
+                        Meta policy strictly requires verified customer consent before sending Marketing templates. The current contact consent status is <strong>{contactDetails?.consentStatus || 'Unknown'}</strong>.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {templateSendError.isConsentError && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '4px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowConsentModal(true)}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#0E7490',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <ShieldCheck size={14} />
+                      <span>Record WhatsApp Consent</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
                 type="button"
@@ -1940,6 +2072,34 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Record WhatsApp Consent Modal */}
+      {(contactDetails || activeConv) && (
+        <RecordConsentModal
+          contact={
+            contactDetails || ({
+              id: activeConv!.contactId,
+              name: activeConv!.contactName || 'Contact',
+              phone: activeConv!.contactPhone || '',
+              companyId: activeConv!.companyId,
+              category: 'Customers',
+              consentStatus: (activeConv as any)!.contactConsentStatus || 'Unknown',
+              createdAt: '',
+              updatedAt: ''
+            } as CrmContact)
+          }
+          isOpen={showConsentModal}
+          onClose={() => setShowConsentModal(false)}
+          onConsentRecorded={(updatedContact) => {
+            setContactDetails(updatedContact);
+            if (activeConv) {
+              setActiveConv(prev => prev ? { ...prev, contactConsentStatus: updatedContact.consentStatus } : null);
+            }
+            setTemplateSendError(null);
+            setShowConsentModal(false);
+          }}
+        />
       )}
     </div>
   );

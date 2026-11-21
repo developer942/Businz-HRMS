@@ -27,6 +27,7 @@ import type {
   CrmContactCategory,
   CrmConsentStatus
 } from '../../../types/crm';
+import { RecordConsentModal } from './RecordConsentModal';
 
 interface CrmContactsDirectoryProps {
   onStartChat: (contactId: string) => void;
@@ -36,6 +37,9 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
+
+  // Consent Modal
+  const [consentModalContact, setConsentModalContact] = useState<CrmContact | null>(null);
 
   // Filters & Pagination
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -387,6 +391,16 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                           <button
                             type="button"
+                            onClick={() => setConsentModalContact(c)}
+                            title="Record WhatsApp Consent"
+                            aria-label={`Record consent for ${c.name}`}
+                            className="crm-icon-btn bordered sm"
+                            style={{ color: '#0E7490' }}
+                          >
+                            <ShieldCheck size={14} />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => onStartChat(c.id)}
                             title="Start WhatsApp Chat"
                             className="crm-whatsapp-chat-btn"
@@ -444,6 +458,16 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
                 </div>
 
                 <div className="crm-mobile-contact-actions">
+                  <button
+                    type="button"
+                    onClick={() => setConsentModalContact(c)}
+                    className="crm-mobile-edit-icon-btn"
+                    title="Record WhatsApp Consent"
+                    aria-label={`Record consent for ${c.name}`}
+                    style={{ color: '#0E7490' }}
+                  >
+                    <ShieldCheck size={15} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => onStartChat(c.id)}
@@ -745,6 +769,21 @@ export const CrmContactsDirectory: React.FC<CrmContactsDirectoryProps> = ({ onSt
             </form>
           </div>
         </div>
+      )}
+
+      {/* Record WhatsApp Consent Modal */}
+      {consentModalContact && (
+        <RecordConsentModal
+          contact={consentModalContact}
+          isOpen={Boolean(consentModalContact)}
+          onClose={() => setConsentModalContact(null)}
+          onConsentRecorded={(updatedContact) => {
+            setContacts(prev =>
+              prev.map(item => (item.id === updatedContact.id ? { ...item, ...updatedContact } : item))
+            );
+            setConsentModalContact(null);
+          }}
+        />
       )}
     </div>
   );

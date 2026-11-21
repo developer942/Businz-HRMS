@@ -37,6 +37,9 @@ export interface CrmContact {
   consentStatus: CrmConsentStatus;
   consentSource?: string;
   consentTimestamp?: string;
+  consentRecordedById?: string;
+  consentRecordedByName?: string;
+  consentNotes?: string;
   createdAt: string;
   updatedAt: string;
 }

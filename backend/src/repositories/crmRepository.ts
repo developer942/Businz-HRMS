@@ -138,6 +138,38 @@ export class CrmRepository {
     }
 
     if (!data) return null;
+
+    // Duplicate-contact consent resolution: if status is Unknown or missing, check if another row with matching 10 digits has recorded consent
+    if (!data.consent_status || data.consent_status === 'Unknown') {
+      const clean = String(data.phone_normalized || data.phone || '').replace(/\D/g, '');
+      const last10 = clean.slice(-10);
+      if (last10.length === 10) {
+        try {
+          const matchRes = await query(
+            `SELECT consent_status, consent_source, consent_timestamp, consent_recorded_by_id, consent_recorded_by_name, consent_notes
+             FROM public.crm_contacts 
+             WHERE company_id = $1 
+               AND right(phone_normalized, 10) = $2 
+               AND consent_status IN ('Opted In', 'Opted Out')
+               AND id <> $3
+             ORDER BY updated_at DESC LIMIT 1`,
+            [companyId, last10, data.id]
+          );
+          if (matchRes.rows.length > 0) {
+            const m = matchRes.rows[0];
+            data.consent_status = m.consent_status;
+            data.consent_source = m.consent_source;
+            data.consent_timestamp = m.consent_timestamp;
+            data.consent_recorded_by_id = m.consent_recorded_by_id;
+            data.consent_recorded_by_name = m.consent_recorded_by_name;
+            data.consent_notes = m.consent_notes;
+          }
+        } catch (e) {
+          console.warn('[CrmRepository] duplicate consent resolve error:', e);
+        }
+      }
+    }
+
     return this.mapContactRow(data);
   }
 
@@ -234,6 +266,121 @@ export class CrmRepository {
       .eq('id', id)
       .eq('company_id', companyId);
     return !error;
+  }
+
+  async recordConsent(params: {
+    companyId: string;
+    contactId: string;
+    consentStatus: string;
+    consentDate?: string;
+    source?: string;
+    notes?: string;
+    recordedById?: string;
+    recordedByName?: string;
+  }): Promise<CrmContact> {
+    const {
+      companyId,
+      contactId,
+      consentStatus,
+      consentDate = new Date().toISOString(),
+      source = 'Manual Entry / WhatsApp CRM',
+      notes,
+      recordedById,
+      recordedByName
+    } = params;
+
+    const contact = await this.getContactById(contactId, companyId);
+    if (!contact) {
+      throw new Error(`Contact ${contactId} not found in company ${companyId}`);
+    }
+
+    const clean = String(contact.phoneNormalized || contact.phone || '').replace(/\D/g, '');
+    const last10 = clean.slice(-10);
+
+    // 1. Update crm_contacts (both this row and any duplicate row sharing the same 10-digit number)
+    try {
+      await query(
+        `UPDATE public.crm_contacts
+         SET consent_status = $1,
+             consent_source = $2,
+             consent_timestamp = $3,
+             consent_recorded_by_id = $4,
+             consent_recorded_by_name = $5,
+             consent_notes = $6,
+             updated_at = NOW()
+         WHERE company_id = $7
+           AND (id = $8 OR (right(phone_normalized, 10) = $9 AND $9 <> ''))`,
+        [consentStatus, source, consentDate, recordedById || null, recordedByName || null, notes || null, companyId, contact.id, last10]
+      );
+    } catch (err) {
+      console.warn('[CrmRepository] SQL recordConsent update failed:', err);
+    }
+
+    // 2. Sync to customer_contacts if corresponding row exists
+    try {
+      const enumVal = consentStatus === 'Opted Out' ? 'Opted Out' : (consentStatus === 'Opted In' ? 'Opted In' : 'Unknown');
+      await query(
+        `UPDATE public.customer_contacts
+         SET consent_status = $1::hr_whatsapp_consent_status,
+             consent_source = $2,
+             consent_timestamp = $3,
+             updated_at = NOW()
+         WHERE company_id = $4
+           AND (id::text = $5 OR right(regexp_replace(contact_number, '\\D', '', 'g'), 10) = $6)`,
+        [enumVal, source, consentDate, companyId, contact.sourceId || '', last10]
+      );
+    } catch (err) {
+      console.warn('[CrmRepository] customer_contacts consent sync failed:', err);
+    }
+
+    // 3. Insert audit entry into customer_consent_records
+    try {
+      const recStatus = consentStatus === 'Opted Out' ? 'Opted Out' : (consentStatus === 'Opted In' ? 'Opted In' : 'Unknown');
+      await query(
+        `INSERT INTO public.customer_consent_records (
+           id,
+           company_id,
+           customer_contact_id,
+           crm_contact_id,
+           consent_status,
+           source,
+           purpose,
+           recorded_by_id,
+           recorded_by_name,
+           timestamp,
+           notes
+         ) VALUES (
+           gen_random_uuid(),
+           $1,
+           (SELECT id FROM public.customer_contacts WHERE company_id = $1 AND (id::text = $2 OR right(regexp_replace(contact_number, '\\D', '', 'g'), 10) = $3) LIMIT 1),
+           $4,
+           $5::hr_whatsapp_consent_status,
+           $6,
+           'WhatsApp Marketing & Service Communications',
+           $7,
+           $8,
+           $9,
+           $10
+         )`,
+        [
+          companyId,
+          contact.sourceId || '',
+          last10,
+          contact.id,
+          recStatus,
+          source,
+          recordedById && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recordedById) ? recordedById : null,
+          recordedByName || null,
+          consentDate,
+          notes || `Recorded via WhatsApp CRM by ${recordedByName || 'Authorized User'}`
+        ]
+      );
+    } catch (err) {
+      console.warn('[CrmRepository] customer_consent_records insert failed:', err);
+    }
+
+    const updated = await this.getContactById(contact.id, companyId);
+    return updated || contact;
   }
 
   // ============================================================
@@ -921,6 +1068,9 @@ export class CrmRepository {
       consentStatus: r.consent_status,
       consentSource: r.consent_source,
       consentTimestamp: r.consent_timestamp,
+      consentRecordedById: r.consent_recorded_by_id,
+      consentRecordedByName: r.consent_recorded_by_name,
+      consentNotes: r.consent_notes,
       avatarUrl: r.avatar_url,
       visitingCardUrl: r.visiting_card_url,
       notes: r.notes,

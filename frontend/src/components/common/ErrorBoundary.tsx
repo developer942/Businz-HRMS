@@ -34,7 +34,7 @@ export class ErrorBoundary extends Component<Props, State> {
   private handleReset = () => {
     try {
       window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
-    } catch {}
+    } catch { }
     const isChunkFailure =
       this.state.error?.name === 'ChunkLoadError' ||
       /loading chunk|failed to fetch dynamically imported module|unexpected token '<'/i.test(
@@ -54,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
   private handleGoHome = () => {
     try {
       window.sessionStorage.removeItem('vrm_chunk_reload_attempted');
-    } catch {}
+    } catch { }
     window.location.href = '/';
   };
 

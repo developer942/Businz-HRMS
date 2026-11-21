@@ -13,7 +13,8 @@ import type {
   CrmMessage,
   CrmBroadcast,
   CrmAnalyticsKPIs,
-  CrmTemplate
+  CrmTemplate,
+  CrmConsentStatus
 } from '../types/crm';
 
 const getApiBase = () => {
@@ -89,6 +90,22 @@ export const crmService = {
     });
     const data = await res.json();
     return !!data.success;
+  },
+
+  async recordConsent(contactId: string, payload: {
+    consentStatus: CrmConsentStatus;
+    consentDate?: string;
+    source?: string;
+    notes?: string;
+  }): Promise<CrmContact> {
+    const res = await fetch(`${getApiBase()}/contacts/${contactId}/consent`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to record consent');
+    return data.data;
   },
 
   // 3. Tags

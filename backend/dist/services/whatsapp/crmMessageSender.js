@@ -47,14 +47,11 @@ export class CrmMessageSender {
         if (!contact) {
             throw new Error(`Contact ${contactId} not found`);
         }
-        // Strict Anti-Spam / Consent Check for Marketing Templates
-        if (category === 'MARKETING' && contact.consentStatus !== 'Opted In') {
-            throw new Error(`Consent Policy Violation: Contact ${contact.name} (${contact.phone}) has consent status '${contact.consentStatus}'. Explicit opt-in consent is required before sending marketing templates.`);
-        }
         // Ensure conversation exists
         const conv = await crmRepository.getOrCreateConversation(contact.id, companyId);
         // Resolve template metadata (exact language code e.g. en, header image, and buttons) from database
         let effectiveLanguage = language || 'en';
+        let effectiveCategory = (category || 'UTILITY').toUpperCase();
         let renderedBodyText = `[Template: ${templateName}]`;
         let templateButtons = [];
         let templateHeaderType = headerType || 'NONE';
@@ -64,6 +61,9 @@ export class CrmMessageSender {
             const templates = await crmRepository.getTemplates(companyId, { search: templateName });
             const matchedTmpl = templates.find(t => t.name.toLowerCase() === templateName.toLowerCase().trim());
             if (matchedTmpl) {
+                if (matchedTmpl.category) {
+                    effectiveCategory = matchedTmpl.category.toUpperCase();
+                }
                 if (matchedTmpl.language) {
                     effectiveLanguage = matchedTmpl.language;
                 }
@@ -181,6 +181,10 @@ export class CrmMessageSender {
         }
         catch (err) {
             console.warn('[CrmMessageSender] Template metadata resolution error:', err);
+        }
+        // Strict Anti-Spam / Consent Check for Marketing Templates
+        if (effectiveCategory === 'MARKETING' && contact.consentStatus !== 'Opted In') {
+            throw new Error(`Consent Policy Violation: Contact ${contact.name} (${contact.phone}) has consent status '${contact.consentStatus}'. Explicit opt-in consent is required before sending marketing templates.`);
         }
         // Call Meta Graph API
         const metaRes = await metaApiClient.sendTemplateMessage(contact.phone, templateName, effectiveLanguage, finalComponents, companyId);

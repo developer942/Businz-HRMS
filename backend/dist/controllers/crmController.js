@@ -86,6 +86,41 @@ export class CrmController {
             res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to delete contact' });
         }
     }
+    async recordConsent(req, res) {
+        try {
+            const companyId = req.user?.company_id || 'company-a';
+            const id = String(req.params.id);
+            const { consentStatus, consentDate, source, notes } = req.body;
+            if (!consentStatus || !['Opted In', 'Opted Out', 'Unknown'].includes(consentStatus)) {
+                res.status(400).json({
+                    success: false,
+                    error: 'consentStatus must be Opted In, Opted Out, or Unknown'
+                });
+                return;
+            }
+            const updated = await crmRepository.recordConsent({
+                companyId,
+                contactId: id,
+                consentStatus,
+                consentDate: consentDate ? new Date(consentDate).toISOString() : new Date().toISOString(),
+                source: source || 'Direct WhatsApp / Manual Entry',
+                notes: notes || undefined,
+                recordedById: req.user?.id,
+                recordedByName: req.user?.name || req.user?.employeeId || 'Authorized User'
+            });
+            res.status(200).json({
+                success: true,
+                data: updated,
+                message: 'WhatsApp consent recorded successfully'
+            });
+        }
+        catch (err) {
+            res.status(500).json({
+                success: false,
+                error: err instanceof Error ? err.message : 'Failed to record consent'
+            });
+        }
+    }
     // ============================================================
     // Tags
     // ============================================================

@@ -25,6 +25,7 @@ crmRouter.get('/analytics', requirePermission('customer_data', 'view'), (req, re
 crmRouter.get('/contacts', requirePermission('customer_data', 'view'), (req, res) => crmController.getContacts(req, res));
 crmRouter.get('/contacts/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getContactById(req, res));
 crmRouter.post('/contacts', requirePermission('customer_data', 'create'), (req, res) => crmController.upsertContact(req, res));
+crmRouter.post('/contacts/:id/consent', requirePermission('customer_data', 'edit'), (req, res) => crmController.recordConsent(req, res));
 crmRouter.delete('/contacts/:id', requirePermission('customer_data', 'delete'), (req, res) => crmController.deleteContact(req, res));
 crmRouter.post('/contacts/:id/tags', requirePermission('customer_data', 'edit'), (req, res) => crmController.assignTag(req, res));
 crmRouter.delete('/contacts/:id/tags/:tagId', requirePermission('customer_data', 'edit'), (req, res) => crmController.removeTag(req, res));

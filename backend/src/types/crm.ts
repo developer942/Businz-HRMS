@@ -37,6 +37,9 @@ export interface CrmContact {
   consentStatus: CrmConsentStatus;
   consentSource?: string | null;
   consentTimestamp?: string | null;
+  consentRecordedById?: string | null;
+  consentRecordedByName?: string | null;
+  consentNotes?: string | null;
   avatarUrl?: string | null;
   visitingCardUrl?: string | null;
   notes?: string | null;
