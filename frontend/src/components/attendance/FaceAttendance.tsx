@@ -48,7 +48,9 @@ import {
   buildEmployeeMonthlyAttendanceCalendar,
   resolveOvernightAttendanceSession,
   resolveEmployeeOtEligibility,
-  formatDurationHoursAndMinutes
+  formatDurationHoursAndMinutes,
+  formatHoursAndMinutes,
+  formatRecordWorkingAndOtDurations
 } from '../../services/attendanceCalculationEngine';
 import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { formatCurrency } from '../../utils/numbers';
@@ -3452,8 +3454,8 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             const hasOut = Boolean(rec.checkOut && rec.checkOut !== '--:--' && String(rec.checkOut).trim() !== '');
             const checkInDisplay = hasIn ? formatAttendanceTime(rec.checkIn) : '—';
             const checkOutDisplay = hasOut ? formatAttendanceTime(rec.checkOut) : (hasIn ? 'In Progress' : '—');
-            const workHrsVal = getRecordResolvedWorkingHours(rec);
-            const workHrsDisplay = workHrsVal > 0 ? `${workHrsVal} hrs` : '—';
+            const recDurations = formatRecordWorkingAndOtDurations(rec);
+            const workHrsDisplay = recDurations.workingMinutes > 0 ? recDurations.workingDuration : (hasIn && !hasOut ? 'In Progress' : '—');
             const dailyOt = getRecordDailyOt(rec);
 
             return (
@@ -3714,7 +3716,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                       </div>
                       <div>
                         <span style={{ color: '#64748b' }}>OT Hours: </span>
-                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{dailyOt.otHrs} hrs</span>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{dailyOt.otHrs > 0 ? formatHoursAndMinutes(dailyOt.otHrs) : '0h 00m'}</span>
                       </div>
                       <div>
                         <span style={{ color: '#64748b' }}>OT Amount: </span>
@@ -3865,18 +3867,18 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
                     {/* Working Hours */}
                     <td
                       data-testid="record-working-hours"
-                      title={formatDurationHoursAndMinutes(Math.round(getRecordResolvedWorkingHours(rec) * 60))}
+                      title={formatRecordWorkingAndOtDurations(rec).workingDuration}
                       style={{ padding: '11px 16px', whiteSpace: 'nowrap', color: '#334155', fontWeight: 500 }}
                     >
-                      {getRecordResolvedWorkingHours(rec)} hrs
+                      {formatRecordWorkingAndOtDurations(rec).workingDuration}
                     </td>
 
                     {/* Daily OT Hours */}
                     <td
-                      title={dailyOt.otHrs > 0 ? formatDurationHoursAndMinutes(Math.round(dailyOt.otHrs * 60)) : undefined}
+                      title={dailyOt.otHrs > 0 ? formatHoursAndMinutes(dailyOt.otHrs) : undefined}
                       style={{ padding: '11px 16px', whiteSpace: 'nowrap', fontWeight: 500, color: '#334155' }}
                     >
-                      {dailyOt.otHrs > 0 ? `${dailyOt.otHrs} hrs` : '0 hrs'}
+                      {dailyOt.otHrs > 0 ? formatHoursAndMinutes(dailyOt.otHrs) : '0h 00m'}
                     </td>
 
                     {/* Daily OT Amount */}
@@ -3895,7 +3897,7 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
             <tfoot>
               <tr style={{ backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
                 <td colSpan={showEmployeeCol ? 6 : 4} style={{ padding: '10px 16px', fontWeight: 600, color: '#334155', fontSize: '0.78rem' }}>
-                  Total OT Hours: {totalViewOtHours} hrs
+                  Total OT Hours: {formatHoursAndMinutes(totalViewOtHours)}
                 </td>
                 <td colSpan={3} style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>
                   Total OT Amount: {formatCurrency(totalViewOtAmount)}

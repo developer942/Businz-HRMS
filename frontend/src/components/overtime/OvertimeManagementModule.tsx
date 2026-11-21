@@ -31,7 +31,7 @@ import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatCurrency } from '../../utils/numbers';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
-import { calculateEnterpriseOvertimeRateAndAmount } from '../../services/attendanceCalculationEngine';
+import { calculateEnterpriseOvertimeRateAndAmount, formatHoursAndMinutes } from '../../services/attendanceCalculationEngine';
 
 interface OvertimeManagementModuleProps {
   openRequestModal?: boolean;
@@ -981,12 +981,12 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                           <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0F172A' }}>
                             {item.status === 'Approved' || (item.status as string) === 'Partially Approved' || item.status === 'Paid'
-                              ? `${item.approvedOtHours} hrs`
-                              : `${reqHrs} hrs`}
+                              ? `${formatHoursAndMinutes(item.approvedOtHours)}`
+                              : `${formatHoursAndMinutes(reqHrs)}`}
                           </span>
                           {(item.status as string) === 'Partially Approved' && (
                             <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>
-                              (Req: {reqHrs}h)
+                              (Req: {formatHoursAndMinutes(reqHrs)})
                             </span>
                           )}
                         </div>
@@ -1924,13 +1924,13 @@ export const OvertimeManagementModule: React.FC<OvertimeManagementModuleProps> =
                 <div>
                   <div style={{ color: '#64748B', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Requested Hours</div>
                   <div style={{ fontWeight: 800, color: '#0E7490', fontSize: '0.95rem', marginTop: '2px' }}>
-                    {detailRequest.requestedOtHours} hrs
+                    {formatHoursAndMinutes(detailRequest.requestedOtHours)}
                   </div>
                 </div>
                 <div>
                   <div style={{ color: '#64748B', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Approved Hours</div>
                   <div style={{ fontWeight: 800, color: '#16A34A', fontSize: '0.95rem', marginTop: '2px' }}>
-                    {detailRequest.approvedOtHours || 0} hrs
+                    {formatHoursAndMinutes(detailRequest.approvedOtHours)}
                   </div>
                 </div>
                 <div>

@@ -22,7 +22,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { MissedPunchRequest, OvertimeRequest } from '../../types/attendanceEnterprise';
 import { EditAndApproveModal } from './EditAndApproveModal';
-import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatHoursAndMinutes } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/numbers';
 
 export const AttendanceRequestsHub: React.FC = () => {
@@ -418,7 +418,7 @@ export const AttendanceRequestsHub: React.FC = () => {
                   <div className="vrm-req-box" style={{ background: '#EDE9FE', borderColor: '#DDD6FE' }}>
                     <div className="vrm-req-box-label" style={{ color: '#7C3AED' }}>Hours Claimed vs Approved</div>
                     <div className="vrm-req-box-val" style={{ color: '#6D28D9' }}>
-                      Claimed: <strong>{ot.requestedOtHours} hrs</strong> | Approved: <strong>{ot.approvedOtHours} hrs</strong>
+                      Claimed: <strong>{formatHoursAndMinutes(ot.requestedOtHours)}</strong> | Approved: <strong>{formatHoursAndMinutes(ot.approvedOtHours)}</strong>
                     </div>
                   </div>
 

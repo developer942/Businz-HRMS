@@ -39,14 +39,14 @@ function minutesToHHMM(mins: number): string {
   if (isNaN(mins) || mins <= 0) return '-';
   const h = Math.floor(mins / 60);
   const m = Math.round(mins % 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
 function minutesToHHHMM(mins: number): string {
-  if (isNaN(mins) || mins <= 0) return '00:00';
+  if (isNaN(mins) || mins <= 0) return '0h 00m';
   const h = Math.floor(mins / 60);
   const m = Math.round(mins % 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
 function parseTimeToMins(timeStr?: string | null): number | null {

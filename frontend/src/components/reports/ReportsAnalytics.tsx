@@ -3,7 +3,7 @@ import { useHRMS } from '../../context/HRMSContext';
 import { BarChart3, Download, FileText, Filter, Sliders, CalendarDays, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { toNum, formatCurrency } from '../../utils/numbers';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatHoursAndMinutes } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { DateInput } from '../common/DateInput';
 import { getCalendarDaysInMonth } from '../../services/policyEngine';
@@ -321,7 +321,7 @@ export const ReportsAnalytics: React.FC = () => {
                       <td>{a.employeeName}</td>
                       <td>{a.department}</td>
                       <td>{a.checkIn || '--'}</td>
-                      <td>{a.workingHours} hrs</td>
+                      <td>{formatHoursAndMinutes(a.workingHours)}</td>
                       <td><span className={`status-pill ${a.status.toLowerCase().replace(' ', '-')}`}>{a.status}</span></td>
                     </tr>
                   ))

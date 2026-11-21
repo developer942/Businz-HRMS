@@ -68,11 +68,29 @@ export function parseTimeToMinutes(timeStr?: string | null): number | null {
 }
 
 /**
- * Formats decimal hours (e.g. 10.08) into standard enterprise display: "10h 05m"
+ * Formats decimal hours (e.g. 8.82, 8.92, 0.02) or time string into standard enterprise display: "8h 49m", "8h 55m", "0h 01m".
+ * Accurately converts total minutes internally (e.g. 8.82 hrs = Math.round(8.82 * 60) = 529 mins -> 8h 49m).
+ * Never interprets decimal hours like 8.82 as 8 hours 82 minutes.
  */
-export function formatHoursAndMinutes(hoursVal: number): string {
-  if (!hoursVal || isNaN(hoursVal) || hoursVal <= 0) return '0h 00m';
-  const totalMinutes = Math.round(hoursVal * 60);
+export function formatHoursAndMinutes(hoursVal: number | string | null | undefined): string {
+  if (hoursVal === null || hoursVal === undefined || hoursVal === '') return '0h 00m';
+  const str = String(hoursVal).trim();
+  if (str === '—' || str === '-' || str === '--:--' || str.toLowerCase().includes('progress')) {
+    return '0h 00m';
+  }
+  if (/^\d+h\s*\d+m$/i.test(str)) {
+    return str;
+  }
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(str)) {
+    const parts = str.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return `${h}h ${String(m).padStart(2, '0')}m`;
+  }
+  const cleanNumStr = str.replace(/[^\d.-]/g, '').trim();
+  const num = Number(cleanNumStr);
+  if (isNaN(num) || num <= 0) return '0h 00m';
+  const totalMinutes = Math.round((num + Number.EPSILON) * 60);
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return `${h}h ${String(m).padStart(2, '0')}m`;
@@ -4092,6 +4110,118 @@ export function resolveOvernightAttendanceSession(params: {
     otMinutes,
     otHours,
     formattedOtDuration: formatDurationHoursAndMinutes(otMinutes),
+  };
+}
+
+/**
+ * Resolves accurate formatted working and OT durations for an attendance record.
+ * Calculates from original punch-in and punch-out timestamps (including seconds, overnight shifts,
+ * and existing break rules) when available. Falls back to stored decimal hours if timestamps
+ * are not available.
+ * 
+ * Example: 09:51 AM to 06:40 PM -> 529 minutes -> "8h 49m" (stored as 8.82 decimal hours).
+ */
+export function formatRecordWorkingAndOtDurations(
+  rec: any,
+  options?: {
+    assignedShift?: any;
+    overtimePolicy?: any;
+    timeZone?: string;
+  }
+): {
+  workingDuration: string;
+  otDuration: string;
+  workingMinutes: number;
+  otMinutes: number;
+} {
+  if (!rec) {
+    return {
+      workingDuration: '0h 00m',
+      otDuration: '0h 00m',
+      workingMinutes: 0,
+      otMinutes: 0,
+    };
+  }
+
+  const hasIn = Boolean(
+    rec.checkIn &&
+    rec.checkIn !== '--:--' &&
+    rec.checkIn !== '—' &&
+    rec.checkIn !== '-' &&
+    String(rec.checkIn).trim() !== ''
+  );
+  const hasOut = Boolean(
+    rec.checkOut &&
+    rec.checkOut !== '--:--' &&
+    rec.checkOut !== '—' &&
+    rec.checkOut !== '-' &&
+    String(rec.checkOut).trim() !== '' &&
+    !String(rec.checkOut).toLowerCase().includes('progress')
+  );
+
+  // If check-in exists but check-out is missing or in progress
+  if (hasIn && !hasOut) {
+    const isExplicitProgress = String(rec.checkOut || '').toLowerCase().includes('progress') || rec.status === 'Present';
+    return {
+      workingDuration: isExplicitProgress ? 'In Progress' : '0h 00m',
+      otDuration: '0h 00m',
+      workingMinutes: 0,
+      otMinutes: 0,
+    };
+  }
+
+  // If both punch-in and punch-out are recorded, calculate directly from timestamps
+  if (hasIn && hasOut) {
+    const attendanceDate = normalizeCalendarDateStr(rec.shiftDate || rec.date || new Date());
+    const breakMins = Number(rec.breakDurationMinutes ?? rec.breakMinutes ?? 0);
+    const session = resolveOvernightAttendanceSession({
+      attendanceDate,
+      checkIn: rec.checkIn,
+      checkOut: rec.checkOut,
+      checkOutDate: rec.checkOutDate || null,
+      unpaidBreakMinutes: breakMins,
+      deductBreakAlways: breakMins > 0,
+      allowAutoRollSameDateIsoCheckOut: true,
+      timeZone: options?.timeZone || DEFAULT_COMPANY_TIMEZONE,
+    });
+
+    if (session.isValid) {
+      const explicitOt = Number(
+        rec.approvedOtHours ??
+        rec.overtimeHours ??
+        rec.otHours ??
+        (rec.dailyOt ? rec.dailyOt.otHrs : 0) ??
+        0
+      );
+      const otDuration =
+        explicitOt > 0
+          ? formatHoursAndMinutes(explicitOt)
+          : session.formattedOtDuration || '0h 00m';
+
+      return {
+        workingDuration: session.formattedWorkingDuration,
+        otDuration,
+        workingMinutes: session.netWorkedMinutes,
+        otMinutes: explicitOt > 0 ? Math.round(explicitOt * 60) : session.otMinutes,
+      };
+    }
+  }
+
+  // Fallback to stored decimal hours if timestamps cannot be resolved
+  const rawWorkingHours = Number(rec.workingHours ?? rec.working_hours ?? 0);
+  const explicitOt = Number(
+    rec.approvedOtHours ??
+    rec.overtimeHours ??
+    rec.otHours ??
+    (rec.dailyOt ? rec.dailyOt.otHrs : 0) ??
+    0
+  );
+
+  return {
+    workingDuration: formatHoursAndMinutes(rawWorkingHours),
+    otDuration: formatHoursAndMinutes(explicitOt),
+    workingMinutes: Math.round(Math.max(0, rawWorkingHours) * 60),
+    otMinutes: Math.round(Math.max(0, explicitOt) * 60),
   };
 }
 

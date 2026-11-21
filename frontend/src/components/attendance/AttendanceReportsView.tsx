@@ -32,7 +32,7 @@ import { MusterRollModule } from './MusterRollModule';
 import { ManualAttendanceEntryModal } from './ManualAttendanceEntryModal';
 import { AttendanceRecord } from '../../types/hrms';
 import { isAttendanceExemptEmployee, isOwnerOrCEO } from '../../data/hrmsInitialData';
-import { calculateEnterpriseOvertimeRateAndAmount } from '../../services/attendanceCalculationEngine';
+import { calculateEnterpriseOvertimeRateAndAmount, formatHoursAndMinutes, formatRecordWorkingAndOtDurations } from '../../services/attendanceCalculationEngine';
 
 export type ReportTypeKey = 
   | 'muster' 
@@ -469,26 +469,27 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
   const getRecordWorkingDuration = (r: AttendanceRecord): { minutes: number; text: string; decimalHours: number; isPending: boolean } => {
     const hasOut = Boolean(r.checkOut && r.checkOut !== '--:--' && r.checkOut.trim() !== '' && !r.checkOut.toLowerCase().includes('progress'));
     if (!hasOut) {
-      return { minutes: 0, text: 'In Progress', decimalHours: 0, isPending: true };
+      const hasIn = Boolean(r.checkIn && r.checkIn !== '--:--' && r.checkIn.trim() !== '');
+      return { minutes: 0, text: hasIn ? 'In Progress' : '0h 00m', decimalHours: 0, isPending: hasIn };
     }
     if (r.checkIn && r.checkOut) {
       const inM = parseTimeToMinutes(r.checkIn);
       const outM = parseTimeToMinutes(r.checkOut);
       let diff = outM - inM;
       if (diff < 0) diff += 24 * 60; // overnight shift
-      const dec = Math.round((diff / 60) * 10) / 10;
-      if (diff < 60) {
-        return { minutes: diff, text: `${diff} min${diff === 1 ? '' : 's'}`, decimalHours: dec, isPending: false };
-      }
+      const dec = Math.round((diff / 60) * 100) / 100;
       const h = Math.floor(diff / 60);
       const m = diff % 60;
-      return { minutes: diff, text: m > 0 ? `${h}h ${m}m` : `${h} hrs`, decimalHours: dec, isPending: false };
+      return { minutes: diff, text: `${h}h ${String(m).padStart(2, '0')}m`, decimalHours: dec, isPending: false };
     }
     const wh = toNum(r.workingHours);
     if (wh > 0) {
-      return { minutes: Math.round(wh * 60), text: `${wh.toFixed(1)} hrs`, decimalHours: wh, isPending: false };
+      const totalMinutes = Math.round(wh * 60);
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      return { minutes: totalMinutes, text: `${h}h ${String(m).padStart(2, '0')}m`, decimalHours: wh, isPending: false };
     }
-    return { minutes: 0, text: '0 min', decimalHours: 0, isPending: false };
+    return { minutes: 0, text: '0h 00m', decimalHours: 0, isPending: false };
   };
 
   // Helper to get employee shift details (checks shift assignments + workShift, defaults to 9h standard shift)
@@ -1094,9 +1095,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           name: r.employeeName,
           dept: r.department,
           date: formatDateDisplay(r.date),
-          standardHours: `${stdHours.toFixed(1)} hrs`,
-          totalHours: `${totalHours.toFixed(1)} hrs`,
-          otHours: `+${otHrs.toFixed(1)} hrs`,
+          standardHours: formatHoursAndMinutes(stdHours),
+          totalHours: formatHoursAndMinutes(totalHours),
+          otHours: `+${formatHoursAndMinutes(otHrs)}`,
           rate: multLabel,
           otAmount: formatCurrency(otCalc.overtimeAmount)
         });
@@ -1157,7 +1158,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
           checkIn: formatTimeDisplay(r.checkIn, '--:--'),
           checkOut: formatTimeDisplay(r.checkOut, '--:--'),
           workingHours: dur.text,
-          shiftHours: `${shift.totalHours || 9} hrs`,
+          shiftHours: formatHoursAndMinutes(shift.totalHours || 9),
           status: 'Half Day (0.5 Day Salary)'
         });
       });
@@ -2200,9 +2201,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                           <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{resolveEmployeeCode(r.employeeId)} • {r.department}</div>
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{formatDateDisplay(r.date)}</td>
-                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{stdHours.toFixed(1)} hrs</td>
-                        <td style={{ padding: '10px 14px', fontWeight: 700 }}>{totalHours.toFixed(1)} hrs</td>
-                        <td style={{ padding: '10px 14px', color: '#0E7490', fontWeight: 800 }}>+{otHrs.toFixed(1)} hrs</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{formatHoursAndMinutes(stdHours)}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 700 }}>{formatHoursAndMinutes(totalHours)}</td>
+                        <td style={{ padding: '10px 14px', color: '#0E7490', fontWeight: 800 }}>+{formatHoursAndMinutes(otHrs)}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{ backgroundColor: '#DCFCE7', color: '#15803D', border: '1px solid #BBF7D0', padding: '3px 8px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700 }}>
                             {multLabel}
@@ -2223,7 +2224,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                           TOTAL OVERTIME SUMMARY
                         </td>
                         <td style={{ padding: '10px 14px', fontWeight: 800, color: '#0E7490', fontSize: '0.82rem' }}>
-                          +{totalOtHrsSum.toFixed(1)} hrs
+                          +{formatHoursAndMinutes(totalOtHrsSum)}
                         </td>
                         <td style={{ padding: '10px 14px' }} />
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#15803D', fontSize: '0.84rem' }}>

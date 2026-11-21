@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { downloadPagarBookMusterRollExcel, resolveEmployeeStandardShiftHours } from '../../utils/pagarBookMusterRollExporter';
-import { normalizeToYYYYMMDD, formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
+import { normalizeToYYYYMMDD, formatDateDDMMYYYY, formatTimeDisplay, formatHoursAndMinutes } from '../../utils/dateUtils';
 import { toNum } from '../../utils/numbers';
 
 const parseTimeToMinutes = (timeStr?: string | null): number => {
@@ -347,7 +347,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           status: 'WFH' as AttendanceStatusCode,
           checkIn: attRec?.checkIn ? formatTimeDisplay(attRec.checkIn, '09:00 AM') : '09:00 AM',
           checkOut: attRec?.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '06:00 PM') : '06:00 PM',
-          workingHours: attRec && toNum(attRec.workingHours) > 0 ? `${toNum(attRec.workingHours).toFixed(1)} hrs` : '08:30',
+          workingHours: attRec && toNum(attRec.workingHours) > 0 ? formatHoursAndMinutes(attRec.workingHours) : '8h 30m',
           shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
           location: 'Work From Home (Approved)',
           remarks: `WFH: ${leaveRec.reason || 'Approved WFH'}`
@@ -358,7 +358,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           status: 'FV' as AttendanceStatusCode,
           checkIn: attRec?.checkIn ? formatTimeDisplay(attRec.checkIn, '09:30 AM') : '09:30 AM',
           checkOut: attRec?.checkOut && attRec.checkOut !== '--:--' ? formatTimeDisplay(attRec.checkOut, '06:00 PM') : '06:00 PM',
-          workingHours: attRec && toNum(attRec.workingHours) > 0 ? `${toNum(attRec.workingHours).toFixed(1)} hrs` : '08:30',
+          workingHours: attRec && toNum(attRec.workingHours) > 0 ? formatHoursAndMinutes(attRec.workingHours) : '8h 30m',
           shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
           location: 'Field Visit',
           remarks: `Field Visit: ${leaveRec.reason || 'Client/Site Visit'}`

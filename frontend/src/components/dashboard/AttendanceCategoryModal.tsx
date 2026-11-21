@@ -3,7 +3,7 @@ import { Employee, AttendanceRecord, LeaveRequest, Shift, WeeklyScheduleItem, Ho
 import { FieldAssignment } from '../../types/tracking';
 import { buildAttendanceReport } from '../../services/attendanceReportService';
 import { downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
-import { formatTimeDisplay, formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatTimeDisplay, formatDateDDMMYYYY, formatHoursAndMinutes } from '../../utils/dateUtils';
 import { getLocalDateStr } from '../../utils/monthUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
@@ -211,7 +211,7 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
     if (isEarly) {
       statusLabel = 'Early Clock Out';
       statusType = 'warning';
-      note = `${att?.workingHours || 5.5} hrs (Left early)`;
+      note = `${formatHoursAndMinutes(att?.workingHours || 5.5)} (Left early)`;
     } else if (isMissed) {
       statusLabel = 'Miss Clock Out';
       statusType = 'purple';
@@ -238,7 +238,7 @@ export const AttendanceCategoryModal: React.FC<AttendanceCategoryModalProps> = (
       attendance: att,
       checkIn: isCheckedIn ? formatTimeDisplay(att?.checkIn, '—') : '—',
       checkOut: isCheckedOut ? formatTimeDisplay(att?.checkOut, '—') : '—',
-      hours: isCheckedIn && att?.workingHours ? `${att.workingHours} hrs` : '0 hrs',
+      hours: isCheckedIn && att?.workingHours ? formatHoursAndMinutes(att.workingHours) : '0h 00m',
       statusLabel,
       statusType,
       note

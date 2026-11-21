@@ -13,6 +13,7 @@ import {
   CalendarDayPayrollBreakdown,
 } from '../types/payroll.js';
 import { isComponentEligible } from './componentEligibilityEngine.js';
+import { formatHoursAndMinutes } from './shiftAttendanceEngine.js';
 
 // Configure Decimal precision for financial calculations
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -1155,7 +1156,7 @@ export function formatPayslipOvertimeForViewer(params: {
 
   const label =
     vis.showOtHoursOnPayslip && hrs > 0
-      ? `Overtime Earnings (${hrs} hrs)`
+      ? `Overtime Earnings (${formatHoursAndMinutes(hrs)})`
       : 'Overtime Earnings';
 
   let description: string | undefined;

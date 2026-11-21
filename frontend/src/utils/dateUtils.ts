@@ -191,4 +191,11 @@ export const formatDateDayMonthYear = (dateInput: string | Date | null | undefin
   return `${dd} ${SHORT_MONTHS[monthIdx] || mm} ${yyyy}`;
 };
 
+export {
+  formatHoursAndMinutes,
+  formatDurationHoursAndMinutes,
+  formatRecordWorkingAndOtDurations,
+} from '../services/attendanceCalculationEngine';
+
+
 

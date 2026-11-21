@@ -40,7 +40,7 @@ import {
 import { useHRMS } from '../../context/HRMSContext';
 import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { AttendanceRecord, AttendanceAuditLog } from '../../types/hrms';
-import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatTimeDisplay, formatHoursAndMinutes, formatRecordWorkingAndOtDurations } from '../../utils/dateUtils';
 import { AttendanceDetailsDrawer } from './AttendanceDetailsDrawer';
 import { AttendanceCorrectionModal } from './AttendanceCorrectionModal';
 import { AttendanceCalendarView } from './AttendanceCalendarView';
@@ -309,8 +309,8 @@ export const AttendanceManagementModule: React.FC = () => {
         status: r.status,
         checkIn: formatTimeDisplay(r.checkIn, '-'),
         checkOut: formatTimeDisplay(r.checkOut, '-'),
-        workingHours: r.workingHours || '-',
-        otHours: otHrs,
+        workingHours: formatRecordWorkingAndOtDurations(r).workingDuration,
+        otHours: otHrs > 0 ? formatHoursAndMinutes(otHrs) : '0h 00m',
         otAmount: formatCurrency(Math.round(otCalc.overtimeAmount || 0)),
         fineAmount: formatCurrency(Math.round(fineAmt))
       };
@@ -574,7 +574,7 @@ export const AttendanceManagementModule: React.FC = () => {
               <Timer size={16} />
             </div>
           </div>
-          <div className="vrm-kpi-hub-val">{stats.totalOtHours} <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748B' }}>hrs</span></div>
+          <div className="vrm-kpi-hub-val">{formatHoursAndMinutes(stats.totalOtHours)}</div>
           <div className="vrm-kpi-hub-sub" style={{ color: '#0E7490' }}>
             Logged extra time
           </div>
@@ -877,7 +877,7 @@ export const AttendanceManagementModule: React.FC = () => {
 
                             {/* Net Hours */}
                             <td style={{ fontWeight: 750, color: '#0F172A' }}>
-                              {rec.workingHours || 0} hrs
+                              {formatRecordWorkingAndOtDurations(rec).workingDuration}
                             </td>
 
                             {/* Overtime */}
@@ -885,7 +885,7 @@ export const AttendanceManagementModule: React.FC = () => {
                               {(rec.approvedOtHours || rec.otHours) ? (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                   <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0E7490' }}>
-                                    {rec.approvedOtHours || rec.otHours} hrs
+                                    {formatHoursAndMinutes(rec.approvedOtHours || rec.otHours)}
                                   </span>
                                   <span style={{ 
                                     fontSize: '10.5px', 
@@ -1107,7 +1107,7 @@ export const AttendanceManagementModule: React.FC = () => {
                         <span>{formattedDateStr}</span>
                       </div>
                       <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#334155', marginTop: '3px' }}>
-                        {isWeekOff ? '0:00 Hrs' : (rec.workingHours ? `${rec.workingHours} Hrs` : '8:36 Hrs')}
+                        {isWeekOff ? '0h 00m' : formatRecordWorkingAndOtDurations(rec).workingDuration}
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px', fontSize: '0.88rem' }}>
                         <button

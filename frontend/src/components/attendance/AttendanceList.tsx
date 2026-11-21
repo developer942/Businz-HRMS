@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { isOwnerOrCEO, isAttendanceExemptEmployee } from '../../data/hrmsInitialData';
 import { AttendanceRecord } from '../../types/hrms';
-import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatTimeDisplay, formatHoursAndMinutes, formatRecordWorkingAndOtDurations } from '../../utils/dateUtils';
 import { 
   CalendarCheck, 
   MapPin, 
@@ -542,7 +542,7 @@ export const AttendanceList: React.FC<AttendanceListProps> = ({ onBackToInsights
                         {formatDateDDMMYYYY(record.date)} <span style={{ color: '#64748B', fontWeight: 500 }}>I {record.employeeName}</span>
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#64748B', marginTop: '2px' }}>
-                        {record.workingHours || 8.6} Hrs | {record.department} ({record.employeeId})
+                        {formatRecordWorkingAndOtDurations(record).workingDuration} | {record.department} ({record.employeeId})
                       </div>
                     </div>
 
@@ -789,7 +789,7 @@ export const AttendanceList: React.FC<AttendanceListProps> = ({ onBackToInsights
                         <td style={{ padding: '12px 16px' }}>{rec.shiftName || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)'}</td>
                         <td style={{ padding: '12px 16px', fontWeight: 700, color: rec.checkIn ? '#16A34A' : '#DC2626' }}>{formatTimeDisplay(rec.checkIn, 'Missing')}</td>
                         <td style={{ padding: '12px 16px', fontWeight: 700, color: rec.checkOut ? '#16A34A' : '#DC2626' }}>{formatTimeDisplay(rec.checkOut, 'Missing')}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>{rec.workingHours || 0} hrs</td>
+                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>{formatRecordWorkingAndOtDurations(rec).workingDuration}</td>
                         <td style={{ padding: '12px 16px' }}>{rec.otHours ? `+${rec.otHours}h` : '-'}</td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ fontSize: '0.75rem', fontWeight: 800, padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#DCFCE7', color: '#15803D' }}>

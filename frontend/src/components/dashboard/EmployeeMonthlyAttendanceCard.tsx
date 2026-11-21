@@ -5,7 +5,8 @@ import { getMonthInfo } from '../../utils/monthUtils';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import {
   buildEmployeeMonthlyAttendanceOtReport,
-  buildEmployeeMonthlyAttendanceCalendar
+  buildEmployeeMonthlyAttendanceCalendar,
+  formatHoursAndMinutes
 } from '../../services/attendanceCalculationEngine';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/numbers';
@@ -674,12 +675,12 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                             <div style={{ fontSize: '0.7rem', color: '#64748B' }}>{row.punchTimeDisplay}</div>
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#0F172A' }}>
-                            {row.shiftWorkHrs} hrs
+                            {formatHoursAndMinutes(row.shiftWorkHrs)}
                           </td>
                           {monthlyOtReport.showOtFields ? (
                             <>
                               <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: row.otHrs > 0 ? '#0E7490' : '#94A3B8' }}>
-                                {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
+                                {row.otHrs > 0 ? formatHoursAndMinutes(row.otHrs) : '0h 00m'}
                               </td>
                               <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: row.otAmount > 0 ? '#15803D' : '#94A3B8' }}>
                                 {formatCurrency(row.otAmount)}
@@ -697,7 +698,7 @@ export const EmployeeMonthlyAttendanceCard: React.FC<EmployeeMonthlyAttendanceCa
                       <tfoot>
                         <tr style={{ backgroundColor: '#ECFEFF', borderTop: '2px solid #A5F3FC' }}>
                           <td colSpan={3} style={{ padding: '10px 12px', fontWeight: 800, color: '#0E7490', fontSize: '0.76rem' }}>
-                            TOTAL APPROVED OT HOURS: {monthlyOtReport.totalApprovedOtHours} hrs
+                            TOTAL APPROVED OT HOURS: {formatHoursAndMinutes(monthlyOtReport.totalApprovedOtHours)}
                           </td>
                           <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#0E7490', fontSize: '0.82rem' }}>
                             TOTAL APPROVED OT AMOUNT: {formatCurrency(monthlyOtReport.totalApprovedOtAmount)}

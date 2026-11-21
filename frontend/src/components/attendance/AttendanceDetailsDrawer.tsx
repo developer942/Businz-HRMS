@@ -491,11 +491,11 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
                 <div className="border border-slate-200 rounded-2xl p-4 bg-white space-y-2 text-xs">
                   <div className="flex justify-between py-2 border-b border-slate-100">
                     <span className="text-slate-600 font-medium">Regular Work Completed</span>
-                    <span className="font-mono text-slate-800">{salaryImpact.regularWorkHours} hrs</span>
+                    <span className="font-mono text-slate-800">{formatHoursAndMinutes(salaryImpact.regularWorkHours)}</span>
                   </div>
 
                   <div className="flex justify-between py-2 border-b border-slate-100 text-emerald-700">
-                    <span className="font-medium">+ Overtime Earnings ({salaryImpact.otHours} hrs @ {formatCurrency(salaryImpact.hourlyRate)}/hr)</span>
+                    <span className="font-medium">+ Overtime Earnings ({formatHoursAndMinutes(salaryImpact.otHours)} @ {formatCurrency(salaryImpact.hourlyRate)}/hr)</span>
                     <span className="font-mono font-bold">+{formatCurrency(salaryImpact.otAmount)}</span>
                   </div>
 
@@ -623,12 +623,12 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
                                 <div className="text-[10px] text-slate-400">{row.punchTimeDisplay}</div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
-                                {row.shiftWorkHrs} hrs
+                                {formatHoursAndMinutes(row.shiftWorkHrs)}
                               </td>
                               {monthlyOtReport.showOtFields ? (
                                 <>
                                   <td className="py-2 px-3 text-right font-mono font-bold text-cyan-800">
-                                    {row.otHrs > 0 ? `${row.otHrs} hrs` : '0 hrs'}
+                                    {row.otHrs > 0 ? formatHoursAndMinutes(row.otHrs) : '0h 00m'}
                                   </td>
                                   <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
                                     {formatCurrency(row.otAmount)}
@@ -646,7 +646,7 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
                           <tfoot>
                             <tr className="bg-cyan-50 border-t-2 border-cyan-200 font-bold text-cyan-900">
                               <td colSpan={3} className="py-2.5 px-3">
-                                TOTAL APPROVED OT HOURS: {monthlyOtReport.totalApprovedOtHours} hrs
+                                TOTAL APPROVED OT HOURS: {formatHoursAndMinutes(monthlyOtReport.totalApprovedOtHours)}
                               </td>
                               <td colSpan={2} className="py-2.5 px-3 text-right">
                                 TOTAL APPROVED OT AMOUNT: {formatCurrency(monthlyOtReport.totalApprovedOtAmount)}
@@ -668,15 +668,15 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-white p-3 rounded-xl border border-cyan-100">
                       <div>
                         <span className="text-slate-400 block">Approved OT Hours</span>
-                        <strong className="text-emerald-700 text-sm font-mono">{monthlyOtReport.totalApprovedOtHours} hrs</strong>
+                        <strong className="text-emerald-700 text-sm font-mono">{formatHoursAndMinutes(monthlyOtReport.totalApprovedOtHours)}</strong>
                       </div>
                       <div>
                         <span className="text-slate-400 block">Pending OT Claims</span>
-                        <strong className="text-amber-700 text-sm font-mono">{monthlySummary.pendingOtHours} hrs</strong>
+                        <strong className="text-amber-700 text-sm font-mono">{formatHoursAndMinutes(monthlySummary.pendingOtHours)}</strong>
                       </div>
                       <div>
                         <span className="text-slate-400 block">Rejected OT Hours</span>
-                        <strong className="text-rose-700 text-sm font-mono">{monthlySummary.rejectedOtHours} hrs</strong>
+                        <strong className="text-rose-700 text-sm font-mono">{formatHoursAndMinutes(monthlySummary.rejectedOtHours)}</strong>
                       </div>
                       <div>
                         <span className="text-slate-400 block">Total OT Payout</span>
@@ -740,7 +740,7 @@ export const AttendanceDetailsDrawer: React.FC<AttendanceDetailsDrawerProps> = (
                             </span>
                           </div>
                           <p className="text-slate-600">
-                            Approved: <strong>{ot.approvedOtHours} hrs</strong> (Calculated ₹{ot.calculatedAmount})
+                            Approved: <strong>{formatHoursAndMinutes(ot.approvedOtHours)}</strong> (Calculated ₹{ot.calculatedAmount})
                           </p>
                           <p className="text-slate-400 italic">"{ot.reason}"</p>
                         </div>

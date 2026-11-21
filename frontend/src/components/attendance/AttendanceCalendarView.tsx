@@ -15,7 +15,7 @@ import {
   X
 } from 'lucide-react';
 import { AttendanceCorrectionModal } from './AttendanceCorrectionModal';
-import { formatDateDDMMYYYY, normalizeToYYYYMMDD } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, normalizeToYYYYMMDD, formatHoursAndMinutes, formatRecordWorkingAndOtDurations } from '../../utils/dateUtils';
 
 export const AttendanceCalendarView: React.FC = () => {
   const { employees, attendanceRecords, leaveRequests, currentUser } = useHRMS();
@@ -303,7 +303,7 @@ export const AttendanceCalendarView: React.FC = () => {
 
                 {rec?.workingHours ? (
                   <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748B' }}>
-                    {rec.workingHours}h
+                    {formatHoursAndMinutes(rec.workingHours)}
                   </span>
                 ) : null}
               </div>
@@ -363,7 +363,7 @@ export const AttendanceCalendarView: React.FC = () => {
                 </div>
                 <div>
                   <span style={{ color: '#64748B' }}>Working Hours:</span>{' '}
-                  <strong>{selectedDayRecord.workingHours || 0} hrs</strong>
+                  <strong>{formatRecordWorkingAndOtDurations(selectedDayRecord).workingDuration}</strong>
                 </div>
                 <div>
                   <span style={{ color: '#64748B' }}>Check-In:</span>{' '}
@@ -376,7 +376,7 @@ export const AttendanceCalendarView: React.FC = () => {
                 {selectedDayRecord.otHours ? (
                   <div style={{ gridColumn: 'span 2' }}>
                     <span style={{ color: '#64748B' }}>Overtime:</span>{' '}
-                    <strong style={{ color: '#7E22CE' }}>{selectedDayRecord.otHours} hrs ({selectedDayRecord.otStatus || 'Pending'})</strong>
+                    <strong style={{ color: '#7E22CE' }}>{formatHoursAndMinutes(selectedDayRecord.otHours)} ({selectedDayRecord.otStatus || 'Pending'})</strong>
                   </div>
                 ) : null}
               </div>

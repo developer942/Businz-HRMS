@@ -479,6 +479,30 @@ export function formatDurationHoursAndMinutes(totalMinutes: number): string {
   return `${hrs}h ${String(mins).padStart(2, '0')}m`;
 }
 
+export function formatHoursAndMinutes(hoursVal: number | string | null | undefined): string {
+  if (hoursVal === null || hoursVal === undefined || hoursVal === '') return '0h 00m';
+  const str = String(hoursVal).trim();
+  if (str === '—' || str === '-' || str === '--:--' || str.toLowerCase().includes('progress')) {
+    return '0h 00m';
+  }
+  if (/^\d+h\s*\d+m$/i.test(str)) {
+    return str;
+  }
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(str)) {
+    const parts = str.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return `${h}h ${String(m).padStart(2, '0')}m`;
+  }
+  const cleanNumStr = str.replace(/[^\d.-]/g, '').trim();
+  const num = Number(cleanNumStr);
+  if (isNaN(num) || num <= 0) return '0h 00m';
+  const totalMinutes = Math.round((num + Number.EPSILON) * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
+
 /**
  * Extracts wall-clock { hours, minutes, seconds, hasExplicitDate, calendarDate } in Asia/Kolkata
  * or parses a wall-clock time string ("10:04 AM", "01:00 AM", "22:00:00").

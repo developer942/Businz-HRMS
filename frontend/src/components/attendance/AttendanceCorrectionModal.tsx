@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { AttendanceRecord } from '../../types/hrms';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { formatDateDDMMYYYY, formatHoursAndMinutes } from '../../utils/dateUtils';
 import { parseTimeToMinutes } from '../../services/attendanceCalculationEngine';
 import { handleFormKeyDown, preventSpaceEnterPropagation } from '../../utils/keyboardUtils';
 import { 
@@ -376,7 +376,7 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
                     In: {record.checkIn || 'Missing'} | Out: {record.checkOut || 'Missing'}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                    Hours: {record.workingHours || 0} hrs
+                    Hours: {formatHoursAndMinutes(record.workingHours)}
                   </div>
                 </div>
               </div>
