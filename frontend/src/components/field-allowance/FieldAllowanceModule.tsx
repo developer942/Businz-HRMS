@@ -140,7 +140,7 @@ export const FieldAllowanceModule: React.FC = () => {
       setRows(requestRows);
       setSummary(summaryData);
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Unable to load Field Allowance records.');
+      showToast('error', err instanceof Error ? err.message : 'Unable to load Finance and Claim records.');
     } finally {
       setLoading(false);
     }
@@ -411,7 +411,7 @@ export const FieldAllowanceModule: React.FC = () => {
               backgroundColor: statusFilter === 'ALL' ? '#ECFEFF' : '#FFFFFF',
               transition: 'all 0.2s ease',
             }}
-            title="Click to view all Field Allowance requests"
+            title="Click to view all Finance and Claim requests"
           >
             <div className="kpi-card-header">
               <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL REQUESTS</span>
@@ -703,7 +703,6 @@ export const FieldAllowanceModule: React.FC = () => {
               <option value="COMPLETED">Completed</option>
               <option value="CORRECTION_REQUESTED">Correction Requested</option>
               <option value="REJECTED">Rejected</option>
-              <option value="DRAFT">Draft</option>
             </select>
           </div>
         </div>
@@ -711,7 +710,7 @@ export const FieldAllowanceModule: React.FC = () => {
         {loading && rows.length === 0 ? (
           <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
             <Loader2 size={24} className="fa-spin" style={{ margin: '0 auto 10px', display: 'block' }} />
-            Loading Field Allowance records...
+            Loading Finance and Claim records...
           </div>
         ) : (
           <>
@@ -739,7 +738,7 @@ export const FieldAllowanceModule: React.FC = () => {
                         colSpan={isManagement || isAccountsUser ? 10 : 9}
                         style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--color-text-secondary)' }}
                       >
-                        No field allowance records found matching the selected filter.
+                        No finance & claim records found matching the selected filter.
                       </td>
                     </tr>
                   ) : (
@@ -976,7 +975,7 @@ export const FieldAllowanceModule: React.FC = () => {
                     border: '1px solid #E2E8F0',
                   }}
                 >
-                  No field allowance records found.
+                  No finance & claim records found.
                 </div>
               ) : (
                 paginatedRows.map((row) => (
@@ -1155,7 +1154,7 @@ export const FieldAllowanceModule: React.FC = () => {
               } else {
                 await fieldAllowanceService.create(payload);
               }
-              showToast('success', payload.submit ? 'Field Allowance request submitted for approval.' : 'Draft saved.');
+              showToast('success', 'Finance & Claim request submitted for approval.');
               setIsRequestModalOpen(false);
               setEditingDetail(null);
               await refresh();
@@ -1492,14 +1491,6 @@ const FieldAllowanceRequestModal: React.FC<FieldAllowanceRequestModalProps> = ({
         <div className="modal-footer">
           <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => handleSubmit(false)}
-            disabled={busy}
-          >
-            Save Draft
           </button>
           <button
             type="button"
