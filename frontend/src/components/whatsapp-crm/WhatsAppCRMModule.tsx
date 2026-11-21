@@ -93,11 +93,10 @@ export const WhatsAppCRMModule: React.FC = () => {
   }, [moreMenuOpen]);
 
   const desktopTabs: { id: CrmTab; label: string; icon: React.ElementType }[] = [
-    { id: 'inbox', label: 'Shared Inbox', icon: MessageSquare },
+    { id: 'inbox', label: 'Inbox', icon: MessageSquare },
     { id: 'contacts', label: 'Contacts', icon: Users },
-    { id: 'broadcasts', label: 'Broadcasts', icon: Send },
-    { id: 'templates', label: 'Templates', icon: FileText },
-    { id: 'analytics', label: 'Analytics', icon: TrendingUp }
+    { id: 'broadcasts', label: 'Broadcast Campaigns', icon: Send },
+    { id: 'templates', label: 'WhatsApp Templates', icon: FileText }
   ];
 
   const moreTabs: { id: CrmTab; label: string; shortLabel: string; desc: string; icon: React.ElementType }[] = [

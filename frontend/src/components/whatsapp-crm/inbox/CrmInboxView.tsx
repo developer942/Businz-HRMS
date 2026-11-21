@@ -5,7 +5,7 @@
  * Copyright (c) 2026 Arnas Donauskas - MIT License
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Search,
   Send,
@@ -283,15 +283,19 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     }
   }, [initialContactId]);
 
-  // Handle active conversation change
+  // Handle active conversation change & toggle body class for full-screen mobile chat
   useEffect(() => {
     if (selectedConvId) {
+      document.body.classList.add('crm-in-active-chat');
       loadConversationData(selectedConvId);
       const interval = setInterval(() => {
         pollMessages(selectedConvId);
       }, 5000);
-      return () => clearInterval(interval);
+      return () => {
+        clearInterval(interval);
+      };
     } else {
+      document.body.classList.remove('crm-in-active-chat');
       setActiveConv(null);
       setMessages([]);
       setContactDetails(null);
@@ -299,6 +303,13 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       setInputText('');
     }
   }, [selectedConvId]);
+
+  // Clean up body class on unmount
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove('crm-in-active-chat');
+    };
+  }, []);
 
   // Auto-scroll logic: scroll to bottom if near bottom or initial load
   const scrollToBottom = useCallback((smooth = true) => {
@@ -879,6 +890,10 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     });
   };
 
+  const totalUnreadCount = useMemo(() => {
+    return conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+  }, [conversations]);
+
   const showRightDrawer = Boolean(activeConv && contactDetails && showContactInfo);
 
   return (
@@ -893,7 +908,12 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
       <aside className="crm-inbox-left" aria-label="Conversation list">
         <div className="crm-inbox-left-header">
           <div className="crm-inbox-title-row">
-            <h2 className="crm-inbox-heading">Chats</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 className="crm-inbox-heading">Chats</h2>
+              {conversations.length > 0 && (
+                <span className="crm-inbox-count-badge desktop-only">{conversations.length}</span>
+              )}
+            </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <button
                 type="button"
@@ -901,10 +921,9 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 title="Start New Chat"
                 aria-label="Start New Chat"
                 className="crm-btn-sm-primary"
-                style={{ padding: '5px 10px', fontSize: '0.78rem' }}
               >
-                <Plus size={14} />
-                <span>New Chat</span>
+                <Plus size={15} />
+                <span className="desktop-only">New Chat</span>
               </button>
               <button
                 type="button"
@@ -923,12 +942,11 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             <Search size={15} className="crm-inbox-search-icon" />
             <input
               type="text"
-              placeholder="Search chats..."
+              placeholder="Search chats, contacts or phone..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && loadConversations()}
               className="crm-inbox-search-input"
-              style={{ paddingLeft: '38px', paddingRight: '32px' }}
             />
             {searchQuery && (
               <button
@@ -945,23 +963,47 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             )}
           </div>
 
-          {/* Filter Chips: All / Unread / Open */}
+          {/* Filter Chips: All / Unread (Mobile) + Open / Closed (Desktop) */}
           <div className="crm-inbox-filter-chips" role="tablist" aria-label="Conversation filters">
-            {(['all', 'unread', 'open'] as const).map(st => {
-              const isActive = statusFilter === st;
-              return (
-                <button
-                  key={st}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setStatusFilter(st)}
-                  className={`crm-inbox-chip ${isActive ? 'active' : ''}`}
-                >
-                  {st}
-                </button>
-              );
-            })}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'all'}
+              onClick={() => setStatusFilter('all')}
+              className={`crm-inbox-chip ${statusFilter === 'all' ? 'active' : ''}`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'unread'}
+              onClick={() => setStatusFilter('unread')}
+              className={`crm-inbox-chip ${statusFilter === 'unread' ? 'active' : ''}`}
+            >
+              <span>Unread</span>
+              {totalUnreadCount > 0 && (
+                <span className="crm-inbox-chip-count">{totalUnreadCount}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'open'}
+              onClick={() => setStatusFilter('open')}
+              className={`crm-inbox-chip desktop-only ${statusFilter === 'open' ? 'active' : ''}`}
+            >
+              Open
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'closed'}
+              onClick={() => setStatusFilter('closed')}
+              className={`crm-inbox-chip desktop-only ${statusFilter === 'closed' ? 'active' : ''}`}
+            >
+              Closed
+            </button>
           </div>
         </div>
 
@@ -1101,71 +1143,85 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 </button>
               </div>
 
-              {/* Desktop Header Actions */}
-              <div className="crm-chat-header-actions desktop-only">
-                {/* Info Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowContactInfo(prev => !prev)}
-                  className={`crm-icon-btn ${showContactInfo ? 'active' : ''}`}
-                  title={showContactInfo ? 'Hide contact info' : 'Show contact info'}
-                  aria-label="Toggle contact info"
-                >
-                  <Info size={19} />
-                </button>
-              </div>
+              {/* Header Actions (Call, Info, 3-Dot Overflow) */}
+              <div className="crm-chat-header-actions" ref={mobileMenuRef}>
+                {(activeConv.contactPhone || contactDetails?.phone) && (
+                  <a
+                    href={`tel:${activeConv.contactPhone || contactDetails?.phone}`}
+                    className="crm-icon-btn"
+                    title="Call contact"
+                    aria-label="Call contact"
+                  >
+                    <Phone size={17} />
+                  </a>
+                )}
 
-              {/* Mobile Header Actions (Compact: Info + 3-Dot Menu) */}
-              <div className="crm-chat-header-actions mobile-only" ref={mobileMenuRef}>
                 <button
                   type="button"
                   onClick={() => setShowContactInfo(prev => !prev)}
                   className={`crm-icon-btn ${showContactInfo ? 'active' : ''}`}
-                  title="Contact info"
-                  aria-label="Contact info"
+                  title={showContactInfo ? 'Hide contact info' : 'View contact info'}
+                  aria-label="Toggle contact info"
                 >
                   <Info size={18} />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setMobileMenuOpen(prev => !prev)}
-                  className="crm-icon-btn"
-                  title="More actions"
-                  aria-label="More actions"
-                >
-                  <MoreVertical size={18} />
-                </button>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={() => setMobileMenuOpen(prev => !prev)}
+                    className="crm-icon-btn"
+                    title="More actions"
+                    aria-label="More actions"
+                  >
+                    <MoreVertical size={18} />
+                  </button>
 
-                {mobileMenuOpen && (
-                  <div className="crm-mobile-chat-dropdown" role="menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        handleOpenTemplatePicker();
-                      }}
-                      className="crm-dropdown-btn-item"
-                    >
-                      <FileText size={15} />
-                      <span>Send Template</span>
-                    </button>
+                  {mobileMenuOpen && (
+                    <div className="crm-mobile-chat-dropdown" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          handleOpenTemplatePicker();
+                        }}
+                        className="crm-dropdown-btn-item"
+                      >
+                        <FileText size={15} />
+                        <span>Send Template</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        setShowContactInfo(true);
-                      }}
-                      className="crm-dropdown-btn-item"
-                    >
-                      <User size={15} />
-                      <span>View Contact Info</span>
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          setShowContactInfo(true);
+                        }}
+                        className="crm-dropdown-btn-item"
+                      >
+                        <User size={15} />
+                        <span>Contact Info</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          if (activeConv) {
+                            handleCopyText(activeConv.contactPhone || '', 'phone');
+                          }
+                        }}
+                        className="crm-dropdown-btn-item"
+                      >
+                        <Copy size={15} />
+                        <span>Copy Phone</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </header>
 
@@ -1624,6 +1680,39 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
               {contactDetails.companyName && (
                 <p className="crm-contact-profile-company">{contactDetails.companyName}</p>
               )}
+
+              {/* Quick Actions (Call, WhatsApp, Share) matching Mobile Screen 3 */}
+              <div className="crm-contact-quick-actions">
+                <a
+                  href={`tel:${contactDetails.phone}`}
+                  className="crm-contact-quick-btn"
+                  title="Call contact"
+                  aria-label="Call contact"
+                >
+                  <Phone size={15} />
+                  <span>Call</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowContactInfo(false)}
+                  className="crm-contact-quick-btn"
+                  title="Message"
+                  aria-label="Message"
+                >
+                  <MessageSquare size={15} />
+                  <span>Message</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyText(`${contactDetails.name} - ${contactDetails.phone}`, 'contact')}
+                  className="crm-contact-quick-btn"
+                  title="Copy contact details"
+                  aria-label="Copy contact details"
+                >
+                  {copiedField === 'contact' ? <Check size={15} color="#16A34A" /> : <Copy size={15} />}
+                  <span>{copiedField === 'contact' ? 'Copied' : 'Share'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Consent Status Card */}
