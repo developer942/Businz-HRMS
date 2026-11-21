@@ -319,8 +319,8 @@ export const FieldAllowanceModule: React.FC = () => {
   const handleExportPDF = () => {
     downloadPDF(
       getExportData(),
-      'Field Allowance Register & Approvals',
-      `Field_Allowance_Report_${todayIso()}`,
+      'Finance and Claim Register & Approvals',
+      `Finance_and_Claim_Report_${todayIso()}`,
       exportColumns
     );
   };
@@ -365,7 +365,7 @@ export const FieldAllowanceModule: React.FC = () => {
         <div className="petty-cash-title-group">
           <h1>
             <WalletCards size={28} color="var(--color-primary-blue)" />
-            {isManagement ? 'Field Allowance Management' : 'My Field Allowance'}
+            {isManagement ? 'Finance and Claim Management' : 'My Finance and Claims'}
           </h1>
         </div>
 
@@ -378,10 +378,10 @@ export const FieldAllowanceModule: React.FC = () => {
                 setEditingDetail(null);
                 setIsRequestModalOpen(true);
               }}
-              title="New Field Allowance Request"
+              title="New Claim Request"
             >
               <Plus size={18} strokeWidth={2.5} />
-              <span>Request Field Allowance</span>
+              <span>Request Claim</span>
             </button>
           )}
 
@@ -606,8 +606,8 @@ export const FieldAllowanceModule: React.FC = () => {
             <h3 className="section-card-title">
               <FileText size={20} color="var(--color-primary-blue)" />
               {isManagement
-                ? 'Field Allowance Overview & Approvals'
-                : 'My Field Allowance Requests & Visits'}
+                ? 'Finance and Claim Overview & Approvals'
+                : 'My Claims & Requests'}
               {kpiMetrics.pendingApproval > 0 && (
                 <span className="tab-badge">{kpiMetrics.pendingApproval} Pending</span>
               )}
@@ -1263,7 +1263,7 @@ const FieldAllowanceRequestModal: React.FC<FieldAllowanceRequestModalProps> = ({
         <div className="modal-header">
           <h3 className="modal-title">
             <WalletCards size={20} color="var(--color-primary-blue)" />
-            {initial ? `Update Field Allowance — ${initial.trip_code}` : 'Request Field Allowance'}
+            {initial ? `Update Claim — ${initial.trip_code}` : 'Request Finance and Claim'}
           </h3>
           <button type="button" className="modal-close-btn" onClick={onClose} title="Close">
             <X size={20} />

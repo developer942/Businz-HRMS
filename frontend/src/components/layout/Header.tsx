@@ -145,7 +145,8 @@ export const Header: React.FC<HeaderProps> = ({
       case 'performance': return 'Performance';
       case 'notifications': return 'Notifications';
       case 'recruitment': return isEmployeeOrAccounts ? 'Referral Portal' : 'Recruitment';
-      case 'finance': return isEmployeeOrAccounts ? 'My Expenses' : 'Finance & Expenses';
+      case 'finance':
+      case 'field_allowance': return 'Finance and Claim';
       case 'payroll': return isEmployeeOrAccounts ? 'My Payslip' : 'Payroll';
       case 'advance_salary': return isEmployeeOrAccounts ? 'My Advance Salary' : 'Advance Salary Management';
       case 'petty_cash': return isEmployeeOrAccounts ? 'My Petty Cash Desk' : 'Petty Cash Management';
@@ -596,7 +597,7 @@ export const Header: React.FC<HeaderProps> = ({
                         } else if (n.category === 'Shift') {
                           targetMod = 'shifts';
                         } else if (n.category === 'Finance' || (n.category as string) === 'Expense') {
-                          targetMod = 'finance';
+                          targetMod = 'field_allowance';
                         } else if (n.category === 'Payroll') {
                           targetMod = 'payroll';
                         } else if (n.category === 'Attendance') {

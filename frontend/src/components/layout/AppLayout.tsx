@@ -140,7 +140,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
             case 'recruitment':
                 return <RecruitmentPipeline />;
             case 'finance':
-                return <ExpenseManagement openAddModal={quickAddModal === 'expense'} onCloseQuickAdd={() => setQuickAddModal(null)} />;
+            case 'field_allowance':
+                return <FieldAllowanceModule />;
             case 'payroll':
                 return <PayrollManagement />;
             case 'advance_salary':

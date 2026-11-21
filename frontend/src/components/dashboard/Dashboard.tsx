@@ -1011,7 +1011,7 @@ export const Dashboard: React.FC = () => {
                   <span>My Task</span>
                 </button>
 
-                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('finance')}>
+                <button type="button" className="mobile-quick-action-item" onClick={() => setActiveModule('field_allowance')}>
                   <div className="quick-action-icon-bg yellow">
                     <Receipt size={20} color="#D97706" />
                   </div>
@@ -1212,12 +1212,12 @@ export const Dashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="ceo-approval-item" onClick={() => setActiveModule('finance')}>
+                <div className="ceo-approval-item" onClick={() => setActiveModule('field_allowance')}>
                   <div className="ceo-approval-left">
                     <div className="ceo-approval-icon-box orange">
                       <CreditCard size={18} color="#EA580C" />
                     </div>
-                    <span className="ceo-approval-name">Expense Claims</span>
+                    <span className="ceo-approval-name">Finance &amp; Claims</span>
                   </div>
                   <div className="ceo-approval-right">
                     <span className="ceo-approval-badge">{(expenses || []).filter(e => e.status === 'Pending Manager' || e.status === 'Pending Finance').length}</span>

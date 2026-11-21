@@ -235,11 +235,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Receipt, 
       section: 'FINANCE & PAYROLL' 
     },
-    { 
-      id: 'finance', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Expenses' : 'Finance & Expenses', 
-      icon: IndianRupee, 
-      section: 'FINANCE & PAYROLL' 
+    {
+      id: 'field_allowance',
+      label: 'Finance and Claim',
+      icon: IndianRupee,
+      section: 'FINANCE & PAYROLL'
     },
     { 
       id: 'payroll', 
@@ -257,12 +257,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'petty_cash',
       label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Petty Cash Desk' : 'Petty Cash',
       icon: Wallet,
-      section: 'FINANCE & PAYROLL'
-    },
-    {
-      id: 'field_allowance',
-      label: 'Field Allowance',
-      icon: MapPinned,
       section: 'FINANCE & PAYROLL'
     },
 
@@ -422,7 +416,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const catMatch = 
         (id === 'leaves' && cat.includes('leave')) ||
         (id === 'tasks' && cat.includes('task')) ||
-        (id === 'finance' && (cat.includes('finance') || cat.includes('expense'))) ||
+        (id === 'field_allowance' && (cat.includes('finance') || cat.includes('expense') || cat.includes('allowance') || cat.includes('claim'))) ||
         (id === 'attendance' && cat.includes('attendance')) ||
         (id === 'shifts' && cat.includes('shift')) ||
         (id === 'payroll' && cat.includes('payroll')) ||
