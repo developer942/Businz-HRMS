@@ -53,6 +53,11 @@ export interface CrmConversation {
   companyId: string;
   contactId: string;
   contact?: CrmContact;
+  contactName?: string;
+  contactPhone?: string;
+  contactCategory?: string;
+  contactAvatarUrl?: string;
+  contactConsent?: string;
   status: CrmConversationStatus;
   assignedEmployeeId?: string | null;
   assignedEmployeeName?: string | null;

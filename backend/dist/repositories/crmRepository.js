@@ -131,6 +131,29 @@ export class CrmRepository {
                 }
             }
         }
+        // Employee avatar fallback: if avatar_url is missing, check linked employee record
+        if (data && !data.avatar_url) {
+            const clean = String(data.phone_normalized || data.phone || '').replace(/\D/g, '');
+            const last10 = clean.slice(-10);
+            if (last10.length === 10) {
+                try {
+                    const empRes = await query(`SELECT avatar_url FROM public.employees 
+             WHERE company_id = $1 
+               AND (
+                 right(regexp_replace(phone, '\\D', '', 'g'), 10) = $2
+                 OR right(regexp_replace(personal_mobile, '\\D', '', 'g'), 10) = $2
+               )
+               AND avatar_url IS NOT NULL AND avatar_url <> ''
+             LIMIT 1`, [companyId, last10]);
+                    if (empRes.rows.length > 0 && empRes.rows[0].avatar_url) {
+                        data.avatar_url = empRes.rows[0].avatar_url;
+                    }
+                }
+                catch (e) {
+                    // ignore
+                }
+            }
+        }
         return this.mapContactRow(data);
     }
     async upsertContact(data) {
@@ -877,6 +900,8 @@ export class CrmRepository {
             contactName: contactRow?.name || r.contact_name || undefined,
             contactPhone: contactRow?.phone || r.contact_phone || undefined,
             contactCategory: contactRow?.category || r.contact_category || undefined,
+            contactAvatarUrl: contactRow?.avatar_url || r.contact_avatar_url || undefined,
+            contactConsent: contactRow?.consent_status || undefined,
             status: r.status,
             assignedEmployeeId: r.assigned_employee_id,
             assignedEmployeeName: r.assigned_employee_name,

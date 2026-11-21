@@ -32,7 +32,10 @@ import {
   RotateCcw,
   Download,
   Image as ImageIcon,
-  ExternalLink
+  ExternalLink,
+  Smile,
+  Camera,
+  Copy
 } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import type {
@@ -44,6 +47,7 @@ import type {
 } from '../../../types/crm';
 import { useHRMS } from '../../../context/HRMSContext';
 import { RecordConsentModal } from '../contacts/RecordConsentModal';
+import { WhatsAppEmojiPicker } from './WhatsAppEmojiPicker';
 
 interface CrmInboxViewProps {
   initialContactId?: string;
@@ -97,7 +101,8 @@ export function parseDeliveryError(rawError?: string | null): ParsedDeliveryErro
       title: 'Meta API Authentication Failed',
       shortDesc:
         'Your Meta WhatsApp System User token is invalid or expired. Please refresh the token in CRM Settings.',
-      actionType: 'none',
+      actionType: 'retry',
+      actionLabel: 'Retry Send',
       rawDetails: err
     };
   }
@@ -227,6 +232,13 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
+  // Emoji Picker & Avatar Upload states
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
   // Sync ref with state
   useEffect(() => {
     selectedConvIdRef.current = selectedConvId;
@@ -244,6 +256,19 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     }
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [mobileMenuOpen]);
+
+  // Click outside emoji picker listener
+  useEffect(() => {
+    const handleOutsideEmoji = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setEmojiPickerOpen(false);
+      }
+    };
+    if (emojiPickerOpen) {
+      document.addEventListener('mousedown', handleOutsideEmoji);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideEmoji);
+  }, [emojiPickerOpen]);
 
   // Load conversations on mount & filter changes
   useEffect(() => {
@@ -470,6 +495,85 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     }
     e.target.style.height = 'auto';
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+  };
+
+  // Insert emoji at cursor position with preserved selection and draft
+  const handleInsertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setInputText(prev => {
+        const next = prev + emoji;
+        if (selectedConvId) draftsRef.current[selectedConvId] = next;
+        return next;
+      });
+      return;
+    }
+
+    const start = textarea.selectionStart ?? inputText.length;
+    const end = textarea.selectionEnd ?? inputText.length;
+    const nextText = inputText.substring(0, start) + emoji + inputText.substring(end);
+    setInputText(nextText);
+    if (selectedConvId) {
+      draftsRef.current[selectedConvId] = nextText;
+    }
+
+    setTimeout(() => {
+      textarea.focus();
+      const newPos = start + emoji.length;
+      textarea.setSelectionRange(newPos, newPos);
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }, 0);
+  };
+
+  // Upload custom contact avatar image
+  const handleUploadContactPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !contactDetails?.id) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo must be under 5MB');
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a JPEG, PNG, or WebP image');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        const res = await crmService.updateContactAvatar(contactDetails.id, base64Data);
+        if (res && res.avatarUrl) {
+          setContactDetails(prev => (prev ? { ...prev, avatarUrl: res.avatarUrl } : null));
+          setConversations(prev =>
+            prev.map(c => (c.contactId === contactDetails.id ? { ...c, contactAvatarUrl: res.avatarUrl } : c))
+          );
+          if (activeConv && activeConv.contactId === contactDetails.id) {
+            setActiveConv(prev => (prev ? { ...prev, contactAvatarUrl: res.avatarUrl } : null));
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Failed to upload contact photo:', err);
+      alert('Failed to update contact photo');
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  // Copy text helper
+  const handleCopyText = (text: string, fieldName: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedField(fieldName);
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
   // Desktop: Enter sends message; Shift + Enter creates a new line
@@ -898,7 +1002,20 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   onClick={() => handleSelectConversation(conv)}
                   className={`crm-conv-row ${isSelected ? 'selected' : ''}`}
                 >
-                  <div className="crm-conv-avatar">{initial}</div>
+                  <div className="crm-conv-avatar">
+                    {(conv as any).contactAvatarUrl || (conv as any).contact?.avatarUrl ? (
+                      <img
+                        src={(conv as any).contactAvatarUrl || (conv as any).contact?.avatarUrl}
+                        alt={resolvedName}
+                        className="crm-avatar-img"
+                        onError={e => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      initial
+                    )}
+                  </div>
 
                   <div className="crm-conv-main">
                     <div className="crm-conv-top-line">
@@ -951,9 +1068,20 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   title="View contact info"
                 >
                   <div className="crm-chat-header-avatar">
-                    {(activeConv.contactName || contactDetails?.name || activeConv.contactPhone || 'U')
-                      .charAt(0)
-                      .toUpperCase()}
+                    {activeConv.contactAvatarUrl || contactDetails?.avatarUrl ? (
+                      <img
+                        src={activeConv.contactAvatarUrl || contactDetails?.avatarUrl}
+                        alt={activeConv.contactName || 'Contact'}
+                        className="crm-avatar-img"
+                        onError={e => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      (activeConv.contactName || contactDetails?.name || activeConv.contactPhone || 'U')
+                        .charAt(0)
+                        .toUpperCase()
+                    )}
                   </div>
                   <div className="crm-chat-header-meta">
                     <div className="crm-chat-header-name-row">
@@ -1172,7 +1300,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                       )}
 
                       <div className={`crm-msg-row ${isOutbound ? 'outbound' : 'inbound'}`}>
-                        <div className={`crm-msg-bubble ${isOutbound ? 'outbound' : 'inbound'}`}>
+                        <div className={`crm-msg-bubble ${isOutbound ? 'outbound' : 'inbound'} ${isTemplate ? 'is-template' : ''}`}>
                           {/* Template Header Badge */}
                           {isTemplate && templateName && (
                             <div className="crm-msg-template-badge">
@@ -1371,6 +1499,25 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                 <Paperclip size={18} />
               </button>
 
+              {/* WhatsApp Emoji Picker */}
+              <div className="crm-emoji-picker-container" ref={emojiPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setEmojiPickerOpen(prev => !prev)}
+                  className={`crm-composer-icon-btn ${emojiPickerOpen ? 'active' : ''}`}
+                  title="Insert emoji"
+                  aria-label="Insert emoji"
+                >
+                  <Smile size={19} color={emojiPickerOpen ? '#0E7490' : undefined} />
+                </button>
+                {emojiPickerOpen && (
+                  <WhatsAppEmojiPicker
+                    onSelect={handleInsertEmoji}
+                    onClose={() => setEmojiPickerOpen(false)}
+                  />
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={handleOpenTemplatePicker}
@@ -1444,8 +1591,31 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
             {/* Profile Summary */}
             <div className="crm-contact-profile-box">
-              <div className="crm-contact-large-avatar">
-                {contactDetails.name.charAt(0).toUpperCase()}
+              <div className="crm-contact-large-avatar-wrap">
+                <div className="crm-contact-large-avatar">
+                  {contactDetails.avatarUrl ? (
+                    <img src={contactDetails.avatarUrl} alt={contactDetails.name} className="crm-avatar-img" />
+                  ) : (
+                    contactDetails.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={handleUploadContactPhoto}
+                />
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="crm-avatar-upload-btn"
+                  title="Upload Contact Photo"
+                  aria-label="Upload Contact Photo"
+                  disabled={uploadingAvatar}
+                >
+                  {uploadingAvatar ? <span className="crm-spinner-sm" /> : <Camera size={13} />}
+                </button>
               </div>
               <h4 className="crm-contact-profile-name">{contactDetails.name}</h4>
               <p className="crm-contact-profile-sub">
@@ -1549,16 +1719,42 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
             <div className="crm-contact-section">
               <div className="crm-contact-section-label">Contact Channels</div>
               <div className="crm-contact-detail-list">
-                <div className="crm-contact-detail-row">
-                  <Phone size={14} color="#667085" />
-                  <span>{contactDetails.phone}</span>
+                <div className="crm-contact-detail-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <Phone size={14} color="#667085" />
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{contactDetails.phone}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(contactDetails.phone, 'phone')}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}
+                    title="Copy Phone Number"
+                  >
+                    {copiedField === 'phone' ? <Check size={12} color="#16A34A" /> : <Copy size={12} />}
+                    <span>{copiedField === 'phone' ? 'Copied' : 'Copy'}</span>
+                  </button>
                 </div>
+
                 {contactDetails.email && (
-                  <div className="crm-contact-detail-row">
-                    <Mail size={14} color="#667085" />
-                    <span style={{ overflowWrap: 'anywhere' }}>{contactDetails.email}</span>
+                  <div className="crm-contact-detail-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <Mail size={14} color="#667085" />
+                      <a href={`mailto:${contactDetails.email}`} style={{ fontSize: '0.82rem', color: '#0E7490', textDecoration: 'none', overflowWrap: 'anywhere' }}>
+                        {contactDetails.email}
+                      </a>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(contactDetails.email!, 'email')}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}
+                      title="Copy Email Address"
+                    >
+                      {copiedField === 'email' ? <Check size={12} color="#16A34A" /> : <Copy size={12} />}
+                      <span>{copiedField === 'email' ? 'Copied' : 'Copy'}</span>
+                    </button>
                   </div>
                 )}
+
                 {contactDetails.category && (
                   <div className="crm-contact-detail-row">
                     <User size={14} color="#667085" />

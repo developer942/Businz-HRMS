@@ -53,7 +53,7 @@ export class CrmController {
     async upsertContact(req, res) {
         try {
             const companyId = req.user?.company_id || 'company-a';
-            const { phone, name, email, companyName, designation, category, consentStatus, notes } = req.body;
+            const { phone, name, email, companyName, designation, category, consentStatus, notes, avatarUrl } = req.body;
             if (!phone || !name) {
                 res.status(400).json({ success: false, error: 'Name and Phone number are required' });
                 return;
@@ -67,12 +67,39 @@ export class CrmController {
                 designation,
                 category: category || 'Customers',
                 consentStatus: consentStatus || 'Unknown',
-                notes
+                notes,
+                avatarUrl
             });
             res.status(200).json({ success: true, data: saved });
         }
         catch (err) {
             res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to save contact' });
+        }
+    }
+    async updateContactAvatar(req, res) {
+        try {
+            const companyId = req.user?.company_id || 'company-a';
+            const id = String(req.params.id);
+            const { avatarUrl } = req.body;
+            if (!avatarUrl) {
+                res.status(400).json({ success: false, error: 'avatarUrl is required' });
+                return;
+            }
+            const existing = await crmRepository.getContactById(id, companyId);
+            if (!existing) {
+                res.status(404).json({ success: false, error: 'Contact not found' });
+                return;
+            }
+            const updated = await crmRepository.upsertContact({
+                companyId,
+                phone: existing.phone,
+                name: existing.name,
+                avatarUrl
+            });
+            res.status(200).json({ success: true, data: updated });
+        }
+        catch (err) {
+            res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to update avatar' });
         }
     }
     async deleteContact(req, res) {

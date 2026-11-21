@@ -19,6 +19,7 @@ import { CrmContactsDirectory } from './contacts/CrmContactsDirectory';
 import { CrmBroadcastManager } from './broadcasts/CrmBroadcastManager';
 import { CrmTemplateManager } from './templates/CrmTemplateManager';
 import { CrmAnalyticsDashboard } from './analytics/CrmAnalyticsDashboard';
+import { crmService } from '../../services/crmService';
 import '../../styles/whatsapp-crm.css';
 
 export type CrmTab = 'inbox' | 'contacts' | 'broadcasts' | 'templates' | 'analytics';
@@ -28,6 +29,50 @@ export const WhatsAppCRMModule: React.FC = () => {
   const [targetContactIdForChat, setTargetContactIdForChat] = useState<string | undefined>(undefined);
   const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Live Meta API connection health state
+  const [apiHealth, setApiHealth] = useState<{
+    status: 'checking' | 'active' | 'auth_error' | 'disconnected';
+    tooltip: string;
+    details?: any;
+  }>({
+    status: 'checking',
+    tooltip: 'Checking Meta WhatsApp API live connection...'
+  });
+
+  const checkLiveHealth = async () => {
+    try {
+      const res = await crmService.getHealth();
+      if (res?.success && res.data?.connected) {
+        setApiHealth({
+          status: 'active',
+          tooltip: `Meta API Active • Verified: ${res.data.verifiedName || 'VRM Structures'} (${res.data.displayPhoneNumber || '+91 78719 92830'})`,
+          details: res.data
+        });
+      } else {
+        const rawErr = res?.data?.error || res?.error || 'Connection failed';
+        const isAuth = /oauth|token|190|expired|auth|session/i.test(rawErr);
+        setApiHealth({
+          status: isAuth ? 'auth_error' : 'disconnected',
+          tooltip: isAuth
+            ? `Meta API Auth Error: System User token is invalid or expired. Please refresh token in Settings > Integrations.`
+            : `Meta API Disconnected: ${rawErr}`,
+          details: res?.data
+        });
+      }
+    } catch (err: any) {
+      setApiHealth({
+        status: 'disconnected',
+        tooltip: 'Meta API Unreachable (Network connection error)'
+      });
+    }
+  };
+
+  useEffect(() => {
+    checkLiveHealth();
+    const interval = setInterval(checkLiveHealth, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleStartChatFromDirectory = (contactId: string) => {
     setTargetContactIdForChat(contactId);
@@ -101,9 +146,28 @@ export const WhatsAppCRMModule: React.FC = () => {
           <div className="crm-brand-text">
             <div className="crm-brand-title-row">
               <h1 className="crm-brand-title">WhatsApp CRM</h1>
-              <span className="crm-api-status-pill" title="Meta WhatsApp Business Cloud API Connected">
-                <span className="crm-api-status-dot" />
-                <span>Meta API Active</span>
+              <span
+                className={`crm-api-status-pill ${
+                  apiHealth.status === 'active'
+                    ? 'active'
+                    : apiHealth.status === 'auth_error'
+                    ? 'error'
+                    : 'warning'
+                }`}
+                title={apiHealth.tooltip}
+                onClick={checkLiveHealth}
+                style={{ cursor: 'pointer' }}
+              >
+                <span className={`crm-api-status-dot ${apiHealth.status}`} />
+                <span>
+                  {apiHealth.status === 'checking'
+                    ? 'Checking API...'
+                    : apiHealth.status === 'active'
+                    ? 'Meta API Active'
+                    : apiHealth.status === 'auth_error'
+                    ? 'Meta API Auth Error'
+                    : 'Meta API Disconnected'}
+                </span>
               </span>
             </div>
           </div>

@@ -51,6 +51,7 @@ export interface CrmConversation {
   contactPhone?: string;
   contactCategory?: CrmContactCategory;
   contactConsent?: CrmConsentStatus;
+  contactAvatarUrl?: string;
   companyId: string;
   status: CrmConversationStatus;
   assignedEmployeeId?: string;

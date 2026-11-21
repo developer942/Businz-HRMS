@@ -40,9 +40,13 @@ const getHeaders = (extra: Record<string, string> = {}) => {
 
 export const crmService = {
   // 1. Health
-  async getHealth(): Promise<{ ok: boolean; timestamp: string }> {
-    const res = await fetch(`${getApiBase()}/health`, { credentials: 'omit', headers: getHeaders() });
-    return res.json();
+  async getHealth(): Promise<{ success: boolean; data?: { connected: boolean; displayPhoneNumber?: string; qualityRating?: string; verifiedName?: string; error?: string }; error?: string }> {
+    try {
+      const res = await fetch(`${getApiBase()}/health`, { credentials: 'omit', headers: getHeaders() });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Network failure' };
+    }
   },
 
   // 2. Contacts
@@ -105,6 +109,17 @@ export const crmService = {
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Failed to record consent');
+    return data.data;
+  },
+
+  async updateContactAvatar(contactId: string, avatarUrl: string): Promise<CrmContact> {
+    const res = await fetch(`${getApiBase()}/contacts/${contactId}/avatar`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ avatarUrl })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to update avatar');
     return data.data;
   },
 
