@@ -389,7 +389,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
           list.push({
             id: `FA-${request.id}`,
             sourceType: 'FIELD_ALLOWANCE',
-            typeLabel: 'Field Allowance Advance',
+            typeLabel: 'Finance & Claim Advance',
             requestNumber: request.trip_code,
             employeeName: request.employee_name,
             employeeId: request.employee_id,
@@ -433,8 +433,8 @@ export const AccountsPaymentDashboard: React.FC = () => {
           id: `FA-RET-${request.id}`,
           sourceType: 'FIELD_ALLOWANCE',
           typeLabel: isEmployeeReimbursement
-            ? 'Field Allowance Expense Settlement'
-            : 'Field Allowance Balance Return',
+            ? 'Finance & Claim Expense Settlement'
+            : 'Finance & Claim Balance Return',
           requestNumber: `${request.trip_code}-STL`,
           employeeName: request.employee_name,
           employeeId: request.employee_id,
@@ -525,7 +525,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
   const filteredItems = useMemo(() => {
     return unifiedItems.filter((item) => {
       if (activeTab === 'SALARY' && item.sourceType !== 'SALARY') return false;
-      if (activeTab === 'EXPENSES' && item.sourceType !== 'EXPENSE') return false;
+      if (activeTab === 'EXPENSES' && item.sourceType !== 'EXPENSE' && item.sourceType !== 'FIELD_ALLOWANCE') return false;
       if (activeTab === 'ADVANCES' && item.sourceType !== 'ADVANCE') return false;
       if (activeTab === 'PETTY_CASH' && item.sourceType !== 'PETTY_CASH') return false;
       if (activeTab === 'FIELD_ALLOWANCE' && item.sourceType !== 'FIELD_ALLOWANCE') return false;
@@ -691,7 +691,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
       paymentMode !== 'Cash' &&
       !paymentProofPath
     ) {
-      setModalError('Distribution proof is mandatory for non-cash Field Allowance distribution.');
+      setModalError('Distribution proof is mandatory for non-cash distribution.');
       return;
     }
 
@@ -780,7 +780,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
             remarks: remarks.trim() || `Balance settlement confirmed via ${paymentMode}`,
           });
           addNotification({
-            title: 'Field Allowance Balance Settled by Accounts',
+            title: 'Claim Balance Settled by Accounts',
             message: `Accounts settled your balance of ${formatCurrency(amountPaid)} for field visit ${allowance.trip_code}.`,
             priority: 'Normal',
             category: 'Payroll',
@@ -797,7 +797,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
           });
 
           addNotification({
-            title: 'Field Allowance Distributed',
+            title: 'Claim Payment Distributed',
             message: `${formatCurrency(amountPaid)} was distributed for field visit ${allowance.trip_code}. Daily expense reporting is now enabled.`,
             priority: 'Important',
             category: 'Payroll',
@@ -1044,19 +1044,19 @@ export const AccountsPaymentDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Expense Claims */}
+        {/* Finance & Claims */}
         <div className="card" style={{ padding: '18px 20px', borderLeft: '4px solid #EA580C' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
-              Approved Expenses
+              Approved Claims
             </span>
             <CreditCard size={17} color="#EA580C" />
           </div>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
-            {formatCurrency(metrics.pendingExpensesTotal)}
+            {formatCurrency(metrics.pendingExpensesTotal + metrics.pendingFieldAllowanceTotal)}
           </div>
           <div style={{ fontSize: '0.74rem', color: '#EA580C', fontWeight: 600, marginTop: '4px' }}>
-            {metrics.pendingExpensesCount} claim(s) ready for payout
+            {metrics.pendingExpensesCount + metrics.pendingFieldAllowanceCount} claim(s) ready for payout
           </div>
         </div>
 
@@ -1089,22 +1089,6 @@ export const AccountsPaymentDashboard: React.FC = () => {
           </div>
           <div style={{ fontSize: '0.74rem', color: '#0891B2', fontWeight: 600, marginTop: '4px' }}>
             {metrics.pendingPettyCashCount} custodian request(s)
-          </div>
-        </div>
-
-        {/* Field Allowance Advances & Balance Settlements */}
-        <div className="card" style={{ padding: '18px 20px', borderLeft: '4px solid #7C3AED' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
-              Field Allowance
-            </span>
-            <MapPin size={17} color="#7C3AED" />
-          </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
-            {formatCurrency(metrics.pendingFieldAllowanceTotal)}
-          </div>
-          <div style={{ fontSize: '0.74rem', color: '#7C3AED', fontWeight: 600, marginTop: '4px' }}>
-            {metrics.pendingFieldAllowanceCount} trip item(s) awaiting Accounts
           </div>
         </div>
       </div>
@@ -1144,7 +1128,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
               className={`btn ${activeTab === 'EXPENSES' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
             >
-              Expense Claims ({metrics.pendingExpensesCount})
+              Finance & Claims ({metrics.pendingExpensesCount + metrics.pendingFieldAllowanceCount})
             </button>
             <button
               type="button"
@@ -1161,14 +1145,6 @@ export const AccountsPaymentDashboard: React.FC = () => {
               style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
             >
               Petty Cash ({metrics.pendingPettyCashCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('FIELD_ALLOWANCE')}
-              className={`btn ${activeTab === 'FIELD_ALLOWANCE' ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ padding: '8px 14px', fontSize: '0.82rem', borderRadius: '10px', whiteSpace: 'nowrap' }}
-            >
-              Field Allowance ({metrics.pendingFieldAllowanceCount})
             </button>
             <button
               type="button"
@@ -1827,7 +1803,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
               <div>
                 <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
                   {selectedItem.id.startsWith('FA-RET-')
-                    ? 'Settle Field Allowance Balance'
+                    ? 'Settle Claim Balance'
                     : 'Record Payment Distribution'}
                 </h3>
                 <span style={{ fontSize: '0.78rem', color: '#64748B' }}>
