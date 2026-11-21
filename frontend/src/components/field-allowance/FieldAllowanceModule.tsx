@@ -36,6 +36,7 @@ import { CalendarMonthYearFilter, matchesCalendarMonthYear } from '../common/Cal
 import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ProofViewerModal } from '../petty-cash/ProofViewerModal';
+import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import '../petty-cash/PettyCash.css';
 import './FieldAllowance.css';
 
@@ -114,6 +115,7 @@ export const FieldAllowanceModule: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
+  const [selectedTripIds, setSelectedTripIds] = useState<Set<string>>(new Set());
 
   // Modals State (Petty Cash style modals instead of full-screen page swaps)
   const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
@@ -719,6 +721,22 @@ export const FieldAllowanceModule: React.FC = () => {
               <table className="petty-cash-table">
                 <thead>
                   <tr>
+                    <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={paginatedRows.length > 0 && paginatedRows.every((r) => selectedTripIds.has(r.id))}
+                        onChange={() => {
+                          if (paginatedRows.length > 0 && paginatedRows.every((r) => selectedTripIds.has(r.id))) {
+                            setSelectedTripIds(new Set());
+                          } else {
+                            setSelectedTripIds(new Set(paginatedRows.map((r) => r.id)));
+                          }
+                        }}
+                        style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                        aria-label="Select all claims"
+                      />
+                    </th>
+                    <th style={{ width: '45px', minWidth: '45px', textAlign: 'center' }}>#</th>
                     <th>Trip #</th>
                     {(isManagement || isAccountsUser) && <th>Employee</th>}
                     <th>Purpose & Destination</th>
@@ -735,18 +753,46 @@ export const FieldAllowanceModule: React.FC = () => {
                   {paginatedRows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={isManagement || isAccountsUser ? 10 : 9}
+                        colSpan={isManagement || isAccountsUser ? 12 : 11}
                         style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--color-text-secondary)' }}
                       >
                         No finance & claim records found matching the selected filter.
                       </td>
                     </tr>
                   ) : (
-                    paginatedRows.map((row) => (
-                      <tr key={row.id}>
-                        <td style={{ fontWeight: 700, fontFamily: 'monospace', color: '#0F172A' }}>
-                          {row.trip_code}
-                        </td>
+                    paginatedRows.map((row, index) => {
+                      const isSelected = selectedTripIds.has(row.id);
+                      const serialNo = (currentPage - 1) * pageSize + index + 1;
+
+                      return (
+                        <tr
+                          key={row.id}
+                          style={{
+                            backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                            borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                            transition: 'background-color 0.15s ease',
+                          }}
+                        >
+                          <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                const next = new Set(selectedTripIds);
+                                if (next.has(row.id)) next.delete(row.id);
+                                else next.add(row.id);
+                                setSelectedTripIds(next);
+                              }}
+                              style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                              aria-label={`Select claim ${row.trip_code}`}
+                            />
+                          </td>
+                          <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '45px', color: '#0E7490', fontWeight: 700, fontSize: '0.82rem' }}>
+                            {serialNo}
+                          </td>
+                          <td style={{ fontWeight: 700, fontFamily: 'monospace', color: '#0F172A' }}>
+                            {row.trip_code}
+                          </td>
 
                         {(isManagement || isAccountsUser) && (
                           <td>
@@ -956,8 +1002,9 @@ export const FieldAllowanceModule: React.FC = () => {
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>
@@ -1200,6 +1247,12 @@ export const FieldAllowanceModule: React.FC = () => {
         onClose={() => setProofViewer({ isOpen: false, url: '', title: '' })}
         title={proofViewer.title}
         fileUrl={proofViewer.url}
+      />
+
+      {/* Floating Action Bar per AGENTS.md Standard */}
+      <StandardFloatingActionBar
+        selectedCount={selectedTripIds.size}
+        onClearSelection={() => setSelectedTripIds(new Set())}
       />
     </div>
   );

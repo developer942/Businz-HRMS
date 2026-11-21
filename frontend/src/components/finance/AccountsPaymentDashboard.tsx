@@ -10,6 +10,7 @@ import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { CalendarMonthYearFilter, matchesCalendarMonthYear } from '../common/CalendarMonthYearFilter';
 import { ProofViewerModal } from '../petty-cash/ProofViewerModal';
+import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 import {
   Receipt,
@@ -136,6 +137,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
 
   const [pettyCashRequests, setPettyCashRequests] = useState<PettyCashRequest[]>([]);
   const [pettyCashDisbursements, setPettyCashDisbursements] = useState<PettyCashDisbursement[]>([]);
@@ -1200,6 +1202,24 @@ export const AccountsPaymentDashboard: React.FC = () => {
           <table className="hrms-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                <th style={{ width: '40px', minWidth: '40px', textAlign: 'center', padding: '12px 10px' }}>
+                  <input
+                    type="checkbox"
+                    checked={filteredItems.length > 0 && filteredItems.every((item) => selectedPaymentIds.has(item.id))}
+                    onChange={() => {
+                      if (filteredItems.length > 0 && filteredItems.every((item) => selectedPaymentIds.has(item.id))) {
+                        setSelectedPaymentIds(new Set());
+                      } else {
+                        setSelectedPaymentIds(new Set(filteredItems.map((item) => item.id)));
+                      }
+                    }}
+                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                    aria-label="Select all requests"
+                  />
+                </th>
+                <th style={{ width: '45px', minWidth: '45px', textAlign: 'center', padding: '12px 10px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B' }}>
+                  #
+                </th>
                 <th style={{ padding: '12px 16px', fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
                   Request ID
                 </th>
@@ -1238,7 +1258,7 @@ export const AccountsPaymentDashboard: React.FC = () => {
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                       <CheckCircle2 size={36} color="#0E7490" />
                       <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1E293B' }}>
@@ -1253,12 +1273,43 @@ export const AccountsPaymentDashboard: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item) => {
+                filteredItems.map((item, index) => {
                   const isPending = item.status === 'PENDING_DISBURSEMENT';
                   const isBalanceReturn = item.id.startsWith('FA-RET-');
+                  const isSelected = selectedPaymentIds.has(item.id);
+                  const serialNo = index + 1;
 
                   return (
-                    <tr key={item.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    <tr
+                      key={item.id}
+                      style={{
+                        borderBottom: '1px solid #F1F5F9',
+                        backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                        borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                        transition: 'background-color 0.15s ease',
+                      }}
+                    >
+                      {/* Selection Checkbox */}
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px', padding: '14px 10px' }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {
+                            const next = new Set(selectedPaymentIds);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            setSelectedPaymentIds(next);
+                          }}
+                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                          aria-label={`Select request ${item.requestNumber}`}
+                        />
+                      </td>
+
+                      {/* S.No */}
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '45px', padding: '14px 10px', color: '#0E7490', fontWeight: 700, fontSize: '0.82rem' }}>
+                        {serialNo}
+                      </td>
+
                       {/* Request ID */}
                       <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
                         <span
@@ -2171,6 +2222,12 @@ export const AccountsPaymentDashboard: React.FC = () => {
         onClose={() => setProofViewer({ isOpen: false, url: '', title: '' })}
         title={proofViewer.title}
         fileUrl={proofViewer.url}
+      />
+
+      {/* Floating Action Bar per AGENTS.md Standard */}
+      <StandardFloatingActionBar
+        selectedCount={selectedPaymentIds.size}
+        onClearSelection={() => setSelectedPaymentIds(new Set())}
       />
     </div>
   );

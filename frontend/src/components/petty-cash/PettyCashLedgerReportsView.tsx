@@ -320,7 +320,7 @@ export const PettyCashLedgerReportsView: React.FC<PettyCashLedgerReportsViewProp
           <table className="petty-cash-table">
             <thead>
               <tr>
-                <th style={{ width: '40px', textAlign: 'center' }}>
+                <th className="web-only-col" style={{ width: '40px', textAlign: 'center' }}>
                   <input
                     type="checkbox"
                     className="petty-cash-checkbox"
@@ -331,6 +331,7 @@ export const PettyCashLedgerReportsView: React.FC<PettyCashLedgerReportsViewProp
                     onChange={handleToggleAll}
                   />
                 </th>
+                <th className="web-only-col" style={{ width: '45px', textAlign: 'center', color: '#64748B', fontWeight: 600 }}>#</th>
                 <th>Entry #</th>
                 <th>Date</th>
                 <th>Type</th>
@@ -344,29 +345,40 @@ export const PettyCashLedgerReportsView: React.FC<PettyCashLedgerReportsViewProp
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '32px' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '32px' }}>
                     Loading financial ledger...
                   </td>
                 </tr>
               ) : paginatedEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-secondary)' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-secondary)' }}>
                     No ledger transactions found matching the specified criteria.
                   </td>
                 </tr>
               ) : (
-                paginatedEntries.map((entry) => {
+                paginatedEntries.map((entry, index) => {
                   const isSelected = selectedIds.includes(entry.id);
+                  const serialNo = (currentPage - 1) * pageSize + index + 1;
                   const isCredit = Number(entry.credit_amount) > 0;
                   return (
-                    <tr key={entry.id} className={isSelected ? 'selected' : ''}>
-                      <td style={{ textAlign: 'center' }}>
+                    <tr
+                      key={entry.id}
+                      className={isSelected ? 'selected' : ''}
+                      style={{
+                        backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                        borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                      }}
+                    >
+                      <td className="web-only-col" style={{ textAlign: 'center' }}>
                         <input
                           type="checkbox"
                           className="petty-cash-checkbox"
                           checked={isSelected}
                           onChange={() => handleToggleRow(entry.id)}
                         />
+                      </td>
+                      <td className="web-only-col" style={{ textAlign: 'center', color: '#64748B', fontWeight: 600, fontSize: '0.85rem' }}>
+                        {serialNo}
                       </td>
                       <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{entry.entry_number}</td>
                       <td>{formatDateDDMMYYYY(entry.created_at)}</td>

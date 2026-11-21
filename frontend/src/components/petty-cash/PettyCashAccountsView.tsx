@@ -21,6 +21,7 @@ import type {
 } from '../../types/pettyCash';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { StandardTablePagination } from '../common/StandardTablePagination';
+import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { pettyCashService } from '../../services/pettyCashService';
 
 interface PettyCashAccountsViewProps {
@@ -45,6 +46,7 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'DISBURSEMENTS' | 'EXPENSES'>('DISBURSEMENTS');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
+  const [selectedAccountReqIds, setSelectedAccountReqIds] = useState<Set<string>>(new Set());
   const [flaggingExpense, setFlaggingExpense] = useState<PettyCashExpense | null>(null);
   const [flagNotes, setFlagNotes] = useState<string>('');
   const [submittingFlag, setSubmittingFlag] = useState<boolean>(false);
@@ -202,6 +204,22 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
           <table className="petty-cash-table">
             <thead>
               <tr>
+                <th className="web-only-col" style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={approvedRequestsToDisburse.length > 0 && approvedRequestsToDisburse.every((r) => selectedAccountReqIds.has(r.id))}
+                    onChange={() => {
+                      if (approvedRequestsToDisburse.length > 0 && approvedRequestsToDisburse.every((r) => selectedAccountReqIds.has(r.id))) {
+                        setSelectedAccountReqIds(new Set());
+                      } else {
+                        setSelectedAccountReqIds(new Set(approvedRequestsToDisburse.map((r) => r.id)));
+                      }
+                    }}
+                    style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                    aria-label="Select all requests"
+                  />
+                </th>
+                <th className="web-only-col" style={{ width: '45px', minWidth: '45px', textAlign: 'center' }}>#</th>
                 <th>Request #</th>
                 <th>Custodian Employee</th>
                 <th>Approved Date</th>
@@ -214,14 +232,40 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
             <tbody>
               {approvedRequestsToDisburse.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
                     No CEO-approved requests pending cash disbursement.
                   </td>
                 </tr>
               ) : (
-                approvedRequestsToDisburse.map((req) => (
-                  <tr key={req.id}>
-                    <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{req.request_number}</td>
+                approvedRequestsToDisburse.map((req, index) => {
+                  const isSelected = selectedAccountReqIds.has(req.id);
+                  return (
+                    <tr
+                      key={req.id}
+                      style={{
+                        backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                        borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                        transition: 'background-color 0.15s ease',
+                      }}
+                    >
+                      <td className="web-only-col" style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {
+                            const next = new Set(selectedAccountReqIds);
+                            if (next.has(req.id)) next.delete(req.id);
+                            else next.add(req.id);
+                            setSelectedAccountReqIds(next);
+                          }}
+                          style={{ accentColor: '#0E7490', cursor: 'pointer', width: '16px', height: '16px' }}
+                          aria-label={`Select request ${req.request_number}`}
+                        />
+                      </td>
+                      <td className="web-only-col" style={{ textAlign: 'center', verticalAlign: 'middle', width: '45px', color: '#0E7490', fontWeight: 700, fontSize: '0.82rem' }}>
+                        {index + 1}
+                      </td>
+                      <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{req.request_number}</td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{req.custodian_name || req.employee_name || 'Assigned Custodian'}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
@@ -244,8 +288,9 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              })
+            )}
             </tbody>
           </table>
         </div>
@@ -475,6 +520,11 @@ export const PettyCashAccountsView: React.FC<PettyCashAccountsViewProps> = ({
           </div>
         </div>
       )}
+      {/* Floating Action Bar per AGENTS.md Standard */}
+      <StandardFloatingActionBar
+        selectedCount={selectedAccountReqIds.size}
+        onClearSelection={() => setSelectedAccountReqIds(new Set())}
+      />
     </div>
   );
 };

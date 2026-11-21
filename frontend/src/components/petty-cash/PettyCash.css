@@ -848,6 +848,10 @@
     font-size: 0.78rem;
   }
 
+  .web-only-col {
+    display: none !important;
+  }
+
   .petty-cash-floating-action-bar {
     width: 90%;
     justify-content: space-between;

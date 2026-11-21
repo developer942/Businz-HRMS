@@ -25,6 +25,7 @@ import type {
 } from '../../types/pettyCash';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { StandardTablePagination } from '../common/StandardTablePagination';
+import { StandardFloatingActionBar } from '../common/StandardFloatingActionBar';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { downloadCSV, downloadExcel, downloadPDF, ExportColumn } from '../../utils/exportUtils';
 
@@ -57,6 +58,10 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Row selection state for VRM design system table
+  const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set());
+  const [selectedReqIds, setSelectedReqIds] = useState<Set<string>>(new Set());
 
   // Resubmit Reversed Expense State
   const [selectedExpenseForResubmit, setSelectedExpenseForResubmit] = useState<PettyCashExpense | null>(null);
@@ -460,6 +465,23 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
               <table className="petty-cash-table">
                 <thead>
                   <tr>
+                    <th className="web-only-col" style={{ width: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        style={{ accentColor: '#0E7490', cursor: 'pointer' }}
+                        checked={paginatedExpenses.length > 0 && paginatedExpenses.every((exp) => selectedExpenseIds.has(exp.id))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedExpenseIds(new Set([...selectedExpenseIds, ...paginatedExpenses.map((exp) => exp.id)]));
+                          } else {
+                            const newSet = new Set(selectedExpenseIds);
+                            paginatedExpenses.forEach((exp) => newSet.delete(exp.id));
+                            setSelectedExpenseIds(newSet);
+                          }
+                        }}
+                      />
+                    </th>
+                    <th className="web-only-col" style={{ width: '45px', textAlign: 'center', color: '#64748B', fontWeight: 600 }}>#</th>
                     <th>Expense #</th>
                     <th>Date</th>
                     <th>Category</th>
@@ -474,13 +496,38 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                 <tbody>
                   {paginatedExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
                         No daily expenses recorded yet. Click <strong>"+ Add Daily Expense"</strong> above to record an expense.
                       </td>
                     </tr>
                   ) : (
-                    paginatedExpenses.map((exp) => (
-                      <tr key={exp.id}>
+                    paginatedExpenses.map((exp, index) => {
+                      const isSelected = selectedExpenseIds.has(exp.id);
+                      const serialNo = (currentPage - 1) * pageSize + index + 1;
+                      return (
+                      <tr
+                        key={exp.id}
+                        style={{
+                          backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                          borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                        }}
+                      >
+                        <td className="web-only-col" style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            style={{ accentColor: '#0E7490', cursor: 'pointer' }}
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedExpenseIds);
+                              if (e.target.checked) newSet.add(exp.id);
+                              else newSet.delete(exp.id);
+                              setSelectedExpenseIds(newSet);
+                            }}
+                          />
+                        </td>
+                        <td className="web-only-col" style={{ textAlign: 'center', color: '#64748B', fontWeight: 600, fontSize: '0.85rem' }}>
+                          {serialNo}
+                        </td>
                         <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{exp.expense_number}</td>
                         <td>{formatDateDDMMYYYY(exp.expense_date)}</td>
                         <td>
@@ -549,8 +596,9 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                           )}
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>
@@ -573,6 +621,23 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
               <table className="petty-cash-table">
                 <thead>
                   <tr>
+                    <th className="web-only-col" style={{ width: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        style={{ accentColor: '#0E7490', cursor: 'pointer' }}
+                        checked={paginatedRequests.length > 0 && paginatedRequests.every((req) => selectedReqIds.has(req.id))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedReqIds(new Set([...selectedReqIds, ...paginatedRequests.map((req) => req.id)]));
+                          } else {
+                            const newSet = new Set(selectedReqIds);
+                            paginatedRequests.forEach((req) => newSet.delete(req.id));
+                            setSelectedReqIds(newSet);
+                          }
+                        }}
+                      />
+                    </th>
+                    <th className="web-only-col" style={{ width: '45px', textAlign: 'center', color: '#64748B', fontWeight: 600 }}>#</th>
                     <th>Request #</th>
                     <th>Date</th>
                     <th>Purpose</th>
@@ -586,17 +651,41 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
                 <tbody>
                   {paginatedRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
                         No fund requests submitted yet. Click <strong>"Request Petty Cash"</strong> to request replenishment.
                       </td>
                     </tr>
                   ) : (
-                    paginatedRequests.map((req) => {
+                    paginatedRequests.map((req, index) => {
+                      const isSelected = selectedReqIds.has(req.id);
+                      const serialNo = (currentPage - 1) * pageSize + index + 1;
                       const matchingDisbursement = disbursements.find(
                         (d) => d.request_id === req.id && (d.status === 'PENDING_RECEIPT' || d.status === 'DISBURSED' || d.status === 'CONFIRMED')
                       );
                       return (
-                        <tr key={req.id}>
+                        <tr
+                          key={req.id}
+                          style={{
+                            backgroundColor: isSelected ? '#ECFEFF' : undefined,
+                            borderLeft: isSelected ? '4px solid #0E7490' : undefined,
+                          }}
+                        >
+                          <td className="web-only-col" style={{ textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              style={{ accentColor: '#0E7490', cursor: 'pointer' }}
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedReqIds);
+                                if (e.target.checked) newSet.add(req.id);
+                                else newSet.delete(req.id);
+                                setSelectedReqIds(newSet);
+                              }}
+                            />
+                          </td>
+                          <td className="web-only-col" style={{ textAlign: 'center', color: '#64748B', fontWeight: 600, fontSize: '0.85rem' }}>
+                            {serialNo}
+                          </td>
                           <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{req.request_number}</td>
                           <td>{req.request_date}</td>
                           <td style={{ maxWidth: '240px' }}>{req.purpose}</td>
@@ -785,6 +874,17 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* VRM Floating Action Bar */}
+      {(selectedExpenseIds.size > 0 || selectedReqIds.size > 0) && (
+        <StandardFloatingActionBar
+          selectedCount={selectedExpenseIds.size + selectedReqIds.size}
+          onClearSelection={() => {
+            setSelectedExpenseIds(new Set());
+            setSelectedReqIds(new Set());
+          }}
+        />
       )}
     </div>
   );
