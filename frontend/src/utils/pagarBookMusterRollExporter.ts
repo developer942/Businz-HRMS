@@ -586,6 +586,10 @@ export function buildPagarBookMusterRollExcelData(
           fineAmtStr = `₹${dayFineAmt}`;
           totalFineAmount += dayFineAmt;
         }
+      } else if (!leave && !rec && (emp.joiningDate || (emp as any).dateOfJoining || (emp as any).profile_data?.joiningDate) && dStr < String(emp.joiningDate || (emp as any).dateOfJoining || (emp as any).profile_data?.joiningDate).slice(0, 10)) {
+        state = '-';
+      } else if (!leave && !rec && ((emp as any).exitDate || (emp as any).relievingDate || (emp as any).lastWorkingDate) && dStr > String((emp as any).exitDate || (emp as any).relievingDate || (emp as any).lastWorkingDate).slice(0, 10)) {
+        state = '-';
       } else if (isSunday || isHoliday) {
         state = isHoliday && !isSunday ? 'H' : 'WO';
         totalPaidLeaves++;

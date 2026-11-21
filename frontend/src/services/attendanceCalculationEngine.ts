@@ -483,7 +483,8 @@ export interface CalendarDayPayrollBreakdown {
 
 export interface CalendarDayPayrollParams {
   month: string | number;
-  year: number;
+  year?: number;
+  todayStr?: string;
   employeeId?: string;
   employeeUuid?: string;
   employeeName?: string;
@@ -753,7 +754,7 @@ export function calculateCalendarDayPayrollAttendance(params: CalendarDayPayroll
   }).format(new Date());
 
   const evaluationCutoffDate = (() => {
-    const explicitCutoff = normalizeDateToISO(params.evaluationCutoffDate);
+    const explicitCutoff = normalizeDateToISO(params.evaluationCutoffDate || params.todayStr);
     if (explicitCutoff) return explicitCutoff;
     if (todayIstIso >= monthStartStr && todayIstIso <= monthEndStr) {
       return maxMonthAttDateStr && maxMonthAttDateStr > todayIstIso ? maxMonthAttDateStr : todayIstIso;
@@ -1477,10 +1478,31 @@ export function buildEmployeeMonthlyAttendanceCalendar(
     cutoffDate = maxRecordedDate >= monthStart && maxRecordedDate <= monthEnd ? maxRecordedDate : '';
   }
 
-  const joiningIso = normalizeDateToISO(params.joiningDate ?? emp.joiningDate ?? emp.dateOfJoining);
+  // Find the earliest recorded attendance or approved leave date in this month for this employee
+  let earliestRecordedDate = '';
+  for (const d of attByDate.keys()) {
+    if (!earliestRecordedDate || d < earliestRecordedDate) {
+      earliestRecordedDate = d;
+    }
+  }
+  for (const d of approvedLeaveByDate.keys()) {
+    if (!earliestRecordedDate || d < earliestRecordedDate) {
+      earliestRecordedDate = d;
+    }
+  }
+
+  const rawJoiningDate = params.joiningDate ?? emp.joiningDate ?? emp.dateOfJoining ?? emp.profile_data?.joiningDate;
+  const joiningIso = normalizeDateToISO(rawJoiningDate);
   const exitIso = normalizeDateToISO(params.exitDate ?? emp.exitDate ?? emp.relievingDate ?? emp.lastWorkingDate);
 
-  const effectiveStart = joiningIso && joiningIso > monthStart ? joiningIso : monthStart;
+  // If the employee has verified attendance records or approved leaves earlier than the recorded joining date,
+  // effectiveJoiningIso must extend to include those recorded dates so valid attendance is never truncated!
+  let effectiveJoiningIso = joiningIso;
+  if (earliestRecordedDate && earliestRecordedDate >= monthStart && (!effectiveJoiningIso || earliestRecordedDate < effectiveJoiningIso)) {
+    effectiveJoiningIso = earliestRecordedDate;
+  }
+
+  const effectiveStart = effectiveJoiningIso && effectiveJoiningIso > monthStart ? effectiveJoiningIso : monthStart;
   const effectiveEnd = exitIso && exitIso < cutoffDate ? exitIso : cutoffDate;
 
   if (!cutoffDate || effectiveStart > effectiveEnd) {
@@ -1732,8 +1754,23 @@ export function buildEmployeeMonthlyAttendanceCalendar(
       continue;
     }
 
-    // Case 3: Physical Attendance Punch (or Work From Home attendance record)
-    if (att && (hasCheckIn || attStatusNorm === 'work from home' || attStatusNorm === 'wfh')) {
+    // Case 3: Physical Attendance Punch, Work From Home, or Verified Manual Status
+    const isAttVerifiedPresentOrHalfDay =
+      attStatusNorm === 'present' ||
+      attStatusNorm === 'late' ||
+      attStatusNorm === 'half day' ||
+      attStatusNorm === 'half-day' ||
+      attStatusNorm === 'hd' ||
+      attStatusNorm === 'field visit' ||
+      attStatusNorm === 'fv' ||
+      attStatusNorm === 'on duty' ||
+      attStatusNorm === 'od' ||
+      attStatusNorm === 'work from home' ||
+      attStatusNorm === 'wfh' ||
+      (att !== undefined && String(att.method || '').toLowerCase().includes('manual') && attStatusNorm !== 'absent') ||
+      (att !== undefined && Boolean(att.reason) && attStatusNorm !== 'absent');
+
+    if (att && (hasCheckIn || isAttVerifiedPresentOrHalfDay)) {
       let workHrs = Number(att.workingHours ?? att.working_hours ?? 0);
       if (workHrs <= 0 && hasCheckIn && hasCheckOut) {
         const session = resolveOvernightAttendanceSession({
@@ -1746,9 +1783,14 @@ export function buildEmployeeMonthlyAttendanceCalendar(
           allowAutoRollSameDateIsoCheckOut: true,
         });
         workHrs = session.isValid ? session.workingHours : 0;
+      } else if (workHrs <= 0 && !hasCheckIn && isAttVerifiedPresentOrHalfDay) {
+        const isHalfDayVerified = attStatusNorm === 'half day' || attStatusNorm === 'half-day' || attStatusNorm === 'hd';
+        workHrs = isHalfDayVerified ? stdShiftHours * 0.5 : stdShiftHours;
       } else if (workHrs < 0) {
         workHrs = 0;
       }
+      const cleanCheckIn = hasCheckIn ? rawCheckIn : null;
+      const cleanCheckOut = hasCheckOut ? rawCheckOut : null;
       const isInProgress = hasCheckIn && !hasCheckOut && dateStr === todayIst;
       const isHalfDay =
         !isInProgress &&
@@ -1775,8 +1817,8 @@ export function buildEmployeeMonthlyAttendanceCalendar(
           department: canonicalDept,
           date: dateStr,
           shiftDate: dateStr,
-          checkIn: rawCheckIn,
-          checkOut: rawCheckOut,
+          checkIn: cleanCheckIn,
+          checkOut: cleanCheckOut,
           workingHours: workHrs,
           status: 'Holiday',
           effectiveStatus: 'Holiday',
@@ -1814,8 +1856,8 @@ export function buildEmployeeMonthlyAttendanceCalendar(
           department: canonicalDept,
           date: dateStr,
           shiftDate: dateStr,
-          checkIn: rawCheckIn,
-          checkOut: rawCheckOut,
+          checkIn: cleanCheckIn,
+          checkOut: cleanCheckOut,
           workingHours: workHrs,
           status: 'Half Day',
           effectiveStatus: 'Half Day',
@@ -1852,8 +1894,8 @@ export function buildEmployeeMonthlyAttendanceCalendar(
         department: canonicalDept,
         date: dateStr,
         shiftDate: dateStr,
-        checkIn: rawCheckIn,
-        checkOut: rawCheckOut,
+        checkIn: cleanCheckIn,
+        checkOut: cleanCheckOut,
         workingHours: isInProgress ? 0 : workHrs,
         status: displayStatus,
         effectiveStatus: displayStatus,

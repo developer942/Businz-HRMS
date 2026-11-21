@@ -60,7 +60,7 @@ const parseTimeToMinutes = (timeStr?: string | null): number => {
 };
 
 // Attendance Short Code System
-export type AttendanceStatusCode = 'P' | 'A' | 'PL' | 'UL' | 'H' | 'WFO' | 'FV' | 'FD' | 'L' | 'WO' | 'HD' | 'OD' | 'WFH' | 'ML';
+export type AttendanceStatusCode = 'P' | 'A' | 'PL' | 'UL' | 'H' | 'WFO' | 'FV' | 'FD' | 'L' | 'WO' | 'HD' | 'OD' | 'WFH' | 'ML' | '-' | 'NA';
 
 export interface StatusConfig {
   code: AttendanceStatusCode;
@@ -80,6 +80,8 @@ export const ATTENDANCE_STATUS_CONFIG: Record<string, StatusConfig> = {
   H: { code: 'H', label: 'Holiday', badgeBg: '#DBEAFE', badgeColor: '#1E40AF', borderColor: '#93C5FD', weight: 0.0 },
   WFH: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FV: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
+  '-': { code: '-', label: 'Not Employed', badgeBg: '#F8FAFC', badgeColor: '#94A3B8', borderColor: '#E2E8F0', weight: 0.0 },
+  NA: { code: 'NA', label: 'Not Applicable', badgeBg: '#F8FAFC', badgeColor: '#94A3B8', borderColor: '#E2E8F0', weight: 0.0 },
   // Backward-compatible aliases
   WFO: { code: 'WFH', label: 'Work From Home', badgeBg: '#E0E7FF', badgeColor: '#4338CA', borderColor: '#A5B4FC', weight: 1.0 },
   FD: { code: 'FV', label: 'Field Visit', badgeBg: '#CFFAFE', badgeColor: '#0E7490', borderColor: '#67E8F9', weight: 1.0 },
@@ -503,6 +505,42 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       return targetDateNorm >= lStart && targetDateNorm <= lEnd;
     });
 
+    // Check Employee Joining and Exit Boundaries:
+    // If date is strictly before joining date (and no explicit attendance record exists) -> Not Employed / Pre-joining
+    const empJoiningIso = normalizeToYYYYMMDD(
+      employee.joiningDate ||
+      (employee as any).dateOfJoining ||
+      (employee as any).profile_data?.joiningDate
+    );
+    if (empJoiningIso && targetDateNorm < empJoiningIso) {
+      return {
+        status: '-' as AttendanceStatusCode,
+        checkIn: '-',
+        checkOut: '-',
+        workingHours: '00:00',
+        shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
+        location: employee.address || 'Corporate HQ',
+        remarks: 'Not Employed / Pre-joining'
+      };
+    }
+
+    const empExitIso = normalizeToYYYYMMDD(
+      (employee as any).exitDate ||
+      (employee as any).relievingDate ||
+      (employee as any).lastWorkingDate
+    );
+    if (empExitIso && targetDateNorm > empExitIso) {
+      return {
+        status: '-' as AttendanceStatusCode,
+        checkIn: '-',
+        checkOut: '-',
+        workingHours: '00:00',
+        shift: employee.workShift || shifts[0]?.shiftName || 'Shift 1 (09:00 AM - 06:00 PM)',
+        location: employee.address || 'Corporate HQ',
+        remarks: 'Relieved / Post-exit'
+      };
+    }
+
     // Unmarked / No attendance record found in database -> Mark as Absent (A - Loss of Pay)
     return {
       status: 'A' as AttendanceStatusCode,
@@ -608,6 +646,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           case 'FV':
           case 'OD': odCount++; break;
           case 'WFH': wfhCount++; break;
+          case '-':
+          case 'NA': break;
         }
       });
     });
@@ -751,6 +791,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         desig: emp.designation
       };
 
+      let notEmployed = 0;
       calendarDays.forEach(dayItem => {
         const att = getCellAttendance(emp, dayItem);
         row[`day_${dayItem.dayNum}`] = att.status;
@@ -769,11 +810,13 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
           case 'FD':
           case 'OD': fv++; break;
           case 'HD': hd++; p += 0.5; a += 0.5; break;
+          case '-':
+          case 'NA': notEmployed++; break;
           default: p++; break;
         }
       });
 
-      const workingDays = Math.max(1, calendarDays.length - h);
+      const workingDays = Math.max(1, calendarDays.length - h - notEmployed);
       const effectivePresent = p + pl + wfh + fv;
       const rate = Math.min(100, Math.round((effectivePresent / workingDays) * 100));
 
@@ -1065,7 +1108,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   </tr>
                 ) : (
                   paginatedEmployees.map(employee => {
-                    let p = 0, hd = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0;
+                    let p = 0, hd = 0, pl = 0, a = 0, h = 0, wfh = 0, fv = 0, notEmployed = 0;
 
                     const dayCells = calendarDays.map(dayItem => {
                       const att = getCellAttendance(employee, dayItem);
@@ -1084,12 +1127,14 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                         case 'FD':
                         case 'OD': fv++; break;
                         case 'HD': hd++; p += 0.5; a += 0.5; break;
+                        case '-':
+                        case 'NA': notEmployed++; break;
                         default: p++; break;
                       }
                       return { dayItem, att };
                     });
 
-                    const totalWorkingDays = Math.max(1, calendarDays.length - h);
+                    const totalWorkingDays = Math.max(1, calendarDays.length - h - notEmployed);
                     const effectivePresent = p + pl + wfh + fv;
                     const attendanceRate = Math.min(100, Math.round((effectivePresent / totalWorkingDays) * 100));
 
