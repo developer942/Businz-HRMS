@@ -6850,14 +6850,22 @@ div[style*="overflow-x: auto"] {
 .customer-input-icon-wrap {
   position: relative;
   width: 100%;
+  display: flex;
+  align-items: center;
 }
 
 .customer-input-leading-icon {
   position: absolute;
-  left: 13px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
 }
 
 .customer-input-leading-icon.textarea-icon {
@@ -6874,13 +6882,14 @@ div[style*="overflow-x: auto"] {
   background-color: #FFFFFF;
   color: #0F172A;
   font-size: 0.9rem;
+  line-height: 1.5;
   outline: none;
   box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .customer-form-input.with-icon {
-  padding-left: 38px;
+  padding-left: 46px !important;
 }
 
 .customer-form-input:focus,
@@ -6910,16 +6919,21 @@ div[style*="overflow-x: auto"] {
 .customer-form-textarea {
   width: 100%;
   min-height: 76px;
-  padding: 11px 14px 11px 38px;
+  padding: 12px 14px 12px 46px !important;
   border-radius: 10px;
   border: 1px solid #CBD5E1;
   background-color: #FFFFFF;
   color: #0F172A;
   font-size: 0.9rem;
+  line-height: 1.5;
   outline: none;
   resize: vertical;
   box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.customer-form-textarea.with-icon {
+  padding-left: 46px !important;
 }
 
 .customer-field-error {
@@ -7308,6 +7322,14 @@ div[style*="overflow-x: auto"] {
   .customer-form-input {
     min-height: 48px !important;
     font-size: 0.92rem !important;
+  }
+
+  .customer-form-input.with-icon {
+    padding-left: 46px !important;
+  }
+
+  .customer-form-textarea.with-icon {
+    padding-left: 46px !important;
   }
 
   .customer-form-actions {

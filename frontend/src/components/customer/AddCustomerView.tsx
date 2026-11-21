@@ -866,6 +866,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={120}
                   aria-invalid={Boolean(fieldErrors.customerName)}
                   placeholder="e.g. Rajesh Kumar"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.customerName
                       ? 'error'
@@ -919,6 +920,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={160}
                   aria-invalid={Boolean(fieldErrors.companyName)}
                   placeholder="e.g. Apex Technologies Ltd"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.companyName
                       ? 'error'
@@ -972,6 +974,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={120}
                   aria-invalid={Boolean(fieldErrors.designation)}
                   placeholder="e.g. Managing Director"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.designation
                       ? 'error'
@@ -1068,6 +1071,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={40}
                   aria-invalid={Boolean(fieldErrors.contactNumber)}
                   placeholder="e.g. +91 98765 43210"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.contactNumber
                       ? 'error'
@@ -1109,6 +1113,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={40}
                   aria-invalid={Boolean(fieldErrors.alternateContactNumber)}
                   placeholder="e.g. 044-24567890"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.alternateContactNumber
                       ? 'error'
@@ -1196,6 +1201,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={254}
                   aria-invalid={Boolean(fieldErrors.email)}
                   placeholder="e.g. rajesh@apex.com"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.email
                       ? 'error'
@@ -1241,6 +1247,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   maxLength={2048}
                   aria-invalid={Boolean(fieldErrors.website)}
                   placeholder="e.g. www.apextechnologies.in"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-input with-icon ${
                     fieldErrors.website
                       ? 'error'
@@ -1285,6 +1292,7 @@ export const AddCustomerView: React.FC<AddCustomerViewProps> = ({
                   aria-invalid={Boolean(fieldErrors.address)}
                   rows={2}
                   placeholder="e.g. Plot No 42, Guindy Industrial Estate, Chennai 600032"
+                  style={{ paddingLeft: '46px' }}
                   className={`customer-form-textarea with-icon ${
                     fieldErrors.address
                       ? 'error'
