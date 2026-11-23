@@ -13631,8 +13631,32 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
       }
 
       if (Array.isArray(settings.loan_records_data)) {
-        if (hasSliceChanged('loan_records', settings.loan_records_data)) {
-          setLoanRecords(settings.loan_records_data);
+        const activeEmpMap = new Map<string, any>();
+        if (Array.isArray(rawEmployees)) {
+          rawEmployees.forEach((e: any) => {
+            if (e.id) activeEmpMap.set(String(e.id).toLowerCase(), e);
+            if (e.employee_id) activeEmpMap.set(String(e.employee_id).toLowerCase(), e);
+          });
+        }
+        const validLoans = settings.loan_records_data.filter((r: LoanRecord) => {
+          if (!r || !r.employeeId) return false;
+          const emp = activeEmpMap.get(String(r.employeeId).toLowerCase());
+          if (!emp) return false;
+          if (r.employeeName && emp.first_name) {
+            const rName = r.employeeName.trim().toLowerCase();
+            const empFullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim().toLowerCase();
+            const empFirstName = (emp.first_name || '').trim().toLowerCase();
+            if (!empFullName.includes(rName) && !rName.includes(empFirstName)) {
+              return false;
+            }
+          }
+          return true;
+        });
+        if (hasSliceChanged('loan_records', validLoans)) {
+          setLoanRecords(validLoans);
+          if (validLoans.length !== settings.loan_records_data.length) {
+            supabaseDirect.saveCompanySetting('loan_records_data', validLoans).catch(() => { });
+          }
         }
       } else if (hasSliceChanged('loan_records', [])) {
         setLoanRecords([]);

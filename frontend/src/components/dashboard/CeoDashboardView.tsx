@@ -688,7 +688,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               <div className="ceo-kpi-bottom-row">
                 <span className="ceo-kpi-subtext">{activeLoansCount > 0 ? `${activeLoansCount} Active Accounts` : '0 Active Accounts'}</span>
                 <span className="ceo-pill-tag purple">
-                  {pendingLoansCount > 0 ? `${pendingLoansCount} Pending` : (activeLoansCount > 0 ? 'Disbursed' : `${loanRecords.length} Requests`)}
+                  {pendingLoansCount > 0 ? `${pendingLoansCount} Pending` : `${loanRecords.length} Requests`}
                 </span>
               </div>
             </div>
