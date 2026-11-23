@@ -1031,7 +1031,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </div>
             </div>
 
-            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, gap: '8px' }}>
+            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, minHeight: 0 }}>
               {/* 1. Leave Approvals */}
               {(() => {
                 const count = pendingLeaves.length;

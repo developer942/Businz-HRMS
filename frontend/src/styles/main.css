@@ -10933,9 +10933,9 @@ textarea,
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  height: 280px;
-  min-height: 280px;
-  max-height: 280px;
+  height: 305px;
+  min-height: 305px;
+  max-height: 305px;
   overflow: hidden;
 }
 
@@ -11154,13 +11154,16 @@ textarea,
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: 9px;
+  padding: 0 12px;
+  border-radius: 10px;
   border: 1px solid #F1F5F9;
   background: #FFFFFF;
   cursor: pointer;
   transition: all 0.15s ease;
   box-sizing: border-box;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
 }
 
 .ceo-attention-item:hover {
@@ -11179,15 +11182,17 @@ textarea,
 }
 
 .ceo-attention-title {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: #1E293B;
+  line-height: 1.2;
 }
 
 .ceo-attention-desc {
-  font-size: 0.72rem;
+  font-size: 0.70rem;
   color: #64748B;
   margin-top: 1px;
+  line-height: 1.2;
 }
 
 .ceo-attention-badge {
@@ -11288,7 +11293,7 @@ textarea,
 .ceo-bar-chart-container {
   display: flex;
   gap: 8px;
-  height: 195px;
+  height: 215px;
   align-items: stretch;
   position: relative;
   width: 100%;
@@ -11298,9 +11303,9 @@ textarea,
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 140px;
-  margin-top: 24px;
-  margin-bottom: 30px;
+  height: 155px;
+  margin-top: 25px;
+  margin-bottom: 35px;
   font-size: 0.68rem;
   color: #94A3B8;
   font-weight: 600;
@@ -11320,8 +11325,8 @@ textarea,
 
 .ceo-bar-chart-gridlines {
   position: absolute;
-  top: 24px;
-  bottom: 30px;
+  top: 25px;
+  bottom: 35px;
   left: 0;
   right: 0;
   pointer-events: none;
@@ -11359,8 +11364,8 @@ textarea,
 }
 
 .ceo-bar-val {
-  height: 22px;
-  line-height: 22px;
+  height: 25px;
+  line-height: 25px;
   font-size: 0.7rem;
   font-weight: 750;
   color: #334155;
@@ -11392,8 +11397,8 @@ textarea,
 }
 
 .ceo-bar-label {
-  height: 26px;
-  line-height: 26px;
+  height: 28px;
+  line-height: 28px;
   font-size: 0.68rem;
   color: #64748B;
   font-weight: 600;
