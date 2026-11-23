@@ -42,7 +42,7 @@ export class CrmMessageSender {
      * Send a WhatsApp template message with strict Consent Verification
      */
     async sendTemplateMessage(params) {
-        const { contactId, templateName, language = 'en', components = [], category = 'UTILITY', headerUrl, headerType, bodyParameters, agentEmployeeId, companyId = 'company-a' } = params;
+        const { contactId, templateName, language = 'en', components = [], category = 'UTILITY', headerUrl, headerType, bodyParameters, agentEmployeeId, companyId = 'company-a', broadcastId, allowRestrictedOverride = false } = params;
         const contact = await crmRepository.getContactById(contactId, companyId);
         if (!contact) {
             throw new Error(`Contact ${contactId} not found`);
@@ -183,8 +183,16 @@ export class CrmMessageSender {
             console.warn('[CrmMessageSender] Template metadata resolution error:', err);
         }
         // Strict Anti-Spam / Consent Check for Marketing Templates
-        if (effectiveCategory === 'MARKETING' && contact.consentStatus !== 'Opted In') {
-            throw new Error(`Consent Policy Violation: Contact ${contact.name} (${contact.phone}) has consent status '${contact.consentStatus}'. Explicit opt-in consent is required before sending marketing templates.`);
+        if (effectiveCategory === 'MARKETING') {
+            if (contact.consentStatus !== 'Opted In') {
+                throw new Error(`Consent Policy Violation: Contact ${contact.name} (${contact.phone}) has consent status '${contact.consentStatus}'. Explicit opt-in consent is required before sending marketing templates.`);
+            }
+            // Check for Meta Error 131049 (Healthy Ecosystem Engagement Restriction)
+            const restriction = await crmRepository.getRecentMarketingRestriction(contact.id, companyId, 24);
+            if (restriction.isRestricted && !allowRestrictedOverride) {
+                const untilStr = restriction.restrictedUntil ? restriction.restrictedUntil.toISOString() : '24h';
+                throw new Error(`Marketing delivery restricted by Meta (Error 131049). This contact is in a mandatory 24-hour cooling-off period until ${untilStr} (~${restriction.remainingHours}h remaining). Immediate retries are blocked to comply with Meta ecosystem policies.`);
+            }
         }
         // Call Meta Graph API
         const metaRes = await metaApiClient.sendTemplateMessage(contact.phone, templateName, effectiveLanguage, finalComponents, companyId);
@@ -192,7 +200,7 @@ export class CrmMessageSender {
         const failureReason = metaRes.error || null;
         const wamid = metaRes.wamid || null;
         // Log message to database - strictly preserving contentType: 'template', mediaUrl, and interactivePayload buttons
-        return await crmRepository.insertMessage({
+        const insertedMsg = await crmRepository.insertMessage({
             conversationId: conv.id,
             companyId,
             senderType: 'agent',
@@ -207,13 +215,31 @@ export class CrmMessageSender {
                 components: finalComponents,
                 headerType: templateHeaderType,
                 headerUrl: finalHeaderUrl,
-                buttons: templateButtons
+                buttons: templateButtons,
+                broadcastId: broadcastId || undefined
             },
             interactivePayload: templateButtons.length > 0 ? { buttons: templateButtons } : undefined,
             wamid: wamid || undefined,
             status,
             failureReason: failureReason || undefined
         });
+        // If message is part of a broadcast campaign, record the recipient
+        if (broadcastId) {
+            try {
+                await crmRepository.recordBroadcastRecipient({
+                    broadcastId,
+                    contactId: contact.id,
+                    phone: contact.phone,
+                    wamid: wamid || null,
+                    status: metaRes.success ? 'sent' : 'failed',
+                    errorMessage: failureReason || null
+                });
+            }
+            catch (broadcastErr) {
+                console.warn('[CrmMessageSender] Failed to record broadcast recipient:', broadcastErr);
+            }
+        }
+        return insertedMsg;
     }
 }
 export const crmMessageSender = new CrmMessageSender();

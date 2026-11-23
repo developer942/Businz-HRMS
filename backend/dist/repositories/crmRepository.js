@@ -550,6 +550,134 @@ export class CrmRepository {
             .eq('wamid', wamid);
         return !error;
     }
+    /**
+     * Checks if a contact has experienced a Meta Error 131049 (Marketing Delivery Restriction)
+     * within the last cooldown period (default: 24 hours).
+     */
+    async getRecentMarketingRestriction(contactId, companyId = 'company-a', cooldownHours = 24) {
+        const supabase = getSupabaseAdmin();
+        const { data: conv } = await supabase.from('crm_conversations')
+            .select('id')
+            .eq('contact_id', contactId)
+            .eq('company_id', companyId)
+            .maybeSingle();
+        if (!conv) {
+            return { isRestricted: false };
+        }
+        const { data, error } = await supabase.from('crm_messages')
+            .select('created_at, failure_reason')
+            .eq('conversation_id', conv.id)
+            .eq('status', 'failed')
+            .order('created_at', { ascending: false })
+            .limit(15);
+        if (error || !data || data.length === 0) {
+            return { isRestricted: false };
+        }
+        const restrictedMsg = data.find((m) => {
+            const reason = String(m.failure_reason || '').toLowerCase();
+            return reason.includes('131049') || reason.includes('healthy ecosystem') || reason.includes('marketing delivery restricted');
+        });
+        if (!restrictedMsg) {
+            return { isRestricted: false };
+        }
+        const lastFailedAt = new Date(restrictedMsg.created_at);
+        const cooldownMs = cooldownHours * 60 * 60 * 1000;
+        const restrictedUntil = new Date(lastFailedAt.getTime() + cooldownMs);
+        const now = Date.now();
+        if (now < restrictedUntil.getTime()) {
+            const remainingMs = restrictedUntil.getTime() - now;
+            const remainingHours = Math.max(1, Math.ceil(remainingMs / (3600 * 1000)));
+            return {
+                isRestricted: true,
+                restrictedUntil,
+                lastFailedAt,
+                remainingHours,
+                failureReason: restrictedMsg.failure_reason
+            };
+        }
+        return {
+            isRestricted: false,
+            restrictedUntil,
+            lastFailedAt,
+            remainingHours: 0,
+            failureReason: restrictedMsg.failure_reason
+        };
+    }
+    /**
+     * Records a recipient in crm_broadcast_recipients and refreshes broadcast metrics
+     */
+    async recordBroadcastRecipient(data) {
+        const supabase = getSupabaseAdmin();
+        await supabase.from('crm_broadcast_recipients').insert({
+            broadcast_id: data.broadcastId,
+            contact_id: data.contactId,
+            phone: data.phone,
+            wamid: data.wamid || null,
+            status: data.status,
+            sent_at: ['sent', 'delivered', 'read'].includes(data.status) ? new Date().toISOString() : null,
+            error_message: data.errorMessage || null
+        });
+        await this.refreshBroadcastMetrics(data.broadcastId);
+    }
+    /**
+     * Updates recipient delivery status (delivered, read, failed) from Meta Webhook wamid
+     * and refreshes the parent broadcast campaign metrics
+     */
+    async updateBroadcastRecipientStatus(wamid, status, errorMessage) {
+        const supabase = getSupabaseAdmin();
+        const updateData = { status };
+        const nowIso = new Date().toISOString();
+        if (status === 'sent')
+            updateData.sent_at = nowIso;
+        if (status === 'delivered')
+            updateData.delivered_at = nowIso;
+        if (status === 'read')
+            updateData.read_at = nowIso;
+        if (status === 'failed')
+            updateData.error_message = errorMessage || null;
+        const { data: updated, error } = await supabase.from('crm_broadcast_recipients')
+            .update(updateData)
+            .eq('wamid', wamid)
+            .select('broadcast_id');
+        if (!error && updated && updated.length > 0) {
+            for (const item of updated) {
+                if (item.broadcast_id) {
+                    await this.refreshBroadcastMetrics(item.broadcast_id);
+                }
+            }
+        }
+    }
+    /**
+     * Recalculates metrics on crm_broadcasts from its recipients
+     */
+    async refreshBroadcastMetrics(broadcastId) {
+        const supabase = getSupabaseAdmin();
+        const { data: recs, error } = await supabase.from('crm_broadcast_recipients')
+            .select('status')
+            .eq('broadcast_id', broadcastId);
+        if (error || !recs)
+            return;
+        const total = recs.length;
+        const sent = recs.filter((r) => ['sent', 'delivered', 'read'].includes(r.status)).length;
+        const delivered = recs.filter((r) => ['delivered', 'read'].includes(r.status)).length;
+        const read = recs.filter((r) => r.status === 'read').length;
+        const failed = recs.filter((r) => ['failed', 'skipped_no_consent'].includes(r.status)).length;
+        let newStatus = 'sending';
+        if (sent + failed >= total && total > 0) {
+            newStatus = (failed === total) ? 'failed' : 'sent';
+        }
+        await supabase.from('crm_broadcasts')
+            .update({
+            total_recipients: total,
+            sent_count: sent,
+            delivered_count: delivered,
+            read_count: read,
+            failed_count: failed,
+            status: newStatus,
+            updated_at: new Date().toISOString()
+        })
+            .eq('id', broadcastId);
+    }
     // ============================================================
     // 5. BROADCASTS
     // ============================================================

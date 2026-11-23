@@ -30,6 +30,7 @@ import {
   MoreVertical,
   ChevronDown,
   RotateCcw,
+  Clock,
   Download,
   Image as ImageIcon,
   ExternalLink,
@@ -54,21 +55,81 @@ interface CrmInboxViewProps {
 }
 
 export interface ParsedDeliveryError {
-  type: '24h_window' | 'auth' | 'invalid_phone' | 'rate_limit' | 'billing' | 'generic';
+  type: '24h_window' | 'auth' | 'invalid_phone' | 'rate_limit' | 'billing' | 'marketing_restricted' | 'generic';
   badge: string;
   title: string;
   shortDesc: string;
-  actionType?: 'template' | 'retry' | 'none';
+  actionType?: 'template' | 'retry' | 'cooldown' | 'none';
   actionLabel?: string;
   rawDetails: string;
+  cooldownRemainingHours?: number;
+  eligibleAt?: Date;
+  canRetryNow?: boolean;
 }
 
-export function parseDeliveryError(rawError?: string | null): ParsedDeliveryError {
+export function parseDeliveryError(rawError?: string | null, messageCreatedAt?: string): ParsedDeliveryError {
   const err = (rawError || '').trim();
   const lower = err.toLowerCase();
 
-  // 1. 24-hour customer window expired (Code 131047 or text)
+  // Try parsing JSON error structure from Meta webhook/API
+  let metaErrorCode: number | null = null;
+  let metaErrorTitle: string | null = null;
+  let metaErrorDetails: string | null = null;
+
+  try {
+    if (err.startsWith('[') || err.startsWith('{')) {
+      const parsed = JSON.parse(err);
+      const errObj = Array.isArray(parsed) ? parsed[0] : (parsed.error || parsed);
+      if (errObj) {
+        metaErrorCode = errObj.code ? Number(errObj.code) : null;
+        metaErrorTitle = errObj.title || errObj.message || null;
+        metaErrorDetails = errObj.error_data?.details || errObj.error_user_msg || null;
+      }
+    }
+  } catch {
+    // Ignore JSON parse failure, fallback to regex / string search
+  }
+
+  // Check error code via parsed JSON or regex
+  const codeMatch = err.match(/(?:code["':\s]+|#)(\d{4,6})/i);
+  const detectedCode = metaErrorCode || (codeMatch ? parseInt(codeMatch[1], 10) : null);
+
+  // 1. Meta Marketing Delivery Restriction (Code 131049)
   if (
+    detectedCode === 131049 ||
+    lower.includes('131049') ||
+    lower.includes('healthy ecosystem engagement') ||
+    lower.includes('marketing delivery restricted')
+  ) {
+    // 24-hour cooling off period calculation
+    const failedTime = messageCreatedAt ? new Date(messageCreatedAt).getTime() : Date.now();
+    const cooldownMs = 24 * 60 * 60 * 1000;
+    const eligibleTime = failedTime + cooldownMs;
+    const now = Date.now();
+    const isCooldownActive = now < eligibleTime;
+    const remainingMs = Math.max(0, eligibleTime - now);
+    const hoursRemaining = Math.max(1, Math.ceil(remainingMs / (3600 * 1000)));
+    const eligibleDate = new Date(eligibleTime);
+
+    return {
+      type: 'marketing_restricted',
+      badge: isCooldownActive ? 'Restricted by Meta' : 'Cooldown Passed',
+      title: 'Marketing delivery restricted by Meta',
+      shortDesc: isCooldownActive
+        ? `Meta temporarily restricted this marketing message to maintain healthy user engagement (recipient reached Meta's marketing limit). Immediate retries are blocked for 24 hours.`
+        : `Meta's 24-hour cooling-off period has passed. You may attempt a controlled retry (delivery depends on Meta's real-time per-user threshold and is not guaranteed).`,
+      actionType: isCooldownActive ? 'cooldown' : 'retry',
+      actionLabel: isCooldownActive ? `In 24h Cooldown (${hoursRemaining}h left)` : 'Retry Marketing Template',
+      rawDetails: err,
+      cooldownRemainingHours: isCooldownActive ? hoursRemaining : 0,
+      eligibleAt: eligibleDate,
+      canRetryNow: !isCooldownActive
+    };
+  }
+
+  // 2. 24-hour customer window expired (Code 131047 or text)
+  if (
+    detectedCode === 131047 ||
     lower.includes('131047') ||
     lower.includes('24 hour') ||
     lower.includes('24-hour') ||
@@ -87,8 +148,21 @@ export function parseDeliveryError(rawError?: string | null): ParsedDeliveryErro
     };
   }
 
-  // 2. Auth / Token Expired (Code 190)
+  // 3. Meta internal experiment hold (Code 130472)
+  if (detectedCode === 130472 || lower.includes('130472') || lower.includes('experiment')) {
+    return {
+      type: 'generic',
+      badge: 'Meta Experiment Hold',
+      title: 'Recipient In Meta Experiment',
+      shortDesc: "Meta Cloud API reported this recipient's number is currently enrolled in a Meta internal platform experiment and cannot receive this template.",
+      actionType: 'none',
+      rawDetails: err
+    };
+  }
+
+  // 4. Auth / Token Expired (Code 190)
   if (
+    detectedCode === 190 ||
     lower.includes('190') ||
     lower.includes('oauth') ||
     lower.includes('access token') ||
@@ -107,8 +181,9 @@ export function parseDeliveryError(rawError?: string | null): ParsedDeliveryErro
     };
   }
 
-  // 3. Not on WhatsApp (Code 131026 / recipient not registered)
+  // 5. Not on WhatsApp (Code 131026 / recipient not registered)
   if (
+    detectedCode === 131026 ||
     lower.includes('131026') ||
     lower.includes('not a whatsapp') ||
     lower.includes('undeliverable') ||
@@ -124,8 +199,9 @@ export function parseDeliveryError(rawError?: string | null): ParsedDeliveryErro
     };
   }
 
-  // 4. Rate limiting or spam thresholds
+  // 6. Rate limiting or spam thresholds (Code 131048)
   if (
+    detectedCode === 131048 ||
     lower.includes('rate limit') ||
     lower.includes('throughput') ||
     lower.includes('too many requests') ||
@@ -142,7 +218,7 @@ export function parseDeliveryError(rawError?: string | null): ParsedDeliveryErro
     };
   }
 
-  // 5. Payment / Billing
+  // 7. Payment / Billing
   if (lower.includes('payment') || lower.includes('billing') || lower.includes('credit card') || lower.includes('tier')) {
     return {
       type: 'billing',
@@ -154,12 +230,14 @@ export function parseDeliveryError(rawError?: string | null): ParsedDeliveryErro
     };
   }
 
-  // 6. Generic failure
+  // 8. Clean formatted generic failure (NEVER expose raw JSON in shortDesc!)
+  const cleanSummary = metaErrorDetails || metaErrorTitle || (err.startsWith('{') || err.startsWith('[') ? 'Meta Cloud API delivery failure.' : err) || 'Network or Meta Cloud API delivery failure.';
+
   return {
     type: 'generic',
     badge: 'Delivery Failed',
     title: 'Message Delivery Failed',
-    shortDesc: err.length > 95 ? `${err.substring(0, 92)}...` : err || 'Network or Meta Cloud API delivery failure.',
+    shortDesc: cleanSummary.length > 95 ? `${cleanSummary.substring(0, 92)}...` : cleanSummary,
     actionType: 'retry',
     actionLabel: 'Retry Send',
     rawDetails: err
@@ -196,6 +274,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
 
   // Error details expansion state
   const [expandedErrorIds, setExpandedErrorIds] = useState<Set<string>>(new Set());
+  const [retryingMsgId, setRetryingMsgId] = useState<string | null>(null);
 
   // New Chat Modal State
   const [showNewChatModal, setShowNewChatModal] = useState(false);
@@ -756,8 +835,32 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
     }
   };
 
-  const handleRetryMessage = async (failedMsg: CrmMessage) => {
-    if (sending || sendingTemplate) return;
+  const handleRetryMessage = async (failedMsg: CrmMessage, errInfo?: ParsedDeliveryError | null) => {
+    if (sending || sendingTemplate || retryingMsgId) return;
+
+    // Check if error is marketing_restricted
+    if (errInfo?.type === 'marketing_restricted') {
+      if (!errInfo.canRetryNow) {
+        alert(
+          `Immediate Retries Restricted by Meta:\n\n` +
+          `Meta limits marketing template delivery per user to maintain healthy ecosystem engagement.\n` +
+          `A mandatory 24-hour cooling-off period is in effect (~${errInfo.cooldownRemainingHours || 24}h remaining).\n\n` +
+          `Immediate retries will also be rejected by Meta.`
+        );
+        return;
+      }
+
+      // Explicit confirmation requirement after 24h cooldown
+      const proceed = window.confirm(
+        `Meta Marketing Delivery Policy Notice:\n\n` +
+        `This contact previously reached Meta's per-user marketing limit.\n\n` +
+        `The 24-hour cooling-off period has passed, but Meta evaluates delivery in real time and delivery is NOT guaranteed.\n\n` +
+        `Do you want to proceed with retrying this marketing template?`
+      );
+      if (!proceed) return;
+    }
+
+    setRetryingMsgId(failedMsg.id);
 
     if (failedMsg.contentType === 'template' || (failedMsg as any).templateName) {
       // Dedicated template retry - PRESERVES type: "template", image header, variables, and buttons
@@ -784,18 +887,25 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
           language: failedMsg.templateVariables?.language || 'en',
           bodyParameters: bodyParams.length > 0 ? bodyParams : undefined,
           components: failedMsg.templateVariables?.components || undefined,
-          headerUrl
+          headerUrl,
+          allowRestrictedOverride: errInfo?.canRetryNow === true
         });
 
-        // Update local messages state replacing the failed message
-        setMessages(prev => prev.map(m => (m.id === failedMsg.id ? { ...retried, id: failedMsg.id } : m)));
+        // Requirement 5: Preserve original failure history in audit log and append new retry message
+        setMessages(prev => [...prev, retried]);
         setTimeout(() => scrollToBottom(true), 50);
       } catch (err: any) {
-        alert(`Failed to retry template message: ${err.message || 'Meta API error'}`);
+        if (err.isMarketingRestricted || (err.message && err.message.includes('131049'))) {
+          alert(`Meta Delivery Restriction: ${err.message}`);
+        } else {
+          alert(`Failed to retry template message: ${err.message || 'Meta API error'}`);
+        }
       } finally {
         setSendingTemplate(false);
+        setRetryingMsgId(null);
       }
     } else {
+      setRetryingMsgId(null);
       // Plain text messages retry as text
       handleSendMessage(failedMsg.contentText);
     }
@@ -1278,7 +1388,7 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                   const showDateDivider = currDateLabel && currDateLabel !== prevDateLabel;
 
                   // Parse delivery failure if failed
-                  const parsedErr = msg.status === 'failed' ? parseDeliveryError(msg.failureReason) : null;
+                  const parsedErr = msg.status === 'failed' ? parseDeliveryError(msg.failureReason, msg.createdAt) : null;
                   const isErrorExpanded = expandedErrorIds.has(msg.id);
 
                   // Check if document attachment
@@ -1458,6 +1568,16 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                               <div className="crm-msg-error-desc">{parsedErr.shortDesc}</div>
 
                               <div className="crm-msg-error-actions">
+                                {parsedErr.actionType === 'cooldown' && (
+                                  <div
+                                    className="crm-msg-cooldown-badge"
+                                    title="Meta per-user marketing frequency limit. Immediate retries blocked for 24h. Eventual delivery is not guaranteed."
+                                  >
+                                    <Clock size={12} />
+                                    <span>{parsedErr.actionLabel}</span>
+                                  </div>
+                                )}
+
                                 {parsedErr.actionType === 'template' && (
                                   <button
                                     type="button"
@@ -1472,11 +1592,13 @@ export const CrmInboxView: React.FC<CrmInboxViewProps> = ({ initialContactId }) 
                                 {parsedErr.actionType === 'retry' && (
                                   <button
                                     type="button"
-                                    onClick={() => handleRetryMessage(msg)}
-                                    className="crm-msg-error-action-btn outline"
+                                    disabled={retryingMsgId === msg.id}
+                                    onClick={() => handleRetryMessage(msg, parsedErr)}
+                                    className={`crm-msg-error-action-btn ${parsedErr.type === 'marketing_restricted' ? 'marketing-retry' : 'outline'}`}
+                                    title={parsedErr.type === 'marketing_restricted' ? 'Controlled retry after 24h cooldown. Delivery is not guaranteed by Meta.' : 'Retry Send'}
                                   >
-                                    <RotateCcw size={12} />
-                                    <span>Retry Send</span>
+                                    <RotateCcw size={12} className={retryingMsgId === msg.id ? 'animate-spin' : ''} />
+                                    <span>{retryingMsgId === msg.id ? 'Retrying...' : parsedErr.actionLabel || 'Retry Send'}</span>
                                   </button>
                                 )}
 

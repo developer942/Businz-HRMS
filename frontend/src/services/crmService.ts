@@ -247,6 +247,8 @@ export const crmService = {
     headerType?: string;
     components?: any[];
     category?: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
+    broadcastId?: string;
+    allowRestrictedOverride?: boolean;
   }): Promise<CrmMessage> {
     const res = await fetch(`${getApiBase()}/messages/template`, {
       method: 'POST',
@@ -257,8 +259,28 @@ export const crmService = {
       })
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || 'Failed to send template message');
+    if (!data.success) {
+      const err: any = new Error(data.error || 'Failed to send template message');
+      err.errorCode = data.errorCode;
+      err.isMarketingRestricted = data.isMarketingRestricted;
+      throw err;
+    }
     return data.data;
+  },
+
+  async getContactMarketingRestriction(contactId: string): Promise<{
+    isRestricted: boolean;
+    restrictedUntil?: string;
+    lastFailedAt?: string;
+    remainingHours?: number;
+  }> {
+    try {
+      const res = await fetch(`${getApiBase()}/contacts/${contactId}/marketing-restriction`, { headers: getHeaders() });
+      const data = await res.json();
+      return data.data || { isRestricted: false };
+    } catch {
+      return { isRestricted: false };
+    }
   },
 
   // 6. Broadcasts

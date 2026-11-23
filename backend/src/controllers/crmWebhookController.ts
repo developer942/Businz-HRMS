@@ -75,6 +75,7 @@ export class CrmWebhookController {
               if (wamid && status) {
                 console.log(`[CrmWebhook] Status update: wamid=${wamid}, status=${status}`);
                 await crmRepository.updateMessageStatusByWamid(wamid, status, failureReason);
+                await crmRepository.updateBroadcastRecipientStatus(wamid, status, failureReason);
               }
             } catch (err) {
               console.warn('[CrmWebhook] Error updating message status:', err);

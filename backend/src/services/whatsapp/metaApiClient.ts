@@ -574,6 +574,8 @@ export class MetaApiClient {
     displayPhoneNumber?: string;
     qualityRating?: string;
     verifiedName?: string;
+    messagingLimitTier?: string;
+    codeVerificationStatus?: string;
     error?: string;
   }> {
     const config = await this.getConfig(companyId);
@@ -581,7 +583,7 @@ export class MetaApiClient {
       return { connected: false, error: 'No WhatsApp credentials found' };
     }
 
-    const url = `${this.baseUrl}/${config.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating`;
+    const url = `${this.baseUrl}/${config.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status`;
 
     try {
       const res = await fetch(url, {
@@ -600,7 +602,9 @@ export class MetaApiClient {
         connected: true,
         displayPhoneNumber: data.display_phone_number,
         qualityRating: data.quality_rating,
-        verifiedName: data.verified_name
+        verifiedName: data.verified_name,
+        messagingLimitTier: data.messaging_limit_tier,
+        codeVerificationStatus: data.code_verification_status
       };
     } catch (err) {
       return { connected: false, error: err instanceof Error ? err.message : 'Network error' };

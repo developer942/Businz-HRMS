@@ -1372,6 +1372,30 @@
   color: #DC2626;
 }
 
+.crm-msg-cooldown-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.crm-msg-error-action-btn.marketing-retry {
+  border: 1px solid #D97706;
+  background-color: #FFFBEB;
+  color: #B45309;
+}
+
+.crm-msg-error-action-btn.marketing-retry:hover {
+  background-color: #FEF3C7;
+}
+
 .crm-msg-error-toggle-btn {
   background: none;
   border: none;

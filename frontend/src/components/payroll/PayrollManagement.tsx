@@ -5,7 +5,7 @@ import { PayrollRecord, Employee } from '../../types/hrms';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
 import { SalaryComponentConfig } from '../../types/settings';
 import { toNum, formatCurrency } from '../../utils/numbers';
-import { downloadElementAsPDF, downloadElementAsDirectPdf, printElement, downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
+import { downloadElementAsPDF, downloadElementAsDirectPdf, downloadPayslipAsWord, printElement, downloadCSV, downloadExcel, downloadPDF } from '../../utils/exportUtils';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { ExportDropdown } from '../common/ExportDropdown';
 import { CalendarMonthYearFilter } from '../common/CalendarMonthYearFilter';
@@ -69,6 +69,7 @@ export const PayrollManagement: React.FC = () => {
   const [selectedPayslip, setSelectedPayslip] = useState<PayrollRecord | null>(null);
   const [previewRecord, setPreviewRecord] = useState<PayrollRecord | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
+  const [isDownloadingWord, setIsDownloadingWord] = useState<boolean>(false);
 
   // Multi-row selection state
   const [selectedPayslipIds, setSelectedPayslipIds] = useState<string[]>([]);
@@ -1579,6 +1580,16 @@ export const PayrollManagement: React.FC = () => {
         const monthLabel = formatPayrollMonth(selectedPayslip);
         const fileMonth = monthLabel.replace(/\s+/g, '_');
 
+        const basicAmt = toNum(selectedPayslip.basicSalary) || (emp ? toNum(emp.basicSalary) : 0);
+        const basicComp = activeEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
+        const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
+        const computedCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc || emp?.grossSalary) ||
+          (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 0) ||
+          (paidDays > 0 && cal.calendarDays > 0 ? Math.round((toNum(rows.grossEarnings) / paidDays) * cal.calendarDays) : 0);
+        const payslipOt = getEmployeeApprovedOt(selectedPayslip);
+        const otVis = payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility;
+        const showOtHours = (otVis?.showOtHoursOnPayslip ?? true) && payslipOt.hours > 0;
+
         return (
           <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '780px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}>
@@ -1597,6 +1608,54 @@ export const PayrollManagement: React.FC = () => {
                     style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
                     <Printer size={14} /> Print
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      setIsDownloadingWord(true);
+                      try {
+                        await downloadPayslipAsWord({
+                          filename: `Payslip_${selectedPayslip.employeeName.replace(/\s+/g, '_')}_${fileMonth}`,
+                          companyProfile: documentProfile,
+                          employeeName: selectedPayslip.employeeName,
+                          employeeId: selectedPayslip.employeeId,
+                          department: resolveDepartmentName(selectedPayslip.department, emp),
+                          designation: selectedPayslip.designation,
+                          dateOfJoining: formatDateDDMMYYYY(emp?.joiningDate || emp?.dateOfJoining) || '—',
+                          employeeCtc: computedCtc > 0 ? formatCurrency(computedCtc) : '—',
+                          bankAccount: emp?.bankDetails?.accountNumber || '—',
+                          pan: emp?.salaryDetails?.panNumber || '—',
+                          uan: emp?.salaryDetails?.uanNumber || '—',
+                          workingDays: cal.workingDays,
+                          paidDays: `${cal.totalPaidDays} / ${cal.calendarDays}`,
+                          approvedOtHours: showOtHours ? `${payslipOt.hours} hrs` : undefined,
+                          monthLabel,
+                          status: selectedPayslip.status,
+                          calendarDays: cal.calendarDays,
+                          presentDays: cal.presentDays,
+                          paidWeekOffDays: cal.paidWeekOffDays,
+                          paidHolidayDays: cal.paidHolidayDays,
+                          paidLeaveDays: cal.paidLeaveDays,
+                          lopDays: cal.lopDays,
+                          totalPaidDays: cal.totalPaidDays,
+                          earnings: rows.earnings,
+                          deductions: rows.deductions,
+                          grossEarnings: rows.grossEarnings,
+                          totalDeductions: rows.totalDeductions,
+                          netPay: rows.netPay,
+                          showDescription: Boolean((payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility)?.showOtCalculationDetailsOnPayslip)
+                        });
+                      } catch (err) {
+                        console.error('Direct Word download error:', err);
+                      } finally {
+                        setIsDownloadingWord(false);
+                      }
+                    }}
+                    disabled={isDownloadingWord}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: isDownloadingWord ? 0.75 : 1 }}
+                  >
+                    <FileText size={14} /> {isDownloadingWord ? 'Downloading Word...' : 'Download Word'}
                   </button>
                   <button
                     type="button"
@@ -1632,16 +1691,6 @@ export const PayrollManagement: React.FC = () => {
                   />
 
                   {(() => {
-                    const basicAmt = toNum(selectedPayslip.basicSalary) || (emp ? toNum(emp.basicSalary) : 0);
-                    const basicComp = activeEarnings.find(c => c.code === 'BASIC' || c.name.toLowerCase().includes('basic'));
-                    const basicPercent = (basicComp?.calculationMethod === 'PERCENTAGE' && basicComp.defaultValue > 0) ? basicComp.defaultValue : 40;
-                    const computedCtc = toNum(emp?.salaryDetails?.monthlyCtc || (emp as any)?.monthlyCtc || emp?.grossSalary) ||
-                      (basicAmt > 0 && basicPercent > 0 ? Math.round(basicAmt / (basicPercent / 100)) : 0) ||
-                      (paidDays > 0 && cal.calendarDays > 0 ? Math.round((toNum(rows.grossEarnings) / paidDays) * cal.calendarDays) : 0);
-                    const payslipOt = getEmployeeApprovedOt(selectedPayslip);
-                    const otVis = payrollSettingsConfig?.payslipOvertimeVisibility || overtimePolicy?.payslipVisibility;
-                    const showOtHours = (otVis?.showOtHoursOnPayslip ?? true) && payslipOt.hours > 0;
-
                     return (
                       <>
                         <EmployeeDetailsGrid

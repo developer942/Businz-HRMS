@@ -24,6 +24,7 @@ crmRouter.get('/analytics', requirePermission('customer_data', 'view'), (req, re
 // 2. Contacts
 crmRouter.get('/contacts', requirePermission('customer_data', 'view'), (req, res) => crmController.getContacts(req, res));
 crmRouter.get('/contacts/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getContactById(req, res));
+crmRouter.get('/contacts/:id/marketing-restriction', requirePermission('customer_data', 'view'), (req, res) => crmController.getContactMarketingRestriction(req, res));
 crmRouter.post('/contacts', requirePermission('customer_data', 'create'), (req, res) => crmController.upsertContact(req, res));
 crmRouter.post('/contacts/:id/avatar', requirePermission('customer_data', 'edit'), (req, res) => crmController.updateContactAvatar(req, res));
 crmRouter.post('/contacts/:id/consent', requirePermission('customer_data', 'edit'), (req, res) => crmController.recordConsent(req, res));

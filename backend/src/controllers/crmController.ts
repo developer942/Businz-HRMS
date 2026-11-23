@@ -369,7 +369,9 @@ export class CrmController {
         bodyParameters,
         headerParameters,
         headerUrl,
-        headerType
+        headerType,
+        broadcastId,
+        allowRestrictedOverride
       } = req.body;
       const agentEmployeeId = req.user?.employeeId || req.user?.id || 'AGENT-DEFAULT';
 
@@ -422,12 +424,21 @@ export class CrmController {
         headerType,
         bodyParameters: Array.isArray(bodyParameters) ? bodyParameters : undefined,
         agentEmployeeId,
-        companyId
+        companyId,
+        broadcastId: broadcastId || undefined,
+        allowRestrictedOverride: Boolean(allowRestrictedOverride)
       });
 
       res.status(201).json({ success: true, data: msg });
     } catch (err) {
-      res.status(400).json({ success: false, error: err instanceof Error ? err.message : 'Template send failed' });
+      const errMsg = err instanceof Error ? err.message : 'Template send failed';
+      const isRestricted = errMsg.includes('131049') || errMsg.includes('cooling-off period');
+      res.status(isRestricted ? 429 : 400).json({
+        success: false,
+        error: errMsg,
+        errorCode: isRestricted ? 131049 : undefined,
+        isMarketingRestricted: isRestricted
+      });
     }
   }
 
@@ -845,6 +856,20 @@ export class CrmController {
       res.status(200).json({ success: true, data: summary });
     } catch (err) {
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to fetch analytics' });
+    }
+  }
+
+  async getContactMarketingRestriction(req: Request, res: Response): Promise<void> {
+    try {
+      const companyId = req.user?.company_id || 'company-a';
+      const contactId = String(req.params.id);
+      const restriction = await crmRepository.getRecentMarketingRestriction(contactId, companyId, 24);
+      res.status(200).json({ success: true, data: restriction });
+    } catch (err) {
+      res.status(500).json({
+        success: false,
+        error: err instanceof Error ? err.message : 'Error checking marketing restriction'
+      });
     }
   }
 }

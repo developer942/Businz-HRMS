@@ -165,7 +165,7 @@ export const CrmBroadcastManager: React.FC = () => {
       const eligible = contacts.filter(c => c.consentStatus === 'Opted In');
       const vars = extractVariables(selectedTemplate);
 
-      await crmService.createBroadcast({
+      const created = await crmService.createBroadcast({
         name: campaignName.trim() || `Broadcast ${new Date().toLocaleDateString()}`,
         templateName: selectedTemplate.name,
         templateLanguage: selectedTemplate.language || 'en',
@@ -177,6 +177,7 @@ export const CrmBroadcastManager: React.FC = () => {
 
       let successCount = 0;
       let failCount = 0;
+      let restrictedCount = 0;
 
       for (let i = 0; i < eligible.length; i++) {
         const contact = eligible[i];
@@ -192,16 +193,28 @@ export const CrmBroadcastManager: React.FC = () => {
             templateName: selectedTemplate.name,
             language: selectedTemplate.language || 'en',
             category: selectedTemplate.category,
-            bodyParameters
+            bodyParameters,
+            broadcastId: created?.id
           });
           successCount++;
-        } catch (dispatchErr) {
+        } catch (dispatchErr: any) {
+          const errText = dispatchErr?.message || '';
+          if (errText.includes('131049') || errText.includes('cooling-off period') || dispatchErr?.errorCode === 131049) {
+            restrictedCount++;
+          }
           console.warn(`Failed sending to ${contact.phone}:`, dispatchErr);
           failCount++;
         }
       }
 
-      alert(`Broadcast Completed!\n\n${successCount} messages delivered successfully.\n${failCount} failed.`);
+      const summaryMsg =
+        `Broadcast Dispatch Finished!\n\n` +
+        `• Accepted by Meta: ${successCount}\n` +
+        `• Immediate Failures: ${failCount}` +
+        (restrictedCount > 0 ? ` (${restrictedCount} restricted by Meta marketing limits)` : '') +
+        `\n\nDelivery and read statuses will synchronize in real-time as Meta webhooks arrive.`;
+
+      alert(summaryMsg);
       setShowWizard(false);
       loadBroadcasts();
     } catch (err: any) {
@@ -216,11 +229,14 @@ export const CrmBroadcastManager: React.FC = () => {
 
   const renderStatusPill = (status?: string) => {
     const norm = (status || 'draft').toLowerCase();
-    if (norm === 'completed') {
-      return <span className="crm-status-pill approved">Completed</span>;
+    if (norm === 'sent' || norm === 'completed') {
+      return <span className="crm-status-pill approved">Sent</span>;
     }
     if (norm === 'sending') {
       return <span className="crm-status-pill pending">Sending</span>;
+    }
+    if (norm === 'failed') {
+      return <span className="crm-status-pill rejected">Failed</span>;
     }
     return <span className="crm-status-pill draft">{status || 'Draft'}</span>;
   };
@@ -269,8 +285,10 @@ export const CrmBroadcastManager: React.FC = () => {
                 <th>Template</th>
                 <th>Audience</th>
                 <th>Recipients</th>
+                <th>Sent</th>
                 <th>Delivered</th>
                 <th>Read</th>
+                <th>Failed</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Date</th>
               </tr>
@@ -278,13 +296,13 @@ export const CrmBroadcastManager: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="crm-table-empty-cell">
+                  <td colSpan={10} className="crm-table-empty-cell">
                     Loading campaigns...
                   </td>
                 </tr>
               ) : broadcasts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="crm-table-empty-cell">
+                  <td colSpan={10} className="crm-table-empty-cell">
                     <div className="crm-compact-empty">
                       <Send size={24} style={{ opacity: 0.4, margin: '0 auto 6px' }} />
                       <div style={{ fontWeight: 600, color: '#17212C' }}>No broadcast campaigns yet</div>
@@ -309,10 +327,14 @@ export const CrmBroadcastManager: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ fontWeight: 600, color: '#17212C' }}>{b.totalRecipients || 0}</td>
+                    <td style={{ fontWeight: 600, color: '#0E7490' }}>{b.sentCount || 0}</td>
                     <td style={{ fontWeight: 600, color: '#16A34A' }}>
-                      {b.deliveredCount || b.sentCount || 0}
+                      {b.deliveredCount || 0}
                     </td>
                     <td style={{ fontWeight: 600, color: '#0284C7' }}>{b.readCount || 0}</td>
+                    <td style={{ fontWeight: 600, color: (b.failedCount || 0) > 0 ? '#DC2626' : '#64748B' }}>
+                      {b.failedCount || 0}
+                    </td>
                     <td>{renderStatusPill(b.status)}</td>
                     <td style={{ textAlign: 'right', color: '#667085', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
                       {b.createdAt ? new Date(b.createdAt).toLocaleDateString() : '—'}
@@ -353,14 +375,22 @@ export const CrmBroadcastManager: React.FC = () => {
 
                 <div className="crm-mobile-broadcast-metrics">
                   <span>
-                    Recipients: <strong>{b.totalRecipients || 0}</strong>
+                    Total: <strong>{b.totalRecipients || 0}</strong>
                   </span>
                   <span>
-                    Delivered: <strong style={{ color: '#16A34A' }}>{b.deliveredCount || b.sentCount || 0}</strong>
+                    Sent: <strong style={{ color: '#0E7490' }}>{b.sentCount || 0}</strong>
+                  </span>
+                  <span>
+                    Delivered: <strong style={{ color: '#16A34A' }}>{b.deliveredCount || 0}</strong>
                   </span>
                   <span>
                     Read: <strong style={{ color: '#0284C7' }}>{b.readCount || 0}</strong>
                   </span>
+                  {(b.failedCount || 0) > 0 && (
+                    <span>
+                      Failed: <strong style={{ color: '#DC2626' }}>{b.failedCount}</strong>
+                    </span>
+                  )}
                   <span style={{ marginLeft: 'auto', color: '#667085' }}>
                     {b.createdAt ? new Date(b.createdAt).toLocaleDateString() : '—'}
                   </span>
