@@ -5,6 +5,7 @@ import { EmployeeProfile } from '../employees/EmployeeProfile';
 import { AttendanceCategoryModal, AttendanceCategoryType } from './AttendanceCategoryModal';
 import { TodayAttendanceCard } from './TodayAttendanceCard';
 import { EmployeeMonthlyAttendanceCard } from './EmployeeMonthlyAttendanceCard';
+import { CeoDashboardView } from './CeoDashboardView';
 import { Employee, AttendanceRecord, LeaveRequest, TaskItem, HolidayItem } from '../../types/hrms';
 import { formatDateDDMMYYYY, formatTimeDisplay } from '../../utils/dateUtils';
 import { getMonthInfo, getLocalDateStr, isDateInMonth, countLeaveDaysInMonth } from '../../utils/monthUtils';
@@ -77,7 +78,10 @@ export const Dashboard: React.FC = () => {
     departmentOtPolicies = [],
     employeeOtPolicies = [],
     payrollSettingsConfig,
-    isInitialDataLoading
+    isInitialDataLoading,
+    assets = [],
+    payrollRecords = [],
+    candidates = []
   } = useHRMS();
 
   const isDashboardHydrating = Boolean(isInitialDataLoading && employees.length === 0 && attendanceRecords.length === 0);
@@ -797,6 +801,79 @@ export const Dashboard: React.FC = () => {
     if (hr < 17) return 'Good Afternoon';
     return 'Good Evening';
   };
+
+  // Authoritative Executive CEO Dashboard (Matches media_1795415068954_78ab4ec5.jpg 100% across all viewports)
+  if (!isEmployee) {
+    return (
+      <div className="ceo-dashboard-page-wrapper" style={{ width: '100%', minWidth: 0 }}>
+        <CeoDashboardView
+          currentUser={currentUser}
+          employees={employees}
+          filteredEmployees={filteredEmployees}
+          attendanceRecords={attendanceRecords}
+          todayAttendanceRecords={todayAttendanceRecords}
+          leaveRequests={leaveRequests}
+          pendingLeaves={pendingLeaves}
+          allUnifiedTasks={allUnifiedTasks}
+          expenses={expenses}
+          loanRecords={loanRecords}
+          assets={assets}
+          departments={departments}
+          payrollRecords={payrollRecords}
+          candidates={candidates}
+          totalStaff={totalStaff}
+          presentToday={presentToday}
+          absentToday={absentToday}
+          donutPresent={donutPresent}
+          donutLate={donutLate}
+          donutLeave={donutLeave}
+          donutAbsent={donutAbsent}
+          presentRatePct={presentRatePct}
+          absentRatePct={absentRatePct}
+          activeDepartmentsCount={activeDepartmentsCount}
+          setActiveModule={setActiveModule}
+          onSelectCategory={setSelectedCategory}
+          onOpenFilterModal={() => setShowFilterModal(true)}
+          filterReports={filterReports}
+          activeFilterCount={activeFilterCount}
+          setFilterReports={setFilterReports}
+          isHydrating={isDashboardHydrating}
+        />
+
+        {/* Modal: Category Drill-down */}
+        {selectedCategory && (
+          <AttendanceCategoryModal
+            category={selectedCategory}
+            onClose={() => setSelectedCategory(null)}
+            onSelectEmployee={(emp) => {
+              setSelectedCategory(null);
+              setProfileModalEmployee(emp);
+            }}
+            employees={filteredEmployees}
+            attendanceRecords={filteredAttendance}
+            leaveRequests={leaveRequests}
+          />
+        )}
+
+        {/* Modal: Employee Profile Detail */}
+        {profileModalEmployee && (
+          <EmployeeProfile
+            employee={profileModalEmployee}
+            onClose={() => setProfileModalEmployee(null)}
+          />
+        )}
+
+        {/* Modal: Dashboard Filter Reports */}
+        <FilterReportsModal
+          isOpen={showFilterModal}
+          onClose={() => setShowFilterModal(false)}
+          currentFilters={filterReports}
+          onApply={(newFilters) => setFilterReports(newFilters)}
+          onReset={() => setFilterReports(initialFilterReportsState)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>

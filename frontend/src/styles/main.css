@@ -10776,3 +10776,777 @@ textarea,
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
+
+
+/* ==========================================================================
+   BUSINZ HRMS - CEO EXECUTIVE DASHBOARD (Apple-inspired Responsive Layout)
+   Matching Reference: media_1795415068954_78ab4ec5.jpg
+   ========================================================================== */
+
+.ceo-dashboard-root {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-family: 'DM Sans', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #1E293B;
+  background-color: transparent;
+}
+
+/* Header */
+.ceo-dashboard-header {
+  transition: all 0.2s ease;
+}
+
+.ceo-dashboard-header h1 {
+  font-family: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+}
+
+/* KPI Grid */
+.ceo-section-kpi {
+  margin-bottom: 20px;
+}
+
+.ceo-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ceo-kpi-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  min-height: 88px;
+  box-sizing: border-box;
+}
+
+.ceo-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: #CBD5E1;
+}
+
+.ceo-kpi-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ceo-kpi-icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ceo-kpi-label {
+  font-size: 0.77rem;
+  font-weight: 600;
+  color: #64748B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ceo-kpi-value {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0F172A;
+  line-height: 1.15;
+  margin-top: 2px;
+  letter-spacing: -0.02em;
+}
+
+.ceo-kpi-arrow {
+  color: #94A3B8;
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.ceo-kpi-card:hover .ceo-kpi-arrow {
+  transform: translateX(2px);
+  opacity: 1;
+}
+
+.ceo-kpi-subtext {
+  font-size: 0.72rem;
+  color: #64748B;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+.ceo-kpi-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ceo-pill-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  font-size: 0.69rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ceo-pill-tag.amber { background: #FEF3C7; color: #B45309; }
+.ceo-pill-tag.green { background: #DCFCE7; color: #15803D; }
+.ceo-pill-tag.red   { background: #FEE2E2; color: #B91C1C; }
+.ceo-pill-tag.cyan  { background: #CFFAFE; color: #0E7490; }
+.ceo-pill-tag.purple{ background: #F3E8FF; color: #7E22CE; }
+
+/* Main Sections (Row 2: Attendance, Tasks, Needs Attention) */
+.ceo-main-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.ceo-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.ceo-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.ceo-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ceo-card-title {
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: #0F172A;
+  letter-spacing: -0.01em;
+}
+
+.ceo-pill-btn {
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ceo-pill-btn.blue {
+  background: #EFF6FF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+}
+
+.ceo-link-btn {
+  background: none;
+  border: none;
+  color: #0E7490;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.ceo-link-btn:hover {
+  color: #0891B2;
+}
+
+/* Donut & Legend Layout */
+.ceo-card-body-donut-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  justify-content: space-between;
+  flex: 1;
+}
+
+.ceo-donut-chart-wrap {
+  position: relative;
+  width: 130px;
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ceo-donut-center-label {
+  position: absolute;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ceo-donut-center-num {
+  font-size: 1.45rem;
+  font-weight: 850;
+  color: #0F172A;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.ceo-donut-center-sub {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748B;
+  margin-top: 1px;
+}
+
+.ceo-donut-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ceo-donut-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.ceo-donut-legend-item:hover {
+  background: #F8FAFC;
+}
+
+.ceo-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.ceo-legend-label {
+  flex: 1;
+  color: #475569;
+  font-weight: 600;
+}
+
+.ceo-legend-count {
+  font-weight: 750;
+  color: #0F172A;
+  min-width: 20px;
+  text-align: right;
+}
+
+.ceo-legend-pct {
+  font-size: 0.72rem;
+  color: #64748B;
+  min-width: 32px;
+  text-align: right;
+}
+
+/* Progress rows in Task Status */
+.ceo-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.81rem;
+}
+
+.ceo-progress-name {
+  min-width: 82px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.ceo-progress-count {
+  min-width: 22px;
+  font-weight: 750;
+  color: #0F172A;
+  text-align: right;
+}
+
+.ceo-progress-track {
+  flex: 1;
+  height: 8px;
+  background: #F1F5F9;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.ceo-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.ceo-progress-pct {
+  min-width: 32px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748B;
+  text-align: right;
+}
+
+/* Attention Items */
+.ceo-attention-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #F1F5F9;
+  background: #FFFFFF;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ceo-attention-item:hover {
+  border-color: #CBD5E1;
+  background: #F8FAFC;
+}
+
+.ceo-attention-icon-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ceo-attention-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1E293B;
+}
+
+.ceo-attention-desc {
+  font-size: 0.71rem;
+  color: #64748B;
+  margin-top: 1px;
+}
+
+.ceo-attention-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.ceo-attention-badge.red    { background: #FEE2E2; color: #DC2626; }
+.ceo-attention-badge.blue   { background: #E0F2FE; color: #0284C7; }
+.ceo-attention-badge.purple { background: #F3E8FF; color: #9333EA; }
+
+/* Module Snapshots (Row 3: 5 cards across) */
+.ceo-module-snapshots-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ceo-snapshot-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  min-height: 110px;
+  box-sizing: border-box;
+}
+
+.ceo-snapshot-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: #CBD5E1;
+}
+
+.ceo-snapshot-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ceo-snapshot-icon-box {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ceo-snapshot-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ceo-snapshot-main {
+  font-size: 1.35rem;
+  font-weight: 850;
+  color: #0F172A;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.ceo-snapshot-sub {
+  font-size: 0.72rem;
+  color: #64748B;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* Analytics Grid (Row 4: Trend, Leave Summary, Headcount) */
+.ceo-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* Bar Chart */
+.ceo-bar-chart-container {
+  display: flex;
+  gap: 8px;
+  height: 160px;
+  align-items: flex-end;
+}
+
+.ceo-bar-chart-yaxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 130px;
+  padding-bottom: 22px;
+  font-size: 0.68rem;
+  color: #94A3B8;
+  font-weight: 600;
+  text-align: right;
+  min-width: 22px;
+  box-sizing: border-box;
+}
+
+.ceo-bar-chart-bars {
+  display: flex;
+  flex: 1;
+  justify-content: space-around;
+  align-items: flex-end;
+  height: 100%;
+  gap: 6px;
+}
+
+.ceo-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.ceo-bar-val {
+  font-size: 0.7rem;
+  font-weight: 750;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.ceo-bar-fill-wrap {
+  width: 100%;
+  max-width: 32px;
+  height: 110px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ceo-bar-fill {
+  width: 100%;
+  background: linear-gradient(180deg, #0E7490 0%, #0891B2 100%);
+  border-radius: 6px 6px 0 0;
+  transition: height 0.3s ease;
+  min-height: 4px;
+}
+
+.ceo-bar-label {
+  font-size: 0.66rem;
+  color: #64748B;
+  font-weight: 600;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+/* Department Headcount */
+.ceo-dept-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+}
+
+.ceo-dept-name {
+  min-width: 80px;
+  color: #475569;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ceo-dept-track {
+  flex: 1;
+  height: 8px;
+  background: #F1F5F9;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.ceo-dept-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0E7490 0%, #06B6D4 100%);
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.ceo-dept-count {
+  min-width: 20px;
+  font-weight: 750;
+  color: #0F172A;
+  text-align: right;
+}
+
+/* ==========================================================================
+   RESPONSIVE BREAKPOINTS (Apple-grade auto-scaling)
+   ========================================================================== */
+
+/* 1. Large Desktop (>= 1920px): Full executive experience */
+@media (min-width: 1920px) {
+  .ceo-kpi-grid {
+    gap: 18px;
+  }
+  .ceo-main-sections-grid,
+  .ceo-analytics-grid {
+    gap: 20px;
+  }
+  .ceo-module-snapshots-grid {
+    gap: 18px;
+  }
+}
+
+/* 2. Standard & Small Laptops (1024px to 1439px) */
+@media (max-width: 1439px) and (min-width: 1024px) {
+  .ceo-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ceo-module-snapshots-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ceo-main-sections-grid {
+    gap: 14px;
+  }
+  .ceo-analytics-grid {
+    gap: 14px;
+  }
+}
+
+/* 3. Tablets (768px to 1023px) */
+@media (max-width: 1023px) and (min-width: 768px) {
+  .ceo-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ceo-main-sections-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .ceo-module-snapshots-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ceo-analytics-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}
+
+/* 4. Mobile View (< 768px): Strict 8-Stage Flow */
+@media (max-width: 767px) {
+  .ceo-dashboard-root {
+    padding: 0;
+  }
+
+  .ceo-dashboard-header {
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+  }
+
+  .ceo-dashboard-header h1 {
+    font-size: 1.2rem !important;
+  }
+
+  /* Flex column container with display: contents to sequence all cards strictly */
+  .ceo-dashboard-content-flow {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 14px !important;
+    width: 100% !important;
+  }
+
+  .ceo-main-sections-grid {
+    display: contents !important;
+  }
+
+  .ceo-analytics-grid {
+    display: contents !important;
+  }
+
+  /* Strict Mobile Ordering:
+     1. Top KPI Summary
+     2. Needs Your Attention
+     3. Attendance Overview
+     4. Task Status
+     5. Module Snapshots
+     6. Attendance Trend
+     7. Leave Summary
+     8. Department Wise Headcount
+  */
+  .ceo-section-kpi {
+    order: 1 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-attention {
+    order: 2 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-attendance {
+    order: 3 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-tasks {
+    order: 4 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-snapshots {
+    order: 5 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-att-trend {
+    order: 6 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-leave-summary {
+    order: 7 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ceo-section-dept-headcount {
+    order: 8 !important;
+    margin-bottom: 24px !important;
+  }
+
+  /* KPI Grid on Mobile: 2 per row */
+  .ceo-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .ceo-kpi-card {
+    padding: 12px 12px !important;
+  }
+
+  .ceo-kpi-value {
+    font-size: 1.25rem !important;
+  }
+
+  /* Snapshots on Mobile: 2 per row */
+  .ceo-module-snapshots-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .ceo-snapshot-card {
+    padding: 12px 12px !important;
+  }
+
+  .ceo-snapshot-main {
+    font-size: 1.15rem !important;
+  }
+
+  /* Donut row stacking on smaller mobile screens */
+  @media (max-width: 480px) {
+    .ceo-card-body-donut-row {
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 14px !important;
+    }
+
+    .ceo-donut-legend-list {
+      width: 100% !important;
+    }
+  }
+
+  /* Extra small screens (< 380px) */
+  @media (max-width: 380px) {
+    .ceo-kpi-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .ceo-module-snapshots-grid {
+      grid-template-columns: 1fr !important;
+    }
+  }
+}
