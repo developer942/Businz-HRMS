@@ -271,15 +271,20 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
   useEffect(() => {
     let active = true;
-    pettyCashService
-      .getDashboardSummary()
-      .then(res => {
-        if (active && res) {
-          setPettyCashSummary({
-            availableBalance: Number(res.availableBalance) || 0,
-            pendingCount: Number(res.pendingRequestsCount) || 0,
-          });
-        }
+    Promise.all([
+      pettyCashService.getActiveCustodianAccount().catch(() => null),
+      pettyCashService.getRequests().catch(() => []),
+    ])
+      .then(([acc, reqs]) => {
+        if (!active) return;
+        const bal = toNum((acc as any)?.current_balance) || toNum((acc as any)?.currentBalance) || 0;
+        const pending = Array.isArray(reqs)
+          ? reqs.filter(r => r.status === 'PENDING_CEO_APPROVAL').length
+          : 0;
+        setPettyCashSummary({
+          availableBalance: bal,
+          pendingCount: pending,
+        });
       })
       .catch(() => {});
     return () => {

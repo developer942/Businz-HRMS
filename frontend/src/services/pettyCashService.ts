@@ -231,7 +231,57 @@ export const pettyCashService = {
 
   // 8. Dashboards & Reports
   async getDashboardSummary(): Promise<PettyCashDashboardSummary> {
-    return request<PettyCashDashboardSummary>('/dashboard/summary');
+    try {
+      const [acc, reqs] = await Promise.all([
+        this.getActiveCustodianAccount().catch(() => null),
+        this.getRequests().catch(() => []),
+      ]);
+      const availableBalance = Number(acc?.current_balance ?? (acc as any)?.currentBalance ?? 0);
+      const totalCashReceived = Number(acc?.total_cash_received ?? (acc as any)?.totalCashReceived ?? 0);
+      const totalExpenses = Number(acc?.total_spent ?? (acc as any)?.totalSpent ?? 0);
+      const pendingRequestsCount = Array.isArray(reqs)
+        ? reqs.filter((r) => r.status === 'PENDING_CEO_APPROVAL').length
+        : 0;
+      const pendingDisbursementsCount = Array.isArray(reqs)
+        ? reqs.filter((r) => r.status === 'APPROVED_BY_CEO').length
+        : 0;
+      const pendingReceiptsCount = Array.isArray(reqs)
+        ? reqs.filter((r) => r.status === 'DISBURSED_PENDING_RECEIPT').length
+        : 0;
+      const lowBalanceWarning = Boolean(
+        acc && availableBalance > 0 && availableBalance <= Number(acc.low_balance_threshold || 1000)
+      );
+
+      return {
+        activeAccount: acc,
+        availableBalance,
+        totalCashReceived,
+        totalExpenses,
+        pendingRequestsCount,
+        pendingDisbursementsCount,
+        pendingReceiptsCount,
+        recentTransactions: [],
+        recentExpenses: [],
+        lowBalanceWarning,
+      };
+    } catch {
+      return {
+        activeAccount: null,
+        availableBalance: 0,
+        totalCashReceived: 0,
+        totalExpenses: 0,
+        pendingRequestsCount: 0,
+        pendingDisbursementsCount: 0,
+        pendingReceiptsCount: 0,
+        recentTransactions: [],
+        recentExpenses: [],
+        lowBalanceWarning: false,
+      };
+    }
+  },
+
+  async getCeoDashboard(): Promise<any> {
+    return request<any>('/dashboards/ceo');
   },
 
   async getReports(params: {
