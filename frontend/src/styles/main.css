@@ -10808,7 +10808,7 @@ textarea,
 
 .ceo-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -11380,13 +11380,9 @@ textarea,
   }
 }
 
-/* 2. Standard & Small Laptops (1024px to 1439px) */
-@media (max-width: 1439px) and (min-width: 1024px) {
+/* 2. Small Laptops (1024px to 1279px) */
+@media (max-width: 1279px) and (min-width: 1024px) {
   .ceo-kpi-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-  }
-  .ceo-module-snapshots-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
   }

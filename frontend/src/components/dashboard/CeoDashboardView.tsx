@@ -310,11 +310,16 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
       {/* RESPONSIVE DASHBOARD CONTAINER */}
       <div className="ceo-dashboard-content-flow">
         {/* ============================================================
-            SECTION 1: TOP 6 KPI CARDS (Matches Reference Image Row 1)
+            SECTION 1: TOP 5 KPI CARDS
+            1. Total Active Staff
+            2. Present Today
+            3. Absent Today
+            4. Late Today
+            5. Over Due Task
             ============================================================ */}
         <div className="ceo-section-kpi">
           <div className="ceo-kpi-grid">
-            {/* 1. Total Staff */}
+            {/* 1. Total Active Staff */}
             <div 
               className="ceo-kpi-card" 
               onClick={() => onSelectCategory('total')}
@@ -325,7 +330,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   <Users size={18} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-kpi-label">Total Staff</div>
+                  <div className="ceo-kpi-label">Total Active Staff</div>
                   <div className="ceo-kpi-value">{totalStaff}</div>
                 </div>
                 <ChevronRight size={16} className="ceo-kpi-arrow" />
@@ -349,14 +354,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                 </div>
                 <ChevronRight size={16} className="ceo-kpi-arrow" />
               </div>
-              <div className="ceo-kpi-bottom-row">
-                <span className="ceo-kpi-subtext">{presentRatePct}% Attendance</span>
-                {donutLate > 0 && (
-                  <span className="ceo-pill-tag amber">
-                    ↑ {donutLate} Late
-                  </span>
-                )}
-              </div>
+              <div className="ceo-kpi-subtext">{presentRatePct}% Attendance</div>
             </div>
 
             {/* 3. Absent Today */}
@@ -380,28 +378,28 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               <div className="ceo-kpi-subtext">{absentRatePct}%</div>
             </div>
 
-            {/* 4. Pending Approvals */}
+            {/* 4. Late Today */}
             <div 
               className="ceo-kpi-card" 
-              onClick={() => setActiveModule('leaves')}
-              title="Click to view pending requests"
+              onClick={() => onSelectCategory('late')}
+              title="Click to view late employees today"
             >
               <div className="ceo-kpi-top">
                 <div className="ceo-kpi-icon-box" style={{ backgroundColor: '#FEF3C7', color: '#D97706' }}>
                   <Clock size={18} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-kpi-label">Pending Approvals</div>
-                  <div className="ceo-kpi-value" style={{ color: totalPendingApprovals > 0 ? '#D97706' : '#0F172A' }}>
-                    {totalPendingApprovals}
+                  <div className="ceo-kpi-label">Late Today</div>
+                  <div className="ceo-kpi-value" style={{ color: donutLate > 0 ? '#D97706' : '#0F172A' }}>
+                    {donutLate}
                   </div>
                 </div>
                 <ChevronRight size={16} className="ceo-kpi-arrow" />
               </div>
-              <div className="ceo-kpi-subtext">Leave • Claims • Advance</div>
+              <div className="ceo-kpi-subtext">{totalStaff > 0 ? Math.round((donutLate / totalStaff) * 100) : 0}% Late</div>
             </div>
 
-            {/* 5. Overdue Tasks */}
+            {/* 5. Over Due Task */}
             <div 
               className="ceo-kpi-card" 
               onClick={() => setActiveModule('tasks')}
@@ -412,7 +410,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   <CheckSquare size={18} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-kpi-label">Overdue Tasks</div>
+                  <div className="ceo-kpi-label">Over Due Task</div>
                   <div className="ceo-kpi-value" style={{ color: overdueTasks.length > 0 ? '#9333EA' : '#0F172A' }}>
                     {overdueTasks.length}
                   </div>
@@ -420,27 +418,6 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                 <ChevronRight size={16} className="ceo-kpi-arrow" />
               </div>
               <div className="ceo-kpi-subtext">Needs Attention</div>
-            </div>
-
-            {/* 6. Payroll (Current Month) */}
-            <div 
-              className="ceo-kpi-card" 
-              onClick={() => setActiveModule('payroll')}
-              title="Click to open Payroll Management"
-            >
-              <div className="ceo-kpi-top">
-                <div className="ceo-kpi-icon-box" style={{ backgroundColor: '#CCFBF1', color: '#0D9488' }}>
-                  <IndianRupee size={18} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-kpi-label">Payroll ({currentMonth.monthShort})</div>
-                  <div className="ceo-kpi-value" style={{ fontSize: '1.25rem', color: '#0E7490' }}>
-                    {formatCurrency(displayedMonthlyPayroll)}
-                  </div>
-                </div>
-                <ChevronRight size={16} className="ceo-kpi-arrow" />
-              </div>
-              <div className="ceo-kpi-subtext">{totalStaff} Employees</div>
             </div>
           </div>
         </div>
