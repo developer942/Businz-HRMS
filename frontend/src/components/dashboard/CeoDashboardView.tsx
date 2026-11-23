@@ -1300,25 +1300,29 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
               {/* Legend List */}
               <div className="ceo-donut-legend-list">
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '3px 6px' }}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 6px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#22C55E' }} />
                   <span className="ceo-legend-label">Paid Leave</span>
                   <span className="ceo-legend-count">{leaveSummary.paid}</span>
+                  <span className="ceo-legend-pct">{lTotal > 0 ? Math.round((leaveSummary.paid / lTotal) * 100) : 0}%</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '3px 6px' }}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 6px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#0EA5E9' }} />
                   <span className="ceo-legend-label">Casual Leave</span>
                   <span className="ceo-legend-count">{leaveSummary.casual}</span>
+                  <span className="ceo-legend-pct">{lTotal > 0 ? Math.round((leaveSummary.casual / lTotal) * 100) : 0}%</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '3px 6px' }}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 6px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#8B5CF6' }} />
                   <span className="ceo-legend-label">Sick Leave</span>
                   <span className="ceo-legend-count">{leaveSummary.sick}</span>
+                  <span className="ceo-legend-pct">{lTotal > 0 ? Math.round((leaveSummary.sick / lTotal) * 100) : 0}%</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '3px 6px' }}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 6px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#CBD5E1' }} />
                   <span className="ceo-legend-label">Other</span>
                   <span className="ceo-legend-count">{leaveSummary.other}</span>
+                  <span className="ceo-legend-pct">{lTotal > 0 ? Math.round((leaveSummary.other / lTotal) * 100) : 0}%</span>
                 </div>
               </div>
             </div>
@@ -1347,7 +1351,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </span>
             </div>
 
-            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', flex: 1, minHeight: '145px' }}>
+            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, minHeight: 0 }}>
               {celebrations.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '16px 12px', color: '#64748B', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
                   <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px' }}>
@@ -1364,8 +1368,8 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '9px',
-                        padding: '8px 10px',
+                        gap: '10px',
+                        padding: '10px 12px',
                         backgroundColor: c.type === 'Birthday' ? '#FFFBEB' : '#EEF2FF',
                         border: `1px solid ${c.type === 'Birthday' ? '#FDE68A' : '#E0E7FF'}`,
                         borderRadius: '9px'
@@ -1373,8 +1377,8 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                     >
                       <div
                         style={{
-                          width: '30px',
-                          height: '30px',
+                          width: '32px',
+                          height: '32px',
                           borderRadius: '8px',
                           backgroundColor: c.type === 'Birthday' ? '#FEF3C7' : '#E0E7FF',
                           display: 'flex',
@@ -1386,15 +1390,43 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                         {c.type === 'Birthday' ? <Gift size={16} color="#D97706" /> : <Award size={16} color="#4338CA" />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.8rem', color: c.type === 'Birthday' ? '#92400E' : '#3730A3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: c.type === 'Birthday' ? '#92400E' : '#3730A3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {c.name}
                         </div>
                         <div style={{ fontSize: '0.68rem', color: c.type === 'Birthday' ? '#B45309' : '#4F46E5', marginTop: '1px' }}>
                           {c.label}
                         </div>
                       </div>
+                      <span style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 750,
+                        padding: '3px 8px',
+                        borderRadius: '9999px',
+                        backgroundColor: c.isToday ? '#F59E0B' : (c.type === 'Birthday' ? '#FEF3C7' : '#E0E7FF'),
+                        color: c.isToday ? '#FFFFFF' : (c.type === 'Birthday' ? '#B45309' : '#4338CA'),
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {c.dateStr}
+                      </span>
                     </div>
                   ))}
+                </div>
+              )}
+              {celebrations.length > 0 && (
+                <div style={{
+                  marginTop: 'auto',
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #F1F5F9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.72rem',
+                  color: '#64748B'
+                }}>
+                  <span>Workforce Milestones</span>
+                  <span style={{ fontWeight: 750, color: '#0E7490' }}>{celebrations.length} Active</span>
                 </div>
               )}
             </div>

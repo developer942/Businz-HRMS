@@ -10824,7 +10824,9 @@ textarea,
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  min-height: 86px;
+  height: 88px;
+  min-height: 88px;
+  max-height: 88px;
   box-sizing: border-box;
 }
 
@@ -10914,7 +10916,7 @@ textarea,
 .ceo-pill-tag.cyan  { background: #CFFAFE; color: #0E7490; }
 .ceo-pill-tag.purple{ background: #F3E8FF; color: #7E22CE; }
 
-/* Main Sections (Row 2: Attendance, Tasks, Needs Attention) */
+/* Main Sections (Row 3: Attendance, Tasks, Needs Attention) & (Row 4: Analytics) */
 .ceo-main-sections-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -10926,11 +10928,14 @@ textarea,
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 14px;
-  padding: 16px 18px;
+  padding: 14px 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  height: 232px;
+  min-height: 232px;
+  max-height: 232px;
 }
 
 .ceo-card-header {
@@ -10938,9 +10943,12 @@ textarea,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid #F1F5F9;
+  flex-shrink: 0;
+  height: 36px;
+  box-sizing: border-box;
 }
 
 .ceo-card-header-left {
@@ -10950,7 +10958,7 @@ textarea,
 }
 
 .ceo-card-title {
-  font-size: 0.96rem;
+  font-size: 0.95rem;
   font-weight: 750;
   color: #0F172A;
   letter-spacing: -0.01em;
@@ -10987,15 +10995,16 @@ textarea,
   color: #0891B2;
 }
 
-/* Donut & Legend Layout */
+/* Donut & Legend Layout - Symmetrical & Cleanly Aligned */
 .ceo-card-body-donut-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 24px;
+  justify-content: flex-start;
+  gap: 20px;
   flex: 1;
   width: 100%;
   box-sizing: border-box;
+  padding: 2px 4px;
 }
 
 .ceo-donut-chart-wrap {
@@ -11032,10 +11041,11 @@ textarea,
 .ceo-donut-legend-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  justify-content: space-between;
   flex: 1;
-  max-width: 220px;
+  height: 120px;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .ceo-donut-legend-item {
@@ -11044,7 +11054,7 @@ textarea,
   gap: 8px;
   font-size: 0.78rem;
   cursor: pointer;
-  padding: 3px 6px;
+  padding: 2px 6px;
   border-radius: 6px;
   transition: background 0.15s ease;
 }
@@ -11064,43 +11074,52 @@ textarea,
   flex: 1;
   color: #475569;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .ceo-legend-count {
-  font-weight: 750;
+  width: 28px;
+  flex-shrink: 0;
+  font-weight: 800;
   color: #0F172A;
-  min-width: 20px;
   text-align: right;
 }
 
 .ceo-legend-pct {
+  width: 38px;
+  flex-shrink: 0;
   font-size: 0.72rem;
   color: #64748B;
-  min-width: 32px;
+  font-weight: 600;
   text-align: right;
 }
 
-/* Progress rows in Task Status */
+/* Progress rows in Task Status with strict column alignment */
 .ceo-progress-row {
   display: flex;
   align-items: center;
-  gap: 12px;
   font-size: 0.8rem;
-  padding: 2px 0;
+  padding: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .ceo-progress-name {
-  min-width: 84px;
+  width: 96px;
+  flex-shrink: 0;
   color: #475569;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 .ceo-progress-count {
-  min-width: 20px;
+  width: 26px;
+  flex-shrink: 0;
   font-weight: 800;
   color: #0F172A;
   text-align: right;
   font-size: 0.84rem;
+  margin-right: 12px;
 }
 
 .ceo-progress-track {
@@ -11109,6 +11128,7 @@ textarea,
   background: #F1F5F9;
   border-radius: 9999px;
   overflow: hidden;
+  min-width: 0;
 }
 
 .ceo-progress-fill {
@@ -11118,11 +11138,13 @@ textarea,
 }
 
 .ceo-progress-pct {
-  min-width: 32px;
-  font-size: 0.72rem;
+  width: 38px;
+  flex-shrink: 0;
+  font-size: 0.74rem;
   font-weight: 700;
   color: #64748B;
   text-align: right;
+  margin-left: 10px;
 }
 
 /* Attention Items */
@@ -11130,12 +11152,13 @@ textarea,
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px;
-  border-radius: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid #F1F5F9;
   background: #FFFFFF;
   cursor: pointer;
   transition: all 0.15s ease;
+  box-sizing: border-box;
 }
 
 .ceo-attention-item:hover {
@@ -11144,9 +11167,9 @@ textarea,
 }
 
 .ceo-attention-icon-box {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11565,7 +11588,16 @@ textarea,
     gap: 10px !important;
   }
 
+  .ceo-card {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+  }
+
   .ceo-kpi-card {
+    height: auto !important;
+    min-height: 80px !important;
+    max-height: none !important;
     padding: 12px 12px !important;
   }
 
