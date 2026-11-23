@@ -11454,10 +11454,9 @@ textarea,
      2. Needs Your Attention
      3. Attendance Overview
      4. Task Status
-     5. Module Snapshots
-     6. Attendance Trend
-     7. Leave Summary
-     8. Department Wise Headcount
+     5. Attendance Trend
+     6. Leave Summary
+     7. Department Wise Headcount
   */
   .ceo-section-kpi {
     order: 1 !important;
@@ -11479,23 +11478,18 @@ textarea,
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-snapshots {
+  .ceo-section-att-trend {
     order: 5 !important;
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-att-trend {
+  .ceo-section-leave-summary {
     order: 6 !important;
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-leave-summary {
-    order: 7 !important;
-    margin-bottom: 0 !important;
-  }
-
   .ceo-section-dept-headcount {
-    order: 8 !important;
+    order: 7 !important;
     margin-bottom: 24px !important;
   }
 
