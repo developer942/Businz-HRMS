@@ -442,17 +442,17 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
     return results;
   }, [filteredEmployees, employees]);
 
-  // Donut chart stroke calculations for Attendance Overview (Comfortable 120px viewBox)
+  // Donut chart stroke calculations for Attendance Overview (Comfortable 136px viewBox)
   const donutTotal = totalStaff > 0 ? totalStaff : 1;
-  const pCircumference = 2 * Math.PI * 44; // r=44
+  const pCircumference = 2 * Math.PI * 50; // r=50 => 314.159
   const pRatio = donutPresent / donutTotal;
   const lateRatio = donutLate / donutTotal;
   const leaveRatio = donutLeave / donutTotal;
   const aRatio = donutAbsent / donutTotal;
 
-  // Donut chart stroke calculations for Leave Summary (Comfortable 120px viewBox)
+  // Donut chart stroke calculations for Leave Summary (Comfortable 136px viewBox)
   const lTotal = leaveSummary.total > 0 ? leaveSummary.total : 1;
-  const lCircumference = 2 * Math.PI * 44; // r=44
+  const lCircumference = 2 * Math.PI * 50; // r=50 => 314.159
   const lPaidRatio = leaveSummary.paid / lTotal;
   const lCasualRatio = leaveSummary.casual / lTotal;
   const lSickRatio = leaveSummary.sick / lTotal;
@@ -758,20 +758,20 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
             <div className="ceo-card-body-donut-row">
               {/* Donut Chart with Interactive Hover */}
-              <div className="ceo-donut-chart-wrap" style={{ width: '120px', height: '120px' }}>
-                <svg width="120" height="120" viewBox="0 0 120 120" style={{ transform: 'rotate(-90deg)' }}>
+              <div className="ceo-donut-chart-wrap" style={{ width: '136px', height: '136px' }}>
+                <svg width="136" height="136" viewBox="0 0 136 136" style={{ transform: 'rotate(-90deg)' }}>
                   {/* Track background */}
-                  <circle cx="60" cy="60" r="44" fill="none" stroke="#F1F5F9" strokeWidth="15" />
+                  <circle cx="68" cy="68" r="50" fill="none" stroke="#F1F5F9" strokeWidth="16" />
                   
                   {/* Present arc (Teal) */}
                   {pRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#0E7490"
-                      strokeWidth={hoveredAttendanceSegment === 'present' ? 18 : 15}
+                      strokeWidth={hoveredAttendanceSegment === 'present' ? 19 : 16}
                       strokeDasharray={`${pRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={0}
                       style={{
@@ -789,12 +789,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Late arc (Amber) */}
                   {lateRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#F59E0B"
-                      strokeWidth={hoveredAttendanceSegment === 'late' ? 18 : 15}
+                      strokeWidth={hoveredAttendanceSegment === 'late' ? 19 : 16}
                       strokeDasharray={`${lateRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-(pRatio * pCircumference)}
                       style={{
@@ -812,12 +812,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Leave arc (Slate/Cyan) */}
                   {leaveRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#94A3B8"
-                      strokeWidth={hoveredAttendanceSegment === 'leave' ? 18 : 15}
+                      strokeWidth={hoveredAttendanceSegment === 'leave' ? 19 : 16}
                       strokeDasharray={`${leaveRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-((pRatio + lateRatio) * pCircumference)}
                       style={{
@@ -835,12 +835,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Absent arc (Red) */}
                   {aRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#EF4444"
-                      strokeWidth={hoveredAttendanceSegment === 'absent' ? 18 : 15}
+                      strokeWidth={hoveredAttendanceSegment === 'absent' ? 19 : 16}
                       strokeDasharray={`${aRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-((pRatio + lateRatio + leaveRatio) * pCircumference)}
                       style={{
@@ -860,43 +860,43 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                 <div className="ceo-donut-center-label" style={{ pointerEvents: 'none' }}>
                   {hoveredAttendanceSegment === 'present' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#0E7490', fontSize: '1.35rem' }}>{donutPresent}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#0E7490', fontWeight: 750, fontSize: '0.68rem' }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#0E7490', fontSize: '1.45rem' }}>{donutPresent}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#0E7490', fontWeight: 750, fontSize: '0.72rem' }}>
                         Present ({donutTotal > 0 ? Math.round((donutPresent / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : hoveredAttendanceSegment === 'late' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#D97706', fontSize: '1.35rem' }}>{donutLate}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#D97706', fontWeight: 750, fontSize: '0.68rem' }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#D97706', fontSize: '1.45rem' }}>{donutLate}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#D97706', fontWeight: 750, fontSize: '0.72rem' }}>
                         Late ({donutTotal > 0 ? Math.round((donutLate / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : hoveredAttendanceSegment === 'leave' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#64748B', fontSize: '1.35rem' }}>{donutLeave}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#64748B', fontWeight: 750, fontSize: '0.68rem' }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#64748B', fontSize: '1.45rem' }}>{donutLeave}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#64748B', fontWeight: 750, fontSize: '0.72rem' }}>
                         On Leave ({donutTotal > 0 ? Math.round((donutLeave / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : hoveredAttendanceSegment === 'absent' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#EF4444', fontSize: '1.35rem' }}>{donutAbsent}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#EF4444', fontWeight: 750, fontSize: '0.68rem' }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#EF4444', fontSize: '1.45rem' }}>{donutAbsent}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#EF4444', fontWeight: 750, fontSize: '0.72rem' }}>
                         Absent ({donutTotal > 0 ? Math.round((donutAbsent / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="ceo-donut-center-num" style={{ fontSize: '1.35rem' }}>{totalStaff}</div>
-                      <div className="ceo-donut-center-sub" style={{ fontSize: '0.68rem' }}>Total Staff</div>
+                      <div className="ceo-donut-center-num" style={{ fontSize: '1.45rem' }}>{totalStaff}</div>
+                      <div className="ceo-donut-center-sub" style={{ fontSize: '0.72rem' }}>Total Staff</div>
                     </>
                   )}
                 </div>
               </div>
 
               {/* Legend List with matching hover */}
-              <div className="ceo-donut-legend-list">
+              <div className="ceo-donut-legend-list" style={{ height: '136px' }}>
                 <div 
                   className="ceo-donut-legend-item" 
                   onClick={() => onSelectCategory('present')}
@@ -979,7 +979,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               <span className="ceo-pill-btn blue">This Week</span>
             </div>
 
-            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, padding: '4px 2px' }}>
+            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, padding: '10px 4px' }}>
               {/* Completed */}
               <div className="ceo-progress-row">
                 <span className="ceo-progress-name">Completed</span>
@@ -1169,7 +1169,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </div>
             </div>
 
-            <div className="ceo-card-body" style={{ minHeight: '130px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <div className="ceo-card-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: 0 }}>
               <div className="ceo-bar-chart-container">
                 {/* Y-axis guide */}
                 <div className="ceo-bar-chart-yaxis">
@@ -1236,18 +1236,18 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
             <div className="ceo-card-body-donut-row">
               {/* Donut Chart */}
-              <div className="ceo-donut-chart-wrap" style={{ width: '120px', height: '120px' }}>
-                <svg width="120" height="120" viewBox="0 0 120 120" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="60" cy="60" r="44" fill="none" stroke="#F1F5F9" strokeWidth="15" />
+              <div className="ceo-donut-chart-wrap" style={{ width: '136px', height: '136px' }}>
+                <svg width="136" height="136" viewBox="0 0 136 136" style={{ transform: 'rotate(-90deg)' }}>
+                  <circle cx="68" cy="68" r="50" fill="none" stroke="#F1F5F9" strokeWidth="16" />
                   {/* Paid leave */}
                   {lPaidRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#22C55E"
-                      strokeWidth="15"
+                      strokeWidth="16"
                       strokeDasharray={`${lPaidRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={0}
                     />
@@ -1255,12 +1255,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Casual leave */}
                   {lCasualRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#0EA5E9"
-                      strokeWidth="15"
+                      strokeWidth="16"
                       strokeDasharray={`${lCasualRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={-(lPaidRatio * lCircumference)}
                     />
@@ -1268,12 +1268,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Sick leave */}
                   {lSickRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#8B5CF6"
-                      strokeWidth="15"
+                      strokeWidth="16"
                       strokeDasharray={`${lSickRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={-((lPaidRatio + lCasualRatio) * lCircumference)}
                     />
@@ -1281,25 +1281,25 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Other leave */}
                   {lOtherRatio > 0 && (
                     <circle
-                      cx="60"
-                      cy="60"
-                      r="44"
+                      cx="68"
+                      cy="68"
+                      r="50"
                       fill="none"
                       stroke="#CBD5E1"
-                      strokeWidth="15"
+                      strokeWidth="16"
                       strokeDasharray={`${lOtherRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={-((lPaidRatio + lCasualRatio + lSickRatio) * lCircumference)}
                     />
                   )}
                 </svg>
                 <div className="ceo-donut-center-label">
-                  <div className="ceo-donut-center-num" style={{ fontSize: '1.35rem' }}>{leaveSummary.total}</div>
-                  <div className="ceo-donut-center-sub" style={{ fontSize: '0.68rem' }}>Total Leaves</div>
+                  <div className="ceo-donut-center-num" style={{ fontSize: '1.5rem' }}>{leaveSummary.total}</div>
+                  <div className="ceo-donut-center-sub" style={{ fontSize: '0.72rem' }}>Total Leaves</div>
                 </div>
               </div>
 
               {/* Legend List */}
-              <div className="ceo-donut-legend-list">
+              <div className="ceo-donut-legend-list" style={{ height: '136px' }}>
                 <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 6px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#22C55E' }} />
                   <span className="ceo-legend-label">Paid Leave</span>

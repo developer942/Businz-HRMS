@@ -10817,16 +10817,16 @@ textarea,
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 13px 15px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  height: 88px;
-  min-height: 88px;
-  max-height: 88px;
+  height: 94px;
+  min-height: 94px;
+  max-height: 94px;
   box-sizing: border-box;
 }
 
@@ -10928,14 +10928,15 @@ textarea,
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 14px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  height: 232px;
-  min-height: 232px;
-  max-height: 232px;
+  height: 280px;
+  min-height: 280px;
+  max-height: 280px;
+  overflow: hidden;
 }
 
 .ceo-card-header {
@@ -11009,8 +11010,8 @@ textarea,
 
 .ceo-donut-chart-wrap {
   position: relative;
-  width: 120px;
-  height: 120px;
+  width: 136px;
+  height: 136px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11024,7 +11025,7 @@ textarea,
 }
 
 .ceo-donut-center-num {
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 850;
   color: #0F172A;
   line-height: 1.1;
@@ -11032,7 +11033,7 @@ textarea,
 }
 
 .ceo-donut-center-sub {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #64748B;
   margin-top: 1px;
@@ -11043,7 +11044,7 @@ textarea,
   flex-direction: column;
   justify-content: space-between;
   flex: 1;
-  height: 120px;
+  height: 136px;
   min-width: 0;
   box-sizing: border-box;
 }
@@ -11105,26 +11106,27 @@ textarea,
 }
 
 .ceo-progress-name {
-  width: 96px;
+  width: 104px;
   flex-shrink: 0;
   color: #475569;
   font-weight: 650;
+  font-size: 0.82rem;
   white-space: nowrap;
 }
 
 .ceo-progress-count {
-  width: 26px;
+  width: 28px;
   flex-shrink: 0;
   font-weight: 800;
   color: #0F172A;
   text-align: right;
-  font-size: 0.84rem;
-  margin-right: 12px;
+  font-size: 0.86rem;
+  margin-right: 14px;
 }
 
 .ceo-progress-track {
   flex: 1;
-  height: 8px;
+  height: 9px;
   background: #F1F5F9;
   border-radius: 9999px;
   overflow: hidden;
@@ -11138,9 +11140,9 @@ textarea,
 }
 
 .ceo-progress-pct {
-  width: 38px;
+  width: 40px;
   flex-shrink: 0;
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   font-weight: 700;
   color: #64748B;
   text-align: right;
@@ -11152,8 +11154,8 @@ textarea,
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 9px;
   border: 1px solid #F1F5F9;
   background: #FFFFFF;
   cursor: pointer;
@@ -11167,9 +11169,9 @@ textarea,
 }
 
 .ceo-attention-icon-box {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11177,13 +11179,13 @@ textarea,
 }
 
 .ceo-attention-title {
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 700;
   color: #1E293B;
 }
 
 .ceo-attention-desc {
-  font-size: 0.71rem;
+  font-size: 0.72rem;
   color: #64748B;
   margin-top: 1px;
 }
@@ -11286,7 +11288,7 @@ textarea,
 .ceo-bar-chart-container {
   display: flex;
   gap: 8px;
-  height: 145px;
+  height: 195px;
   align-items: stretch;
   position: relative;
   width: 100%;
@@ -11296,10 +11298,10 @@ textarea,
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 102px;
-  margin-top: 18px;
-  margin-bottom: 25px;
-  font-size: 0.66rem;
+  height: 140px;
+  margin-top: 24px;
+  margin-bottom: 30px;
+  font-size: 0.68rem;
   color: #94A3B8;
   font-weight: 600;
   text-align: right;
@@ -11318,8 +11320,8 @@ textarea,
 
 .ceo-bar-chart-gridlines {
   position: absolute;
-  top: 18px;
-  bottom: 25px;
+  top: 24px;
+  bottom: 30px;
   left: 0;
   right: 0;
   pointer-events: none;
@@ -11357,9 +11359,9 @@ textarea,
 }
 
 .ceo-bar-val {
-  height: 18px;
-  line-height: 18px;
-  font-size: 0.66rem;
+  height: 22px;
+  line-height: 22px;
+  font-size: 0.7rem;
   font-weight: 750;
   color: #334155;
   text-align: center;
@@ -11376,7 +11378,7 @@ textarea,
 
 .ceo-bar-fill {
   width: 100%;
-  max-width: 24px;
+  max-width: 26px;
   background: linear-gradient(180deg, #0E7490 0%, #0891B2 100%);
   border-radius: 4px 4px 0 0;
   transition: height 0.3s ease;
@@ -11390,9 +11392,9 @@ textarea,
 }
 
 .ceo-bar-label {
-  height: 22px;
-  line-height: 22px;
-  font-size: 0.64rem;
+  height: 26px;
+  line-height: 26px;
+  font-size: 0.68rem;
   color: #64748B;
   font-weight: 600;
   white-space: nowrap;
