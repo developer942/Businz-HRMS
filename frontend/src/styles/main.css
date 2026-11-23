@@ -10817,14 +10817,14 @@ textarea,
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  min-height: 76px;
+  min-height: 86px;
   box-sizing: border-box;
 }
 
@@ -10837,12 +10837,12 @@ textarea,
 .ceo-kpi-top {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 9px;
 }
 
 .ceo-kpi-icon-box {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -10851,8 +10851,8 @@ textarea,
 }
 
 .ceo-kpi-label {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.76rem;
+  font-weight: 650;
   color: #64748B;
   white-space: nowrap;
   overflow: hidden;
@@ -10860,11 +10860,11 @@ textarea,
 }
 
 .ceo-kpi-value {
-  font-size: 1.2rem;
+  font-size: 1.35rem;
   font-weight: 800;
   color: #0F172A;
-  line-height: 1.15;
-  margin-top: 1px;
+  line-height: 1.18;
+  margin-top: 2px;
   letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
@@ -10885,7 +10885,7 @@ textarea,
 }
 
 .ceo-kpi-subtext {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   color: #64748B;
   font-weight: 500;
 }
@@ -10901,9 +10901,9 @@ textarea,
 .ceo-pill-tag {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 9999px;
-  font-size: 0.66rem;
+  font-size: 0.68rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -10918,15 +10918,15 @@ textarea,
 .ceo-main-sections-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .ceo-card {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 14px;
+  padding: 16px 18px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   box-sizing: border-box;
   display: flex;
@@ -10938,8 +10938,8 @@ textarea,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid #F1F5F9;
 }
 
@@ -10950,7 +10950,7 @@ textarea,
 }
 
 .ceo-card-title {
-  font-size: 0.95rem;
+  font-size: 0.96rem;
   font-weight: 750;
   color: #0F172A;
   letter-spacing: -0.01em;
@@ -10991,15 +10991,17 @@ textarea,
 .ceo-card-body-donut-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 24px;
   flex: 1;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .ceo-donut-chart-wrap {
   position: relative;
-  width: 108px;
-  height: 108px;
+  width: 120px;
+  height: 120px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11013,7 +11015,7 @@ textarea,
 }
 
 .ceo-donut-center-num {
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 850;
   color: #0F172A;
   line-height: 1.1;
@@ -11021,7 +11023,7 @@ textarea,
 }
 
 .ceo-donut-center-sub {
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: #64748B;
   margin-top: 1px;
@@ -11030,18 +11032,19 @@ textarea,
 .ceo-donut-legend-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   flex: 1;
+  max-width: 220px;
   min-width: 0;
 }
 
 .ceo-donut-legend-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.74rem;
+  gap: 8px;
+  font-size: 0.78rem;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 3px 6px;
   border-radius: 6px;
   transition: background 0.15s ease;
 }
@@ -11051,8 +11054,8 @@ textarea,
 }
 
 .ceo-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 9999px;
   flex-shrink: 0;
 }
@@ -11066,14 +11069,14 @@ textarea,
 .ceo-legend-count {
   font-weight: 750;
   color: #0F172A;
-  min-width: 18px;
+  min-width: 20px;
   text-align: right;
 }
 
 .ceo-legend-pct {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   color: #64748B;
-  min-width: 28px;
+  min-width: 32px;
   text-align: right;
 }
 
@@ -11081,26 +11084,28 @@ textarea,
 .ceo-progress-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.76rem;
+  gap: 12px;
+  font-size: 0.8rem;
+  padding: 2px 0;
 }
 
 .ceo-progress-name {
-  min-width: 78px;
+  min-width: 84px;
   color: #475569;
-  font-weight: 600;
+  font-weight: 650;
 }
 
 .ceo-progress-count {
-  min-width: 18px;
-  font-weight: 750;
+  min-width: 20px;
+  font-weight: 800;
   color: #0F172A;
   text-align: right;
+  font-size: 0.84rem;
 }
 
 .ceo-progress-track {
   flex: 1;
-  height: 6px;
+  height: 8px;
   background: #F1F5F9;
   border-radius: 9999px;
   overflow: hidden;
@@ -11113,8 +11118,8 @@ textarea,
 }
 
 .ceo-progress-pct {
-  min-width: 28px;
-  font-size: 0.68rem;
+  min-width: 32px;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #64748B;
   text-align: right;
@@ -11124,9 +11129,9 @@ textarea,
 .ceo-attention-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
   border: 1px solid #F1F5F9;
   background: #FFFFFF;
   cursor: pointer;
@@ -11139,9 +11144,9 @@ textarea,
 }
 
 .ceo-attention-icon-box {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11250,15 +11255,15 @@ textarea,
 .ceo-analytics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
   margin-bottom: 24px;
 }
 
 /* Bar Chart with Aligned Baseline & Gridlines */
 .ceo-bar-chart-container {
   display: flex;
-  gap: 6px;
-  height: 125px;
+  gap: 8px;
+  height: 145px;
   align-items: stretch;
   position: relative;
   width: 100%;
@@ -11268,14 +11273,14 @@ textarea,
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 85px;
-  margin-top: 16px;
-  margin-bottom: 20px;
-  font-size: 0.64rem;
+  height: 102px;
+  margin-top: 18px;
+  margin-bottom: 25px;
+  font-size: 0.66rem;
   color: #94A3B8;
   font-weight: 600;
   text-align: right;
-  min-width: 18px;
+  min-width: 20px;
   box-sizing: border-box;
 }
 
@@ -11290,8 +11295,8 @@ textarea,
 
 .ceo-bar-chart-gridlines {
   position: absolute;
-  top: 16px;
-  bottom: 20px;
+  top: 18px;
+  bottom: 25px;
   left: 0;
   right: 0;
   pointer-events: none;
@@ -11329,9 +11334,9 @@ textarea,
 }
 
 .ceo-bar-val {
-  height: 16px;
-  line-height: 16px;
-  font-size: 0.64rem;
+  height: 18px;
+  line-height: 18px;
+  font-size: 0.66rem;
   font-weight: 750;
   color: #334155;
   text-align: center;
@@ -11362,9 +11367,9 @@ textarea,
 }
 
 .ceo-bar-label {
-  height: 20px;
-  line-height: 20px;
-  font-size: 0.62rem;
+  height: 22px;
+  line-height: 22px;
+  font-size: 0.64rem;
   color: #64748B;
   font-weight: 600;
   white-space: nowrap;
