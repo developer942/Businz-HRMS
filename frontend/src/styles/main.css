@@ -10823,7 +10823,7 @@ textarea,
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  min-height: 88px;
+  min-height: 98px;
   box-sizing: border-box;
 }
 
@@ -10850,7 +10850,7 @@ textarea,
 }
 
 .ceo-kpi-label {
-  font-size: 0.77rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: #64748B;
   white-space: nowrap;
@@ -10859,12 +10859,15 @@ textarea,
 }
 
 .ceo-kpi-value {
-  font-size: 1.45rem;
+  font-size: 1.32rem;
   font-weight: 800;
   color: #0F172A;
   line-height: 1.15;
   margin-top: 2px;
   letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ceo-kpi-arrow {
@@ -11446,11 +11449,11 @@ textarea,
   }
 
   /* Strict Mobile Ordering:
-     1. Top KPI Summary
-     2. Needs Your Attention
-     3. Attendance Overview
-     4. Task Status
-     5. Financial & Operational Cards
+     1. Top KPI Summary (Workforce)
+     2. Financial & Operational Cards (5 cards)
+     3. Needs Your Attention
+     4. Attendance Overview
+     5. Task Status
      6. Attendance Trend
      7. Leave Summary
      8. Department Wise Headcount
@@ -11460,22 +11463,22 @@ textarea,
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-attention {
+  .ceo-section-finance-ops {
     order: 2 !important;
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-attendance {
+  .ceo-section-attention {
     order: 3 !important;
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-tasks {
+  .ceo-section-attendance {
     order: 4 !important;
     margin-bottom: 0 !important;
   }
 
-  .ceo-section-finance-ops {
+  .ceo-section-tasks {
     order: 5 !important;
     margin-bottom: 0 !important;
   }
