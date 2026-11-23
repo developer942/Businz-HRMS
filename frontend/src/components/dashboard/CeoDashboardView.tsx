@@ -101,6 +101,29 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 }) => {
   const [trendDays, setTrendDays] = useState<number>(7);
   const [hoveredAttendanceSegment, setHoveredAttendanceSegment] = useState<'present' | 'late' | 'leave' | 'absent' | null>(null);
+  
+  // Track viewed/acknowledged attention items so badges clear when clicked/opened
+  const [viewedAttention, setViewedAttention] = useState<Set<string>>(() => {
+    try {
+      const saved = sessionStorage.getItem('ceo_viewed_attention_keys');
+      return saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
+
+  const handleOpenAttention = (key: string, moduleName: string) => {
+    setViewedAttention(prev => {
+      const next = new Set<string>(prev);
+      next.add(key);
+      try {
+        sessionStorage.setItem('ceo_viewed_attention_keys', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+    setActiveModule(moduleName);
+  };
+
   const currentMonth = getMonthInfo();
   const todayDateStr = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -419,17 +442,17 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
     return results;
   }, [filteredEmployees, employees]);
 
-  // Donut chart stroke calculations for Attendance Overview
+  // Donut chart stroke calculations for Attendance Overview (Compact 108px viewBox)
   const donutTotal = totalStaff > 0 ? totalStaff : 1;
-  const pCircumference = 2 * Math.PI * 48; // r=48
+  const pCircumference = 2 * Math.PI * 38; // r=38
   const pRatio = donutPresent / donutTotal;
   const lateRatio = donutLate / donutTotal;
   const leaveRatio = donutLeave / donutTotal;
   const aRatio = donutAbsent / donutTotal;
 
-  // Donut chart stroke calculations for Leave Summary
+  // Donut chart stroke calculations for Leave Summary (Compact 108px viewBox)
   const lTotal = leaveSummary.total > 0 ? leaveSummary.total : 1;
-  const lCircumference = 2 * Math.PI * 46; // r=46
+  const lCircumference = 2 * Math.PI * 38; // r=38
   const lPaidRatio = leaveSummary.paid / lTotal;
   const lCasualRatio = leaveSummary.casual / lTotal;
   const lSickRatio = leaveSummary.sick / lTotal;
@@ -447,7 +470,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
             4. Late Today
             5. Over Due Task
             ============================================================ */}
-        <div className="ceo-section-kpi" style={{ marginBottom: '14px' }}>
+        <div className="ceo-section-kpi" style={{ marginBottom: '8px' }}>
           <div className="ceo-kpi-grid">
             {/* 1. Total Active Staff */}
             <div 
@@ -585,7 +608,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
             4. Petty Cash
             5. Assets
             ============================================================ */}
-        <div className="ceo-section-finance-ops" style={{ marginBottom: '24px' }}>
+        <div className="ceo-section-finance-ops" style={{ marginBottom: '10px' }}>
           <div className="ceo-kpi-grid">
             {/* 1. Payroll This Month */}
             <div 
@@ -735,20 +758,20 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
             <div className="ceo-card-body-donut-row">
               {/* Donut Chart with Interactive Hover */}
-              <div className="ceo-donut-chart-wrap">
-                <svg width="130" height="130" viewBox="0 0 130 130" style={{ transform: 'rotate(-90deg)' }}>
+              <div className="ceo-donut-chart-wrap" style={{ width: '108px', height: '108px' }}>
+                <svg width="108" height="108" viewBox="0 0 108 108" style={{ transform: 'rotate(-90deg)' }}>
                   {/* Track background */}
-                  <circle cx="65" cy="65" r="48" fill="none" stroke="#F1F5F9" strokeWidth="18" />
+                  <circle cx="54" cy="54" r="38" fill="none" stroke="#F1F5F9" strokeWidth="14" />
                   
                   {/* Present arc (Teal) */}
                   {pRatio > 0 && (
                     <circle
-                      cx="65"
-                      cy="65"
-                      r="48"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#0E7490"
-                      strokeWidth={hoveredAttendanceSegment === 'present' ? 22 : 18}
+                      strokeWidth={hoveredAttendanceSegment === 'present' ? 17 : 14}
                       strokeDasharray={`${pRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={0}
                       style={{
@@ -766,12 +789,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Late arc (Amber) */}
                   {lateRatio > 0 && (
                     <circle
-                      cx="65"
-                      cy="65"
-                      r="48"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#F59E0B"
-                      strokeWidth={hoveredAttendanceSegment === 'late' ? 22 : 18}
+                      strokeWidth={hoveredAttendanceSegment === 'late' ? 17 : 14}
                       strokeDasharray={`${lateRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-(pRatio * pCircumference)}
                       style={{
@@ -789,12 +812,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Leave arc (Slate/Cyan) */}
                   {leaveRatio > 0 && (
                     <circle
-                      cx="65"
-                      cy="65"
-                      r="48"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#94A3B8"
-                      strokeWidth={hoveredAttendanceSegment === 'leave' ? 22 : 18}
+                      strokeWidth={hoveredAttendanceSegment === 'leave' ? 17 : 14}
                       strokeDasharray={`${leaveRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-((pRatio + lateRatio) * pCircumference)}
                       style={{
@@ -812,12 +835,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Absent arc (Red) */}
                   {aRatio > 0 && (
                     <circle
-                      cx="65"
-                      cy="65"
-                      r="48"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#EF4444"
-                      strokeWidth={hoveredAttendanceSegment === 'absent' ? 22 : 18}
+                      strokeWidth={hoveredAttendanceSegment === 'absent' ? 17 : 14}
                       strokeDasharray={`${aRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-((pRatio + lateRatio + leaveRatio) * pCircumference)}
                       style={{
@@ -837,36 +860,36 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                 <div className="ceo-donut-center-label" style={{ pointerEvents: 'none' }}>
                   {hoveredAttendanceSegment === 'present' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#0E7490' }}>{donutPresent}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#0E7490', fontWeight: 750 }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#0E7490', fontSize: '1.25rem' }}>{donutPresent}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#0E7490', fontWeight: 750, fontSize: '0.62rem' }}>
                         Present ({donutTotal > 0 ? Math.round((donutPresent / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : hoveredAttendanceSegment === 'late' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#D97706' }}>{donutLate}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#D97706', fontWeight: 750 }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#D97706', fontSize: '1.25rem' }}>{donutLate}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#D97706', fontWeight: 750, fontSize: '0.62rem' }}>
                         Late ({donutTotal > 0 ? Math.round((donutLate / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : hoveredAttendanceSegment === 'leave' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#64748B' }}>{donutLeave}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#64748B', fontWeight: 750 }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#64748B', fontSize: '1.25rem' }}>{donutLeave}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#64748B', fontWeight: 750, fontSize: '0.62rem' }}>
                         On Leave ({donutTotal > 0 ? Math.round((donutLeave / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : hoveredAttendanceSegment === 'absent' ? (
                     <>
-                      <div className="ceo-donut-center-num" style={{ color: '#EF4444' }}>{donutAbsent}</div>
-                      <div className="ceo-donut-center-sub" style={{ color: '#EF4444', fontWeight: 750 }}>
+                      <div className="ceo-donut-center-num" style={{ color: '#EF4444', fontSize: '1.25rem' }}>{donutAbsent}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#EF4444', fontWeight: 750, fontSize: '0.62rem' }}>
                         Absent ({donutTotal > 0 ? Math.round((donutAbsent / donutTotal) * 100) : 0}%)
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="ceo-donut-center-num">{totalStaff}</div>
-                      <div className="ceo-donut-center-sub">Total Staff</div>
+                      <div className="ceo-donut-center-num" style={{ fontSize: '1.25rem' }}>{totalStaff}</div>
+                      <div className="ceo-donut-center-sub" style={{ fontSize: '0.62rem' }}>Total Staff</div>
                     </>
                   )}
                 </div>
@@ -881,8 +904,8 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   onMouseLeave={() => setHoveredAttendanceSegment(null)}
                   style={{
                     backgroundColor: hoveredAttendanceSegment === 'present' ? '#ECFEFF' : 'transparent',
-                    borderRadius: '8px',
-                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    padding: '2px 4px',
                     transition: 'all 0.15s ease'
                   }}
                 >
@@ -898,8 +921,8 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   onMouseLeave={() => setHoveredAttendanceSegment(null)}
                   style={{
                     backgroundColor: hoveredAttendanceSegment === 'late' ? '#FEF3C7' : 'transparent',
-                    borderRadius: '8px',
-                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    padding: '2px 4px',
                     transition: 'all 0.15s ease'
                   }}
                 >
@@ -915,8 +938,8 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   onMouseLeave={() => setHoveredAttendanceSegment(null)}
                   style={{
                     backgroundColor: hoveredAttendanceSegment === 'leave' ? '#F1F5F9' : 'transparent',
-                    borderRadius: '8px',
-                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    padding: '2px 4px',
                     transition: 'all 0.15s ease'
                   }}
                 >
@@ -932,8 +955,8 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   onMouseLeave={() => setHoveredAttendanceSegment(null)}
                   style={{
                     backgroundColor: hoveredAttendanceSegment === 'absent' ? '#FEE2E2' : 'transparent',
-                    borderRadius: '8px',
-                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    padding: '2px 4px',
                     transition: 'all 0.15s ease'
                   }}
                 >
@@ -1008,58 +1031,106 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </div>
             </div>
 
-            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {/* 1. Leave Approvals */}
-              <div className="ceo-attention-item" onClick={() => setActiveModule('leaves')}>
-                <div className="ceo-attention-icon-box" style={{ backgroundColor: '#FEE2E2', color: '#EF4444' }}>
-                  <Calendar size={17} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-attention-title">Leave Approvals</div>
-                  <div className="ceo-attention-desc">{pendingLeaves.length} requests pending</div>
-                </div>
-                <span className="ceo-attention-badge red">{pendingLeaves.length}</span>
-                <ChevronRight size={16} color="#94A3B8" />
-              </div>
+              {(() => {
+                const count = pendingLeaves.length;
+                const hasPending = count > 0 && !viewedAttention.has('leaves');
+                return (
+                  <div 
+                    className="ceo-attention-item" 
+                    onClick={() => handleOpenAttention('leaves', 'leaves')}
+                    title="Click to view leave approvals"
+                  >
+                    <div className="ceo-attention-icon-box" style={{ backgroundColor: '#FEE2E2', color: '#EF4444' }}>
+                      <Calendar size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ceo-attention-title">Leave Approvals</div>
+                      <div className="ceo-attention-desc">
+                        {count > 0 ? `${count} requests pending` : 'All caught up'}
+                      </div>
+                    </div>
+                    {hasPending && <span className="ceo-attention-badge red">{count}</span>}
+                    <ChevronRight size={14} color="#94A3B8" />
+                  </div>
+                );
+              })()}
 
               {/* 2. Expense / Field Allowance */}
-              <div className="ceo-attention-item" onClick={() => setActiveModule('field_allowance')}>
-                <div className="ceo-attention-icon-box" style={{ backgroundColor: '#E0F2FE', color: '#0284C7' }}>
-                  <IndianRupee size={17} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-attention-title">Expense / Field Allowance</div>
-                  <div className="ceo-attention-desc">{pendingExpensesCount} requests pending</div>
-                </div>
-                <span className="ceo-attention-badge blue">{pendingExpensesCount}</span>
-                <ChevronRight size={16} color="#94A3B8" />
-              </div>
+              {(() => {
+                const count = pendingExpensesCount;
+                const hasPending = count > 0 && !viewedAttention.has('expense');
+                return (
+                  <div 
+                    className="ceo-attention-item" 
+                    onClick={() => handleOpenAttention('expense', 'field_allowance')}
+                    title="Click to view expense / field allowance"
+                  >
+                    <div className="ceo-attention-icon-box" style={{ backgroundColor: '#E0F2FE', color: '#0284C7' }}>
+                      <IndianRupee size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ceo-attention-title">Expense / Field Allowance</div>
+                      <div className="ceo-attention-desc">
+                        {count > 0 ? `${count} requests pending` : 'All caught up'}
+                      </div>
+                    </div>
+                    {hasPending && <span className="ceo-attention-badge blue">{count}</span>}
+                    <ChevronRight size={14} color="#94A3B8" />
+                  </div>
+                );
+              })()}
 
               {/* 3. Advance Salary */}
-              <div className="ceo-attention-item" onClick={() => setActiveModule('advance_salary')}>
-                <div className="ceo-attention-icon-box" style={{ backgroundColor: '#F3E8FF', color: '#9333EA' }}>
-                  <Wallet size={17} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-attention-title">Advance Salary</div>
-                  <div className="ceo-attention-desc">{pendingLoansCount} requests pending</div>
-                </div>
-                <span className="ceo-attention-badge purple">{pendingLoansCount}</span>
-                <ChevronRight size={16} color="#94A3B8" />
-              </div>
+              {(() => {
+                const count = pendingLoansCount;
+                const hasPending = count > 0 && !viewedAttention.has('advance');
+                return (
+                  <div 
+                    className="ceo-attention-item" 
+                    onClick={() => handleOpenAttention('advance', 'advance_salary')}
+                    title="Click to view advance salary"
+                  >
+                    <div className="ceo-attention-icon-box" style={{ backgroundColor: '#F3E8FF', color: '#9333EA' }}>
+                      <Wallet size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ceo-attention-title">Advance Salary</div>
+                      <div className="ceo-attention-desc">
+                        {count > 0 ? `${count} requests pending` : 'All caught up'}
+                      </div>
+                    </div>
+                    {hasPending && <span className="ceo-attention-badge purple">{count}</span>}
+                    <ChevronRight size={14} color="#94A3B8" />
+                  </div>
+                );
+              })()}
 
               {/* 4. Overdue Tasks */}
-              <div className="ceo-attention-item" onClick={() => setActiveModule('tasks')}>
-                <div className="ceo-attention-icon-box" style={{ backgroundColor: '#DCFCE7', color: '#16A34A' }}>
-                  <CheckSquare size={17} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-attention-title">Overdue Tasks</div>
-                  <div className="ceo-attention-desc">{overdueTasks.length} tasks not completed</div>
-                </div>
-                <span className="ceo-attention-badge red">{overdueTasks.length}</span>
-                <ChevronRight size={16} color="#94A3B8" />
-              </div>
+              {(() => {
+                const count = overdueTasks.length;
+                const hasPending = count > 0 && !viewedAttention.has('tasks');
+                return (
+                  <div 
+                    className="ceo-attention-item" 
+                    onClick={() => handleOpenAttention('tasks', 'tasks')}
+                    title="Click to view overdue tasks"
+                  >
+                    <div className="ceo-attention-icon-box" style={{ backgroundColor: '#DCFCE7', color: '#16A34A' }}>
+                      <CheckSquare size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ceo-attention-title">Overdue Tasks</div>
+                      <div className="ceo-attention-desc">
+                        {count > 0 ? `${count} tasks not completed` : 'All tasks up to date'}
+                      </div>
+                    </div>
+                    {hasPending && <span className="ceo-attention-badge red">{count}</span>}
+                    <ChevronRight size={14} color="#94A3B8" />
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1098,7 +1169,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </div>
             </div>
 
-            <div className="ceo-card-body" style={{ minHeight: '190px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <div className="ceo-card-body" style={{ minHeight: '130px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
               <div className="ceo-bar-chart-container">
                 {/* Y-axis guide */}
                 <div className="ceo-bar-chart-yaxis">
@@ -1165,18 +1236,18 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
             <div className="ceo-card-body-donut-row">
               {/* Donut Chart */}
-              <div className="ceo-donut-chart-wrap">
-                <svg width="125" height="125" viewBox="0 0 125 125" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="62.5" cy="62.5" r="46" fill="none" stroke="#F1F5F9" strokeWidth="16" />
+              <div className="ceo-donut-chart-wrap" style={{ width: '108px', height: '108px' }}>
+                <svg width="108" height="108" viewBox="0 0 108 108" style={{ transform: 'rotate(-90deg)' }}>
+                  <circle cx="54" cy="54" r="38" fill="none" stroke="#F1F5F9" strokeWidth="14" />
                   {/* Paid leave */}
                   {lPaidRatio > 0 && (
                     <circle
-                      cx="62.5"
-                      cy="62.5"
-                      r="46"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#22C55E"
-                      strokeWidth="16"
+                      strokeWidth="14"
                       strokeDasharray={`${lPaidRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={0}
                     />
@@ -1184,12 +1255,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Casual leave */}
                   {lCasualRatio > 0 && (
                     <circle
-                      cx="62.5"
-                      cy="62.5"
-                      r="46"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#0EA5E9"
-                      strokeWidth="16"
+                      strokeWidth="14"
                       strokeDasharray={`${lCasualRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={-(lPaidRatio * lCircumference)}
                     />
@@ -1197,12 +1268,12 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Sick leave */}
                   {lSickRatio > 0 && (
                     <circle
-                      cx="62.5"
-                      cy="62.5"
-                      r="46"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#8B5CF6"
-                      strokeWidth="16"
+                      strokeWidth="14"
                       strokeDasharray={`${lSickRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={-((lPaidRatio + lCasualRatio) * lCircumference)}
                     />
@@ -1210,41 +1281,41 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   {/* Other leave */}
                   {lOtherRatio > 0 && (
                     <circle
-                      cx="62.5"
-                      cy="62.5"
-                      r="46"
+                      cx="54"
+                      cy="54"
+                      r="38"
                       fill="none"
                       stroke="#CBD5E1"
-                      strokeWidth="16"
+                      strokeWidth="14"
                       strokeDasharray={`${lOtherRatio * lCircumference} ${lCircumference}`}
                       strokeDashoffset={-((lPaidRatio + lCasualRatio + lSickRatio) * lCircumference)}
                     />
                   )}
                 </svg>
                 <div className="ceo-donut-center-label">
-                  <div className="ceo-donut-center-num">{leaveSummary.total}</div>
-                  <div className="ceo-donut-center-sub">Total Leaves</div>
+                  <div className="ceo-donut-center-num" style={{ fontSize: '1.25rem' }}>{leaveSummary.total}</div>
+                  <div className="ceo-donut-center-sub" style={{ fontSize: '0.62rem' }}>Total Leaves</div>
                 </div>
               </div>
 
               {/* Legend List */}
               <div className="ceo-donut-legend-list">
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 4px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#22C55E' }} />
                   <span className="ceo-legend-label">Paid Leave</span>
                   <span className="ceo-legend-count">{leaveSummary.paid}</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 4px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#0EA5E9' }} />
                   <span className="ceo-legend-label">Casual Leave</span>
                   <span className="ceo-legend-count">{leaveSummary.casual}</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 4px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#8B5CF6' }} />
                   <span className="ceo-legend-label">Sick Leave</span>
                   <span className="ceo-legend-count">{leaveSummary.sick}</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')}>
+                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')} style={{ padding: '2px 4px' }}>
                   <span className="ceo-dot" style={{ backgroundColor: '#CBD5E1' }} />
                   <span className="ceo-legend-label">Other</span>
                   <span className="ceo-legend-count">{leaveSummary.other}</span>
@@ -1257,7 +1328,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
           <div className="ceo-card ceo-section-celebrations">
             <div className="ceo-card-header">
               <div className="ceo-card-header-left">
-                <Gift size={17} color="#D97706" />
+                <Gift size={16} color="#D97706" />
                 <span className="ceo-card-title">Celebrations</span>
               </div>
               <span 
@@ -1268,7 +1339,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   border: '1px solid #FDE68A', 
                   padding: '2px 8px', 
                   borderRadius: '6px', 
-                  fontSize: '0.72rem', 
+                  fontSize: '0.7rem', 
                   fontWeight: 700 
                 }}
               >
@@ -1276,35 +1347,35 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </span>
             </div>
 
-            <div className="ceo-card-body" style={{ minHeight: '180px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', flex: 1, minHeight: '130px' }}>
               {celebrations.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 16px', color: '#64748B', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ width: '42px', height: '42px', borderRadius: '50%', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '8px' }}>
-                    <Gift size={22} color="#D97706" />
+                <div style={{ textAlign: 'center', padding: '16px 12px', color: '#64748B', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px' }}>
+                    <Gift size={18} color="#D97706" />
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#334155' }}>No celebrations this month</div>
-                  <div style={{ fontSize: '0.72rem', color: '#94A3B8', marginTop: '3px' }}>Upcoming birthdays and work anniversaries will appear here.</div>
+                  <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#334155' }}>No celebrations this month</div>
+                  <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginTop: '2px' }}>Upcoming birthdays and work anniversaries will appear here.</div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '2px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto' }}>
                   {celebrations.map((c) => (
                     <div
                       key={c.id}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '10px',
-                        padding: '8px 10px',
+                        gap: '8px',
+                        padding: '6px 8px',
                         backgroundColor: c.type === 'Birthday' ? '#FFFBEB' : '#EEF2FF',
                         border: `1px solid ${c.type === 'Birthday' ? '#FDE68A' : '#E0E7FF'}`,
-                        borderRadius: '10px'
+                        borderRadius: '8px'
                       }}
                     >
                       <div
                         style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '8px',
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
                           backgroundColor: c.type === 'Birthday' ? '#FEF3C7' : '#E0E7FF',
                           display: 'flex',
                           alignItems: 'center',
@@ -1312,13 +1383,13 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                           flexShrink: 0
                         }}
                       >
-                        {c.type === 'Birthday' ? <Gift size={17} color="#D97706" /> : <Award size={17} color="#4338CA" />}
+                        {c.type === 'Birthday' ? <Gift size={15} color="#D97706" /> : <Award size={15} color="#4338CA" />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: c.type === 'Birthday' ? '#92400E' : '#3730A3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.78rem', color: c.type === 'Birthday' ? '#92400E' : '#3730A3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {c.name}
                         </div>
-                        <div style={{ fontSize: '0.71rem', color: c.type === 'Birthday' ? '#B45309' : '#4F46E5', marginTop: '1px' }}>
+                        <div style={{ fontSize: '0.68rem', color: c.type === 'Birthday' ? '#B45309' : '#4F46E5', marginTop: '1px' }}>
                           {c.label}
                         </div>
                       </div>

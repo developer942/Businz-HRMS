@@ -10816,15 +10816,15 @@ textarea,
 .ceo-kpi-card {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  min-height: 98px;
+  min-height: 76px;
   box-sizing: border-box;
 }
 
@@ -10837,13 +10837,13 @@ textarea,
 .ceo-kpi-top {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ceo-kpi-icon-box {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10851,7 +10851,7 @@ textarea,
 }
 
 .ceo-kpi-label {
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #64748B;
   white-space: nowrap;
@@ -10860,11 +10860,11 @@ textarea,
 }
 
 .ceo-kpi-value {
-  font-size: 1.32rem;
+  font-size: 1.2rem;
   font-weight: 800;
   color: #0F172A;
   line-height: 1.15;
-  margin-top: 2px;
+  margin-top: 1px;
   letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
@@ -10885,10 +10885,9 @@ textarea,
 }
 
 .ceo-kpi-subtext {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: #64748B;
   font-weight: 500;
-  margin-top: 4px;
 }
 
 .ceo-kpi-bottom-row {
@@ -10896,15 +10895,15 @@ textarea,
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .ceo-pill-tag {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 9999px;
-  font-size: 0.69rem;
+  font-size: 0.66rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -10919,15 +10918,15 @@ textarea,
 .ceo-main-sections-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .ceo-card {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  border-radius: 16px;
-  padding: 18px 20px;
+  border-radius: 12px;
+  padding: 12px 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   box-sizing: border-box;
   display: flex;
@@ -10939,8 +10938,8 @@ textarea,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid #F1F5F9;
 }
 
@@ -10992,15 +10991,15 @@ textarea,
 .ceo-card-body-donut-row {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
   justify-content: space-between;
   flex: 1;
 }
 
 .ceo-donut-chart-wrap {
   position: relative;
-  width: 130px;
-  height: 130px;
+  width: 108px;
+  height: 108px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11014,7 +11013,7 @@ textarea,
 }
 
 .ceo-donut-center-num {
-  font-size: 1.45rem;
+  font-size: 1.25rem;
   font-weight: 850;
   color: #0F172A;
   line-height: 1.1;
@@ -11022,7 +11021,7 @@ textarea,
 }
 
 .ceo-donut-center-sub {
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 600;
   color: #64748B;
   margin-top: 1px;
@@ -11031,7 +11030,7 @@ textarea,
 .ceo-donut-legend-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
 }
@@ -11039,10 +11038,10 @@ textarea,
 .ceo-donut-legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
+  gap: 6px;
+  font-size: 0.74rem;
   cursor: pointer;
-  padding: 4px 6px;
+  padding: 2px 4px;
   border-radius: 6px;
   transition: background 0.15s ease;
 }
@@ -11052,8 +11051,8 @@ textarea,
 }
 
 .ceo-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 9999px;
   flex-shrink: 0;
 }
@@ -11067,14 +11066,14 @@ textarea,
 .ceo-legend-count {
   font-weight: 750;
   color: #0F172A;
-  min-width: 20px;
+  min-width: 18px;
   text-align: right;
 }
 
 .ceo-legend-pct {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: #64748B;
-  min-width: 32px;
+  min-width: 28px;
   text-align: right;
 }
 
@@ -11082,18 +11081,18 @@ textarea,
 .ceo-progress-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 0.81rem;
+  gap: 8px;
+  font-size: 0.76rem;
 }
 
 .ceo-progress-name {
-  min-width: 82px;
+  min-width: 78px;
   color: #475569;
   font-weight: 600;
 }
 
 .ceo-progress-count {
-  min-width: 22px;
+  min-width: 18px;
   font-weight: 750;
   color: #0F172A;
   text-align: right;
@@ -11101,7 +11100,7 @@ textarea,
 
 .ceo-progress-track {
   flex: 1;
-  height: 8px;
+  height: 6px;
   background: #F1F5F9;
   border-radius: 9999px;
   overflow: hidden;
@@ -11114,8 +11113,8 @@ textarea,
 }
 
 .ceo-progress-pct {
-  min-width: 32px;
-  font-size: 0.72rem;
+  min-width: 28px;
+  font-size: 0.68rem;
   font-weight: 700;
   color: #64748B;
   text-align: right;
@@ -11125,9 +11124,9 @@ textarea,
 .ceo-attention-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
   border: 1px solid #F1F5F9;
   background: #FFFFFF;
   cursor: pointer;
@@ -11140,9 +11139,9 @@ textarea,
 }
 
 .ceo-attention-icon-box {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11251,15 +11250,15 @@ textarea,
 .ceo-analytics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 36px;
+  gap: 12px;
+  margin-bottom: 24px;
 }
 
 /* Bar Chart with Aligned Baseline & Gridlines */
 .ceo-bar-chart-container {
   display: flex;
-  gap: 8px;
-  height: 155px;
+  gap: 6px;
+  height: 125px;
   align-items: stretch;
   position: relative;
   width: 100%;
@@ -11269,14 +11268,14 @@ textarea,
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 110px;
-  margin-top: 18px;
-  margin-bottom: 24px;
-  font-size: 0.68rem;
+  height: 85px;
+  margin-top: 16px;
+  margin-bottom: 20px;
+  font-size: 0.64rem;
   color: #94A3B8;
   font-weight: 600;
   text-align: right;
-  min-width: 20px;
+  min-width: 18px;
   box-sizing: border-box;
 }
 
@@ -11291,8 +11290,8 @@ textarea,
 
 .ceo-bar-chart-gridlines {
   position: absolute;
-  top: 18px;
-  bottom: 24px;
+  top: 16px;
+  bottom: 20px;
   left: 0;
   right: 0;
   pointer-events: none;
@@ -11330,9 +11329,9 @@ textarea,
 }
 
 .ceo-bar-val {
-  height: 18px;
-  line-height: 18px;
-  font-size: 0.68rem;
+  height: 16px;
+  line-height: 16px;
+  font-size: 0.64rem;
   font-weight: 750;
   color: #334155;
   text-align: center;
@@ -11349,7 +11348,7 @@ textarea,
 
 .ceo-bar-fill {
   width: 100%;
-  max-width: 28px;
+  max-width: 24px;
   background: linear-gradient(180deg, #0E7490 0%, #0891B2 100%);
   border-radius: 4px 4px 0 0;
   transition: height 0.3s ease;
@@ -11363,9 +11362,9 @@ textarea,
 }
 
 .ceo-bar-label {
-  height: 24px;
-  line-height: 24px;
-  font-size: 0.65rem;
+  height: 20px;
+  line-height: 20px;
+  font-size: 0.62rem;
   color: #64748B;
   font-weight: 600;
   white-space: nowrap;
