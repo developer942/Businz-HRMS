@@ -21,7 +21,9 @@ import {
   Download,
   Filter,
   X,
-  ArrowUpRight
+  ArrowUpRight,
+  Gift,
+  Award
 } from 'lucide-react';
 import { Employee, AttendanceRecord, LeaveRequest, TaskItem, DepartmentItem, AssetItem, PayrollRecord } from '../../types/hrms';
 import { isOwnerOrCEO } from '../../data/hrmsInitialData';
@@ -98,6 +100,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
   isHydrating = false,
 }) => {
   const [trendDays, setTrendDays] = useState<number>(7);
+  const [hoveredAttendanceSegment, setHoveredAttendanceSegment] = useState<'present' | 'late' | 'leave' | 'absent' | null>(null);
   const currentMonth = getMonthInfo();
   const todayDateStr = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -304,9 +307,9 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
     };
   }, [allUnifiedTasks]);
 
-  // 4. Attendance Trend (Last 7 Days)
+  // 4. Attendance Trend (Last 7 or 14 Days)
   const attendanceTrendData = useMemo(() => {
-    const list: Array<{ label: string; count: number; dateStr: string }> = [];
+    const list: Array<{ label: string; shortLabel: string; count: number; dateStr: string }> = [];
     const today = new Date();
 
     for (let i = trendDays - 1; i >= 0; i--) {
@@ -315,6 +318,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
       const dateStr = d.toISOString().split('T')[0];
       const day = d.getDate();
       const month = d.toLocaleString('en-US', { month: 'short' });
+      const monthNum = d.getMonth() + 1;
 
       // Count check-ins recorded on this day
       const checkInsOnDay = attendanceRecords.filter(a => {
@@ -330,6 +334,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
       list.push({
         label: `${day} ${month}`,
+        shortLabel: trendDays === 14 ? `${day}/${monthNum}` : `${day} ${month}`,
         count,
         dateStr
       });
@@ -366,33 +371,53 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
     return { paid, casual, sick, other, total };
   }, [leaveRequests]);
 
-  // 6. Department Wise Headcount
-  const departmentHeadcounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    filteredEmployees.forEach(e => {
-      const d = (e.department || 'Operations').trim();
-      counts[d] = (counts[d] || 0) + 1;
+  // 6. Celebrations (Birthdays & Work Anniversaries from real employee data)
+  const celebrations = useMemo(() => {
+    const today = new Date();
+    const curMonth = today.getMonth() + 1;
+    const curDay = today.getDate();
+    const results: Array<{ id: string; name: string; type: 'Birthday' | 'Anniversary'; label: string; dateStr: string; isToday: boolean }> = [];
+
+    const pool = (filteredEmployees && filteredEmployees.length > 0) ? filteredEmployees : employees;
+
+    pool.forEach(emp => {
+      if (emp.dob) {
+        const parts = emp.dob.split('-').map(Number);
+        const m = parts[1];
+        const d = parts[2];
+        if (m === curMonth && Math.abs(d - curDay) <= 14) {
+          results.push({
+            id: `bday-${emp.id || emp.employeeId}`,
+            name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || (emp as any).name || 'Employee',
+            type: 'Birthday',
+            label: d === curDay ? 'Birthday Today! 🎂' : `Birthday on ${d}/${m} 🎂`,
+            dateStr: `${d}/${m}`,
+            isToday: d === curDay
+          });
+        }
+      }
+      if (emp.joiningDate) {
+        const parts = emp.joiningDate.split('-').map(Number);
+        const y = parts[0];
+        const m = parts[1];
+        const d = parts[2];
+        const years = today.getFullYear() - y;
+        if (years > 0 && m === curMonth && Math.abs(d - curDay) <= 14) {
+          results.push({
+            id: `anniv-${emp.id || emp.employeeId}`,
+            name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || (emp as any).name || 'Employee',
+            type: 'Anniversary',
+            label: `${years} Year${years > 1 ? 's' : ''} Work Anniversary 🎉`,
+            dateStr: `${d}/${m}`,
+            isToday: d === curDay
+          });
+        }
+      }
     });
 
-    const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
-    list.sort((a, b) => b.count - a.count);
-
-    if (list.length === 0) {
-      return [
-        { name: 'Sales', count: 10 },
-        { name: 'Operations', count: 7 },
-        { name: 'Design', count: 5 },
-        { name: 'Accounts', count: 4 },
-        { name: 'HR & Admin', count: 4 },
-        { name: 'Others', count: 3 }
-      ];
-    }
-    return list.slice(0, 6);
-  }, [filteredEmployees]);
-
-  const maxDeptCount = useMemo(() => {
-    return Math.max(...departmentHeadcounts.map(d => d.count), 1);
-  }, [departmentHeadcounts]);
+    results.sort((a, b) => (b.isToday ? 1 : 0) - (a.isToday ? 1 : 0));
+    return results;
+  }, [filteredEmployees, employees]);
 
   // Donut chart stroke calculations for Attendance Overview
   const donutTotal = totalStaff > 0 ? totalStaff : 1;
@@ -709,7 +734,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
             </div>
 
             <div className="ceo-card-body-donut-row">
-              {/* Donut Chart */}
+              {/* Donut Chart with Interactive Hover */}
               <div className="ceo-donut-chart-wrap">
                 <svg width="130" height="130" viewBox="0 0 130 130" style={{ transform: 'rotate(-90deg)' }}>
                   {/* Track background */}
@@ -723,10 +748,20 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                       r="48"
                       fill="none"
                       stroke="#0E7490"
-                      strokeWidth="18"
+                      strokeWidth={hoveredAttendanceSegment === 'present' ? 22 : 18}
                       strokeDasharray={`${pRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={0}
-                    />
+                      style={{
+                        cursor: 'pointer',
+                        transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                        opacity: hoveredAttendanceSegment && hoveredAttendanceSegment !== 'present' ? 0.55 : 1
+                      }}
+                      onMouseEnter={() => setHoveredAttendanceSegment('present')}
+                      onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                      onClick={() => onSelectCategory('present')}
+                    >
+                      <title>Present: {donutPresent} Staff ({donutTotal > 0 ? Math.round((donutPresent / donutTotal) * 100) : 0}%)</title>
+                    </circle>
                   )}
                   {/* Late arc (Amber) */}
                   {lateRatio > 0 && (
@@ -736,10 +771,20 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                       r="48"
                       fill="none"
                       stroke="#F59E0B"
-                      strokeWidth="18"
+                      strokeWidth={hoveredAttendanceSegment === 'late' ? 22 : 18}
                       strokeDasharray={`${lateRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-(pRatio * pCircumference)}
-                    />
+                      style={{
+                        cursor: 'pointer',
+                        transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                        opacity: hoveredAttendanceSegment && hoveredAttendanceSegment !== 'late' ? 0.55 : 1
+                      }}
+                      onMouseEnter={() => setHoveredAttendanceSegment('late')}
+                      onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                      onClick={() => onSelectCategory('late')}
+                    >
+                      <title>Late: {donutLate} Staff ({donutTotal > 0 ? Math.round((donutLate / donutTotal) * 100) : 0}%)</title>
+                    </circle>
                   )}
                   {/* Leave arc (Slate/Cyan) */}
                   {leaveRatio > 0 && (
@@ -749,10 +794,20 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                       r="48"
                       fill="none"
                       stroke="#94A3B8"
-                      strokeWidth="18"
+                      strokeWidth={hoveredAttendanceSegment === 'leave' ? 22 : 18}
                       strokeDasharray={`${leaveRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-((pRatio + lateRatio) * pCircumference)}
-                    />
+                      style={{
+                        cursor: 'pointer',
+                        transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                        opacity: hoveredAttendanceSegment && hoveredAttendanceSegment !== 'leave' ? 0.55 : 1
+                      }}
+                      onMouseEnter={() => setHoveredAttendanceSegment('leave')}
+                      onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                      onClick={() => setActiveModule('leaves')}
+                    >
+                      <title>On Leave: {donutLeave} Staff ({donutTotal > 0 ? Math.round((donutLeave / donutTotal) * 100) : 0}%)</title>
+                    </circle>
                   )}
                   {/* Absent arc (Red) */}
                   {aRatio > 0 && (
@@ -762,40 +817,126 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                       r="48"
                       fill="none"
                       stroke="#EF4444"
-                      strokeWidth="18"
+                      strokeWidth={hoveredAttendanceSegment === 'absent' ? 22 : 18}
                       strokeDasharray={`${aRatio * pCircumference} ${pCircumference}`}
                       strokeDashoffset={-((pRatio + lateRatio + leaveRatio) * pCircumference)}
-                    />
+                      style={{
+                        cursor: 'pointer',
+                        transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                        opacity: hoveredAttendanceSegment && hoveredAttendanceSegment !== 'absent' ? 0.55 : 1
+                      }}
+                      onMouseEnter={() => setHoveredAttendanceSegment('absent')}
+                      onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                      onClick={() => onSelectCategory('absent')}
+                    >
+                      <title>Absent: {donutAbsent} Staff ({donutTotal > 0 ? Math.round((donutAbsent / donutTotal) * 100) : 0}%)</title>
+                    </circle>
                   )}
                 </svg>
-                {/* Center count */}
-                <div className="ceo-donut-center-label">
-                  <div className="ceo-donut-center-num">{totalStaff}</div>
-                  <div className="ceo-donut-center-sub">Total Staff</div>
+                {/* Center dynamic count/hover status */}
+                <div className="ceo-donut-center-label" style={{ pointerEvents: 'none' }}>
+                  {hoveredAttendanceSegment === 'present' ? (
+                    <>
+                      <div className="ceo-donut-center-num" style={{ color: '#0E7490' }}>{donutPresent}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#0E7490', fontWeight: 750 }}>
+                        Present ({donutTotal > 0 ? Math.round((donutPresent / donutTotal) * 100) : 0}%)
+                      </div>
+                    </>
+                  ) : hoveredAttendanceSegment === 'late' ? (
+                    <>
+                      <div className="ceo-donut-center-num" style={{ color: '#D97706' }}>{donutLate}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#D97706', fontWeight: 750 }}>
+                        Late ({donutTotal > 0 ? Math.round((donutLate / donutTotal) * 100) : 0}%)
+                      </div>
+                    </>
+                  ) : hoveredAttendanceSegment === 'leave' ? (
+                    <>
+                      <div className="ceo-donut-center-num" style={{ color: '#64748B' }}>{donutLeave}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#64748B', fontWeight: 750 }}>
+                        On Leave ({donutTotal > 0 ? Math.round((donutLeave / donutTotal) * 100) : 0}%)
+                      </div>
+                    </>
+                  ) : hoveredAttendanceSegment === 'absent' ? (
+                    <>
+                      <div className="ceo-donut-center-num" style={{ color: '#EF4444' }}>{donutAbsent}</div>
+                      <div className="ceo-donut-center-sub" style={{ color: '#EF4444', fontWeight: 750 }}>
+                        Absent ({donutTotal > 0 ? Math.round((donutAbsent / donutTotal) * 100) : 0}%)
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="ceo-donut-center-num">{totalStaff}</div>
+                      <div className="ceo-donut-center-sub">Total Staff</div>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {/* Legend List */}
+              {/* Legend List with matching hover */}
               <div className="ceo-donut-legend-list">
-                <div className="ceo-donut-legend-item" onClick={() => onSelectCategory('present')}>
+                <div 
+                  className="ceo-donut-legend-item" 
+                  onClick={() => onSelectCategory('present')}
+                  onMouseEnter={() => setHoveredAttendanceSegment('present')}
+                  onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                  style={{
+                    backgroundColor: hoveredAttendanceSegment === 'present' ? '#ECFEFF' : 'transparent',
+                    borderRadius: '8px',
+                    padding: '2px 6px',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
                   <span className="ceo-dot" style={{ backgroundColor: '#0E7490' }} />
                   <span className="ceo-legend-label">Present</span>
                   <span className="ceo-legend-count">{donutPresent}</span>
                   <span className="ceo-legend-pct">{donutTotal > 0 ? Math.round((donutPresent / donutTotal) * 100) : 0}%</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => onSelectCategory('present')}>
+                <div 
+                  className="ceo-donut-legend-item" 
+                  onClick={() => onSelectCategory('late')}
+                  onMouseEnter={() => setHoveredAttendanceSegment('late')}
+                  onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                  style={{
+                    backgroundColor: hoveredAttendanceSegment === 'late' ? '#FEF3C7' : 'transparent',
+                    borderRadius: '8px',
+                    padding: '2px 6px',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
                   <span className="ceo-dot" style={{ backgroundColor: '#F59E0B' }} />
                   <span className="ceo-legend-label">Late</span>
                   <span className="ceo-legend-count">{donutLate}</span>
                   <span className="ceo-legend-pct">{donutTotal > 0 ? Math.round((donutLate / donutTotal) * 100) : 0}%</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => setActiveModule('leaves')}>
+                <div 
+                  className="ceo-donut-legend-item" 
+                  onClick={() => setActiveModule('leaves')}
+                  onMouseEnter={() => setHoveredAttendanceSegment('leave')}
+                  onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                  style={{
+                    backgroundColor: hoveredAttendanceSegment === 'leave' ? '#F1F5F9' : 'transparent',
+                    borderRadius: '8px',
+                    padding: '2px 6px',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
                   <span className="ceo-dot" style={{ backgroundColor: '#94A3B8' }} />
                   <span className="ceo-legend-label">On Leave</span>
                   <span className="ceo-legend-count">{donutLeave}</span>
                   <span className="ceo-legend-pct">{donutTotal > 0 ? Math.round((donutLeave / donutTotal) * 100) : 0}%</span>
                 </div>
-                <div className="ceo-donut-legend-item" onClick={() => onSelectCategory('absent')}>
+                <div 
+                  className="ceo-donut-legend-item" 
+                  onClick={() => onSelectCategory('absent')}
+                  onMouseEnter={() => setHoveredAttendanceSegment('absent')}
+                  onMouseLeave={() => setHoveredAttendanceSegment(null)}
+                  style={{
+                    backgroundColor: hoveredAttendanceSegment === 'absent' ? '#FEE2E2' : 'transparent',
+                    borderRadius: '8px',
+                    padding: '2px 6px',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
                   <span className="ceo-dot" style={{ backgroundColor: '#EF4444' }} />
                   <span className="ceo-legend-label">Absent</span>
                   <span className="ceo-legend-count">{donutAbsent}</span>
@@ -865,13 +1006,6 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                 <Zap size={17} color="#EA580C" />
                 <span className="ceo-card-title">Needs Your Attention</span>
               </div>
-              <button
-                type="button"
-                className="ceo-link-btn"
-                onClick={() => setActiveModule('approvals')}
-              >
-                View All ({totalAttentionCount}) →
-              </button>
             </div>
 
             <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -933,7 +1067,7 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
 
 
         {/* ============================================================
-            SECTION 4: ANALYTICS SECTION (Row 4: Trend, Leave Summary, Headcount)
+            SECTION 4: ANALYTICS SECTION (Row 4: Trend, Leave Summary, Celebrations)
             ============================================================ */}
         <div className="ceo-analytics-grid">
           {/* 1. Attendance Trend */}
@@ -975,24 +1109,46 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   <span>0</span>
                 </div>
 
-                {/* Bars */}
-                <div className="ceo-bar-chart-bars">
-                  {attendanceTrendData.map((item, idx) => {
-                    const heightPct = maxTrendCount > 0 ? Math.min(100, Math.round((item.count / maxTrendCount) * 100)) : 50;
-                    return (
-                      <div key={idx} className="ceo-bar-col">
-                        <span className="ceo-bar-val">{item.count}</span>
-                        <div className="ceo-bar-fill-wrap">
-                          <div 
-                            className="ceo-bar-fill" 
-                            style={{ height: `${heightPct}%` }}
-                            title={`${item.label}: ${item.count} Present`}
-                          />
+                {/* Main chart area with baseline and gridlines */}
+                <div className="ceo-bar-chart-main-area">
+                  <div className="ceo-bar-chart-gridlines">
+                    <div className="ceo-gridline" style={{ bottom: '100%' }} />
+                    <div className="ceo-gridline" style={{ bottom: '75%' }} />
+                    <div className="ceo-gridline" style={{ bottom: '50%' }} />
+                    <div className="ceo-gridline" style={{ bottom: '25%' }} />
+                    <div className="ceo-gridline baseline" style={{ bottom: '0%' }} />
+                  </div>
+
+                  {/* Bars */}
+                  <div className="ceo-bar-chart-bars">
+                    {attendanceTrendData.map((item, idx) => {
+                      const heightPct = maxTrendCount > 0 ? Math.min(100, Math.max(4, Math.round((item.count / maxTrendCount) * 100))) : 50;
+                      return (
+                        <div key={idx} className="ceo-bar-col">
+                          <span className="ceo-bar-val" style={{ fontSize: trendDays === 14 ? '0.62rem' : '0.68rem' }}>
+                            {item.count}
+                          </span>
+                          <div className="ceo-bar-fill-wrap">
+                            <div 
+                              className="ceo-bar-fill" 
+                              style={{ 
+                                height: `${heightPct}%`, 
+                                maxWidth: trendDays === 14 ? '18px' : '28px' 
+                              }}
+                              title={`${item.label}: ${item.count} Present`}
+                            />
+                          </div>
+                          <span 
+                            className="ceo-bar-label" 
+                            style={{ fontSize: trendDays === 14 ? '0.6rem' : '0.65rem' }}
+                            title={item.label}
+                          >
+                            {item.shortLabel}
+                          </span>
                         </div>
-                        <span className="ceo-bar-label">{item.label}</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1097,31 +1253,79 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
             </div>
           </div>
 
-          {/* 3. Department Wise Headcount */}
-          <div className="ceo-card ceo-section-dept-headcount">
+          {/* 3. Celebrations (Replaces Department Wise Headcount) */}
+          <div className="ceo-card ceo-section-celebrations">
             <div className="ceo-card-header">
               <div className="ceo-card-header-left">
-                <Users size={17} color="#0E7490" />
-                <span className="ceo-card-title">Department Wise Headcount</span>
+                <Gift size={17} color="#D97706" />
+                <span className="ceo-card-title">Celebrations</span>
               </div>
+              <span 
+                className="ceo-pill-btn amber" 
+                style={{ 
+                  backgroundColor: '#FEF3C7', 
+                  color: '#B45309', 
+                  border: '1px solid #FDE68A', 
+                  padding: '2px 8px', 
+                  borderRadius: '6px', 
+                  fontSize: '0.72rem', 
+                  fontWeight: 700 
+                }}
+              >
+                {celebrations.length} This Month
+              </span>
             </div>
 
-            <div className="ceo-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-              {departmentHeadcounts.map((dept, idx) => {
-                const widthPct = Math.min(100, Math.max(12, Math.round((dept.count / maxDeptCount) * 100)));
-                return (
-                  <div key={idx} className="ceo-dept-row">
-                    <span className="ceo-dept-name">{dept.name}</span>
-                    <div className="ceo-dept-track">
-                      <div 
-                        className="ceo-dept-fill" 
-                        style={{ width: `${widthPct}%` }}
-                      />
-                    </div>
-                    <span className="ceo-dept-count">{dept.count}</span>
+            <div className="ceo-card-body" style={{ minHeight: '180px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              {celebrations.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 16px', color: '#64748B', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '42px', height: '42px', borderRadius: '50%', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '8px' }}>
+                    <Gift size={22} color="#D97706" />
                   </div>
-                );
-              })}
+                  <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#334155' }}>No celebrations this month</div>
+                  <div style={{ fontSize: '0.72rem', color: '#94A3B8', marginTop: '3px' }}>Upcoming birthdays and work anniversaries will appear here.</div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '2px' }}>
+                  {celebrations.map((c) => (
+                    <div
+                      key={c.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '8px 10px',
+                        backgroundColor: c.type === 'Birthday' ? '#FFFBEB' : '#EEF2FF',
+                        border: `1px solid ${c.type === 'Birthday' ? '#FDE68A' : '#E0E7FF'}`,
+                        borderRadius: '10px'
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          backgroundColor: c.type === 'Birthday' ? '#FEF3C7' : '#E0E7FF',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}
+                      >
+                        {c.type === 'Birthday' ? <Gift size={17} color="#D97706" /> : <Award size={17} color="#4338CA" />}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: c.type === 'Birthday' ? '#92400E' : '#3730A3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {c.name}
+                        </div>
+                        <div style={{ fontSize: '0.71rem', color: c.type === 'Birthday' ? '#B45309' : '#4F46E5', marginTop: '1px' }}>
+                          {c.label}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

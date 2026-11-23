@@ -805,7 +805,7 @@ export const Dashboard: React.FC = () => {
   // Authoritative Executive CEO Dashboard (Matches media_1795415068954_78ab4ec5.jpg 100% across all viewports)
   if (!isEmployee) {
     return (
-      <div className="ceo-dashboard-page-wrapper" style={{ width: '100%', minWidth: 0 }}>
+      <div className="ceo-dashboard-page-wrapper" style={{ width: '100%', minWidth: 0, paddingBottom: '48px' }}>
         <CeoDashboardView
           currentUser={currentUser}
           employees={employees}
