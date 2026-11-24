@@ -249,14 +249,16 @@ export const PayrollManagement: React.FC = () => {
         return (p.employeeName || '').trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase();
       });
 
-    // Exclude CEO / Owner records from payroll registers and payouts
+    // Exclude CEO / Owner records and Inactive staff from payroll registers and payouts
     records = records.filter(p => {
       const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
-      if (emp && isOwnerOrCEO(emp)) return false;
-      const desig = (p.designation || '').toUpperCase();
-      const dept = (p.department || '').toUpperCase();
-      const empId = (p.employeeId || '').toUpperCase();
-      const empName = (p.employeeName || '').toLowerCase();
+      if (!emp) return false;
+      if (isOwnerOrCEO(emp)) return false;
+      if (emp.status && String(emp.status).trim().toLowerCase() !== 'active') return false;
+      const desig = (p.designation || emp.designation || '').toUpperCase();
+      const dept = (p.department || emp.department || '').toUpperCase();
+      const empId = (p.employeeId || emp.employeeId || '').toUpperCase();
+      const empName = (p.employeeName || `${emp.firstName} ${emp.lastName}`).toLowerCase();
       if (empId === 'VRM-001' || empId === 'EMP-000') return false;
       if (desig === 'CEO' || dept === 'CEO' || desig.includes('CHIEF EXECUTIVE') || desig.includes('OWNER') || desig.includes('MANAGING DIRECTOR')) return false;
       if (empName.includes('velmurugan')) return false;
@@ -1034,12 +1036,12 @@ export const PayrollManagement: React.FC = () => {
           </div>
         </div>
 
-        <div className="table-responsive payroll-desktop-table">
-          <table className="hrms-table">
+        <div className="table-responsive payroll-desktop-table" style={{ width: '100%', overflowX: 'auto', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+          <table className="hrms-table" style={{ width: '100%', minWidth: '1480px' }}>
             <thead>
-              <tr>
+              <tr style={{ backgroundColor: '#F8FAFC' }}>
                 {!isEmployeeRole && (
-                  <th style={{ width: '40px', minWidth: '40px', textAlign: 'center' }}>
+                  <th style={{ width: '44px', minWidth: '44px', textAlign: 'center', padding: '12px 14px' }}>
                     <input
                       type="checkbox"
                       checked={displayedRecords.length > 0 && displayedRecords.every(p => selectedPayslipIds.includes(p.id))}
@@ -1049,26 +1051,26 @@ export const PayrollManagement: React.FC = () => {
                     />
                   </th>
                 )}
-                <th>Employee</th>
-                <th>Department</th>
+                <th style={{ textAlign: 'left', minWidth: '170px', padding: '12px 14px' }}>Employee</th>
+                <th style={{ textAlign: 'left', minWidth: '120px', padding: '12px 14px' }}>Department</th>
                 {activeEarnings.length > 0 ? (
                   activeEarnings.map(comp => (
-                    <th key={comp.id}>
+                    <th key={comp.id} style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px' }}>
                       {comp.name} {comp.calculationMethod === 'PERCENTAGE' ? `(${comp.defaultValue}%)` : ''}
                     </th>
                   ))
                 ) : (
                   <>
-                    <th>Basic Salary</th>
-                    <th>Allowances</th>
+                    <th style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px' }}>Basic Salary</th>
+                    <th style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px' }}>Allowances</th>
                   </>
                 )}
-                <th>Approved Overtime</th>
-                <th>Statutory & Tax</th>
-                <th>Payable Days</th>
-                <th>Net Salary</th>
-                <th>Status</th>
-                <th>Action</th>
+                <th style={{ textAlign: 'right', minWidth: '135px', padding: '12px 14px' }}>Approved Overtime</th>
+                <th style={{ textAlign: 'right', minWidth: '120px', padding: '12px 14px' }}>Statutory & Tax</th>
+                <th style={{ textAlign: 'center', minWidth: '135px', padding: '12px 14px' }}>Payable Days</th>
+                <th style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px' }}>Net Salary</th>
+                <th style={{ textAlign: 'center', minWidth: '115px', padding: '12px 14px', whiteSpace: 'nowrap' }}>Status</th>
+                <th style={{ textAlign: 'center', minWidth: '115px', padding: '12px 14px' }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -1100,7 +1102,7 @@ export const PayrollManagement: React.FC = () => {
                       }}
                     >
                       {!isEmployeeRole && (
-                        <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '40px' }} onClick={e => e.stopPropagation()}>
+                        <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '44px', minWidth: '44px', padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -1110,7 +1112,7 @@ export const PayrollManagement: React.FC = () => {
                           />
                         </td>
                       )}
-                      <td>
+                      <td style={{ textAlign: 'left', minWidth: '170px', padding: '12px 14px' }}>
                         <div>
                           <strong>{p.employeeName}</strong>
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
@@ -1127,23 +1129,23 @@ export const PayrollManagement: React.FC = () => {
                           </div>
                         </div>
                       </td>
-                      <td>{resolveDepartmentName(p.department, emp)}</td>
+                      <td style={{ textAlign: 'left', minWidth: '120px', padding: '12px 14px' }}>{resolveDepartmentName(p.department, emp)}</td>
                       {activeEarnings.length > 0 ? (
                         activeEarnings.map(comp => {
                           const val = getComponentValue(comp, p, emp);
                           return (
-                            <td key={comp.id}>
+                            <td key={comp.id} style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px', fontVariantNumeric: 'tabular-nums' }}>
                               {formatCurrency(val)}
                             </td>
                           );
                         })
                       ) : (
                         <>
-                          <td>{formatCurrency(basic)}</td>
-                          <td>+{formatCurrency(p.allowances)}</td>
+                          <td style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(basic)}</td>
+                          <td style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(p.allowances)}</td>
                         </>
                       )}
-                      <td>
+                      <td style={{ textAlign: 'right', minWidth: '135px', padding: '12px 14px', fontVariantNumeric: 'tabular-nums' }}>
                         {ot.hours > 0 || ot.amount > 0 ? (
                           <div>
                             <strong style={{ color: '#0E7490' }}>+{formatCurrency(ot.amount)}</strong>
@@ -1155,31 +1157,37 @@ export const PayrollManagement: React.FC = () => {
                           <span style={{ color: '#94A3B8', fontSize: '0.82rem' }}>₹0.00 (0 hrs)</span>
                         )}
                       </td>
-                      <td style={{ color: 'var(--accent-rose)' }}>
+                      <td style={{ textAlign: 'right', minWidth: '120px', padding: '12px 14px', fontVariantNumeric: 'tabular-nums', color: 'var(--accent-rose)' }}>
                         -{formatCurrency(statutoryTax)}
                       </td>
-                      <td>
+                      <td style={{ textAlign: 'center', minWidth: '135px', padding: '12px 14px' }}>
                         <div style={{ fontWeight: 700, color: '#0F172A' }}>
                           {cal.totalPaidDays} / {cal.calendarDays} days
                         </div>
-                        <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                        <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px', whiteSpace: 'nowrap' }}>
                           Work: {cal.workingDays} • Pres: {cal.presentDays} • WO: {cal.paidWeekOffDays}
                           {cal.paidHolidayDays > 0 ? ` • Hol: ${cal.paidHolidayDays}` : ''}
                           {cal.paidLeaveDays > 0 ? ` • PL: ${cal.paidLeaveDays}` : ''}
                           {cal.lopDays > 0 ? ` • LOP: ${cal.lopDays}` : ''}
                         </div>
                       </td>
-                      <td><strong style={{ color: 'var(--accent-emerald)', fontSize: '0.95rem' }}>{formatCurrency(p.netSalary)}</strong></td>
-                      <td>
+                      <td style={{ textAlign: 'right', minWidth: '130px', padding: '12px 14px', fontVariantNumeric: 'tabular-nums' }}>
+                        <strong style={{ color: 'var(--accent-emerald)', fontSize: '0.95rem' }}>{formatCurrency(p.netSalary)}</strong>
+                      </td>
+                      <td style={{ textAlign: 'center', minWidth: '115px', padding: '12px 14px', whiteSpace: 'nowrap' }}>
                         <span
                           className={`status-pill ${p.status === 'Paid' ? 'approved' : p.status === 'Sent to Accounts' ? 'pending' : 'cyan'}`}
-                          style={p.status === 'Sent to Accounts' ? { backgroundColor: '#FEF3C7', color: '#B45309' } : undefined}
+                          style={{
+                            whiteSpace: 'nowrap',
+                            display: 'inline-block',
+                            ...(p.status === 'Sent to Accounts' ? { backgroundColor: '#FEF3C7', color: '#B45309' } : {})
+                          }}
                         >
                           {p.status}
                         </span>
                       </td>
-                      <td>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <td style={{ textAlign: 'center', minWidth: '115px', padding: '12px 14px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"

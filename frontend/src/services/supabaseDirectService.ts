@@ -2135,9 +2135,9 @@ export const supabaseDirect = {
         status: normStatus,
       };
 
-      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/payroll_records`, {
+      const res = await fetch(`${DATABASE_REST_URL}/rest/v1/payroll_records?on_conflict=employee_id,payroll_month`, {
         method: 'POST',
-        headers: { ...getHeaders(), 'Prefer': 'return=representation' },
+        headers: { ...getHeaders(), 'Prefer': 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify(payload),
       });
 

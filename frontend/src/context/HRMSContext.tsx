@@ -10965,7 +10965,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('[Payroll] Backend calculation offline, using local engine fallback:', apiErr);
     }
 
-    const updatedRecords: PayrollRecord[] = employees.filter(emp => !isOwnerOrCEO(emp)).map(emp => {
+    const updatedRecords: PayrollRecord[] = employees.filter(emp => !isOwnerOrCEO(emp) && (!emp.status || String(emp.status).trim().toLowerCase() === 'active')).map(emp => {
       const isEmpProvisional = (emp.employmentType as string) === 'Provisional' || (emp.employmentType as string) === 'Probation' || (emp as any).status === 'Probation';
       const empLeavePolicy = masterLeavePolicies.find(p => {
         if (p.status !== 'Active') return false;
@@ -14252,6 +14252,7 @@ const visiblePayrollRecords = useMemo(() => {
 
   if (
     activeModule !== 'payroll' &&
+    activeModule !== 'dashboard' &&
     activeModule !== 'accounts_payment' &&
     activeModule !== 'reports' &&
     activeModule !== 'advance_salary'
@@ -14261,6 +14262,14 @@ const visiblePayrollRecords = useMemo(() => {
 
   const activeAttPolicy = masterAttendancePolicies.find(p => p.status === 'Active');
   return companyFiltered
+    .filter(rec => {
+      const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
+      if (emp) {
+        if (isOwnerOrCEO(emp)) return false;
+        if (emp.status && String(emp.status).trim().toLowerCase() !== 'active') return false;
+      }
+      return true;
+    })
     .map(rec => {
       const emp = employees.find(e => e.employeeId === rec.employeeId || e.id === rec.employeeId);
       const recMonthNum = resolveMonthNumber(rec.month);
