@@ -48,13 +48,13 @@ const PRIVILEGED_ROLES = new Set([
   'HR Manager',
   'HR Admin',
   'Finance Manager',
-  'Department Manager',
-  'Department Head',
   'Management',
   'ERP Administrator',
-  'Manager',
   'Admin',
 ]);
+
+export const isCompanyWideGatewayRole = (role: string): boolean =>
+  PRIVILEGED_ROLES.has(role);
 
 const HR_ADMIN_ROLES = new Set([
   'Super Admin',
@@ -216,6 +216,35 @@ function isRowOwnedByCaller(row: Record<string, any>, callerEmpCode: string, cal
   );
 }
 
+export function isTaskVisibleToCaller(row: Record<string, any>, callerEmpCode: string, callerUuid: string): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const identifiers = new Set(
+    [callerEmpCode, callerUuid].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+  );
+  if (identifiers.size === 0) return false;
+
+  const directValues = [row.responsible_person_id, row.employee_id, row.assigned_to, row.assignee_id, row.created_by]
+    .map((value) => String(value || '').trim().toLowerCase());
+  if (directValues.some((value) => identifiers.has(value))) return true;
+
+  const taskData = row.task_data && typeof row.task_data === 'object' ? row.task_data : {};
+  const nestedValues = [taskData.responsiblePersonId, taskData.employeeId, taskData.assignedTo, taskData.assigneeId]
+    .map((value) => String(value || '').trim().toLowerCase());
+  if (nestedValues.some((value) => identifiers.has(value))) return true;
+
+  const assignees = [
+    ...(Array.isArray(taskData.assignees) ? taskData.assignees : []),
+    ...(Array.isArray(taskData.assignedEmployees) ? taskData.assignedEmployees : []),
+  ];
+  return assignees.some((assignee: any) => {
+    if (typeof assignee === 'string') return identifiers.has(assignee.trim().toLowerCase());
+    if (!assignee || typeof assignee !== 'object') return false;
+    return [assignee.id, assignee.employeeId, assignee.employee_id]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .some((value) => identifiers.has(value));
+  });
+}
+
 /**
  * Authenticated, RBAC-enforced Backend Data Gateway (`CRIT-01`, `CRIT-02`, `CRIT-03`).
  * Replaces direct browser access to PostgREST `/rest/v1/*`.
@@ -258,7 +287,7 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
     }
 
     const userRole = req.user.role;
-    const isPrivileged = PRIVILEGED_ROLES.has(userRole);
+    const isPrivileged = isCompanyWideGatewayRole(userRole);
     const isHrAdmin = HR_ADMIN_ROLES.has(userRole);
     const isFinanceAdmin = FINANCE_ADMIN_ROLES.has(userRole);
     const { callerEmpCode, callerUuid } = await resolveCallerIdentifiers(req);
@@ -350,6 +379,30 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
           }
         } else if (payload.working_hours !== undefined && Number(payload.working_hours) < 0) {
           payload.working_hours = 0;
+        }
+      } else if (table === 'enterprise_tasks' && !isPrivileged) {
+        if (method !== 'PATCH') {
+          res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Employees may only update tasks assigned to them.' },
+          });
+          return;
+        }
+        const lowerQuery = queryString.toLowerCase();
+        const ownsFilter = [...new Set([callerEmpCode, callerUuid].filter(Boolean))]
+          .some((identifier) => lowerQuery.includes(identifier));
+        if (!ownsFilter) {
+          res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Task updates must target an assigned employee record.' },
+          });
+          return;
+        }
+        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+          const allowed = new Set(['overall_status', 'overall_progress', 'task_data', 'updated_at']);
+          for (const key of Object.keys(payload)) {
+            if (!allowed.has(key)) delete payload[key];
+          }
         }
       } else if (table === 'company_settings') {
         // Protect employee_profiles_data from redacted/partial overwrites and scrub plaintext passwords (CRIT-02)
@@ -484,6 +537,18 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
     ) {
       if (Array.isArray(data)) {
         data = data.filter((row) => isRowOwnedByCaller(row, callerEmpCode, callerUuid));
+      }
+    } else if (!isPrivileged && table === 'enterprise_tasks') {
+      if (Array.isArray(data)) {
+        data = data.filter((row) => isTaskVisibleToCaller(row, callerEmpCode, callerUuid));
+      } else if (data && !isTaskVisibleToCaller(data, callerEmpCode, callerUuid)) {
+        data = null;
+      }
+    } else if (!isPrivileged && (table === 'task_assignees' || table === 'task_updates' || table === 'notification_recipients')) {
+      if (Array.isArray(data)) {
+        data = data.filter((row) => isRowOwnedByCaller(row, callerEmpCode, callerUuid));
+      } else if (data && !isRowOwnedByCaller(data, callerEmpCode, callerUuid)) {
+        data = null;
       }
     }
 
