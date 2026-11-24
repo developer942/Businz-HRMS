@@ -489,6 +489,120 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
                 : '0 (Continuous)'}
             </div>
           </div>
+
+          {/* Chronological Travel & Activity Event Timeline */}
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '14px',
+              border: '1px solid #E2E8F0',
+              padding: '16px 18px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <strong style={{ fontSize: '0.86rem', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Clock size={15} color="#0E7490" />
+                <span>Chronological Travel & Field Activity Timeline</span>
+              </strong>
+              <span style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 600 }}>
+                {formatDateDDMMYYYY(assignment.startDate)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0', position: 'relative' }}>
+              {/* 1. Punch In / Start Event */}
+              <div style={{ display: 'flex', gap: '12px', position: 'relative', paddingBottom: '14px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' }}>
+                  <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#DCFCE7', color: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800, border: '2px solid #16A34A', zIndex: 2 }}>
+                    A
+                  </div>
+                  <div style={{ width: '2px', backgroundColor: '#E2E8F0', flex: 1, marginTop: '2px' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <strong style={{ fontSize: '0.8rem', color: '#16A34A' }}>Punch In & Tracking Session Initiated</strong>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>{tripStartFormatted}</span>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '2px' }}>
+                    {trip?.startAddress || assignment.siteAddress || 'Field Duty Origin'}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Customer & Site Visit Stops */}
+              {(trip?.stops || []).map((st, idx) => {
+                const stopMins = Math.max(1, Math.round((st.durationSeconds || 0) / 60));
+                return (
+                  <div key={st.id || idx} style={{ display: 'flex', gap: '12px', position: 'relative', paddingBottom: '14px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800, border: '2px solid #D97706', zIndex: 2 }}>
+                        {idx + 1}
+                      </div>
+                      <div style={{ width: '2px', backgroundColor: '#E2E8F0', flex: 1, marginTop: '2px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <strong style={{ fontSize: '0.8rem', color: '#D97706' }}>
+                          Customer Visit Stop #{idx + 1}: {st.stopType || 'Official Visit'}
+                        </strong>
+                        <span style={{ fontSize: '0.72rem', color: '#B45309', fontWeight: 700, backgroundColor: '#FFFBEB', padding: '1px 6px', borderRadius: '4px' }}>
+                          {stopMins} mins dwell
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '2px' }}>
+                        {st.address || assignment.customerSiteName || 'Customer Office / Field Site'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* 3. GPS Gaps Warning Milestone if present */}
+              {metrics.missingIntervalsCount > 0 && (
+                <div style={{ display: 'flex', gap: '12px', position: 'relative', paddingBottom: '14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' }}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#FEE2E2', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800, border: '2px solid #DC2626', zIndex: 2 }}>
+                      !
+                    </div>
+                    <div style={{ width: '2px', backgroundColor: '#E2E8F0', flex: 1, marginTop: '2px' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <strong style={{ fontSize: '0.8rem', color: '#B91C1C' }}>
+                        Unrecorded GPS Interval ({metrics.missingIntervalsCount} Gap{metrics.missingIntervalsCount > 1 ? 's' : ''})
+                      </strong>
+                      <span style={{ fontSize: '0.72rem', color: '#B91C1C', fontWeight: 700 }}>
+                        {formatDurationMinutes(metrics.missingDurationSeconds)} unrecorded
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px' }}>
+                      Mobile browser backgrounded, battery saver or signal loss ({metrics.unverifiedGapKm.toFixed(2)} KM unverified straight-line excluded from reimbursement).
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Punch Out / Final Destination Event */}
+              <div style={{ display: 'flex', gap: '12px', position: 'relative' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' }}>
+                  <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: trip?.status === 'Completed' ? '#FEE2E2' : '#ECFEFF', color: trip?.status === 'Completed' ? '#DC2626' : '#0E7490', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800, border: `2px solid ${trip?.status === 'Completed' ? '#DC2626' : '#0E7490'}`, zIndex: 2 }}>
+                    B
+                  </div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <strong style={{ fontSize: '0.8rem', color: trip?.status === 'Completed' ? '#DC2626' : '#0E7490' }}>
+                      {trip?.status === 'Completed' ? 'Punch Out & Trip Completed' : 'Current Active Working Session'}
+                    </strong>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>{tripEndFormatted}</span>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '2px' }}>
+                    {trip?.endAddress || (lastPoint ? `${lastPoint.latitude.toFixed(4)}, ${lastPoint.longitude.toFixed(4)}` : 'Live Telemetry Active')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
