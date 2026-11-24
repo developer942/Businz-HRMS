@@ -16,6 +16,7 @@ export const TravelHistoryTab: React.FC = () => {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('All');
   const [selectedDept, setSelectedDept] = useState<string>('All');
   const [selectedDuty, setSelectedDuty] = useState<string>('All');
+  const [statusFilter, setStatusFilter] = useState<string>('All');
   const [startDateFilter, setStartDateFilter] = useState<string>('');
   const [endDateFilter, setEndDateFilter] = useState<string>('');
 
@@ -217,19 +218,49 @@ export const TravelHistoryTab: React.FC = () => {
   // Filtered
   const filtered = useMemo(() => {
     return historyRecords.filter((rec) => {
-      const q = searchQuery.toLowerCase();
+      const q = searchQuery.toLowerCase().trim();
       const matchSearch =
+        !q ||
         rec.employeeName.toLowerCase().includes(q) ||
+        rec.employeeId.toLowerCase().includes(q) ||
         rec.customerSiteName.toLowerCase().includes(q) ||
         rec.department.toLowerCase().includes(q);
       const matchEmp = selectedEmployee === 'All' || rec.employeeId === selectedEmployee;
       const matchDept = selectedDept === 'All' || rec.department === selectedDept;
-      const matchDuty = selectedDuty === 'All' || rec.dutyType === selectedDuty;
+      const matchDuty =
+        selectedDuty === 'All'
+          ? true
+          : selectedDuty === 'Permanent Field'
+          ? rec.isPermanentField
+          : selectedDuty === 'Temporary Field'
+          ? !rec.isPermanentField
+          : rec.dutyType === selectedDuty;
+      const matchStatus = statusFilter === 'All' || rec.status === statusFilter;
       const matchStart = !startDateFilter || rec.date >= startDateFilter;
       const matchEnd = !endDateFilter || rec.date <= endDateFilter;
-      return matchSearch && matchEmp && matchDept && matchDuty && matchStart && matchEnd;
+      return matchSearch && matchEmp && matchDept && matchDuty && matchStatus && matchStart && matchEnd;
     });
-  }, [historyRecords, searchQuery, selectedEmployee, selectedDept, selectedDuty, startDateFilter, endDateFilter]);
+  }, [historyRecords, searchQuery, selectedEmployee, selectedDept, selectedDuty, statusFilter, startDateFilter, endDateFilter]);
+
+  const isFilterActive =
+    searchQuery !== '' ||
+    selectedEmployee !== 'All' ||
+    selectedDept !== 'All' ||
+    selectedDuty !== 'All' ||
+    statusFilter !== 'All' ||
+    startDateFilter !== '' ||
+    endDateFilter !== '';
+
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setSelectedEmployee('All');
+    setSelectedDept('All');
+    setSelectedDuty('All');
+    setStatusFilter('All');
+    setStartDateFilter('');
+    setEndDateFilter('');
+    setCurrentPage(1);
+  };
 
   const paginatedData = useMemo(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
@@ -261,7 +292,7 @@ export const TravelHistoryTab: React.FC = () => {
           overflow: 'hidden'
         }}
       >
-        {/* Filters Bar */}
+        {/* Compact, Aligned Filters Bar */}
         <div
           style={{
             padding: '16px 20px',
@@ -288,13 +319,13 @@ export const TravelHistoryTab: React.FC = () => {
             <Search size={15} color="#94A3B8" />
             <input
               type="text"
-              placeholder="Search history by employee or site..."
+              placeholder="Search employee, ID, site..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ border: 'none', outline: 'none', fontSize: '0.82rem', width: '220px' }}
+              style={{ border: 'none', outline: 'none', fontSize: '0.82rem', width: '200px' }}
             />
           </div>
 
@@ -305,9 +336,9 @@ export const TravelHistoryTab: React.FC = () => {
                 setSelectedEmployee(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155' }}
+              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155', backgroundColor: '#FFFFFF' }}
             >
-              <option value="All">All Employees</option>
+              <option value="All">All Staff</option>
               {employees.map((e) => (
                 <option key={e.id} value={e.employeeId || e.id}>
                   {e.firstName} {e.lastName}
@@ -321,9 +352,9 @@ export const TravelHistoryTab: React.FC = () => {
                 setSelectedDept(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155' }}
+              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155', backgroundColor: '#FFFFFF' }}
             >
-              <option value="All">All Departments</option>
+              <option value="All">All Depts</option>
               {departments.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -337,43 +368,87 @@ export const TravelHistoryTab: React.FC = () => {
                 setSelectedDuty(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155' }}
+              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155', backgroundColor: '#FFFFFF' }}
             >
-              <option value="All">All Duty Types</option>
+              <option value="All">All Types</option>
+              <option value="Permanent Field">Permanent Field</option>
+              <option value="Temporary Field">Temporary Field</option>
               <option value="Site Visit">Site Visit</option>
               <option value="Customer Visit">Customer Visit</option>
-              <option value="Vendor Visit">Vendor Visit</option>
               <option value="Travel">Travel</option>
-              <option value="Field Work">Field Work</option>
             </select>
 
-            <DateInput
-              value={startDateFilter}
+            <select
+              value={statusFilter}
               onChange={(e) => {
-                setStartDateFilter(e.target.value);
+                setStatusFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ padding: '6px 8px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.8rem' }}
-              title="Start Date"
-            />
+              style={{ padding: '7px 10px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '0.82rem', color: '#334155', backgroundColor: '#FFFFFF' }}
+            >
+              <option value="All">All Statuses</option>
+              <option value="Completed">Completed</option>
+              <option value="Active">Active</option>
+            </select>
+
+            {/* Date Range with proper labels */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#FFFFFF', padding: '2px 6px', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700 }}>From:</span>
+              <DateInput
+                value={startDateFilter}
+                onChange={(e) => {
+                  setStartDateFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ padding: '4px 6px', border: 'none', fontSize: '0.8rem', outline: 'none' }}
+                title="Start Date"
+              />
+              <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 700 }}>To:</span>
+              <DateInput
+                value={endDateFilter}
+                onChange={(e) => {
+                  setEndDateFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ padding: '4px 6px', border: 'none', fontSize: '0.8rem', outline: 'none' }}
+                title="End Date"
+              />
+            </div>
+
+            {isFilterActive && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                style={{
+                  padding: '7px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#FFFFFF',
+                  color: '#64748B',
+                  fontSize: '0.78rem',
+                  fontWeight: 650,
+                  cursor: 'pointer'
+                }}
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Table View */}
-        <div className="tracking-desktop-table" style={{ overflowX: 'auto' }}>
+        {/* Desktop Table View (10 Clean Consolidated Columns per Section 10) */}
+        <div className="hidden sm:block" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 <th style={{ padding: '12px 18px', fontWeight: 700 }}>Employee</th>
                 <th style={{ padding: '12px 14px', fontWeight: 700 }}>Date</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Duty Type</th>
-                <th style={{ padding: '12px 16px', fontWeight: 700 }}>Customer / Site</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Check In</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Check Out</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Trip Start</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Trip End</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>KM Travelled</th>
-                <th style={{ padding: '12px 14px', fontWeight: 700 }}>GPS Issues</th>
+                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Field Type</th>
+                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Punch In</th>
+                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Punch Out</th>
+                <th style={{ padding: '12px 14px', fontWeight: 700 }}>Travel KM</th>
+                <th style={{ padding: '12px 16px', fontWeight: 700 }}>Customer / Site Visits</th>
+                <th style={{ padding: '12px 14px', fontWeight: 700 }}>GPS Quality</th>
                 <th style={{ padding: '12px 14px', fontWeight: 700 }}>Status</th>
                 <th style={{ padding: '12px 18px', fontWeight: 700, textAlign: 'right' }}>Action</th>
               </tr>
@@ -381,8 +456,8 @@ export const TravelHistoryTab: React.FC = () => {
             <tbody>
               {paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: '40px 20px', textAlign: 'center', color: '#94A3B8' }}>
-                    No travel history records found.
+                  <td colSpan={10} style={{ padding: '40px 20px', textAlign: 'center', color: '#94A3B8' }}>
+                    No travel history records found matching criteria.
                   </td>
                 </tr>
               ) : (
@@ -403,13 +478,13 @@ export const TravelHistoryTab: React.FC = () => {
                           <img
                             src={rec.employeeAvatar}
                             alt={rec.employeeName}
-                            style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }}
+                            style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
                           />
                         ) : (
                           <div
                             style={{
-                              width: '30px',
-                              height: '30px',
+                              width: '32px',
+                              height: '32px',
                               borderRadius: '50%',
                               backgroundColor: '#0E7490',
                               color: '#FFFFFF',
@@ -425,17 +500,17 @@ export const TravelHistoryTab: React.FC = () => {
                         )}
                         <div>
                           <div style={{ fontWeight: 700, color: '#0B1A2D' }}>{rec.employeeName}</div>
-                          <div style={{ fontSize: '0.72rem', color: '#64748B' }}>{rec.department}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748B' }}>{rec.employeeId} · {rec.department}</div>
                         </div>
                       </div>
                     </td>
 
                     {/* Date */}
-                    <td style={{ padding: '14px 14px', color: '#334155' }}>
+                    <td style={{ padding: '14px 14px', color: '#334155', fontWeight: 600 }}>
                       {formatDateDDMMYYYY(rec.date)}
                     </td>
 
-                    {/* Duty Type */}
+                    {/* Field Type */}
                     <td style={{ padding: '14px 14px', whiteSpace: 'nowrap' }}>
                       <span
                         style={{
@@ -454,31 +529,14 @@ export const TravelHistoryTab: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Customer / Site */}
-                    <td style={{ padding: '14px 16px', fontWeight: 600, color: '#0B1A2D', maxWidth: '200px' }}>
-                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {rec.customerSiteName}
-                      </div>
-                    </td>
-
-                    {/* Check In */}
-                    <td style={{ padding: '14px 14px', color: '#475569' }}>
+                    {/* Punch In */}
+                    <td style={{ padding: '14px 14px', color: '#475569', fontWeight: 600 }}>
                       {rec.checkIn}
                     </td>
 
-                    {/* Check Out */}
-                    <td style={{ padding: '14px 14px', color: '#475569' }}>
+                    {/* Punch Out */}
+                    <td style={{ padding: '14px 14px', color: '#475569', fontWeight: 600 }}>
                       {rec.checkOut}
-                    </td>
-
-                    {/* Trip Start */}
-                    <td style={{ padding: '14px 14px', color: '#475569' }}>
-                      {rec.tripStart}
-                    </td>
-
-                    {/* Trip End */}
-                    <td style={{ padding: '14px 14px', color: '#475569' }}>
-                      {rec.tripEnd}
                     </td>
 
                     {/* KM Travelled (Verified Road KM) */}
@@ -493,28 +551,67 @@ export const TravelHistoryTab: React.FC = () => {
                       )}
                     </td>
 
-                    {/* GPS Data Quality & Issues */}
+                    {/* Customer / Site Visits (Clamped to 2 lines) */}
+                    <td style={{ padding: '14px 16px', maxWidth: '220px' }}>
+                      <div
+                        title={rec.customerSiteName}
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          fontSize: '0.82rem',
+                          fontWeight: 650,
+                          color: '#0F172A',
+                          lineHeight: 1.35
+                        }}
+                      >
+                        {rec.customerSiteName}
+                      </div>
+                    </td>
+
+                    {/* GPS Data Quality */}
                     <td style={{ padding: '14px 14px' }}>
-                      {rec.missingIntervalsCount > 0 ? (
-                        <span style={{ color: '#D97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem' }}>
-                          <AlertTriangle size={12} /> Partial ({rec.missingIntervalsCount} Gap{rec.missingIntervalsCount > 1 ? 's' : ''})
-                        </span>
-                      ) : rec.gpsIssues > 0 ? (
-                        <span style={{ color: '#EF4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.78rem' }}>
-                          <AlertTriangle size={12} /> {rec.gpsIssues} Issues
-                        </span>
-                      ) : (
-                        <span style={{ color: '#16A34A', fontWeight: 600, fontSize: '0.78rem' }}>Verified</span>
-                      )}
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontSize: '0.76rem',
+                          fontWeight: 700,
+                          color:
+                            rec.gpsDataQuality === 'Verified'
+                              ? '#16A34A'
+                              : rec.gpsDataQuality === 'Partial (Gaps Detected)'
+                              ? '#D97706'
+                              : '#64748B'
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: '7px',
+                            height: '7px',
+                            borderRadius: '50%',
+                            backgroundColor:
+                              rec.gpsDataQuality === 'Verified'
+                                ? '#16A34A'
+                                : rec.gpsDataQuality === 'Partial (Gaps Detected)'
+                                ? '#D97706'
+                                : '#94A3B8'
+                          }}
+                        />
+                        {rec.gpsDataQuality}
+                      </span>
                     </td>
 
                     {/* Status */}
                     <td style={{ padding: '14px 14px' }}>
                       <span
                         style={{
-                          padding: '3px 8px',
+                          padding: '3px 9px',
                           borderRadius: '9999px',
-                          fontSize: '0.72rem',
+                          fontSize: '0.74rem',
                           fontWeight: 700,
                           backgroundColor: rec.status === 'Completed' ? '#DCFCE7' : '#ECFEFF',
                           color: rec.status === 'Completed' ? '#16A34A' : '#0E7490'
@@ -524,28 +621,36 @@ export const TravelHistoryTab: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Action: View Route */}
+                    {/* View Route Action */}
                     <td style={{ padding: '14px 18px', textAlign: 'right' }}>
                       <button
                         type="button"
                         onClick={() => setSelectedInspection({ assignment: rec.assignment, trip: rec.trip })}
-                        title="View Route"
-                        aria-label="View Route"
                         style={{
                           backgroundColor: '#FFFFFF',
                           color: '#0E7490',
                           border: '1px solid #A5F3FC',
                           borderRadius: '8px',
-                          padding: '6px 10px',
+                          padding: '6px 14px',
+                          fontSize: '0.8rem',
+                          fontWeight: 700,
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          justifyContent: 'center'
+                          gap: '5px',
+                          transition: 'all 0.15s ease'
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#ECFEFF')}
-                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#FFFFFF')}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ECFEFF';
+                          e.currentTarget.style.borderColor = '#0E7490';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#FFFFFF';
+                          e.currentTarget.style.borderColor = '#A5F3FC';
+                        }}
                       >
-                        <MapPin size={15} />
+                        <Eye size={13} />
+                        <span>View Route</span>
                       </button>
                     </td>
                   </tr>
@@ -555,129 +660,59 @@ export const TravelHistoryTab: React.FC = () => {
           </table>
         </div>
 
-        {/* Mobile App-Like Cards */}
-        <div className="tracking-mobile-cards">
+        {/* Mobile View for Travel History */}
+        <div className="block sm:hidden" style={{ padding: '12px' }}>
           {paginatedData.length === 0 ? (
-            <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94A3B8', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+            <div style={{ padding: '36px 16px', textAlign: 'center', color: '#94A3B8' }}>
               No travel history records found.
             </div>
           ) : (
             paginatedData.map((rec) => (
-              <div key={rec.id} className="mobile-tracking-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {rec.employeeAvatar ? (
-                      <img
-                        src={rec.employeeAvatar}
-                        alt={rec.employeeName}
-                        style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: '36px',
-                          height: '36px',
-                          borderRadius: '50%',
-                          backgroundColor: '#0E7490',
-                          color: '#FFFFFF',
-                          fontWeight: 750,
-                          fontSize: '13px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {rec.employeeName.charAt(0)}
-                      </div>
-                    )}
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0F172A' }}>{rec.employeeName}</div>
-                      <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{rec.department || 'Field Ops'} • {formatDateDDMMYYYY(rec.date)}</div>
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: '9999px',
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      backgroundColor: rec.status === 'Completed' ? '#DCFCE7' : '#ECFEFF',
-                      color: rec.status === 'Completed' ? '#16A34A' : '#0E7490',
-                      flexShrink: 0
-                    }}
-                  >
-                    {rec.status}
-                  </span>
+              <div
+                key={rec.id}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '12px',
+                  border: '1px solid #E2E8F0',
+                  padding: '14px',
+                  marginBottom: '10px',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <div style={{ fontWeight: 750, color: '#0F172A', fontSize: '0.88rem' }}>{rec.employeeName}</div>
+                  <span style={{ fontSize: '0.72rem', color: '#64748B' }}>{formatDateDDMMYYYY(rec.date)}</span>
                 </div>
-
-                <div style={{ background: '#F8FAFC', borderRadius: '10px', padding: '10px 12px', border: '1px solid #F1F5F9' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Site / Client</div>
-                    <span
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.7rem',
-                        fontWeight: 700,
-                        backgroundColor: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '#ECFEFF' : (rec.dutyType === 'Site Visit' ? '#FEF3C7' : '#F1F5F9'),
-                        color: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '#0E7490' : (rec.dutyType === 'Site Visit' ? '#B45309' : '#334155'),
-                        border: rec.dutyType === 'Permanent Field' || rec.isPermanentField ? '1px solid #A5F3FC' : '1px solid transparent'
-                      }}
-                    >
-                      {rec.dutyType === 'Permanent Field' || rec.isPermanentField ? 'Permanent Field' : rec.dutyType}
-                    </span>
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0F172A', marginBottom: '8px' }}>
-                    {rec.customerSiteName}
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', paddingTop: '6px', borderTop: '1px dashed #E2E8F0', fontSize: '0.76rem' }}>
-                    <div>
-                      <span style={{ color: '#64748B' }}>Check In/Out: </span>
-                      <span style={{ fontWeight: 650, color: '#334155' }}>{rec.checkIn} - {rec.checkOut}</span>
-                    </div>
-                    <div>
-                      <span style={{ color: '#64748B' }}>Trip Hours: </span>
-                      <span style={{ fontWeight: 650, color: '#334155' }}>{rec.tripStart} - {rec.tripEnd}</span>
-                    </div>
-                    <div>
-                      <span style={{ color: '#64748B' }}>Distance: </span>
-                      <span style={{ fontWeight: 800, color: '#0E7490' }}>{formatKm(rec.kmTravelled)}</span>
-                    </div>
-                    <div>
-                      <span style={{ color: '#64748B' }}>GPS Telemetry: </span>
-                      {rec.gpsIssues > 0 ? (
-                        <span style={{ color: '#EF4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                          <AlertTriangle size={11} /> {rec.gpsIssues} Issues
-                        </span>
-                      ) : (
-                        <span style={{ color: '#16A34A', fontWeight: 600 }}>Normal</span>
-                      )}
-                    </div>
-                  </div>
+                <div style={{ fontSize: '0.78rem', color: '#334155', marginBottom: '8px' }}>
+                  <strong>Site:</strong> {rec.customerSiteName}
                 </div>
-
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '0.74rem', borderTop: '1px solid #F1F5F9', paddingTop: '8px', marginBottom: '10px' }}>
+                  <div><span style={{ color: '#64748B' }}>In:</span> <strong>{rec.checkIn}</strong></div>
+                  <div><span style={{ color: '#64748B' }}>Out:</span> <strong>{rec.checkOut}</strong></div>
+                  <div><span style={{ color: '#64748B' }}>KM:</span> <strong style={{ color: '#0E7490' }}>{formatKm(rec.kmTravelled)}</strong></div>
+                  <div><span style={{ color: '#64748B' }}>Quality:</span> <strong>{rec.gpsDataQuality}</strong></div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setSelectedInspection({ assignment: rec.assignment, trip: rec.trip })}
                   style={{
+                    width: '100%',
+                    padding: '8px',
+                    borderRadius: '8px',
+                    border: '1px solid #0E7490',
+                    backgroundColor: '#ECFEFF',
+                    color: '#0E7490',
+                    fontSize: '0.8rem',
+                    fontWeight: 750,
+                    cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px',
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    backgroundColor: '#ECFEFF',
-                    color: '#0E7490',
-                    border: '1px solid #A5F3FC',
-                    fontWeight: 700,
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                    touchAction: 'manipulation'
+                    gap: '6px'
                   }}
                 >
-                  <MapPin size={15} /> View Route & Telemetry
+                  <Eye size={14} />
+                  <span>View Route Map & Playback</span>
                 </button>
               </div>
             ))

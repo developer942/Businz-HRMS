@@ -270,22 +270,22 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
           </button>
         </div>
 
-        {/* Modal Form */}
+        {/* Modal Form with 5 Structured Sections */}
         <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {errorMessage && (
               <div
                 style={{
                   backgroundColor: '#FEE2E2',
                   border: '1px solid #F87171',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   padding: '10px 14px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                   color: '#B91C1C',
                   fontSize: '0.85rem',
-                  fontWeight: 600
+                  fontWeight: 650
                 }}
               >
                 <AlertCircle size={16} />
@@ -293,498 +293,587 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
               </div>
             )}
 
-            {/* Row 1: Employee & Department */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Employee <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <select
-                  className="vrm-input-select"
-                  value={selectedEmpId}
-                  onChange={(e) => setSelectedEmpId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    color: '#0F172A',
-                    backgroundColor: '#FFFFFF',
-                    outline: 'none'
-                  }}
-                  required
-                >
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.employeeId || emp.id}>
-                      {emp.firstName} {emp.lastName} ({emp.employeeId || emp.id}) — {emp.department}
-                    </option>
-                  ))}
-                </select>
+            {/* SECTION 1: Employee & Field Classification */}
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '14px', padding: '16px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#0E7490', color: '#FFFFFF', fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    1
+                  </span>
+                  <span style={{ fontSize: '0.92rem', fontWeight: 750, color: '#0F172A' }}>
+                    Employee & Field Classification
+                  </span>
+                </div>
+                {selectedEmp && (
+                  <span
+                    style={{
+                      padding: '3px 9px',
+                      borderRadius: '9999px',
+                      fontSize: '0.72rem',
+                      fontWeight: 750,
+                      backgroundColor: (selectedEmp.attendanceMethod === 'Tracking Field' || (selectedEmp as any).attendance_method === 'Tracking Field') ? '#ECFEFF' : '#F1F5F9',
+                      color: (selectedEmp.attendanceMethod === 'Tracking Field' || (selectedEmp as any).attendance_method === 'Tracking Field') ? '#0E7490' : '#475569',
+                      border: (selectedEmp.attendanceMethod === 'Tracking Field' || (selectedEmp as any).attendance_method === 'Tracking Field') ? '1px solid #A5F3FC' : '1px solid #E2E8F0',
+                    }}
+                  >
+                    {(selectedEmp.attendanceMethod === 'Tracking Field' || (selectedEmp as any).attendance_method === 'Tracking Field') ? 'Permanent Field Employee' : 'Standard / Temporary Field'}
+                  </span>
+                )}
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Department
-                </label>
-                <input
-                  type="text"
-                  value={selectedEmp?.department || ''}
-                  readOnly
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #E2E8F0',
-                    backgroundColor: '#F8FAFC',
-                    fontSize: '0.88rem',
-                    color: '#64748B',
-                    fontWeight: 600
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Row 2: Duty Type & Schedule Type */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Duty Type <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <select
-                  value={dutyType}
-                  onChange={(e) => setDutyType(e.target.value as DutyType)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    color: '#0F172A',
-                    backgroundColor: '#FFFFFF',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="Site Visit">Site Visit</option>
-                  <option value="Customer Visit">Customer Visit</option>
-                  <option value="Vendor Visit">Vendor Visit</option>
-                  <option value="Travel">Travel</option>
-                  <option value="Field Work">Field Work</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Schedule Type <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <select
-                  value={scheduleType}
-                  onChange={(e) => setScheduleType(e.target.value as ScheduleType)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    color: '#0F172A',
-                    backgroundColor: '#FFFFFF',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="One Day">One Day</option>
-                  <option value="Date Range">Date Range</option>
-                  <option value="Weekly">Weekly (Recurring on Start Day)</option>
-                  <option value="Monthly">Monthly</option>
-                  <option value="Custom Dates">Custom Dates</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Row 3: Date and Time Schedule */}
-            <div style={{ display: 'grid', gridTemplateColumns: scheduleType === 'One Day' ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: '12px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  {scheduleType === 'One Day' ? 'Date *' : 'Start Date *'}
-                </label>
-                <DateInput
-                  value={startDate}
-                  min={getTodayKolkata()}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.85rem'
-                  }}
-                  required
-                />
-              </div>
-
-              {scheduleType !== 'One Day' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                    End Date <span style={{ color: '#EF4444' }}>*</span>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Select Employee <span style={{ color: '#EF4444' }}>*</span>
                   </label>
-                  <DateInput
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    min={startDate || getTodayKolkata()}
+                  <select
+                    className="vrm-input-select"
+                    value={selectedEmpId}
+                    onChange={(e) => setSelectedEmpId(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '8px 10px',
+                      padding: '9px 12px',
                       borderRadius: '10px',
                       border: '1px solid #CBD5E1',
-                      fontSize: '0.85rem'
+                      fontSize: '0.86rem',
+                      color: '#0F172A',
+                      backgroundColor: '#FFFFFF',
+                      outline: 'none'
+                    }}
+                    required
+                  >
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.employeeId || emp.id}>
+                        {emp.firstName} {emp.lastName} ({emp.employeeId || emp.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Department (Auto-Populated)
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedEmp?.department || getEmployeeDepartmentDisplay(selectedEmp) || 'Field Operations'}
+                    readOnly
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #E2E8F0',
+                      backgroundColor: '#FFFFFF',
+                      fontSize: '0.86rem',
+                      color: '#475569',
+                      fontWeight: 650
+                    }}
+                  />
+                </div>
+              </div>
+
+              {(selectedEmp?.attendanceMethod === 'Tracking Field' || (selectedEmp as any)?.attendance_method === 'Tracking Field') && (
+                <div style={{ marginTop: '10px', fontSize: '0.74rem', color: '#0E7490', backgroundColor: '#ECFEFF', padding: '6px 10px', borderRadius: '8px', border: '1px solid #A5F3FC' }}>
+                  ℹ️ This employee is configured as <strong>Permanent Field</strong>. Their tracking is automatic with daily punch-in; this site visit links to their canonical session without creating duplicates.
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 2: Duty Details */}
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '14px', padding: '16px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <span style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#0E7490', color: '#FFFFFF', fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  2
+                </span>
+                <span style={{ fontSize: '0.92rem', fontWeight: 750, color: '#0F172A' }}>
+                  Duty Details & Purpose
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Duty Type <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {(['Site Visit', 'Customer Visit', 'Vendor Visit', 'Travel', 'Field Work', 'Other'] as DutyType[]).map((type) => {
+                      const isSelected = dutyType === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setDutyType(type)}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            border: isSelected ? '2px solid #0E7490' : '1px solid #CBD5E1',
+                            backgroundColor: isSelected ? '#ECFEFF' : '#FFFFFF',
+                            color: isSelected ? '#0E7490' : '#475569',
+                            fontWeight: isSelected ? 750 : 600,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {type}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Purpose / Reason <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <textarea
+                    placeholder="Describe client meeting, site inspection, solar plant audit, delivery, etc."
+                    value={purpose}
+                    onChange={(e) => setPurpose(e.target.value)}
+                    onKeyDown={preventSpaceEnterPropagation}
+                    rows={2}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.86rem',
+                      resize: 'vertical',
+                      backgroundColor: '#FFFFFF',
+                      outline: 'none'
                     }}
                     required
                   />
                 </div>
-              )}
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Start Time <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.85rem'
-                  }}
-                  required
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  End Time <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.85rem'
-                  }}
-                  required
-                />
               </div>
             </div>
 
-            {/* Row 4: Customer / Site Name & Site Address */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Customer / Site Name <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. ABC Solar EPC / Sriperumbudur Solar Plant"
-                  value={customerSiteName}
-                  onChange={(e) => setCustomerSiteName(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem'
-                  }}
-                  required
-                />
+            {/* SECTION 3: Schedule */}
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '14px', padding: '16px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <span style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#0E7490', color: '#FFFFFF', fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  3
+                </span>
+                <span style={{ fontSize: '0.92rem', fontWeight: 750, color: '#0F172A' }}>
+                  Schedule & Approved Travel Window
+                </span>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Site Address
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. SIPCOT Industrial Park, Phase 2"
-                  value={siteAddress}
-                  onChange={(e) => setSiteAddress(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem'
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Row 5: Purpose / Reason */}
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                Purpose / Reason <span style={{ color: '#EF4444' }}>*</span>
-              </label>
-              <textarea
-                placeholder="Detail the work or site inspection objective..."
-                value={purpose}
-                onChange={(e) => setPurpose(e.target.value)}
-                onKeyDown={preventSpaceEnterPropagation}
-                rows={2}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: '10px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '0.88rem',
-                  resize: 'vertical'
-                }}
-                required
-              />
-            </div>
-
-            {/* Row 6: Toggles: Tracking Required, Travel KM Required, Attendance Type */}
-            <div
-              style={{
-                backgroundColor: '#F8FAFC',
-                padding: '16px',
-                borderRadius: '14px',
-                border: '1px solid #E2E8F0',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '16px'
-              }}
-            >
-              {/* Tracking Required Toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A' }}>Tracking Required</div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Activate GPS during approved hours</div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Schedule Format
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {(['One Day', 'Date Range', 'Weekly'] as ScheduleType[]).map((type) => {
+                      const isSelected = scheduleType === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setScheduleType(type)}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            border: isSelected ? '2px solid #0E7490' : '1px solid #CBD5E1',
+                            backgroundColor: isSelected ? '#ECFEFF' : '#FFFFFF',
+                            color: isSelected ? '#0E7490' : '#475569',
+                            fontWeight: isSelected ? 750 : 600,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {type === 'One Day' ? 'Single Day' : type === 'Date Range' ? 'Multi-Day Range' : 'Recurring Weekly'}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setTrackingRequired(!trackingRequired)}
-                  style={{
-                    width: '46px',
-                    height: '24px',
-                    borderRadius: '12px',
-                    backgroundColor: trackingRequired ? '#0E7490' : '#CBD5E1',
-                    position: 'relative',
-                    border: 'none',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.2s'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '50%',
-                      backgroundColor: '#FFFFFF',
-                      position: 'absolute',
-                      top: '3px',
-                      left: trackingRequired ? '25px' : '3px',
-                      transition: 'left 0.2s',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                    }}
-                  />
-                </button>
-              </div>
 
-              {/* Travel KM Required Toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A' }}>Travel KM Required</div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748B' }}>Log distance for reimbursement</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setTravelKmRequired(!travelKmRequired)}
-                  style={{
-                    width: '46px',
-                    height: '24px',
-                    borderRadius: '12px',
-                    backgroundColor: travelKmRequired ? '#0E7490' : '#CBD5E1',
-                    position: 'relative',
-                    border: 'none',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.2s'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '50%',
-                      backgroundColor: '#FFFFFF',
-                      position: 'absolute',
-                      top: '3px',
-                      left: travelKmRequired ? '25px' : '3px',
-                      transition: 'left 0.2s',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                    }}
-                  />
-                </button>
-              </div>
-
-              {/* Attendance Type Selector */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#0F172A', marginBottom: '4px' }}>
-                  Attendance Type <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <select
-                  value={attendanceType}
-                  onChange={(e) => setAttendanceType(e.target.value as AttendanceType)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.82rem',
-                    backgroundColor: '#FFFFFF'
-                  }}
-                >
-                  <option value="Site Geofence">Site Geofence (Restricted Radius)</option>
-                  <option value="Flexible Field Check-in">Flexible Field Check-in</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Geofence Configuration & Map Pin Picker (Shown when Site Geofence is selected) */}
-            {attendanceType === 'Site Geofence' && (
-              <div
-                style={{
-                  border: '1px solid #A5F3FC',
-                  borderRadius: '14px',
-                  backgroundColor: '#ECFEFF',
-                  padding: '16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: scheduleType === 'One Day' ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: '12px' }}>
                   <div>
-                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0E7490', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <MapPin size={16} /> Site Geofence Boundary Pin
-                    </h4>
-                    <p style={{ fontSize: '0.74rem', color: '#155E75', margin: '2px 0 0 0' }}>
-                      Click on the map below or pick a preset to pin the exact site location coordinates.
-                    </p>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                      {scheduleType === 'One Day' ? 'Date *' : 'Start Date *'}
+                    </label>
+                    <DateInput
+                      value={startDate}
+                      min={getTodayKolkata()}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: '9px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.84rem'
+                      }}
+                      required
+                    />
                   </div>
 
-                  {/* Preset quick buttons */}
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={() => handlePresetSelect('sriperumbudur')}
-                      style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid #0E7490', background: '#FFFFFF', color: '#0E7490', cursor: 'pointer', fontWeight: 700 }}
-                    >
-                      Sriperumbudur Site
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handlePresetSelect('gummidipoondi')}
-                      style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid #0E7490', background: '#FFFFFF', color: '#0E7490', cursor: 'pointer', fontWeight: 700 }}
-                    >
-                      Gummidipoondi
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handlePresetSelect('plant2')}
-                      style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid #0E7490', background: '#FFFFFF', color: '#0E7490', cursor: 'pointer', fontWeight: 700 }}
-                    >
-                      VRM Plant 2
-                    </button>
+                  {scheduleType !== 'One Day' && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                        End Date <span style={{ color: '#EF4444' }}>*</span>
+                      </label>
+                      <DateInput
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        min={startDate || getTodayKolkata()}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: '9px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.84rem'
+                        }}
+                        required
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                      Start Time <span style={{ color: '#EF4444' }}>*</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: '9px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.84rem',
+                        backgroundColor: '#FFFFFF'
+                      }}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                      End Time <span style={{ color: '#EF4444' }}>*</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: '9px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.84rem',
+                        backgroundColor: '#FFFFFF'
+                      }}
+                      required
+                    />
                   </div>
                 </div>
+              </div>
+            </div>
 
-                {/* Map Pin Picker */}
-                <TrackingMap
-                  center={[siteLat, siteLng]}
-                  zoom={14}
-                  height="220px"
-                  clickable={true}
-                  onMapClick={handleMapPinSelect}
-                  markers={[
-                    {
-                      id: 'selected-site-pin',
+            {/* SECTION 4: Attendance & Tracking */}
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '14px', padding: '16px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <span style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#0E7490', color: '#FFFFFF', fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  4
+                </span>
+                <span style={{ fontSize: '0.92rem', fontWeight: 750, color: '#0F172A' }}>
+                  Attendance & Telemetry Tracking
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#0F172A', marginBottom: '6px' }}>
+                    Attendance Verification Mode
+                  </label>
+                  <select
+                    value={attendanceType}
+                    onChange={(e) => setAttendanceType(e.target.value as AttendanceType)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '9px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.84rem',
+                      backgroundColor: '#FFFFFF',
+                      fontWeight: 650,
+                      color: '#0F172A'
+                    }}
+                  >
+                    <option value="Site Geofence">Site Geofence (Restricted Radius)</option>
+                    <option value="Flexible Field Check-in">Flexible Field Check-in (Any Location)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF', padding: '10px 14px', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                  <div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A' }}>GPS Tracking</div>
+                    <div style={{ fontSize: '0.7rem', color: '#64748B' }}>Collect route during travel</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTrackingRequired(!trackingRequired)}
+                    style={{
+                      width: '42px',
+                      height: '22px',
+                      borderRadius: '11px',
+                      backgroundColor: trackingRequired ? '#0E7490' : '#CBD5E1',
+                      position: 'relative',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        borderRadius: '50%',
+                        backgroundColor: '#FFFFFF',
+                        position: 'absolute',
+                        top: '3px',
+                        left: trackingRequired ? '23px' : '3px',
+                        transition: 'left 0.2s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                      }}
+                    />
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF', padding: '10px 14px', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                  <div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A' }}>Travel KM Logging</div>
+                    <div style={{ fontSize: '0.7rem', color: '#64748B' }}>Log distance for reimbursement</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTravelKmRequired(!travelKmRequired)}
+                    style={{
+                      width: '42px',
+                      height: '22px',
+                      borderRadius: '11px',
+                      backgroundColor: travelKmRequired ? '#0E7490' : '#CBD5E1',
+                      position: 'relative',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        borderRadius: '50%',
+                        backgroundColor: '#FFFFFF',
+                        position: 'absolute',
+                        top: '3px',
+                        left: travelKmRequired ? '23px' : '3px',
+                        transition: 'left 0.2s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                      }}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 5: Site Location & Geofence Bounds */}
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '14px', padding: '16px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <span style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#0E7490', color: '#FFFFFF', fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  5
+                </span>
+                <span style={{ fontSize: '0.92rem', fontWeight: 750, color: '#0F172A' }}>
+                  Site Location & Bounds
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Customer / Site Name <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ABC Solar EPC / Sriperumbudur Solar Plant"
+                    value={customerSiteName}
+                    onChange={(e) => setCustomerSiteName(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.86rem',
+                      backgroundColor: '#FFFFFF',
+                      outline: 'none'
+                    }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                    Site Address
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. SIPCOT Industrial Park, Phase 2, Sriperumbudur"
+                    value={siteAddress}
+                    onChange={(e) => setSiteAddress(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.86rem',
+                      backgroundColor: '#FFFFFF',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Conditionally Show Geofence Pin & Map Only if Site Geofence is selected */}
+              {attendanceType === 'Site Geofence' ? (
+                <div
+                  style={{
+                    border: '1px solid #A5F3FC',
+                    borderRadius: '12px',
+                    backgroundColor: '#ECFEFF',
+                    padding: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div>
+                      <h4 style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0E7490', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <MapPin size={15} /> Geofence Boundary Pin
+                      </h4>
+                      <p style={{ fontSize: '0.72rem', color: '#155E75', margin: '2px 0 0 0' }}>
+                        Click on the map to pin the site center, or choose a quick preset location.
+                      </p>
+                    </div>
+
+                    {/* Presets */}
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => handlePresetSelect('sriperumbudur')}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid #0E7490', background: '#FFFFFF', color: '#0E7490', cursor: 'pointer', fontWeight: 700 }}
+                      >
+                        Sriperumbudur Site
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePresetSelect('gummidipoondi')}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid #0E7490', background: '#FFFFFF', color: '#0E7490', cursor: 'pointer', fontWeight: 700 }}
+                      >
+                        Gummidipoondi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePresetSelect('plant2')}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid #0E7490', background: '#FFFFFF', color: '#0E7490', cursor: 'pointer', fontWeight: 700 }}
+                      >
+                        VRM Plant 2
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Map Pin Picker */}
+                  <TrackingMap
+                    center={[siteLat, siteLng]}
+                    zoom={14}
+                    height="200px"
+                    clickable={true}
+                    onMapClick={handleMapPinSelect}
+                    markers={[
+                      {
+                        id: 'selected-site-pin',
+                        lat: siteLat,
+                        lng: siteLng,
+                        title: customerSiteName || 'Site Center',
+                        iconType: 'site'
+                      }
+                    ]}
+                    circle={{
                       lat: siteLat,
                       lng: siteLng,
-                      title: customerSiteName || 'Site Center',
-                      iconType: 'site'
-                    }
-                  ]}
-                  circle={{
-                    lat: siteLat,
-                    lng: siteLng,
-                    radiusMeters: allowedRadiusMeters,
-                    color: '#0E7490',
-                    fillColor: '#CFFAFE'
-                  }}
-                />
+                      radiusMeters: allowedRadiusMeters,
+                      color: '#0E7490',
+                      fillColor: '#CFFAFE'
+                    }}
+                  />
 
-                {/* Coordinates & Radius Controls */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#155E75', marginBottom: '4px' }}>
-                      Site Latitude
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={siteLat}
-                      onChange={(e) => setSiteLat(parseFloat(e.target.value) || 0)}
-                      style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.82rem', backgroundColor: '#FFFFFF' }}
-                      required
-                    />
-                  </div>
+                  {/* Coordinates & Radius Controls */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#155E75', marginBottom: '3px' }}>
+                        Latitude
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={siteLat}
+                        onChange={(e) => setSiteLat(parseFloat(e.target.value) || 0)}
+                        style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.82rem', backgroundColor: '#FFFFFF' }}
+                        required
+                      />
+                    </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#155E75', marginBottom: '4px' }}>
-                      Site Longitude
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={siteLng}
-                      onChange={(e) => setSiteLng(parseFloat(e.target.value) || 0)}
-                      style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.82rem', backgroundColor: '#FFFFFF' }}
-                      required
-                    />
-                  </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#155E75', marginBottom: '3px' }}>
+                        Longitude
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={siteLng}
+                        onChange={(e) => setSiteLng(parseFloat(e.target.value) || 0)}
+                        style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.82rem', backgroundColor: '#FFFFFF' }}
+                        required
+                      />
+                    </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#155E75', marginBottom: '4px' }}>
-                      Allowed Radius (Meters)
-                    </label>
-                    <input
-                      type="number"
-                      min="50"
-                      max="5000"
-                      step="50"
-                      value={allowedRadiusMeters}
-                      onChange={(e) => setAllowedRadiusMeters(parseInt(e.target.value, 10) || 200)}
-                      style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.82rem', backgroundColor: '#FFFFFF' }}
-                      required
-                    />
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#155E75', marginBottom: '3px' }}>
+                        Allowed Radius (Meters)
+                      </label>
+                      <input
+                        type="number"
+                        min="50"
+                        max="5000"
+                        step="50"
+                        value={allowedRadiusMeters}
+                        onChange={(e) => setAllowedRadiusMeters(parseInt(e.target.value, 10) || 200)}
+                        style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.82rem', backgroundColor: '#FFFFFF' }}
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div style={{ padding: '10px 14px', borderRadius: '10px', backgroundColor: '#F1F5F9', color: '#64748B', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>✓ Flexible check-in authorized from any location. Geofence boundary restrictions are disabled.</span>
+                </div>
+              )}
+            </div>
 
             {/* Notes */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                Internal Notes / Instructions
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                Internal Notes / Instructions (Optional)
               </label>
               <input
                 type="text"
-                placeholder="Optional instructions for field personnel..."
+                placeholder="Optional briefing or special instructions for field staff..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 onKeyDown={preventSpaceEnterPropagation}
@@ -793,22 +882,25 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                   padding: '9px 12px',
                   borderRadius: '10px',
                   border: '1px solid #CBD5E1',
-                  fontSize: '0.88rem'
+                  fontSize: '0.86rem',
+                  backgroundColor: '#FFFFFF',
+                  outline: 'none'
                 }}
               />
             </div>
           </div>
 
-          {/* Modal Footer */}
+          {/* Sticky Modal Footer */}
           <div
             style={{
-              padding: '16px 24px',
+              padding: '14px 24px',
               borderTop: '1px solid #E2E8F0',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
               gap: '12px',
-              backgroundColor: '#FAFCFE'
+              backgroundColor: '#FAFCFE',
+              boxShadow: '0 -2px 10px rgba(0,0,0,0.03)'
             }}
           >
             <button
@@ -820,8 +912,8 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 border: '1px solid #CBD5E1',
                 backgroundColor: '#FFFFFF',
                 color: '#475569',
-                fontWeight: 600,
-                fontSize: '0.88rem',
+                fontWeight: 650,
+                fontSize: '0.86rem',
                 cursor: 'pointer'
               }}
             >
@@ -836,8 +928,8 @@ export const AssignFieldDutyModal: React.FC<AssignFieldDutyModalProps> = ({
                 border: 'none',
                 backgroundColor: '#0E7490',
                 color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: '0.88rem',
+                fontWeight: 750,
+                fontSize: '0.86rem',
                 cursor: isSubmitting ? 'not-allowed' : 'pointer',
                 opacity: isSubmitting ? 0.7 : 1,
                 display: 'flex',

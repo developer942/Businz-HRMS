@@ -22,6 +22,8 @@ export const FieldAssignmentsTab: React.FC = () => {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState<boolean>(false);
   const [editingAssignment, setEditingAssignment] = useState<FieldAssignment | undefined>(undefined);
   const [inspectingAssignment, setInspectingAssignment] = useState<FieldAssignment | null>(null);
+  const [assignmentToCancel, setAssignmentToCancel] = useState<FieldAssignment | null>(null);
+  const [isBulkCancelOpen, setIsBulkCancelOpen] = useState<boolean>(false);
 
   // Pagination (Restricted strictly to [5, 10] per design system specification)
   const [pageSize, setPageSize] = useState<number>(10);
@@ -89,10 +91,15 @@ export const FieldAssignmentsTab: React.FC = () => {
 
   // Bulk actions
   const handleBulkCancel = () => {
-    if (window.confirm(`Are you sure you want to cancel the ${selectedRowIds.length} selected field assignments?`)) {
-      selectedRowIds.forEach((id) => cancelFieldAssignment(id));
-      setSelectedRowIds([]);
+    if (selectedRowIds.length > 0) {
+      setIsBulkCancelOpen(true);
     }
+  };
+
+  const confirmBulkCancel = () => {
+    selectedRowIds.forEach((id) => cancelFieldAssignment(id));
+    setSelectedRowIds([]);
+    setIsBulkCancelOpen(false);
   };
 
   const handleBulkEdit = () => {
@@ -455,11 +462,7 @@ export const FieldAssignmentsTab: React.FC = () => {
                           {item.status !== 'Cancelled' && (
                             <button
                               type="button"
-                              onClick={() => {
-                                if (window.confirm(`Cancel field assignment ${item.id}?`)) {
-                                  cancelFieldAssignment(item.id);
-                                }
-                              }}
+                              onClick={() => setAssignmentToCancel(item)}
                               title="Cancel Assignment"
                               style={{
                                 padding: '5px 8px',
@@ -504,6 +507,204 @@ export const FieldAssignmentsTab: React.FC = () => {
           onDelete={handleBulkCancel}
           onClearSelection={() => setSelectedRowIds([])}
         />
+      )}
+
+      {/* Confirmation Dialog for Single Assignment Cancellation */}
+      {assignmentToCancel && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '16px',
+          }}
+          onClick={() => setAssignmentToCancel(null)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              maxWidth: '440px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#FEE2E2',
+                  color: '#EF4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                  Cancel Field Assignment?
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '2px 0 0 0' }}>
+                  This action will revoke the authorized field duty schedule.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.82rem', color: '#334155', backgroundColor: '#F8FAFC', padding: '12px 14px', borderRadius: '10px', border: '1px solid #E2E8F0', lineHeight: 1.45 }}>
+              <div><strong>Employee:</strong> {assignmentToCancel.employeeName} ({assignmentToCancel.employeeId})</div>
+              <div><strong>Site / Purpose:</strong> {assignmentToCancel.customerSiteName} · {assignmentToCancel.purpose}</div>
+              <div><strong>Date:</strong> {formatDateDDMMYYYY(assignmentToCancel.startDate)} ({formatTimeAmPm(assignmentToCancel.startTime)} - {formatTimeAmPm(assignmentToCancel.endTime)})</div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setAssignmentToCancel(null)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#475569',
+                  fontSize: '0.82rem',
+                  fontWeight: 650,
+                  cursor: 'pointer',
+                }}
+              >
+                Keep Assignment
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  cancelFieldAssignment(assignmentToCancel.id);
+                  setAssignmentToCancel(null);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  backgroundColor: '#EF4444',
+                  color: '#FFFFFF',
+                  fontSize: '0.82rem',
+                  fontWeight: 750,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(239, 68, 68, 0.25)',
+                }}
+              >
+                Yes, Cancel Assignment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Bulk Cancellation */}
+      {isBulkCancelOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '16px',
+          }}
+          onClick={() => setIsBulkCancelOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              maxWidth: '420px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#FEE2E2',
+                  color: '#EF4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                  Cancel {selectedRowIds.length} Assignments?
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '2px 0 0 0' }}>
+                  Are you sure you want to cancel all selected assignments?
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setIsBulkCancelOpen(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#475569',
+                  fontSize: '0.82rem',
+                  fontWeight: 650,
+                  cursor: 'pointer',
+                }}
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={confirmBulkCancel}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  backgroundColor: '#EF4444',
+                  color: '#FFFFFF',
+                  fontSize: '0.82rem',
+                  fontWeight: 750,
+                  cursor: 'pointer',
+                }}
+              >
+                Confirm Cancellation
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Create / Edit Modal */}
