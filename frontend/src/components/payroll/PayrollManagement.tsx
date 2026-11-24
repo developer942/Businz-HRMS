@@ -163,6 +163,24 @@ export const PayrollManagement: React.FC = () => {
     [activeMonthName, activeYear, payrollSettingsConfig, overtimePolicy]
   );
 
+  const resolveDepartmentName = (rawDept?: string, emp?: Employee): string => {
+    const candidate = rawDept || emp?.department || emp?.departmentId;
+    if (!candidate) return 'General';
+    const matched = departments.find(d =>
+      d.id === candidate ||
+      d.name.toLowerCase() === String(candidate).toLowerCase() ||
+      d.code.toLowerCase() === String(candidate).toLowerCase()
+    );
+    if (matched) return matched.name;
+    if (emp?.department && !emp.department.includes('-')) return emp.department;
+    if (candidate.toLowerCase() === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || candidate.toLowerCase().includes('hr')) return 'HR';
+    if (candidate.length >= 32 && candidate.includes('-')) return 'General';
+    return String(candidate);
+  };
+
+  const getEmployeeForPayroll = (p: PayrollRecord) =>
+    employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
+
   const getEmployeeApprovedOt = (p: PayrollRecord) => {
     const recHours = toNum(p.overtimeHours || 0);
     const recAmount = toNum(p.overtimeAmount || 0);
@@ -277,11 +295,19 @@ export const PayrollManagement: React.FC = () => {
       dedupedList = dedupedList.filter(p => {
         const emp = employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
         const deptName = resolveDepartmentName(p.department, emp).toLowerCase();
-        const empName = (p.employeeName || '').toLowerCase();
-        const empId = (p.employeeId || '').toLowerCase();
-        const desig = (p.designation || emp?.designation || '').toLowerCase();
-        const st = (p.status || '').toLowerCase();
-        return empName.includes(q) || empId.includes(q) || deptName.includes(q) || desig.includes(q) || st.includes(q);
+        const empName = String(p.employeeName || '').toLowerCase();
+        const fullName = `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim().toLowerCase();
+        const empId = String(p.employeeId || emp?.employeeId || '').toLowerCase();
+        const desig = String(p.designation || emp?.designation || '').toLowerCase();
+        const st = String(p.status || '').toLowerCase();
+        return (
+          empName.includes(q) ||
+          fullName.includes(q) ||
+          empId.includes(q) ||
+          deptName.includes(q) ||
+          desig.includes(q) ||
+          st.includes(q)
+        );
       });
     }
 
@@ -465,24 +491,6 @@ export const PayrollManagement: React.FC = () => {
       .reduce((sum, c) => sum + c.defaultValue, 0);
     return `Salary Formula: ${parts.join(' + ')}${totalPercent > 0 ? ` = ${totalPercent}% CTC` : ''}`;
   }, [activeEarnings]);
-
-  const resolveDepartmentName = (rawDept?: string, emp?: Employee): string => {
-    const candidate = rawDept || emp?.department || emp?.departmentId;
-    if (!candidate) return 'General';
-    const matched = departments.find(d =>
-      d.id === candidate ||
-      d.name.toLowerCase() === String(candidate).toLowerCase() ||
-      d.code.toLowerCase() === String(candidate).toLowerCase()
-    );
-    if (matched) return matched.name;
-    if (emp?.department && !emp.department.includes('-')) return emp.department;
-    if (candidate.toLowerCase() === '2fa75c7b-6333-4535-b3a7-ea3f6dee1cec' || candidate.toLowerCase().includes('hr')) return 'HR';
-    if (candidate.length >= 32 && candidate.includes('-')) return 'General';
-    return candidate;
-  };
-
-  const getEmployeeForPayroll = (p: PayrollRecord) =>
-    employees.find(e => e.employeeId === p.employeeId || e.id === p.employeeId);
 
   const formatPayrollMonth = (p: PayrollRecord) => {
     const rawMonth = String(p.month || '').trim();
