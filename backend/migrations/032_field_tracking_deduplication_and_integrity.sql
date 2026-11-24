@@ -2,6 +2,20 @@
 -- Phase 1 Permanent Field Tracking Fix for BUSINZ HRMS.
 
 -- ============================================================================
+-- 0. SCHEMA COMPATIBILITY: ENSURE COLUMNS EXIST BEFORE QUERIES
+-- ============================================================================
+
+ALTER TABLE public.field_trip_sessions 
+    ADD COLUMN IF NOT EXISTS last_gps_update timestamp with time zone,
+    ADD COLUMN IF NOT EXISTS is_permanent_field boolean DEFAULT false,
+    ADD COLUMN IF NOT EXISTS tracking_status text DEFAULT 'Active',
+    ADD COLUMN IF NOT EXISTS gps_status text DEFAULT 'Active',
+    ADD COLUMN IF NOT EXISTS attendance_record_id uuid;
+
+ALTER TABLE public.field_duty_assignments 
+    ADD COLUMN IF NOT EXISTS is_permanent_field boolean DEFAULT false;
+
+-- ============================================================================
 -- 1. RECONCILE EXISTING DUPLICATE & STALE SESSIONS (PRESERVE ALL GPS POINTS)
 -- ============================================================================
 
