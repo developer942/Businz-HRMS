@@ -12406,7 +12406,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       throw new Error('Cannot start trip for cancelled or completed field assignment.');
     }
 
-    const existingActiveTrip = tripSessions.find(t => t.assignmentId === assignmentId && t.status === 'Active');
+    const targetEmpId = assignment?.employeeId || currentUser.employeeId || currentUser.id;
+
+    // Canonical Session Rule: Check if an active trip already exists for this employee
+    const existingActiveTrip = tripSessions.find(t => 
+      t.status === 'Active' && 
+      (t.employeeId === targetEmpId || (assignment?.id && t.assignmentId === assignment.id))
+    );
     if (existingActiveTrip) {
       return existingActiveTrip;
     }
@@ -12778,11 +12784,18 @@ const fieldCheckOut = (assignmentId: string): void => {
 // Global Active-Trip Foreground GPS Watcher & Offline Queue Sync
 // Keeps active trip tracking alive even when the employee switches tabs inside BUSINZ HRMS.
 const activeEmployeeTrip = useMemo(() => {
+  const todayStr = new Date().toISOString().split('T')[0];
   const keys = [currentUser.employeeId, currentUser.id, currentUser.name]
     .filter(Boolean)
     .map(v => String(v).trim().toLowerCase());
   return tripSessions.find(t => {
     if (t.status !== 'Active') return false;
+    // Canonical check: Trip must be from today
+    const isToday = t.tripStartTime && (
+      t.tripStartTime.startsWith(todayStr) ||
+      new Date(t.tripStartTime).toDateString() === new Date().toDateString()
+    );
+    if (!isToday) return false;
     const tKeys = [t.employeeId, t.employeeName].map(v => String(v || '').trim().toLowerCase());
     return tKeys.some(k => keys.includes(k));
   });

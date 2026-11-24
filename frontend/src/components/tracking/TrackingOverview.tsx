@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
 import { FieldAssignment, FieldTripSession, TodayFieldEmployeeItem } from '../../types/tracking';
-import { formatKm, calculateSequentialRouteMetrics } from '../../services/trackingEngine';
+import { formatKm, calculateSequentialRouteMetrics, deriveAccurateGpsStatus } from '../../services/trackingEngine';
 import { EmployeeFieldActivityModal } from './EmployeeFieldActivityModal';
 
 export interface TrackingOverviewProps {
@@ -47,84 +47,41 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
     });
   }, [fieldAssignments, todayStr]);
 
-  // Merge with active/today trips (both Temporary Assignments and Permanent Field Employees)
+  // Merge with active/today trips (Strict Canonical Employee Deduplication: 1 row per employee)
   const tableData: TodayFieldEmployeeItem[] = useMemo(() => {
-    const list: TodayFieldEmployeeItem[] = [];
-    const assignedEmpIds = new Set<string>();
+    const employeeMap = new Map<string, TodayFieldEmployeeItem>();
 
-    // 1. Temporary Field Assignments for today
-    todayAssignments.forEach(assignment => {
-      assignedEmpIds.add(String(assignment.employeeId).toLowerCase());
-      const trip = tripSessions.find(t => t.assignmentId === assignment.id) ||
-                   tripSessions.find(t => t.employeeId === assignment.employeeId && t.status === 'Active');
-
-      const checkInFormatted = trip?.checkInTime
-        ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : undefined;
-
-      const lastUpdatedFormatted = trip?.lastGpsUpdate
-        ? calculateRelativeTime(trip.lastGpsUpdate)
-        : 'Just now';
-
-      const metrics = trip
-        ? calculateSequentialRouteMetrics(
-            trip.locationPoints || [],
-            trip.segments,
-            trip.tripEndTime || trip.checkOutTime
-          )
-        : null;
-      const travelKm = metrics ? metrics.verifiedKm : trip?.totalKm || 0;
-      const gpsStatus = trip?.gpsStatus || (assignment.status === 'Active' ? 'GPS Active' : 'GPS Off');
-      const trackingStatus = trip?.trackingStatus || (assignment.status === 'Active' ? 'Travelling' : 'Idle');
-
-      list.push({
-        id: assignment.id,
-        assignmentId: assignment.id,
-        employeeId: assignment.employeeId,
-        employeeName: assignment.employeeName,
-        employeeAvatar: assignment.employeeAvatar,
-        department: assignment.department,
-        dutyType: assignment.dutyType,
-        customerSiteName: assignment.customerSiteName,
-        checkInTime: checkInFormatted,
-        travelKm,
-        gpsStatus,
-        trackingStatus,
-        lastUpdated: lastUpdatedFormatted,
-        currentLat: trip?.startLat,
-        currentLng: trip?.startLng,
-        activeTripId: trip?.id,
-        isPermanentField: false
-      });
-    });
-
-    // 2. Permanent Field Employees (Tracking Field mode) active or checked in today
+    // 1. Process Permanent Field Employees (Tracking Field mode)
     employees.forEach(emp => {
       const isPermField = emp.attendanceMethod === 'Tracking Field' || (emp as any).attendance_method === 'Tracking Field';
       if (!isPermField) return;
 
-      const empCodeLower = String(emp.employeeId || '').toLowerCase();
-      const empUuidLower = String(emp.id || '').toLowerCase();
-      if (assignedEmpIds.has(empCodeLower) || assignedEmpIds.has(empUuidLower)) {
-        return; // Avoid duplicate if temporary assignment exists
-      }
+      const empCode = emp.employeeId || emp.id;
+      const empKey = String(emp.id || emp.employeeId).toLowerCase();
 
-      // Check today's attendance record
-      const todayAtt = attendanceRecords.find(a => {
+      // Find any site visit assignment scheduled for this employee today
+      const siteAssign = todayAssignments.find(a => {
         const aEmp = String(a.employeeId || '').toLowerCase();
-        const matches = aEmp === empCodeLower || aEmp === empUuidLower;
-        const recDate = a.date || a.shiftDate;
-        return matches && recDate && recDate.startsWith(todayStr);
+        return aEmp === empKey || aEmp === String(emp.employeeId || '').toLowerCase() || aEmp === String(emp.id || '').toLowerCase();
       });
 
       // Find any trip session for this employee today or currently active
       const trip = tripSessions.find(t => {
         const tEmp = String(t.employeeId || '').toLowerCase();
-        const matches = tEmp === empCodeLower || tEmp === empUuidLower;
+        const matches = tEmp === empKey || tEmp === String(emp.employeeId || '').toLowerCase() || tEmp === String(emp.id || '').toLowerCase();
         return matches && (t.status === 'Active' || (t.tripStartTime && t.tripStartTime.startsWith(todayStr)));
       });
 
-      if (!todayAtt && !trip) return;
+      // Find today's attendance record
+      const todayAtt = attendanceRecords.find(a => {
+        const aEmp = String(a.employeeId || '').toLowerCase();
+        const matches = aEmp === empKey || aEmp === String(emp.employeeId || '').toLowerCase() || aEmp === String(emp.id || '').toLowerCase();
+        const recDate = a.date || a.shiftDate;
+        return matches && recDate && recDate.startsWith(todayStr);
+      });
+
+      // Only display if employee has an active/today trip, attendance punch today, or site visit assignment
+      if (!todayAtt && !trip && !siteAssign) return;
 
       const checkInFormatted = todayAtt?.checkIn
         ? (todayAtt.checkIn.includes('T')
@@ -138,6 +95,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
         ? calculateRelativeTime(trip.lastGpsUpdate)
         : 'Just now';
 
+      const pointsCount = trip?.locationPoints?.length || 0;
       const metrics = trip
         ? calculateSequentialRouteMetrics(
             trip.locationPoints || [],
@@ -146,47 +104,110 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
           )
         : null;
 
-      const travelKm = metrics ? metrics.verifiedKm : trip?.totalKm || 0;
+      const travelKm = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip?.totalKm || 0);
       const isCheckedOut = Boolean(todayAtt?.checkOut && todayAtt.checkOut !== '--:--') || trip?.status === 'Completed';
       const isPunchedIn = Boolean(todayAtt?.checkIn && todayAtt.checkIn !== '--:--');
 
-      let trackingStatus = 'Not Punched In';
-      let gpsStatus = 'GPS Off';
+      const accurate = deriveAccurateGpsStatus({
+        tripStatus: isCheckedOut ? 'Completed' : (trip?.status || (isPunchedIn ? 'Active' : 'Stopped')),
+        trackingStatus: trip?.trackingStatus || (isPunchedIn ? 'Stationary' : 'Pending GPS Fix'),
+        lastGpsUpdate: trip?.lastGpsUpdate,
+      });
 
-      if (isCheckedOut) {
-        trackingStatus = 'Tracking Completed';
-        gpsStatus = 'GPS Off';
-      } else if (isPunchedIn || trip?.status === 'Active') {
-        trackingStatus = trip?.trackingStatus || 'Tracking Active';
-        gpsStatus = trip?.gpsStatus || 'GPS Active';
-      }
+      const customerSiteName = siteAssign?.customerSiteName || 
+        (trip?.customerSiteName && trip.customerSiteName !== 'Site' ? trip.customerSiteName : 'Regular Field Duty');
 
       const lastLocPoint = trip?.locationPoints && trip.locationPoints.length > 0
         ? trip.locationPoints[trip.locationPoints.length - 1]
         : null;
 
-      list.push({
-        id: trip?.id || `perm-${emp.id}-${todayStr}`,
-        assignmentId: trip?.assignmentId || `perm-assign-${emp.id}-${todayStr}`,
-        employeeId: emp.employeeId,
+      employeeMap.set(empKey, {
+        id: trip?.id || siteAssign?.id || `perm-${emp.id}-${todayStr}`,
+        assignmentId: siteAssign?.id || trip?.assignmentId || `perm-assign-${emp.id}-${todayStr}`,
+        employeeId: empCode,
         employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
         employeeAvatar: (emp as any).avatarUrl || emp.avatar,
-        department: emp.department || 'Field Operations',
+        department: emp.department || siteAssign?.department || 'Field Operations',
         dutyType: 'Permanent Field',
-        customerSiteName: trip?.customerSiteName && trip.customerSiteName !== 'Site' ? trip.customerSiteName : 'Regular Field Duty',
+        customerSiteName,
         checkInTime: checkInFormatted,
         travelKm,
-        gpsStatus,
-        trackingStatus,
+        gpsStatus: accurate.gpsStatus,
+        trackingStatus: accurate.trackingStatus,
         lastUpdated: lastUpdatedFormatted,
-        currentLat: lastLocPoint?.latitude || trip?.startLat,
-        currentLng: lastLocPoint?.longitude || trip?.startLng,
+        currentLat: lastLocPoint?.latitude || trip?.startLat || siteAssign?.siteLat,
+        currentLng: lastLocPoint?.longitude || trip?.startLng || siteAssign?.siteLng,
         activeTripId: trip?.id,
         isPermanentField: true
       });
     });
 
-    return list;
+    // 2. Process Temporary Field Assignments (excluding employees already processed as Permanent Field)
+    todayAssignments.forEach(assignment => {
+      const empUuidOrCode = String(assignment.employeeId || '').toLowerCase();
+      // Check if this employee was already mapped as Permanent Field
+      const alreadyMapped = Array.from(employeeMap.keys()).some(k => k === empUuidOrCode);
+      if (alreadyMapped) return;
+
+      // Also verify if the employee profile is Permanent Field
+      const empProfile = employees.find(e => 
+        String(e.employeeId || '').toLowerCase() === empUuidOrCode || 
+        String(e.id || '').toLowerCase() === empUuidOrCode
+      );
+      if (empProfile && (empProfile.attendanceMethod === 'Tracking Field' || (empProfile as any).attendance_method === 'Tracking Field')) {
+        return; // Handled under Permanent Field
+      }
+
+      const trip = tripSessions.find(t => t.assignmentId === assignment.id) ||
+                   tripSessions.find(t => String(t.employeeId || '').toLowerCase() === empUuidOrCode && t.status === 'Active');
+
+      const checkInFormatted = trip?.checkInTime
+        ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : undefined;
+
+      const lastUpdatedFormatted = trip?.lastGpsUpdate
+        ? calculateRelativeTime(trip.lastGpsUpdate)
+        : 'Just now';
+
+      const pointsCount = trip?.locationPoints?.length || 0;
+      const metrics = trip
+        ? calculateSequentialRouteMetrics(
+            trip.locationPoints || [],
+            trip.segments,
+            trip.tripEndTime || trip.checkOutTime
+          )
+        : null;
+
+      const travelKm = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip?.totalKm || 0);
+
+      const accurate = deriveAccurateGpsStatus({
+        tripStatus: trip?.status || (assignment.status === 'Active' ? 'Active' : 'Stopped'),
+        trackingStatus: trip?.trackingStatus || (assignment.status === 'Active' ? 'Travelling' : 'Idle'),
+        lastGpsUpdate: trip?.lastGpsUpdate,
+      });
+
+      employeeMap.set(empUuidOrCode, {
+        id: assignment.id,
+        assignmentId: assignment.id,
+        employeeId: assignment.employeeId,
+        employeeName: assignment.employeeName,
+        employeeAvatar: assignment.employeeAvatar,
+        department: assignment.department,
+        dutyType: assignment.dutyType,
+        customerSiteName: assignment.customerSiteName,
+        checkInTime: checkInFormatted,
+        travelKm,
+        gpsStatus: accurate.gpsStatus,
+        trackingStatus: accurate.trackingStatus,
+        lastUpdated: lastUpdatedFormatted,
+        currentLat: trip?.startLat || assignment.siteLat,
+        currentLng: trip?.startLng || assignment.siteLng,
+        activeTripId: trip?.id,
+        isPermanentField: false
+      });
+    });
+
+    return Array.from(employeeMap.values());
   }, [todayAssignments, tripSessions, employees, attendanceRecords, todayStr]);
 
   // Filtered rows
@@ -217,9 +238,9 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [orgDepartments, tableData]);
 
-  // Compute 4 KPI values from actual data
-  const fieldEmployeesToday = tableData.length;
-  const currentlyTravelling = tableData.filter(r => r.trackingStatus === 'Travelling' || r.trackingStatus === 'Tracking Active').length;
+  // Compute 4 KPI values from actual data (Strict Unique Employee Count)
+  const fieldEmployeesToday = new Set(tableData.map(r => r.employeeId)).size;
+  const currentlyTravelling = tableData.filter(r => r.trackingStatus === 'Travelling' || r.gpsStatus === 'Travelling' || r.gpsStatus === 'Active').length;
   const openGpsAlertsCount = trackingAlerts.filter(a => a.status === 'Open').length;
   const totalKmToday = tableData.reduce((acc, curr) => acc + (curr.travelKm || 0), 0);
 
@@ -604,23 +625,39 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
 
                       {/* Travel KM */}
                       <td style={{ padding: '14px 16px', fontWeight: 800, color: '#0E7490' }}>
-                        {formatKm(row.travelKm || 0)}
+                        <div>{formatKm(row.travelKm || 0)}</div>
+                        {(row.travelKm || 0) === 0 && (
+                          <div style={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 600 }}>
+                            Insufficient GPS Data
+                          </div>
+                        )}
                       </td>
 
                       {/* GPS Status */}
                       <td style={{ padding: '14px 16px' }}>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            fontSize: '0.76rem',
-                            fontWeight: 700,
-                            color: isGpsActive ? '#16A34A' : '#EF4444'
-                          }}
-                        >
-                          {isGpsActive ? '● GPS Active' : '⚠ GPS Lost'}
-                        </span>
+                        {(() => {
+                          const status = row.gpsStatus;
+                          const isGreen = status === 'Active' || status === 'Travelling' || status === 'GPS Active';
+                          const isAmber = status === 'GPS Weak' || status === 'Stale Location' || status === 'Stationary';
+                          const isRed = status === 'GPS Disabled' || status === 'Permission Denied' || status === 'Offline' || status === 'GPS Lost';
+                          const color = isGreen ? '#16A34A' : isAmber ? (status === 'Stationary' ? '#0E7490' : '#D97706') : isRed ? '#EF4444' : '#64748B';
+                          const dotColor = isGreen ? '#22C55E' : isAmber ? (status === 'Stationary' ? '#0E7490' : '#F59E0B') : isRed ? '#EF4444' : '#94A3B8';
+
+                          return (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                fontSize: '0.76rem',
+                                fontWeight: 700,
+                                color
+                              }}
+                            >
+                              <span style={{ color: dotColor, fontSize: '10px' }}>●</span> {status}
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* Tracking Status */}

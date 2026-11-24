@@ -43,6 +43,7 @@ export const TravelHistoryTab: React.FC = () => {
 
   // Combine trips with assignments (including permanent field employee trips)
   const historyRecords = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
     const records: any[] = [];
     const processedTripIds = new Set<string>();
 
@@ -75,14 +76,22 @@ export const TravelHistoryTab: React.FC = () => {
         )
         : null;
 
-      const km = metrics ? metrics.verifiedKm : trip?.totalKm || 0;
+      const pointsCount = trip?.locationPoints?.length || 0;
+      const km = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip?.totalKm || 0);
       const unverifiedGapKm = metrics ? metrics.unverifiedGapKm : 0;
       const missingIntervalsCount = metrics ? metrics.missingIntervalsCount : 0;
-      const gpsDataQuality = metrics ? metrics.gpsDataQuality : 'Insufficient GPS Data';
+      const gpsDataQuality = (pointsCount < 2 && Number(km) === 0)
+        ? 'Insufficient GPS Data'
+        : (metrics ? metrics.gpsDataQuality : 'Verified');
       const issues =
         trackingAlerts.filter(
           (alt) => alt.assignmentId === assignment.id || alt.employeeId === assignment.employeeId
         ).length + missingIntervalsCount;
+
+      const isPastDate = assignment.startDate < todayStr;
+      const effectiveStatus = (isPastDate && (trip?.status === 'Active' || assignment.status === 'Active'))
+        ? 'Completed'
+        : (trip?.status || assignment.status);
 
       records.push({
         id: assignment.id,
@@ -104,7 +113,7 @@ export const TravelHistoryTab: React.FC = () => {
         missingIntervalsCount,
         gpsDataQuality,
         gpsIssues: issues,
-        status: trip?.status || assignment.status,
+        status: effectiveStatus,
         isPermanentField: Boolean(assignment.isPermanentField || trip?.isPermanentField)
       });
     });
@@ -138,8 +147,8 @@ export const TravelHistoryTab: React.FC = () => {
         updatedAt: trip.updatedAt || trip.tripStartTime,
       };
 
-      const checkInRaw = trip.checkInTime || trip.tripStartTime;
-      const checkOutRaw = trip.checkOutTime || trip.tripEndTime;
+      const checkInRaw = trip.checkInTime;
+      const checkOutRaw = trip.checkOutTime;
       const tripStartRaw = trip.tripStartTime;
       const tripEndRaw = trip.tripEndTime;
 
@@ -162,14 +171,20 @@ export const TravelHistoryTab: React.FC = () => {
         trip.tripEndTime || trip.checkOutTime
       );
 
-      const km = metrics ? metrics.verifiedKm : trip.totalKm || 0;
+      const pointsCount = trip.locationPoints?.length || 0;
+      const km = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip.totalKm || 0);
       const unverifiedGapKm = metrics ? metrics.unverifiedGapKm : 0;
       const missingIntervalsCount = metrics ? metrics.missingIntervalsCount : 0;
-      const gpsDataQuality = metrics ? metrics.gpsDataQuality : 'Insufficient GPS Data';
+      const gpsDataQuality = (pointsCount < 2 && Number(km) === 0)
+        ? 'Insufficient GPS Data'
+        : (metrics ? metrics.gpsDataQuality : 'Verified');
       const issues =
         trackingAlerts.filter(
           (alt) => alt.assignmentId === trip.assignmentId || alt.employeeId === trip.employeeId
         ).length + missingIntervalsCount;
+
+      const isPastDate = Boolean(trip.tripStartTime && trip.tripStartTime.split('T')[0] < todayStr);
+      const effectiveStatus = (isPastDate && trip.status === 'Active') ? 'Completed' : trip.status;
 
       records.push({
         id: trip.id,
@@ -191,7 +206,7 @@ export const TravelHistoryTab: React.FC = () => {
         missingIntervalsCount,
         gpsDataQuality,
         gpsIssues: issues,
-        status: trip.status,
+        status: effectiveStatus,
         isPermanentField: true
       });
     });

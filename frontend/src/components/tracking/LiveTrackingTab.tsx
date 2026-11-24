@@ -13,11 +13,32 @@ export const LiveTrackingTab: React.FC = () => {
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
   const [inspectingAssignment, setInspectingAssignment] = useState<FieldAssignment | null>(null);
 
-  // Filter ONLY employees whose tracking is currently ACTIVE
+  // Filter ONLY employees whose tracking is currently ACTIVE today (Deduplicated: 1 marker per employee)
   const activeTripsWithAssignments = useMemo(() => {
-    return tripSessions
-      .filter((trip) => trip.status === 'Active')
-      .map((trip) => {
+    const today = new Date().toISOString().split('T')[0];
+    const seenEmpIds = new Set<string>();
+    const result: Array<{
+      trip: FieldTripSession;
+      assignment: FieldAssignment;
+      lastPoint: any;
+      currentLat: number;
+      currentLng: number;
+    }> = [];
+
+    tripSessions
+      .filter((trip) => {
+        if (trip.status !== 'Active') return false;
+        const isToday = trip.tripStartTime && (
+          trip.tripStartTime.startsWith(today) ||
+          new Date(trip.tripStartTime).toDateString() === new Date().toDateString()
+        );
+        return isToday;
+      })
+      .forEach((trip) => {
+        const empKey = String(trip.employeeId || '').toLowerCase();
+        if (seenEmpIds.has(empKey)) return;
+        seenEmpIds.add(empKey);
+
         const assignment = fieldAssignments.find((a) => a.id === trip.assignmentId) || {
           id: trip.assignmentId,
           employeeId: trip.employeeId,
@@ -40,14 +61,16 @@ export const LiveTrackingTab: React.FC = () => {
         const currentLat = lastPoint?.latitude || trip.startLat;
         const currentLng = lastPoint?.longitude || trip.startLng;
 
-        return {
+        result.push({
           trip,
           assignment,
           lastPoint,
           currentLat,
           currentLng
-        };
+        });
       });
+
+    return result;
   }, [tripSessions, fieldAssignments]);
 
   const filteredActiveList = useMemo(() => {

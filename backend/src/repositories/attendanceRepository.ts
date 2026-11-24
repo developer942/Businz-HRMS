@@ -1028,35 +1028,55 @@ export class AttendanceRepository {
               ]
             );
 
-            // 2. Ensure field trip session linked to attendance_record_id
-            await client.query(
-              `INSERT INTO public.field_trip_sessions (
-                id, assignment_id, employee_id, attendance_record_id, is_permanent_field,
-                trip_start_time, start_lat, start_lng, start_address,
-                total_km, recorded_distance_meters, road_matched_distance_meters, unverified_distance_meters,
-                status, tracking_status, gps_status, last_gps_update, raw_points_count, accepted_points_count, check_in_time
-              ) VALUES ($1, $2, $3, $4, TRUE,
-                $5, $6, $7, $8,
-                0.0, 0.0, 0.0, 0.0,
-                'Active', 'Travelling', $9, $5, 1, 1, $5)
-              ON CONFLICT (id) DO UPDATE SET
-                attendance_record_id = EXCLUDED.attendance_record_id,
-                status = 'Active',
-                tracking_status = 'Travelling',
-                last_gps_update = EXCLUDED.last_gps_update,
-                updated_at = NOW()`,
-              [
-                tripUuid,
-                assignmentUuid,
-                employee.id,
-                savedRow.id,
-                serverInstant.toISOString(),
-                startLat,
-                startLng,
-                startAddr,
-                typeof params.locationLat === 'number' ? 'GPS Active' : 'GPS Off',
-              ]
+            // 2. Canonical Session Rule: Check if active session already exists for this employee
+            const existingActive = await client.query(
+              `SELECT id FROM public.field_trip_sessions WHERE employee_id = $1 AND status = 'Active' LIMIT 1`,
+              [employee.id]
             );
+
+            let canonicalTripId: string;
+            if (existingActive.rows.length > 0) {
+              canonicalTripId = existingActive.rows[0].id;
+              await client.query(
+                `UPDATE public.field_trip_sessions SET
+                  attendance_record_id = $1,
+                  check_in_time = COALESCE(check_in_time, $2),
+                  last_gps_update = NOW(),
+                  updated_at = NOW()
+                 WHERE id = $3`,
+                [savedRow.id, serverInstant.toISOString(), canonicalTripId]
+              );
+            } else {
+              canonicalTripId = tripUuid;
+              await client.query(
+                `INSERT INTO public.field_trip_sessions (
+                  id, assignment_id, employee_id, attendance_record_id, is_permanent_field,
+                  trip_start_time, start_lat, start_lng, start_address,
+                  total_km, recorded_distance_meters, road_matched_distance_meters, unverified_distance_meters,
+                  status, tracking_status, gps_status, last_gps_update, raw_points_count, accepted_points_count, check_in_time
+                ) VALUES ($1, $2, $3, $4, TRUE,
+                  $5, $6, $7, $8,
+                  0.0, 0.0, 0.0, 0.0,
+                  'Active', 'Travelling', $9, $5, 1, 1, $5)
+                ON CONFLICT (id) DO UPDATE SET
+                  attendance_record_id = EXCLUDED.attendance_record_id,
+                  status = 'Active',
+                  tracking_status = 'Travelling',
+                  last_gps_update = EXCLUDED.last_gps_update,
+                  updated_at = NOW()`,
+                [
+                  canonicalTripId,
+                  assignmentUuid,
+                  employee.id,
+                  savedRow.id,
+                  serverInstant.toISOString(),
+                  startLat,
+                  startLng,
+                  startAddr,
+                  typeof params.locationLat === 'number' ? 'GPS Active' : 'GPS Off',
+                ]
+              );
+            }
 
             // 3. Insert initial location point if GPS coordinates provided
             if (typeof params.locationLat === 'number' && typeof params.locationLng === 'number') {
@@ -1068,7 +1088,7 @@ export class AttendanceRepository {
                 ON CONFLICT (id) DO NOTHING`,
                 [
                   startPointUuid,
-                  tripUuid,
+                  canonicalTripId,
                   assignmentUuid,
                   employee.id,
                   serverInstant.toISOString(),
@@ -1240,11 +1260,11 @@ export class AttendanceRepository {
             const endAddr = resolvedOutAddress || 'Destination (Field Duty Completed)';
             const outPointUuid = toDeterministicUuid(`perm-pt-${currentRow.id}-out`);
 
-            // Find active trip session linked to this attendance record or active permanent trip for this employee
+            // Find active trip session linked to this attendance record or active trip for this employee
             const activeTripRes = await client.query<{ id: string; assignment_id: string; total_km: number }>(
               `SELECT id, assignment_id, total_km FROM public.field_trip_sessions
-               WHERE (attendance_record_id = $1 OR (employee_id = $2 AND status = 'Active' AND is_permanent_field = TRUE))
-               ORDER BY created_at DESC LIMIT 1`,
+               WHERE (attendance_record_id = $1 OR (employee_id = $2 AND status = 'Active'))
+               ORDER BY is_permanent_field DESC, created_at DESC LIMIT 1`,
               [currentRow.id, employee.id]
             );
 
@@ -1280,6 +1300,7 @@ export class AttendanceRepository {
                      check_out_time = $4,
                      status = 'Completed',
                      tracking_status = 'Completed',
+                     gps_status = 'Completed',
                      updated_at = NOW()
                  WHERE id = $5`,
                 [

@@ -7,6 +7,8 @@ import {
   FieldTripSession,
   LocationPoint,
   FieldVisitDistanceSegment,
+  GpsStatus,
+  TrackingStatus,
 } from '../types/tracking';
 
 const OSRM_CACHE_STORAGE_KEY = 'vrm_osrm_road_cache_v2';
@@ -179,7 +181,7 @@ export function isValidMovementPoint(
 
   // 5. Stationary jitter / drift suppression:
   // Suppress tiny oscillations (< 8m, or < 15m when accuracy is poor > 35m).
-  // Importantly, do NOT reject >= 10m movement after a long stationary stop!
+  // Flags isStationary: true so callers can update device heartbeat/lastGpsUpdate without adding fake distance.
   const minMovementMeters = acc > 35 ? Math.max(14, Math.min(25, acc * 0.35)) : 8;
   if (distanceMeters < minMovementMeters) {
     return {
@@ -889,3 +891,63 @@ export function formatTimeAmPm(time24: string): string {
   const displayHours = (hours || 0) % 12 === 0 ? 12 : (hours || 0) % 12;
   return `${String(displayHours).padStart(2, '0')}:${String(minutes || 0).padStart(2, '0')} ${period}`;
 }
+
+/**
+ * Derives accurate GPS status and tracking status based on real telemetry, elapsed time, and session state.
+ * Never displays 'GPS Active' when last GPS update occurred hours ago.
+ */
+export function deriveAccurateGpsStatus(params: {
+  tripStatus: string;
+  trackingStatus?: string;
+  lastGpsUpdate?: string | null;
+  speedKmh?: number;
+  accuracyMeters?: number;
+  deviceError?: string;
+}): { gpsStatus: GpsStatus; trackingStatus: TrackingStatus } {
+  const normStatus = String(params.tripStatus || '').trim().toLowerCase();
+
+  if (normStatus === 'completed') {
+    return { gpsStatus: 'Completed', trackingStatus: 'Completed' };
+  }
+  if (normStatus === 'cancelled' || normStatus === 'stopped') {
+    return { gpsStatus: 'Tracking Stopped', trackingStatus: 'Tracking Stopped' };
+  }
+
+  if (params.deviceError === 'PERMISSION_DENIED') {
+    return { gpsStatus: 'Permission Denied', trackingStatus: 'Permission Denied' };
+  }
+  if (params.deviceError === 'POSITION_UNAVAILABLE' || params.deviceError === 'GPS_DISABLED') {
+    return { gpsStatus: 'GPS Disabled', trackingStatus: 'GPS Disabled' };
+  }
+
+  if (!params.lastGpsUpdate) {
+    return { gpsStatus: 'Offline', trackingStatus: 'Pending GPS Fix' };
+  }
+
+  const elapsedMs = Date.now() - new Date(params.lastGpsUpdate).getTime();
+  const elapsedMinutes = elapsedMs / (1000 * 60);
+
+  // If last update was > 45 minutes ago: Offline
+  if (elapsedMinutes >= 45) {
+    return { gpsStatus: 'Offline', trackingStatus: 'Offline' };
+  }
+  // If last update was 15 - 45 minutes ago: Stale Location
+  if (elapsedMinutes >= 15) {
+    return { gpsStatus: 'Stale Location', trackingStatus: 'Stationary (Stale)' };
+  }
+  // If last update was 5 - 15 minutes ago, or accuracy > 45m: GPS Weak
+  if (elapsedMinutes >= 5 || (params.accuracyMeters && params.accuracyMeters > 45)) {
+    return { gpsStatus: 'GPS Weak', trackingStatus: (params.trackingStatus as TrackingStatus) || 'Stationary' };
+  }
+
+  // Fresh fix (< 5 minutes)
+  const speed = params.speedKmh ?? 0;
+  if (speed > 3 || params.trackingStatus === 'Travelling') {
+    return { gpsStatus: 'Travelling', trackingStatus: 'Travelling' };
+  }
+  if (params.trackingStatus === 'Arrived at destination') {
+    return { gpsStatus: 'Active', trackingStatus: 'Arrived at destination' };
+  }
+  return { gpsStatus: 'Stationary', trackingStatus: 'Stationary' };
+}
+

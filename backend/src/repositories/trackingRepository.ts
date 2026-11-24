@@ -18,6 +18,7 @@ import {
   validateLocationPoint,
   calculateHaversineMeters,
   metersToKm,
+  deriveAccurateGpsStatus,
 } from '../services/gpsAccuracyEngine.js';
 
 const isUuid = (val?: string): boolean =>
@@ -341,15 +342,38 @@ export class TrackingRepository {
     const assignmentUuid = toDeterministicUuid(params.assignmentId);
     const requestedTripUuid = params.tripId ? toDeterministicUuid(params.tripId) : crypto.randomUUID();
 
-    // Check if active trip already exists for this assignment
+    // 1. Auto-close previous-day active sessions that were left hanging
+    await query(
+      `UPDATE public.field_trip_sessions
+       SET status = 'Completed',
+           trip_end_time = COALESCE(trip_end_time, last_gps_update, trip_start_time + interval '8 hours 30 minutes'),
+           check_out_time = COALESCE(check_out_time, last_gps_update, trip_start_time + interval '8 hours 30 minutes'),
+           tracking_status = 'Completed',
+           gps_status = 'Completed',
+           updated_at = NOW()
+       WHERE employee_id = $1 AND status = 'Active' AND trip_start_time::date < CURRENT_DATE`,
+      [empInfo.uuid]
+    );
+
+    // 2. Canonical Session Rule: Check if ANY active trip already exists for this employee today
     const checkSql = `
       SELECT * FROM public.field_trip_sessions
-      WHERE assignment_id = $1 AND employee_id = $2 AND status = 'Active'
+      WHERE employee_id = $1 AND status = 'Active'
+      ORDER BY is_permanent_field DESC, trip_start_time ASC
       LIMIT 1
     `;
-    const existing = await query(checkSql, [assignmentUuid, empInfo.uuid]);
+    const existing = await query(checkSql, [empInfo.uuid]);
     if (existing.rows.length > 0) {
-      return this.mapTripRow(existing.rows[0], empInfo);
+      const activeTrip = existing.rows[0];
+      // If assignmentId or destination site was supplied (e.g. site visit), link destination if not set
+      if (params.startAddress && (!activeTrip.end_address || activeTrip.end_address === 'Starting Point')) {
+        await query(
+          `UPDATE public.field_trip_sessions SET end_address = $1, updated_at = NOW() WHERE id = $2`,
+          [params.startAddress, activeTrip.id]
+        );
+        activeTrip.end_address = params.startAddress;
+      }
+      return this.mapTripRow(activeTrip, empInfo);
     }
 
     return withTransaction(async (client) => {
@@ -619,7 +643,7 @@ export class TrackingRepository {
 
       // 3. Compute final Verified KM (strictly excluding unverified gaps)
       const finalKm = metersToKm(roadMatchedMeters > 0 ? roadMatchedMeters : recordedMeters);
-      let trackingStatus = lastSpeed > 4 ? 'Travelling' : 'Stopped';
+      let trackingStatus = lastSpeed > 3 ? 'Travelling' : 'Stationary';
 
       // 4. Geofence arrival detection against assigned client destination
       if (trip.assignment_id && prevAccepted) {
@@ -673,6 +697,13 @@ export class TrackingRepository {
         }
       }
 
+      const accurate = deriveAccurateGpsStatus({
+        tripStatus: trip.status,
+        trackingStatus,
+        lastGpsUpdate: lastRecordedAt,
+        speedKmh: lastSpeed,
+      });
+
       await client.query(
         `UPDATE public.field_trip_sessions SET
           total_km = $1,
@@ -684,8 +715,9 @@ export class TrackingRepository {
           rejected_points_count = $7,
           tracking_status = $8,
           last_gps_update = $9,
+          gps_status = $10,
           updated_at = NOW()
-        WHERE id = $10`,
+        WHERE id = $11`,
         [
           finalKm,
           Math.round(recordedMeters),
@@ -694,8 +726,9 @@ export class TrackingRepository {
           rawCount,
           acceptedCount,
           rejectedCount,
-          trackingStatus,
+          accurate.trackingStatus,
           lastRecordedAt,
+          accurate.gpsStatus,
           tripId,
         ]
       );
@@ -748,6 +781,7 @@ export class TrackingRepository {
           total_km = $4,
           status = 'Completed',
           tracking_status = 'Completed',
+          gps_status = 'Completed',
           updated_at = NOW()
         WHERE id = $5
         RETURNING *
@@ -930,7 +964,7 @@ export class TrackingRepository {
   async getTrackingOverview(): Promise<TrackingOverviewMetrics> {
     try {
       const activeRes = await query(
-        `SELECT COUNT(*) FROM public.field_trip_sessions WHERE status = 'Active'`
+        `SELECT COUNT(DISTINCT employee_id) FROM public.field_trip_sessions WHERE status = 'Active'`
       );
       const alertsRes = await query(
         `SELECT COUNT(*) FROM public.field_tracking_alerts WHERE status = 'Open'`
@@ -939,7 +973,7 @@ export class TrackingRepository {
         `SELECT COALESCE(SUM(total_km), 0) AS total_km FROM public.field_trip_sessions WHERE trip_start_time::date = CURRENT_DATE`
       );
       const assignmentsRes = await query(
-        `SELECT COUNT(*) FROM public.field_duty_assignments WHERE CURRENT_DATE >= start_date AND CURRENT_DATE <= end_date`
+        `SELECT COUNT(DISTINCT employee_id) FROM public.field_duty_assignments WHERE CURRENT_DATE >= start_date AND CURRENT_DATE <= end_date AND status <> 'Cancelled'`
       );
 
       return {
@@ -963,6 +997,15 @@ export class TrackingRepository {
   // Row Mappers
   // --------------------------------------------------------------------------
   private mapTripRow(row: any, empInfo?: { uuid?: string; code: string; name: string; dept: string }): FieldTripSession {
+    const isPastDay = row.trip_start_time && new Date(row.trip_start_time).toDateString() !== new Date().toDateString();
+    const effectiveStatus = (isPastDay && row.status === 'Active') ? 'Completed' : row.status;
+
+    const accurate = deriveAccurateGpsStatus({
+      tripStatus: effectiveStatus,
+      trackingStatus: row.tracking_status,
+      lastGpsUpdate: row.last_gps_update,
+    });
+
     return {
       id: row.id,
       assignmentId: row.assignment_id,
@@ -986,14 +1029,14 @@ export class TrackingRepository {
       rawPointsCount: Number(row.raw_points_count) || 0,
       acceptedPointsCount: Number(row.accepted_points_count) || 0,
       rejectedPointsCount: Number(row.rejected_points_count) || 0,
-      status: row.status,
+      status: effectiveStatus,
       isPermanentField: Boolean(row.is_permanent_field),
       attendanceRecordId: row.attendance_record_id,
       checkInTime: row.check_in_time,
       checkOutTime: row.check_out_time,
       locationPoints: [],
-      gpsStatus: row.gps_status || 'GPS Active',
-      trackingStatus: row.tracking_status || 'Travelling',
+      gpsStatus: accurate.gpsStatus,
+      trackingStatus: accurate.trackingStatus,
       lastGpsUpdate: row.last_gps_update,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

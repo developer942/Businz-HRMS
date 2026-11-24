@@ -1979,8 +1979,13 @@ export const FaceAttendance: React.FC<FaceAttendanceProps> = ({ mode = 'daily' }
       if (isTrackingFieldEmp && (selectedEmpId === currentUser.employeeId || selectedEmpId === currentUser.id)) {
         if (type === 'Check-In') {
           try {
-            const permAssignId = `perm-assign-${selectedEmpId}-${todayStr}`;
-            startTrip(permAssignId, reading.latitude, reading.longitude, resolvedHumanAddress || 'Starting Point');
+            const hasActiveTrip = tripSessions.some(
+              t => (t.employeeId === selectedEmpId || t.employeeId === currentUser.employeeId) && t.status === 'Active'
+            );
+            if (!hasActiveTrip) {
+              const permAssignId = `perm-assign-${selectedEmpId}-${todayStr}`;
+              startTrip(permAssignId, reading.latitude, reading.longitude, resolvedHumanAddress || 'Starting Point');
+            }
           } catch (tripErr) {
             console.warn('[FaceAttendance] Auto startTrip warning:', tripErr);
           }

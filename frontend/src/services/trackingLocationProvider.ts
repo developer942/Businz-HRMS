@@ -77,6 +77,9 @@ export class BrowserLocationProvider implements ILocationProvider {
   private backupTimer: any = null;
   private visibilityListener: (() => void) | null = null;
   private cachedBatteryLevel: number = 100;
+  private activeWatchId: number | null = null;
+  private lastReportedCoords: { lat: number; lng: number; time: number } | null = null;
+  private currentMovementSpeedKmh: number = 0;
 
   async requestWakeLock(): Promise<boolean> {
     try {
@@ -141,7 +144,7 @@ export class BrowserLocationProvider implements ILocationProvider {
         {
           enableHighAccuracy: true,
           timeout: 12000,
-          maximumAge: 0, // Strictly fresh GPS fixes only
+          maximumAge: 0, // Fresh GPS fixes only
         }
       );
     });
@@ -157,16 +160,34 @@ export class BrowserLocationProvider implements ILocationProvider {
       return -1;
     }
 
-    const activeIntervalMs = config?.activePollIntervalMs ?? 10000; // ~10s target collection
-    const lowBatteryIntervalMs = config?.lowBatteryPollIntervalMs ?? 20000;
+    // Prevention of multiple GPS watchers: clear any existing watcher first
+    if (this.activeWatchId !== null) {
+      this.clearWatch(this.activeWatchId);
+    }
 
-    // Request Screen Wake Lock to keep screen awake while trip is in foreground
+    // Request Screen Wake Lock to keep screen awake while trip is active
     this.requestWakeLock().catch(() => {});
 
     // Read battery asynchronously
     readDeviceBatteryPercentage().then((b) => {
       if (b !== undefined) this.cachedBatteryLevel = b;
     });
+
+    const emitSafely = (coords: PositionCoordinates) => {
+      // In-flight deduplication: skip identical fixes within 3 seconds
+      const now = Date.now();
+      if (this.lastReportedCoords) {
+        const timeDiff = (now - this.lastReportedCoords.time) / 1000;
+        const latDiff = Math.abs(coords.lat - this.lastReportedCoords.lat);
+        const lngDiff = Math.abs(coords.lng - this.lastReportedCoords.lng);
+        if (timeDiff <= 3 && latDiff < 0.00001 && lngDiff < 0.00001) {
+          return;
+        }
+      }
+      this.lastReportedCoords = { lat: coords.lat, lng: coords.lng, time: now };
+      this.currentMovementSpeedKmh = coords.speed ?? 0;
+      onSuccess(coords);
+    };
 
     // Primary native movement watcher
     const watchId = navigator.geolocation.watchPosition(
@@ -175,7 +196,7 @@ export class BrowserLocationProvider implements ILocationProvider {
           pos.coords.speed !== null && pos.coords.speed !== undefined && !isNaN(pos.coords.speed)
             ? Math.max(0, pos.coords.speed)
             : undefined;
-        onSuccess({
+        emitSafely({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
@@ -201,18 +222,32 @@ export class BrowserLocationProvider implements ILocationProvider {
       }
     );
 
-    // Active ~10-second foreground polling backup (adaptive to battery level)
-    if (this.backupTimer) clearInterval(this.backupTimer);
-    const pollMs = this.cachedBatteryLevel < 20 ? lowBatteryIntervalMs : activeIntervalMs;
-    this.backupTimer = setInterval(async () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      try {
-        const fresh = await this.getCurrentPosition();
-        onSuccess(fresh);
-      } catch {
-        // Silent backup failure
-      }
-    }, pollMs);
+    this.activeWatchId = watchId;
+
+    // Adaptive GPS Sampling Timer:
+    // Moving employee: ~12-15s (12000ms)
+    // Stationary employee: ~35-45s (35000ms)
+    const scheduleNextPoll = () => {
+      if (this.backupTimer) clearTimeout(this.backupTimer);
+      const isMoving = this.currentMovementSpeedKmh > 3;
+      const pollDelayMs = isMoving ? 12000 : 35000;
+
+      this.backupTimer = setTimeout(async () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          scheduleNextPoll();
+          return;
+        }
+        try {
+          const fresh = await this.getCurrentPosition();
+          emitSafely(fresh);
+        } catch {
+          // Silent backup retry
+        }
+        scheduleNextPoll();
+      }, pollDelayMs);
+    };
+
+    scheduleNextPoll();
 
     // Re-acquire Wake Lock and capture immediate GPS fix whenever app returns to foreground
     if (typeof document !== 'undefined') {
@@ -223,7 +258,7 @@ export class BrowserLocationProvider implements ILocationProvider {
         if (document.visibilityState === 'visible') {
           this.requestWakeLock().catch(() => {});
           this.getCurrentPosition()
-            .then((fresh) => onSuccess(fresh))
+            .then((fresh) => emitSafely(fresh))
             .catch(() => {});
         }
       };
@@ -235,7 +270,7 @@ export class BrowserLocationProvider implements ILocationProvider {
 
   clearWatch(watchId: number): void {
     if (this.backupTimer) {
-      clearInterval(this.backupTimer);
+      clearTimeout(this.backupTimer);
       this.backupTimer = null;
     }
     if (typeof document !== 'undefined' && this.visibilityListener) {
@@ -244,7 +279,12 @@ export class BrowserLocationProvider implements ILocationProvider {
     }
     this.releaseWakeLock();
     if (watchId >= 0 && typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.clearWatch(watchId);
+      try {
+        navigator.geolocation.clearWatch(watchId);
+      } catch {}
+    }
+    if (this.activeWatchId === watchId) {
+      this.activeWatchId = null;
     }
   }
 }
