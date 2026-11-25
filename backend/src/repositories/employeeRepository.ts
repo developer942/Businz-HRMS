@@ -4,6 +4,7 @@ import { SalaryStructureInput } from '../types/payroll.js';
 import { memoryCache } from '../services/cacheService.js';
 
 import { AccountStatus, CredentialEmailStatus } from '../types/auth.js';
+import { mapToCanonicalEmploymentType } from '../validators/employeeValidators.js';
 
 export interface EmployeeRecord {
   id: string;
@@ -626,7 +627,7 @@ export class EmployeeRepository {
       dob: data.dob || (data as any).profile_data?.dob || null,
       gender: data.gender || (data as any).profile_data?.gender || 'Male',
       joining_date: data.joiningDate || (data as any).joining_date || (data as any).profile_data?.joiningDate || null,
-      employment_type: data.employmentType || (data as any).employment_type || (data as any).profile_data?.employmentType || 'Full-Time',
+      employment_type: mapToCanonicalEmploymentType(data.employmentType || (data as any).employment_type || (data as any).profile_data?.employmentType),
       work_shift: data.workShift || (data as any).work_shift || (data as any).shift || 'SH-01',
       branch: data.branch || (data as any).workLocation || (data as any).profile_data?.workLocation || null,
       role_id: roleId,
@@ -754,7 +755,7 @@ export class EmployeeRepository {
       reportingManagerId: reportingManagerUuid || rawMgrId || '',
       reportingManagerName: reportingManagerNameVal || '',
       joiningDate: insertPayload.joining_date,
-      employmentType: insertPayload.employment_type,
+      employmentType: String(data.employmentType || (data as any).employment_type || (data as any).profile_data?.employmentType || insertPayload.employment_type).trim(),
       workLocation: insertPayload.branch,
       workShift: insertPayload.work_shift,
       attendanceMethod: insertPayload.attendance_method,
@@ -897,6 +898,10 @@ export class EmployeeRepository {
         if (updates.attendanceMethod !== undefined) payload.attendance_method = updates.attendanceMethod;
         if (updates.gpsAllowed !== undefined) payload.gps_allowed = updates.gpsAllowed;
         if (updates.accountStatus !== undefined) payload.account_status = updates.accountStatus;
+        if (updates.employmentType !== undefined || (updates as any).employment_type !== undefined) {
+          const rawType = updates.employmentType || (updates as any).employment_type;
+          payload.employment_type = mapToCanonicalEmploymentType(rawType);
+        }
 
         // Banking & Statutory
         const bankName = updates.bankName || updates.bankDetails?.bankName;

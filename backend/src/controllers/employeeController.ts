@@ -114,6 +114,19 @@ export const getEmployeeById = async (req: Request, res: Response, next: NextFun
  */
 export const createEmployee = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const rawEmpType = req.body.employmentType ?? req.body.employment_type;
+    if (rawEmpType !== undefined && rawEmpType !== null && typeof rawEmpType === 'string' && !rawEmpType.trim()) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_EMPLOYMENT_TYPE',
+          message: 'Employment Type is mandatory. Please select a valid Employment Type.',
+          details: [{ field: 'employmentType', message: 'Employment Type is mandatory.' }],
+        },
+      });
+      return;
+    }
+
     const validated = createEmployeeSchema.parse(req.body);
     const cleanEmail = validated.email.toLowerCase().trim();
     const performer = req.user?.email || 'HR Department';

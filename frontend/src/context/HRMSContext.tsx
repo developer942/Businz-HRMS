@@ -1,3 +1,4 @@
+import { mapToCanonicalEmploymentType } from '../utils/employmentTypeUtils';
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, ReactNode } from 'react';
 import {
   Role,
@@ -1780,13 +1781,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       else updates.gender = 'Male';
     }
 
-    // Employment Type Enum: 'Full-Time' | 'Part-Time' | 'Contract' | 'Intern'
+    // Employment Type Enum: 'Full-Time' | 'Part-Time' | 'Contract' | 'Intern' | 'Permanent' | 'Probation' | 'Temporary'
     if (emp.employmentType !== undefined) {
-      const et = String(emp.employmentType).toLowerCase();
-      if (et.includes('part')) updates.employment_type = 'Part-Time';
-      else if (et.includes('contract')) updates.employment_type = 'Contract';
-      else if (et.includes('intern')) updates.employment_type = 'Intern';
-      else updates.employment_type = 'Full-Time';
+      updates.employment_type = mapToCanonicalEmploymentType(emp.employmentType);
     }
 
     // Date helper: ensure 'YYYY-MM-DD' or null

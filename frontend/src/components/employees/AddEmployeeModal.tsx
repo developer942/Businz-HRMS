@@ -5,6 +5,7 @@ import { SalaryComponentConfig } from '../../types/settings';
 import { API_BASE_URL } from '../../config/api';
 import { supabaseDirect } from '../../services/supabaseDirectService';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
+import { mapToCanonicalEmploymentType } from '../../utils/employmentTypeUtils';
 import { DateInput } from '../common/DateInput';
 import { 
   X, 
@@ -1730,7 +1731,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           dob: newEmp.dob || null,
           gender: newEmp.gender || 'Male',
           joining_date: newEmp.joiningDate || null,
-          employment_type: newEmp.employmentType || 'Full-Time',
+          employment_type: mapToCanonicalEmploymentType(newEmp.employmentType || formData.employmentType),
           reporting_manager_name: newEmp.reportingManagerName || null,
           branch: newEmp.workLocation || null,
           address_line1: formData.currentLine1 || null,
@@ -1765,9 +1766,12 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           gps_allowed: formData.gpsAllowed ?? true,
           profile_data: fullEmployeePayload.profile_data,
         }).catch(() => {});
+      } else if (apiRes) {
+        const errJson = await apiRes.json().catch(() => ({}));
+        dbErrorMessage = errJson.error?.message || errJson.message || `Server error (${apiRes.status})`;
       }
-    } catch {
-      // Backend not running, proceed directly to VPS database
+    } catch (err: any) {
+      dbErrorMessage = err?.message || 'Network connection failed';
     }
 
     // 2. Direct VPS database insert with complete data
@@ -1790,7 +1794,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           dob: newEmp.dob || null,
           gender: newEmp.gender || 'Male',
           joining_date: newEmp.joiningDate || null,
-          employment_type: newEmp.employmentType || 'Full-Time',
+          employment_type: mapToCanonicalEmploymentType(newEmp.employmentType || formData.employmentType),
           status: newEmp.status || 'Active',
           attendance_method: newEmp.attendanceMethod,
           branch: newEmp.workLocation || null,
@@ -1846,8 +1850,11 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     // If cloud persistence failed, abort and inform user immediately
     if (!dbSaved) {
       setIsSubmitting(false);
-      let readableError = 'Failed to register employee into the VPS database.';
-      if (dbErrorMessage.includes('unique constraint') || dbErrorMessage.includes('duplicate')) {
+      let readableError = 'Failed to register employee into the database.';
+      const lowerErr = dbErrorMessage.toLowerCase();
+      if (lowerErr.includes('hr_employment_type') || lowerErr.includes('employment type') || lowerErr.includes('22p02') || lowerErr.includes('invalid input value for enum')) {
+        readableError = `Employment Type Error: "${formData.employmentType}" could not be recognized. Please click Step 2 to choose a supported option (Permanent, Full-Time, Part-Time, Contract, or Intern).`;
+      } else if (lowerErr.includes('unique constraint') || lowerErr.includes('duplicate')) {
         readableError = `Employee with ID "${cleanEmpCode}" or Email "${primaryEmail}" is already registered. Please use unique values.`;
       } else if (dbErrorMessage) {
         readableError = `Database error: ${dbErrorMessage}`;
@@ -2201,7 +2208,29 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
               fontWeight: 500
             }}>
               <AlertCircle size={18} style={{ flexShrink: 0 }} />
-              <span>{validationError}</span>
+              <span style={{ flex: 1 }}>{validationError}</span>
+              {validationError.includes('Employment Type') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep(2);
+                    setValidationError(null);
+                  }}
+                  style={{
+                    backgroundColor: '#B91C1C',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '4px 12px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Go to Step 2
+                </button>
+              )}
             </div>
           )}
 

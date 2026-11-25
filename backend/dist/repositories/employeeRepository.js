@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
 import { memoryCache } from '../services/cacheService.js';
+import { mapToCanonicalEmploymentType } from '../validators/employeeValidators.js';
 function mapDbRowToEmployee(data) {
     const rawProfile = typeof data.profile_data === 'object' && data.profile_data !== null ? { ...data.profile_data } : {};
     delete rawProfile.password;
@@ -497,7 +498,7 @@ export class EmployeeRepository {
             dob: data.dob || data.profile_data?.dob || null,
             gender: data.gender || data.profile_data?.gender || 'Male',
             joining_date: data.joiningDate || data.joining_date || data.profile_data?.joiningDate || null,
-            employment_type: data.employmentType || data.employment_type || data.profile_data?.employmentType || 'Full-Time',
+            employment_type: mapToCanonicalEmploymentType(data.employmentType || data.employment_type || data.profile_data?.employmentType),
             work_shift: data.workShift || data.work_shift || data.shift || 'SH-01',
             branch: data.branch || data.workLocation || data.profile_data?.workLocation || null,
             role_id: roleId,
@@ -623,7 +624,7 @@ export class EmployeeRepository {
             reportingManagerId: reportingManagerUuid || rawMgrId || '',
             reportingManagerName: reportingManagerNameVal || '',
             joiningDate: insertPayload.joining_date,
-            employmentType: insertPayload.employment_type,
+            employmentType: String(data.employmentType || data.employment_type || data.profile_data?.employmentType || insertPayload.employment_type).trim(),
             workLocation: insertPayload.branch,
             workShift: insertPayload.work_shift,
             attendanceMethod: insertPayload.attendance_method,
@@ -773,6 +774,10 @@ export class EmployeeRepository {
                     payload.gps_allowed = updates.gpsAllowed;
                 if (updates.accountStatus !== undefined)
                     payload.account_status = updates.accountStatus;
+                if (updates.employmentType !== undefined || updates.employment_type !== undefined) {
+                    const rawType = updates.employmentType || updates.employment_type;
+                    payload.employment_type = mapToCanonicalEmploymentType(rawType);
+                }
                 // Banking & Statutory
                 const bankName = updates.bankName || updates.bankDetails?.bankName;
                 if (bankName !== undefined)

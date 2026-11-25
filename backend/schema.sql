@@ -62,7 +62,7 @@ $$ LANGUAGE plpgsql;
 -- 2. Enumerated Types (enforce valid values at the DB layer)
 -- ============================================================
 DROP TYPE IF EXISTS public.hr_employment_type CASCADE;
-CREATE TYPE public.hr_employment_type AS ENUM ('Full-Time', 'Part-Time', 'Contract', 'Intern');
+CREATE TYPE public.hr_employment_type AS ENUM ('Full-Time', 'Part-Time', 'Contract', 'Intern', 'Permanent', 'Probation', 'Temporary');
 DROP TYPE IF EXISTS public.hr_employee_status CASCADE;
 CREATE TYPE public.hr_employee_status AS ENUM ('Active', 'On Leave', 'Terminated');
 DROP TYPE IF EXISTS public.hr_gender CASCADE;
