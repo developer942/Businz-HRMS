@@ -124,7 +124,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
             case 'attendance_log':
                 return <FaceAttendance key="log" mode="log" />;
             case 'attendance':
-                return <AttendanceReportsView title="Attendance Management" subtitle="Real-time attendance logs, muster roll verification, and departmental reports." />;
+                return <AttendanceReportsView title="Attendance Report" subtitle="Real-time attendance logs, muster roll verification, and departmental reports." />;
             case 'gps_geofence':
                 return <GpsGeofencePortal />;
             case 'leaves':

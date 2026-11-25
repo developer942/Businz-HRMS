@@ -137,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
       case 'organization': return 'Organization';
       case 'face_attendance': return 'Live Face Attendance';
       case 'attendance_log': return 'Attendance Log';
-      case 'attendance': return 'Attendance Management';
+      case 'attendance': return 'Attendance Report';
       case 'leaves': return isEmployeeOrAccounts ? 'Leave Request' : 'Leave Management';
       case 'shifts': return isEmployeeOrAccounts ? 'My Shift' : 'Shift Management';
       case 'overtime': return isEmployeeOrAccounts ? 'My Overtime Requests' : 'Overtime Management';

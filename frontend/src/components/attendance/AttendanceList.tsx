@@ -249,7 +249,7 @@ export const AttendanceList: React.FC<AttendanceListProps> = ({ onBackToInsights
       {/* Page Title & Action Header */}
       <div className="page-header">
         <div className="page-title-group">
-          <h1>Attendance Management {isEmployeeRole ? '(My Logs)' : isManagerRole ? `(${currentUser.department} Department)` : '(Company Wide)'}</h1>
+          <h1>Attendance Report {isEmployeeRole ? '(My Logs)' : isManagerRole ? `(${currentUser.department} Department)` : '(Company Wide)'}</h1>
         </div>
         <div className="header-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {onBackToInsights && (

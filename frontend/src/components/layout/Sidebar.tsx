@@ -197,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Time & Attendance
     { id: 'face_attendance', label: 'Live Face Attendance', icon: ScanFace, section: 'TIME & ATTENDANCE' },
     { id: 'attendance_log', label: 'Attendance Log', icon: History, section: 'TIME & ATTENDANCE' },
-    { id: 'attendance', label: 'Attendance Management', icon: CalendarCheck, section: 'TIME & ATTENDANCE' },
+    { id: 'attendance', label: 'Attendance Report', icon: CalendarCheck, section: 'TIME & ATTENDANCE' },
     { 
       id: 'leaves', 
       label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Leave Request' : 'Leave Management', 

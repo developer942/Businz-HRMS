@@ -364,7 +364,7 @@ export const AttendanceManagementModule: React.FC = () => {
           </div>
           <div>
             <h1 className="vrm-hub-header-title">
-              Attendance Management
+              Attendance Report
             </h1>
             <p className="vrm-hub-header-subtitle">
               Centralized clock-in verification, missed punches, overtime approvals, and audit trails

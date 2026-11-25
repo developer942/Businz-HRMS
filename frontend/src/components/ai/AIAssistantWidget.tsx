@@ -484,7 +484,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
           const namesEmp = (rows: { emp: any }[]) => rows.slice(0, 40)
             .map(r => `${`${r.emp.firstName} ${r.emp.lastName}`.trim()} (${r.emp.employeeId})`).join(', ') || 'none';
           return [
-            `Live HRMS snapshot for ${report.date} (same figures as the Dashboard and Attendance Management):`,
+            `Live HRMS snapshot for ${report.date} (same figures as the Dashboard and Attendance Report):`,
             `Total staff: ${dash.workforce.length}`,
             `Present (incl. late): ${report.present.length}`,
             `Late: ${report.late.length}`,
