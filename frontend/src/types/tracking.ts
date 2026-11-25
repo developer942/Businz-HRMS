@@ -116,6 +116,7 @@ export interface FieldAssignment {
   allowedRadiusMeters: number;
   notes?: string;
   isPermanentField?: boolean;
+  canonicalSessionId?: string;
   attendanceRecordId?: string;
   status: AssignmentStatus;
   createdBy?: string;

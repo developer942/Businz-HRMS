@@ -747,7 +747,7 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
         <div style="width: 34px; height: 34px; border-radius: 50%; background: ${
           isGap ? '#D97706' : '#1D4ED8'
         }; color: #FFFFFF; border: 2.5px solid #FFFFFF; box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800;">
-          ${isGap ? 'GAP' : `${currentFrame.speedKmh}k`}
+          ${isGap ? 'GAP' : (currentFrame.speedKmh > 0 ? `${currentFrame.speedKmh}k` : '•')}
         </div>
       </div>
     `;

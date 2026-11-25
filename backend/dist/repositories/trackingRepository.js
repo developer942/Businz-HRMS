@@ -65,6 +65,9 @@ export class TrackingRepository {
                 values.push(filters.status);
                 idx++;
             }
+            else {
+                conditions.push(`fa.status NOT IN ('Archived', 'Cancelled')`);
+            }
             const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
             const sql = `
         SELECT 
@@ -92,6 +95,8 @@ export class TrackingRepository {
           fa.notes,
           fa.status,
           fa.is_permanent_field,
+          fa.canonical_session_id,
+          fa.attendance_record_id,
           fa.created_by,
           fa.created_at,
           fa.updated_at
@@ -126,6 +131,8 @@ export class TrackingRepository {
                 notes: d.notes,
                 status: d.status,
                 isPermanentField: Boolean(d.is_permanent_field),
+                canonicalSessionId: d.canonical_session_id || undefined,
+                attendanceRecordId: d.attendance_record_id || undefined,
                 createdBy: d.created_by,
                 createdAt: d.created_at,
                 updatedAt: d.updated_at,

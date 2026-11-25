@@ -23,7 +23,14 @@ export interface TrackingOverviewProps {
 export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
   const { fieldAssignments, tripSessions, trackingAlerts, departments: orgDepartments, employees, attendanceRecords } = useHRMS();
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Asia/Kolkata business date calculation
+  const todayStr = useMemo(() => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    } catch {
+      return new Date().toISOString().split('T')[0];
+    }
+  }, []);
 
   // Selected assignment for EmployeeFieldActivityModal
   const [selectedAssignment, setSelectedAssignment] = useState<FieldAssignment | null>(null);
@@ -33,10 +40,10 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [dutyTypeFilter, setDutyTypeFilter] = useState<'All' | 'Permanent Field' | 'Temporary Field'>('All');
 
-  // Compute Today's field assignments
+  // Compute Today's field assignments (Asia/Kolkata business date, excluding Archived/Cancelled)
   const todayAssignments = useMemo(() => {
     return fieldAssignments.filter(a => {
-      if (a.status === 'Cancelled') return false;
+      if (a.status === 'Cancelled' || a.status === 'Archived') return false;
       if (a.scheduleType === 'One Day') return a.startDate === todayStr;
       if (a.scheduleType === 'Date Range') return todayStr >= a.startDate && todayStr <= a.endDate;
       if (a.scheduleType === 'Weekly') {
@@ -65,14 +72,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
         return aEmp === empKey || aEmp === String(emp.employeeId || '').toLowerCase() || aEmp === String(emp.id || '').toLowerCase();
       });
 
-      // Find any trip session for this employee today or currently active
-      const trip = tripSessions.find(t => {
-        const tEmp = String(t.employeeId || '').toLowerCase();
-        const matches = tEmp === empKey || tEmp === String(emp.employeeId || '').toLowerCase() || tEmp === String(emp.id || '').toLowerCase();
-        return matches && (t.status === 'Active' || (t.tripStartTime && t.tripStartTime.startsWith(todayStr)));
-      });
-
-      // Find today's attendance record
+      // Find today's attendance record (Asia/Kolkata date)
       const todayAtt = attendanceRecords.find(a => {
         const aEmp = String(a.employeeId || '').toLowerCase();
         const matches = aEmp === empKey || aEmp === String(emp.employeeId || '').toLowerCase() || aEmp === String(emp.id || '').toLowerCase();
@@ -80,8 +80,23 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
         return matches && recDate && recDate.startsWith(todayStr);
       });
 
-      // Only display if employee has an active/today trip, attendance punch today, or site visit assignment
-      if (!todayAtt && !trip && !siteAssign) return;
+      // Find any ongoing ACTIVE trip session today or valid ongoing overnight shift
+      const activeTrip = tripSessions.find(t => {
+        const tEmp = String(t.employeeId || '').toLowerCase();
+        const matches = tEmp === empKey || tEmp === String(emp.employeeId || '').toLowerCase() || tEmp === String(emp.id || '').toLowerCase();
+        if (!matches) return false;
+        // Never include previous-day Auto Closed or Closed trips
+        if (t.status === 'Auto Closed' || t.status === 'Cancelled') return false;
+        const isStartedToday = t.tripStartTime && t.tripStartTime.startsWith(todayStr);
+        return (t.status === 'Active' && isStartedToday) || (t.status === 'Active' && todayAtt?.checkIn);
+      });
+
+      // Strict Rule: Permanent Field configuration alone must NOT classify an employee as actively working.
+      // Only display if employee has an active trip today, attendance punch today, or scheduled site visit today.
+      const isPunchedInToday = Boolean(todayAtt?.checkIn && todayAtt.checkIn !== '--:--');
+      if (!isPunchedInToday && !activeTrip && !siteAssign) return;
+
+      const trip = activeTrip;
 
       const checkInFormatted = todayAtt?.checkIn
         ? (todayAtt.checkIn.includes('T')
@@ -93,7 +108,7 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
 
       const lastUpdatedFormatted = trip?.lastGpsUpdate
         ? calculateRelativeTime(trip.lastGpsUpdate)
-        : 'Just now';
+        : '—';
 
       const pointsCount = trip?.locationPoints?.length || 0;
       const metrics = trip
@@ -106,16 +121,17 @@ export const TrackingOverview: React.FC<TrackingOverviewProps> = () => {
 
       const travelKm = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip?.totalKm || 0);
       const isCheckedOut = Boolean(todayAtt?.checkOut && todayAtt.checkOut !== '--:--') || trip?.status === 'Completed';
-      const isPunchedIn = Boolean(todayAtt?.checkIn && todayAtt.checkIn !== '--:--');
 
       const accurate = deriveAccurateGpsStatus({
-        tripStatus: isCheckedOut ? 'Completed' : (trip?.status || (isPunchedIn ? 'Active' : 'Stopped')),
-        trackingStatus: trip?.trackingStatus || (isPunchedIn ? 'Stationary' : 'Pending GPS Fix'),
+        tripStatus: isCheckedOut ? 'Completed' : (trip?.status || (isPunchedInToday ? 'Active' : 'Stopped')),
+        trackingStatus: trip?.trackingStatus || (isPunchedInToday ? 'Stationary' : 'Pending GPS Fix'),
         lastGpsUpdate: trip?.lastGpsUpdate,
       });
 
       const customerSiteName = siteAssign?.customerSiteName || 
-        (trip?.customerSiteName && trip.customerSiteName !== 'Site' ? trip.customerSiteName : 'Regular Field Duty');
+        (trip?.customerSiteName && trip.customerSiteName !== 'Site' && trip.customerSiteName !== 'Assigned Site'
+          ? trip.customerSiteName 
+          : 'Regular Field Duty');
 
       const lastLocPoint = trip?.locationPoints && trip.locationPoints.length > 0
         ? trip.locationPoints[trip.locationPoints.length - 1]

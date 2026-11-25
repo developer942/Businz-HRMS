@@ -9,6 +9,7 @@ import {
   matchTripSegmentsToRoads,
   RouteMetricsSummary,
 } from '../../services/trackingEngine';
+import { calculateHaversineMeters } from '../../services/gpsAcquisitionService';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
 export interface EmployeeFieldActivityModalProps {
@@ -144,14 +145,14 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
         </div>
       `,
     });
-  } else if (trip?.status === 'Completed' || trip?.status === 'Auto Closed') {
+  } else if (trip?.status === 'Completed') {
     if (trip?.endLat && trip?.endLng) {
       markers.push({
         id: 'end-point',
         lat: trip.endLat,
         lng: trip.endLng,
-        title: trip.status === 'Completed' ? 'Punch Out Destination (B)' : 'Tracking Cutoff (B)',
-        subtitle: trip.endAddress || (trip.status === 'Completed' ? 'Trip Completed' : 'Auto Closed Cutoff'),
+        title: 'Punch Out Destination (B)',
+        subtitle: trip.endAddress || 'Trip Completed',
         iconType: 'end',
       });
     } else if (lastPoint && pointCount > 1) {
@@ -159,9 +160,27 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
         id: 'end-point-last',
         lat: lastPoint.latitude,
         lng: lastPoint.longitude,
-        title: trip.status === 'Completed' ? 'Last Recorded Destination (B)' : 'Tracking Cutoff (B)',
-        subtitle: trip.status === 'Completed' ? 'Trip Completed' : 'Auto Closed Cutoff',
+        title: 'Punch Out Destination (B)',
+        subtitle: 'Trip Completed',
         iconType: 'end',
+      });
+    }
+  } else if (trip?.status === 'Auto Closed' && lastPoint && pointCount > 1) {
+    // Only place cutoff marker if employee moved away from start location (> 25m)
+    const distFromStart = calculateHaversineMeters(
+      trip.startLat || lastPoint.latitude,
+      trip.startLng || lastPoint.longitude,
+      lastPoint.latitude,
+      lastPoint.longitude
+    );
+    if (distFromStart > 25) {
+      markers.push({
+        id: 'end-point-cutoff',
+        lat: lastPoint.latitude,
+        lng: lastPoint.longitude,
+        title: 'Last Recorded Ping',
+        subtitle: 'Tracking Cutoff (Auto Closed)',
+        iconType: 'stale',
       });
     }
   }
@@ -197,12 +216,25 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
   const dutyDuration = useMemo(() => {
     if (!trip?.tripStartTime) return '—';
     const startMs = new Date(trip.checkInTime || trip.tripStartTime).getTime();
-    const endMs = trip.checkOutTime || trip.tripEndTime
-      ? new Date((trip.checkOutTime || trip.tripEndTime)!).getTime()
-      : (trip.status === 'Active' ? Date.now() : startMs);
-    const diffSec = Math.max(0, Math.round((endMs - startMs) / 1000));
-    return formatDurationMinutes(diffSec);
-  }, [trip]);
+    if (trip.checkOutTime || trip.tripEndTime) {
+      const endMs = new Date((trip.checkOutTime || trip.tripEndTime)!).getTime();
+      const diffSec = Math.max(0, Math.round((endMs - startMs) / 1000));
+      return formatDurationMinutes(diffSec);
+    }
+    if (trip.status === 'Active') {
+      const diffSec = Math.max(0, Math.round((Date.now() - startMs) / 1000));
+      return formatDurationMinutes(diffSec);
+    }
+    // Auto Closed session: check last recorded GPS update or point
+    if (trip.lastGpsUpdate || lastPoint?.recordedAt) {
+      const endMs = new Date(trip.lastGpsUpdate || lastPoint!.recordedAt).getTime();
+      const diffSec = Math.max(0, Math.round((endMs - startMs) / 1000));
+      if (diffSec >= 60) {
+        return `${formatDurationMinutes(diffSec)} (until cutoff)`;
+      }
+    }
+    return 'Auto Closed (No Punch Out)';
+  }, [trip, lastPoint]);
 
   // GPS Quality determination
   const gpsQuality = useMemo(() => {
@@ -446,29 +478,33 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
 
         {/* Modal Body: Map + Chronological Timeline */}
         <div style={{ padding: '16px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* Missing / Partial GPS Notice */}
-          {pointCount < 2 && (
-            <div
-              style={{
-                backgroundColor: '#F8FAFC',
-                border: '1px solid #E2E8F0',
-                borderRadius: '12px',
-                padding: '10px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                fontSize: '0.80rem',
-                color: '#475569',
-              }}
-            >
-              <HelpCircle size={16} color="#64748B" style={{ flexShrink: 0 }} />
-              <div>
-                {pointCount === 0
-                  ? 'No GPS points recorded for this duty session. Initial punch-in location only.'
-                  : '1 GPS location recorded. Continuous route line is not drawn for single stationary points.'}
-              </div>
+          {/* Transparent GPS Points Count and Drift Filtering Notice */}
+          <div
+            style={{
+              backgroundColor: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              borderRadius: '12px',
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '0.80rem',
+              color: '#475569',
+            }}
+          >
+            <HelpCircle size={16} color="#64748B" style={{ flexShrink: 0 }} />
+            <div>
+              {pointCount === 0
+                ? 'No GPS points recorded for this duty session. Initial punch-in location only.'
+                : pointCount === 1
+                ? '1 GPS point recorded. Continuous route line is not drawn for single stationary points.'
+                : `${trip?.rawPointsCount || pointCount} raw GPS points recorded (${pointCount} accepted${
+                    (trip?.rawPointsCount || 0) > pointCount
+                      ? `, ${(trip?.rawPointsCount || 0) - pointCount} stationary drift filtered`
+                      : ''
+                  }). Travel distance: ${pointCount >= 2 ? formatKm(metrics.verifiedKm) : '0.00 KM'}.`}
             </div>
-          )}
+          </div>
 
           {/* Large Map Area (60-70% visual weight) */}
           <div style={{ borderRadius: '16px', overflow: 'hidden', border: '1px solid #E2E8F0', position: 'relative' }}>
@@ -483,6 +519,7 @@ export const EmployeeFieldActivityModal: React.FC<EmployeeFieldActivityModalProp
               stops={trip?.stops || []}
               circle={circleConfig}
               showPlaybackControls={pointCount > 1}
+              showControls={false}
               autoFitBounds={pointCount > 1}
             />
 

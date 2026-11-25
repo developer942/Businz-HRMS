@@ -207,6 +207,17 @@ export const TravelHistoryTab: React.FC = () => {
       if (assignment.status === 'Archived' || assignment.status === 'Cancelled') return;
       if (assignment.isPermanentField) return; // Permanent field is handled exclusively by canonical attendance trip
 
+      // Also check if employee is configured as permanent field (Tracking Field)
+      const emp = employees.find(e => e.employeeId === assignment.employeeId || e.id === assignment.employeeId);
+      if (emp?.attendanceMethod === 'Tracking Field' || (emp as any)?.attendance_method === 'Tracking Field') {
+        return; // Permanent field employees NEVER have standalone assignment rows in Travel History
+      }
+
+      // Also skip if linked to a canonical session or is dummy regular field duty
+      if ((assignment as any).canonicalSessionId || assignment.customerSiteName === 'Regular Field Duty') {
+        return;
+      }
+
       records.push({
         id: assignment.id,
         assignment,
