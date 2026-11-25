@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { query } from '../config/database.js';
 import { authRepository, BCRYPT_ROUNDS, isBcryptPasswordHash, scrubProfilePasswordFields } from '../repositories/authRepository.js';
 import { resolveOvernightAttendanceSession } from '../services/shiftAttendanceEngine.js';
+import { rbacRepository } from '../repositories/rbacRepository.js';
 const ALLOWED_TABLES = new Set([
     'employees',
     'departments',
@@ -195,12 +196,12 @@ export function isTaskVisibleToCaller(row, callerEmpCode, callerUuid) {
     const identifiers = new Set([callerEmpCode, callerUuid].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
     if (identifiers.size === 0)
         return false;
-    const directValues = [row.responsible_person_id, row.employee_id, row.assigned_to, row.assignee_id, row.created_by]
+    const directValues = [row.responsible_person_id, row.employee_id, row.assigned_to, row.assignee_id, row.created_by, row.assigned_by]
         .map((value) => String(value || '').trim().toLowerCase());
     if (directValues.some((value) => identifiers.has(value)))
         return true;
     const taskData = row.task_data && typeof row.task_data === 'object' ? row.task_data : {};
-    const nestedValues = [taskData.responsiblePersonId, taskData.employeeId, taskData.assignedTo, taskData.assigneeId]
+    const nestedValues = [taskData.responsiblePersonId, taskData.employeeId, taskData.assignedTo, taskData.assigneeId, taskData.assignedBy, taskData.createdById]
         .map((value) => String(value || '').trim().toLowerCase());
     if (nestedValues.some((value) => identifiers.has(value)))
         return true;
@@ -217,6 +218,23 @@ export function isTaskVisibleToCaller(row, callerEmpCode, callerUuid) {
             .map((value) => String(value || '').trim().toLowerCase())
             .some((value) => identifiers.has(value));
     });
+}
+export function isAssetVisibleToCaller(row, callerEmpCode, callerUuid) {
+    if (!row || typeof row !== 'object')
+        return false;
+    const identifiers = new Set([callerEmpCode, callerUuid]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean));
+    if (identifiers.size === 0)
+        return false;
+    return [
+        row.assigned_employee_id,
+        row.assignedEmployeeId,
+        row.employee_id,
+        row.employeeId,
+    ]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .some((value) => identifiers.has(value));
 }
 /**
  * Authenticated, RBAC-enforced Backend Data Gateway (`CRIT-01`, `CRIT-02`, `CRIT-03`).
@@ -259,6 +277,27 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
         const isHrAdmin = HR_ADMIN_ROLES.has(userRole);
         const isFinanceAdmin = FINANCE_ADMIN_ROLES.has(userRole);
         const { callerEmpCode, callerUuid } = await resolveCallerIdentifiers(req);
+        const rolePermissions = rbacRepository.getRolePermissions(userRole);
+        if (table === 'assets') {
+            const assetActions = rolePermissions?.modulePermissions.assets || [];
+            const requiredAction = method === 'GET'
+                ? 'view'
+                : method === 'POST'
+                    ? 'create'
+                    : method === 'DELETE'
+                        ? 'delete'
+                        : 'edit';
+            if (!assetActions.includes(requiredAction)) {
+                res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: `Your role cannot ${requiredAction} asset records.`,
+                    },
+                });
+                return;
+            }
+        }
         // Enforce table-level write permissions
         if (method !== 'GET') {
             if (table === 'employees') {
@@ -354,28 +393,39 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
                 }
             }
             else if (table === 'enterprise_tasks' && !isPrivileged) {
-                if (method !== 'PATCH') {
+                const taskPermissions = rbacRepository.getRolePermissions(userRole);
+                const moduleActions = taskPermissions?.modulePermissions.tasks || [];
+                const specialPermissions = taskPermissions?.specialPermissions || [];
+                const canCreateTask = moduleActions.includes('create') ||
+                    specialPermissions.includes('create_tasks') ||
+                    specialPermissions.includes('assign_tasks');
+                if (method === 'POST' && canCreateTask) {
+                    // Authorized task creators may insert through the compatibility gateway.
+                }
+                else if (method !== 'PATCH') {
                     res.status(403).json({
                         success: false,
-                        error: { code: 'FORBIDDEN', message: 'Employees may only update tasks assigned to them.' },
+                        error: { code: 'FORBIDDEN', message: 'Your role cannot create or modify enterprise tasks.' },
                     });
                     return;
                 }
-                const lowerQuery = queryString.toLowerCase();
-                const ownsFilter = [...new Set([callerEmpCode, callerUuid].filter(Boolean))]
-                    .some((identifier) => lowerQuery.includes(identifier));
-                if (!ownsFilter) {
-                    res.status(403).json({
-                        success: false,
-                        error: { code: 'FORBIDDEN', message: 'Task updates must target an assigned employee record.' },
-                    });
-                    return;
-                }
-                if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                    const allowed = new Set(['overall_status', 'overall_progress', 'task_data', 'updated_at']);
-                    for (const key of Object.keys(payload)) {
-                        if (!allowed.has(key))
-                            delete payload[key];
+                else {
+                    const lowerQuery = queryString.toLowerCase();
+                    const ownsFilter = [...new Set([callerEmpCode, callerUuid].filter(Boolean))]
+                        .some((identifier) => lowerQuery.includes(identifier));
+                    if (!ownsFilter) {
+                        res.status(403).json({
+                            success: false,
+                            error: { code: 'FORBIDDEN', message: 'Task updates must target an assigned employee record.' },
+                        });
+                        return;
+                    }
+                    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+                        const allowed = new Set(['overall_status', 'overall_progress', 'task_data', 'updated_at']);
+                        for (const key of Object.keys(payload)) {
+                            if (!allowed.has(key))
+                                delete payload[key];
+                        }
                     }
                 }
             }
@@ -515,6 +565,14 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
                 data = data.filter((row) => isTaskVisibleToCaller(row, callerEmpCode, callerUuid));
             }
             else if (data && !isTaskVisibleToCaller(data, callerEmpCode, callerUuid)) {
+                data = null;
+            }
+        }
+        else if (table === 'assets' && rolePermissions?.dataAccess !== 'all') {
+            if (Array.isArray(data)) {
+                data = data.filter((row) => isAssetVisibleToCaller(row, callerEmpCode, callerUuid));
+            }
+            else if (data && !isAssetVisibleToCaller(data, callerEmpCode, callerUuid)) {
                 data = null;
             }
         }

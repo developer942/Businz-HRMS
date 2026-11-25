@@ -42,173 +42,194 @@ export const TravelHistoryTab: React.FC = () => {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [orgDepartments, fieldAssignments]);
 
-  // Combine trips with assignments (including permanent field employee trips)
+  // Canonical Tracking Architecture: Exactly 1 row per official tracking session
   const historyRecords = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const records: any[] = [];
-    const processedTripIds = new Set<string>();
+    const processedAssignmentIds = new Set<string>();
 
-    // 1. From Field Assignments
-    fieldAssignments.forEach((assignment) => {
-      const trip = tripSessions.find((t) => t.assignmentId === assignment.id);
-      if (trip) processedTripIds.add(trip.id);
-
-      const checkInFormatted = trip?.checkInTime
-        ? new Date(trip.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : '—';
-
-      const checkOutFormatted = trip?.checkOutTime
-        ? new Date(trip.checkOutTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : '—';
-
-      const tripStartFormatted = trip?.tripStartTime
-        ? new Date(trip.tripStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : formatTimeAmPm(assignment.startTime);
-
-      const tripEndFormatted = trip?.tripEndTime
-        ? new Date(trip.tripEndTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : (assignment.status === 'Completed' ? formatTimeAmPm(assignment.endTime) : '—');
-
-      const metrics = trip
-        ? calculateSequentialRouteMetrics(
-          trip.locationPoints || [],
-          trip.segments,
-          trip.tripEndTime || trip.checkOutTime
-        )
-        : null;
-
-      const pointsCount = trip?.locationPoints?.length || 0;
-      const km = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip?.totalKm || 0);
-      const unverifiedGapKm = metrics ? metrics.unverifiedGapKm : 0;
-      const missingIntervalsCount = metrics ? metrics.missingIntervalsCount : 0;
-      const gpsDataQuality = (pointsCount < 2 && Number(km) === 0)
-        ? 'Insufficient GPS Data'
-        : (metrics ? metrics.gpsDataQuality : 'Verified');
-      const issues =
-        trackingAlerts.filter(
-          (alt) => alt.assignmentId === assignment.id || alt.employeeId === assignment.employeeId
-        ).length + missingIntervalsCount;
-
-      const isPastDate = assignment.startDate < todayStr;
-      const effectiveStatus = (isPastDate && (trip?.status === 'Active' || assignment.status === 'Active'))
-        ? 'Completed'
-        : (trip?.status || assignment.status);
-
-      records.push({
-        id: assignment.id,
-        assignment,
-        trip,
-        employeeName: assignment.employeeName,
-        employeeId: assignment.employeeId,
-        employeeAvatar: assignment.employeeAvatar,
-        department: assignment.department,
-        dutyType: assignment.dutyType,
-        customerSiteName: assignment.customerSiteName,
-        date: assignment.startDate,
-        checkIn: checkInFormatted,
-        checkOut: checkOutFormatted,
-        tripStart: tripStartFormatted,
-        tripEnd: tripEndFormatted,
-        kmTravelled: km,
-        unverifiedGapKm,
-        missingIntervalsCount,
-        gpsDataQuality,
-        gpsIssues: issues,
-        status: effectiveStatus,
-        isPermanentField: Boolean(assignment.isPermanentField || trip?.isPermanentField)
-      });
-    });
-
-    // 2. From Trip Sessions not covered by manual assignments (e.g. Permanent Field Employee automatic tracking trips)
+    // 1. Process Canonical Trip Sessions (Primary source of truth for tracking sessions)
     tripSessions.forEach((trip) => {
-      if (processedTripIds.has(trip.id)) return;
-      const emp = employees.find(e => e.employeeId === trip.employeeId || e.id === trip.employeeId);
-      const assignmentFallback: FieldAssignment = {
-        id: trip.assignmentId || trip.id,
-        employeeId: trip.employeeId,
-        employeeName: trip.employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Staff'),
-        employeeAvatar: (emp as any)?.avatarUrl || emp?.avatar,
-        department: trip.department || emp?.department || 'Field Operations',
-        dutyType: trip.dutyType || 'Permanent Field',
-        scheduleType: 'One Day',
-        startDate: trip.tripStartTime ? trip.tripStartTime.split('T')[0] : '',
-        endDate: trip.tripEndTime ? trip.tripEndTime.split('T')[0] : (trip.tripStartTime ? trip.tripStartTime.split('T')[0] : ''),
-        startTime: '09:00',
-        endTime: '18:00',
-        customerSiteName: trip.customerSiteName || 'Regular Field Duty',
-        siteAddress: trip.startAddress || 'Field Location',
-        purpose: 'Permanent Field Duty & GPS Tracking',
-        trackingRequired: true,
-        travelKmRequired: true,
-        attendanceType: 'Flexible Field Check-in',
-        allowedRadiusMeters: 500,
-        status: trip.status === 'Completed' ? 'Completed' : 'Active',
-        isPermanentField: true,
-        createdAt: trip.createdAt || trip.tripStartTime,
-        updatedAt: trip.updatedAt || trip.tripStartTime,
-      };
+      // Exclude cancelled duplicate / merged historical sessions
+      if (trip.status === 'Cancelled' || trip.trackingStatus === 'Merged into canonical session') {
+        return;
+      }
 
-      const checkInRaw = trip.checkInTime;
+      if (trip.assignmentId) {
+        processedAssignmentIds.add(trip.assignmentId);
+      }
+
+      const emp = employees.find(e => e.employeeId === trip.employeeId || e.id === trip.employeeId);
+      const isPermanent = Boolean(
+        trip.isPermanentField || 
+        emp?.attendanceMethod === 'Tracking Field' || 
+        (emp as any)?.attendance_method === 'Tracking Field'
+      );
+
+      // Collect any legitimate child client/site visits linked to this session
+      const childVisits = (trip.childVisits || []).concat(
+        fieldAssignments.filter(a => 
+          ((a as any).canonicalSessionId === trip.id || (a.id === trip.assignmentId && !isPermanent)) &&
+          a.status !== 'Archived' &&
+          a.status !== 'Cancelled' &&
+          a.customerSiteName !== 'Regular Field Duty'
+        )
+      );
+
+      // Deduplicate child visits by ID
+      const uniqueChildVisits = Array.from(new Map(childVisits.map(v => [v.id, v])).values());
+      uniqueChildVisits.forEach(v => processedAssignmentIds.add(v.id));
+
+      const tripDate = trip.tripStartTime
+        ? trip.tripStartTime.split('T')[0]
+        : (trip.createdAt ? trip.createdAt.split('T')[0] : todayStr);
+
+      const checkInRaw = trip.checkInTime || trip.tripStartTime;
       const checkOutRaw = trip.checkOutTime;
-      const tripStartRaw = trip.tripStartTime;
-      const tripEndRaw = trip.tripEndTime;
 
       const checkInFormatted = checkInRaw
         ? new Date(checkInRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
         : '—';
       const checkOutFormatted = checkOutRaw
         ? new Date(checkOutRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : '—';
-      const tripStartFormatted = tripStartRaw
-        ? new Date(tripStartRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : '—';
-      const tripEndFormatted = tripEndRaw
-        ? new Date(tripEndRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : '—';
+        : (trip.status === 'Auto Closed' ? 'Auto Closed' : '—');
 
-      const metrics = calculateSequentialRouteMetrics(
-        trip.locationPoints || [],
-        trip.segments,
-        trip.tripEndTime || trip.checkOutTime
-      );
+      const pointsCount = trip.locationPoints?.length || trip.rawPointsCount || 0;
+      const metrics = (trip.locationPoints && trip.locationPoints.length >= 2)
+        ? calculateSequentialRouteMetrics(
+            trip.locationPoints,
+            trip.segments,
+            trip.tripEndTime || trip.checkOutTime
+          )
+        : null;
 
-      const pointsCount = trip.locationPoints?.length || 0;
-      const km = (metrics && pointsCount >= 2) ? metrics.verifiedKm : (trip.totalKm || 0);
-      const unverifiedGapKm = metrics ? metrics.unverifiedGapKm : 0;
-      const missingIntervalsCount = metrics ? metrics.missingIntervalsCount : 0;
-      const gpsDataQuality = (pointsCount < 2 && Number(km) === 0)
-        ? 'Insufficient GPS Data'
-        : (metrics ? metrics.gpsDataQuality : 'Verified');
-      const issues =
-        trackingAlerts.filter(
-          (alt) => alt.assignmentId === trip.assignmentId || alt.employeeId === trip.employeeId
-        ).length + missingIntervalsCount;
+      // Authoritative Distance (KM)
+      let km = 0;
+      if (metrics && pointsCount >= 2) {
+        km = metrics.verifiedKm;
+      } else if (trip.totalKm && trip.totalKm > 0 && pointsCount >= 2) {
+        km = trip.totalKm;
+      } else {
+        km = 0;
+      }
 
-      const isPastDate = Boolean(trip.tripStartTime && trip.tripStartTime.split('T')[0] < todayStr);
-      const effectiveStatus = (isPastDate && trip.status === 'Active') ? 'Completed' : trip.status;
+      // GPS Quality: Strict adherence to Requirement 8
+      let derivedGpsQuality: string = trip.gpsQuality || 'No GPS Data';
+      if (pointsCount === 0) {
+        derivedGpsQuality = 'No GPS Data';
+      } else if (pointsCount === 1) {
+        derivedGpsQuality = 'Insufficient GPS Data';
+      } else if (metrics && metrics.missingIntervalsCount > 0) {
+        derivedGpsQuality = 'GPS Gaps Detected';
+      } else if (pointsCount >= 5) {
+        derivedGpsQuality = 'Good GPS Data';
+      } else {
+        derivedGpsQuality = 'Partial GPS Data';
+      }
+
+      // Session Status: Strict adherence to Requirement 8
+      const isPastDate = tripDate < todayStr;
+      let effectiveStatus = trip.status;
+      if (isPastDate && trip.status === 'Active') {
+        effectiveStatus = 'Auto Closed';
+      }
+
+      // Site/Customer display: if child visits exist, prioritize them
+      let siteDisplayName = 'Regular Field Duty';
+      if (uniqueChildVisits.length > 0) {
+        siteDisplayName = uniqueChildVisits[0].customerSiteName;
+      } else if (trip.customerSiteName && trip.customerSiteName !== 'Site') {
+        siteDisplayName = trip.customerSiteName;
+      } else if (trip.startAddress && trip.startAddress !== 'Origin' && trip.startAddress !== 'Starting Point') {
+        siteDisplayName = trip.startAddress;
+      }
+
+      const assignmentFallback: FieldAssignment = {
+        id: trip.assignmentId || trip.id,
+        employeeId: trip.employeeId,
+        employeeName: trip.employeeName || (emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Staff'),
+        employeeAvatar: (emp as any)?.avatarUrl || emp?.avatar,
+        department: trip.department || emp?.department || 'Field Operations',
+        dutyType: isPermanent ? 'Permanent Field' : (trip.dutyType || 'Site Visit'),
+        scheduleType: 'One Day',
+        startDate: tripDate,
+        endDate: tripDate,
+        startTime: checkInRaw ? checkInRaw.substring(11, 16) : '09:00',
+        endTime: checkOutRaw ? checkOutRaw.substring(11, 16) : '18:00',
+        customerSiteName: siteDisplayName,
+        siteAddress: trip.startAddress || 'Field Location',
+        purpose: isPermanent ? 'Permanent Field Duty & GPS Tracking' : 'Field Duty Visit',
+        trackingRequired: true,
+        travelKmRequired: true,
+        attendanceType: 'Flexible Field Check-in',
+        allowedRadiusMeters: 500,
+        status: effectiveStatus === 'Completed' ? 'Completed' : (effectiveStatus === 'Auto Closed' ? 'Completed' : 'Active'),
+        isPermanentField: isPermanent,
+        createdAt: trip.createdAt || trip.tripStartTime,
+        updatedAt: trip.updatedAt || trip.tripStartTime,
+      };
 
       records.push({
         id: trip.id,
         assignment: assignmentFallback,
-        trip,
+        trip: {
+          ...trip,
+          childVisits: uniqueChildVisits,
+          childVisitsCount: uniqueChildVisits.length,
+          gpsQuality: derivedGpsQuality,
+          status: effectiveStatus,
+        },
         employeeName: assignmentFallback.employeeName,
         employeeId: trip.employeeId,
         employeeAvatar: assignmentFallback.employeeAvatar,
         department: assignmentFallback.department,
-        dutyType: trip.dutyType || 'Permanent Field',
-        customerSiteName: assignmentFallback.customerSiteName,
-        date: assignmentFallback.startDate,
+        dutyType: isPermanent ? 'Permanent Field' : (trip.dutyType || 'Site Visit'),
+        customerSiteName: siteDisplayName,
+        childVisits: uniqueChildVisits,
+        date: tripDate,
         checkIn: checkInFormatted,
         checkOut: checkOutFormatted,
-        tripStart: tripStartFormatted,
-        tripEnd: tripEndFormatted,
+        tripStart: checkInFormatted,
+        tripEnd: checkOutFormatted,
         kmTravelled: km,
-        unverifiedGapKm,
-        missingIntervalsCount,
-        gpsDataQuality,
-        gpsIssues: issues,
+        unverifiedGapKm: metrics ? metrics.unverifiedGapKm : 0,
+        missingIntervalsCount: metrics ? metrics.missingIntervalsCount : 0,
+        gpsDataQuality: derivedGpsQuality,
+        gpsIssues: trackingAlerts.filter(alt => alt.employeeId === trip.employeeId).length,
         status: effectiveStatus,
-        isPermanentField: true
+        isPermanentField: isPermanent,
+      });
+    });
+
+    // 2. Process Independent Temporary Field Assignments not yet started or scheduled
+    fieldAssignments.forEach((assignment) => {
+      if (processedAssignmentIds.has(assignment.id)) return;
+      if (assignment.status === 'Archived' || assignment.status === 'Cancelled') return;
+      if (assignment.isPermanentField) return; // Permanent field is handled exclusively by canonical attendance trip
+
+      records.push({
+        id: assignment.id,
+        assignment,
+        trip: undefined,
+        employeeName: assignment.employeeName,
+        employeeId: assignment.employeeId,
+        employeeAvatar: assignment.employeeAvatar,
+        department: assignment.department,
+        dutyType: assignment.dutyType || 'Temporary Field',
+        customerSiteName: assignment.customerSiteName || 'Site Visit',
+        childVisits: [],
+        date: assignment.startDate,
+        checkIn: '—',
+        checkOut: '—',
+        tripStart: formatTimeAmPm(assignment.startTime),
+        tripEnd: assignment.status === 'Completed' ? formatTimeAmPm(assignment.endTime) : '—',
+        kmTravelled: 0,
+        unverifiedGapKm: 0,
+        missingIntervalsCount: 0,
+        gpsDataQuality: 'No GPS Data',
+        gpsIssues: 0,
+        status: assignment.status,
+        isPermanentField: false,
       });
     });
 
@@ -551,23 +572,42 @@ export const TravelHistoryTab: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Customer / Site Visits (Clamped to 2 lines) */}
-                    <td style={{ padding: '14px 16px', maxWidth: '220px' }}>
-                      <div
-                        title={rec.customerSiteName}
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          fontSize: '0.82rem',
-                          fontWeight: 650,
-                          color: '#0F172A',
-                          lineHeight: 1.35
-                        }}
-                      >
-                        {rec.customerSiteName}
+                    {/* Customer / Site Visits (Clamped to 2 lines with Child Visits Badge) */}
+                    <td style={{ padding: '14px 16px', maxWidth: '240px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {rec.childVisits && rec.childVisits.length > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span
+                              style={{
+                                backgroundColor: '#FEF3C7',
+                                color: '#B45309',
+                                border: '1px solid #FDE68A',
+                                padding: '2px 7px',
+                                borderRadius: '6px',
+                                fontSize: '0.70rem',
+                                fontWeight: 800,
+                              }}
+                            >
+                              {rec.childVisits.length} {rec.childVisits.length === 1 ? 'Client Visit' : 'Client Visits'}
+                            </span>
+                          </div>
+                        )}
+                        <div
+                          title={rec.customerSiteName}
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            fontSize: '0.80rem',
+                            fontWeight: 650,
+                            color: '#0F172A',
+                            lineHeight: 1.35
+                          }}
+                        >
+                          {rec.customerSiteName}
+                        </div>
                       </div>
                     </td>
 
@@ -581,9 +621,11 @@ export const TravelHistoryTab: React.FC = () => {
                           fontSize: '0.76rem',
                           fontWeight: 700,
                           color:
-                            rec.gpsDataQuality === 'Verified'
+                            rec.gpsDataQuality === 'Good GPS Data' || rec.gpsDataQuality === 'Verified'
                               ? '#16A34A'
-                              : rec.gpsDataQuality === 'Partial (Gaps Detected)'
+                              : rec.gpsDataQuality === 'GPS Gaps Detected'
+                              ? '#EA580C'
+                              : rec.gpsDataQuality === 'Partial GPS Data' || rec.gpsDataQuality === 'Partial (Gaps Detected)'
                               ? '#D97706'
                               : '#64748B'
                         }}
@@ -594,9 +636,11 @@ export const TravelHistoryTab: React.FC = () => {
                             height: '7px',
                             borderRadius: '50%',
                             backgroundColor:
-                              rec.gpsDataQuality === 'Verified'
+                              rec.gpsDataQuality === 'Good GPS Data' || rec.gpsDataQuality === 'Verified'
                                 ? '#16A34A'
-                                : rec.gpsDataQuality === 'Partial (Gaps Detected)'
+                                : rec.gpsDataQuality === 'GPS Gaps Detected'
+                                ? '#EA580C'
+                                : rec.gpsDataQuality === 'Partial GPS Data' || rec.gpsDataQuality === 'Partial (Gaps Detected)'
                                 ? '#D97706'
                                 : '#94A3B8'
                           }}
@@ -613,8 +657,19 @@ export const TravelHistoryTab: React.FC = () => {
                           borderRadius: '9999px',
                           fontSize: '0.74rem',
                           fontWeight: 700,
-                          backgroundColor: rec.status === 'Completed' ? '#DCFCE7' : '#ECFEFF',
-                          color: rec.status === 'Completed' ? '#16A34A' : '#0E7490'
+                          backgroundColor:
+                            rec.status === 'Completed' ? '#DCFCE7' :
+                            rec.status === 'Active' ? '#ECFEFF' :
+                            rec.status === 'Auto Closed' ? '#F1F5F9' :
+                            rec.status === 'Attendance Review Required' ? '#FEF3C7' : '#F8FAFC',
+                          color:
+                            rec.status === 'Completed' ? '#16A34A' :
+                            rec.status === 'Active' ? '#0E7490' :
+                            rec.status === 'Auto Closed' ? '#475569' :
+                            rec.status === 'Attendance Review Required' ? '#B45309' : '#64748B',
+                          border:
+                            rec.status === 'Auto Closed' ? '1px solid #E2E8F0' :
+                            rec.status === 'Active' ? '1px solid #A5F3FC' : '1px solid transparent'
                         }}
                       >
                         {rec.status}

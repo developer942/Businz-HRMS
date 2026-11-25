@@ -342,14 +342,14 @@ export class TrackingRepository {
     const assignmentUuid = toDeterministicUuid(params.assignmentId);
     const requestedTripUuid = params.tripId ? toDeterministicUuid(params.tripId) : crypto.randomUUID();
 
-    // 1. Auto-close previous-day active sessions that were left hanging
+    // 1. Auto-close previous-day active sessions that were left hanging (do NOT fabricate checkout time)
     await query(
       `UPDATE public.field_trip_sessions
-       SET status = 'Completed',
+       SET status = 'Auto Closed',
            trip_end_time = COALESCE(trip_end_time, last_gps_update, trip_start_time + interval '8 hours 30 minutes'),
-           check_out_time = COALESCE(check_out_time, last_gps_update, trip_start_time + interval '8 hours 30 minutes'),
-           tracking_status = 'Completed',
-           gps_status = 'Completed',
+           check_out_time = NULL,
+           tracking_status = 'Auto Closed (Cutoff Reached)',
+           gps_status = 'GPS Off',
            updated_at = NOW()
        WHERE employee_id = $1 AND status = 'Active' AND trip_start_time::date < CURRENT_DATE`,
       [empInfo.uuid]
@@ -377,27 +377,40 @@ export class TrackingRepository {
     }
 
     return withTransaction(async (client) => {
-      // Ensure the assignment exists in field_duty_assignments so foreign key constraint succeeds
-      await client.query(
-        `INSERT INTO public.field_duty_assignments (
-          id, employee_id, department, duty_type, schedule_type,
-          start_date, end_date, start_time, end_time,
-          customer_site_name, site_address, purpose,
-          tracking_required, travel_km_required, attendance_type,
-          site_lat, site_lng, allowed_radius_meters, status
-        ) VALUES ($1, $2, $3, 'Site Visit', 'One Day', CURRENT_DATE, CURRENT_DATE, '09:00', '18:00',
-          $4, $5, 'Field Duty Visit', TRUE, TRUE, 'Flexible Field Check-in', $6, $7, 200, 'Active')
-        ON CONFLICT (id) DO UPDATE SET status = 'Active', updated_at = NOW()`,
-        [
-          assignmentUuid,
-          empInfo.uuid,
-          empInfo.dept,
-          params.startAddress || 'Client Site',
-          params.startAddress || 'Client Location',
-          params.startLat,
-          params.startLng,
-        ]
+      // Check if employee is permanent field worker
+      const empMethodRes = await client.query(
+        `SELECT attendance_method FROM public.employees WHERE id = $1`,
+        [empInfo.uuid]
       );
+      const isPermanent = empMethodRes.rows[0]?.attendance_method === 'Tracking Field';
+
+      let assignmentIdToLink: string | null = null;
+
+      // Only insert/ensure an assignment if this is a legitimate temporary duty or site visit
+      if (params.assignmentId && !params.assignmentId.startsWith('perm-')) {
+        assignmentIdToLink = assignmentUuid;
+        await client.query(
+          `INSERT INTO public.field_duty_assignments (
+            id, employee_id, department, duty_type, schedule_type,
+            start_date, end_date, start_time, end_time,
+            customer_site_name, site_address, purpose,
+            tracking_required, travel_km_required, attendance_type,
+            site_lat, site_lng, allowed_radius_meters, status, is_permanent_field
+          ) VALUES ($1, $2, $3, 'Site Visit', 'One Day', CURRENT_DATE, CURRENT_DATE, '09:00', '18:00',
+            $4, $5, 'Field Duty Visit', TRUE, TRUE, 'Flexible Field Check-in', $6, $7, 200, 'Active', $8)
+          ON CONFLICT (id) DO UPDATE SET status = 'Active', updated_at = NOW()`,
+          [
+            assignmentUuid,
+            empInfo.uuid,
+            empInfo.dept,
+            params.startAddress || 'Client Site',
+            params.startAddress || 'Client Location',
+            params.startLat,
+            params.startLng,
+            isPermanent,
+          ]
+        );
+      }
 
       // 1. Insert new trip session
       const insertTripSql = `
@@ -416,20 +429,23 @@ export class TrackingRepository {
           status,
           tracking_status,
           gps_status,
+          gps_quality,
           last_gps_update,
           raw_points_count,
-          accepted_points_count
-        ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, 0.0, 0.0, 0.0, 0.0, 'Active', 'Travelling', 'GPS Active', NOW(), 1, 1)
+          accepted_points_count,
+          is_permanent_field
+        ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, 0.0, 0.0, 0.0, 0.0, 'Active', 'Travelling', 'GPS Active', 'Partial GPS Data', NOW(), 1, 1, $7)
         ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
         RETURNING *
       `;
       const tripRes = await client.query(insertTripSql, [
         requestedTripUuid,
-        assignmentUuid,
+        assignmentIdToLink,
         empInfo.uuid,
         params.startLat,
         params.startLng,
         params.startAddress || 'Starting Point',
+        isPermanent,
       ]);
       const tripRow = tripRes.rows[0];
 
@@ -453,7 +469,7 @@ export class TrackingRepository {
       `;
       const ptRes = await client.query(insertPointSql, [
         tripRow.id,
-        assignmentUuid,
+        assignmentIdToLink,
         empInfo.uuid,
         params.startLat,
         params.startLng,
@@ -704,6 +720,19 @@ export class TrackingRepository {
         speedKmh: lastSpeed,
       });
 
+      let gpsQuality = 'No GPS Data';
+      if (rawCount === 0) {
+        gpsQuality = 'No GPS Data';
+      } else if (acceptedCount <= 1) {
+        gpsQuality = 'Insufficient GPS Data';
+      } else if (unverifiedMeters > 0) {
+        gpsQuality = 'GPS Gaps Detected';
+      } else if (acceptedCount >= 5) {
+        gpsQuality = 'Good GPS Data';
+      } else {
+        gpsQuality = 'Partial GPS Data';
+      }
+
       await client.query(
         `UPDATE public.field_trip_sessions SET
           total_km = $1,
@@ -716,8 +745,9 @@ export class TrackingRepository {
           tracking_status = $8,
           last_gps_update = $9,
           gps_status = $10,
+          gps_quality = $11,
           updated_at = NOW()
-        WHERE id = $11`,
+        WHERE id = $12`,
         [
           finalKm,
           Math.round(recordedMeters),
@@ -729,6 +759,7 @@ export class TrackingRepository {
           accurate.trackingStatus,
           lastRecordedAt,
           accurate.gpsStatus,
+          gpsQuality,
           tripId,
         ]
       );
@@ -827,6 +858,8 @@ export class TrackingRepository {
         conditions.push(`LOWER(ts.status) = LOWER($${idx})`);
         values.push(filters.status);
         idx++;
+      } else {
+        conditions.push(`ts.status NOT IN ('Cancelled')`);
       }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -838,8 +871,37 @@ export class TrackingRepository {
           TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS employee_name,
           e.avatar_url AS employee_avatar,
           COALESCE(fa.department, d.name, 'Operations') AS department,
-          COALESCE(fa.duty_type, 'Site Visit') AS duty_type,
-          COALESCE(fa.customer_site_name, 'Site') AS customer_site_name
+          CASE 
+            WHEN ts.is_permanent_field THEN 'Permanent Field'
+            ELSE COALESCE(fa.duty_type, 'Site Visit')
+          END AS duty_type,
+          COALESCE(fa.customer_site_name, 'Regular Field Duty') AS customer_site_name,
+          COALESCE(ts.gps_quality, 
+            CASE 
+              WHEN ts.raw_points_count = 0 THEN 'No GPS Data'
+              WHEN ts.accepted_points_count <= 1 THEN 'Insufficient GPS Data'
+              WHEN ts.unverified_distance_meters > 0 THEN 'GPS Gaps Detected'
+              WHEN ts.accepted_points_count >= 5 THEN 'Good GPS Data'
+              ELSE 'Partial GPS Data'
+            END
+          ) AS derived_gps_quality,
+          (
+            SELECT COALESCE(json_agg(json_build_object(
+              'id', cfa.id,
+              'employeeId', COALESCE(e.employee_id, cfa.employee_id::text),
+              'employeeName', TRIM(CONCAT(e.first_name, ' ', e.last_name)),
+              'department', COALESCE(cfa.department, d.name, 'Operations'),
+              'dutyType', cfa.duty_type,
+              'customerSiteName', cfa.customer_site_name,
+              'siteAddress', cfa.site_address,
+              'purpose', cfa.purpose,
+              'status', cfa.status
+            )), '[]'::json)
+            FROM public.field_duty_assignments cfa
+            WHERE (cfa.canonical_session_id = ts.id OR cfa.id = ts.assignment_id)
+              AND cfa.status NOT IN ('Archived', 'Cancelled')
+              AND cfa.customer_site_name NOT IN ('Regular Field Duty')
+          ) AS child_visits_json
         FROM public.field_trip_sessions ts
         LEFT JOIN public.employees e ON e.id = ts.employee_id
         LEFT JOIN public.departments d ON d.id = e.department_id
@@ -970,14 +1032,19 @@ export class TrackingRepository {
         `SELECT COUNT(*) FROM public.field_tracking_alerts WHERE status = 'Open'`
       );
       const totalKmRes = await query(
-        `SELECT COALESCE(SUM(total_km), 0) AS total_km FROM public.field_trip_sessions WHERE trip_start_time::date = CURRENT_DATE`
+        `SELECT COALESCE(SUM(total_km), 0) AS total_km FROM public.field_trip_sessions WHERE trip_start_time::date = CURRENT_DATE AND status != 'Cancelled'`
       );
-      const assignmentsRes = await query(
-        `SELECT COUNT(DISTINCT employee_id) FROM public.field_duty_assignments WHERE CURRENT_DATE >= start_date AND CURRENT_DATE <= end_date AND status <> 'Cancelled'`
+      // Unique field employees today: count distinct employees across active sessions or scheduled assignments (no duplicate counts for site visits)
+      const uniqueEmpsRes = await query(
+        `SELECT COUNT(DISTINCT emp_id) FROM (
+           SELECT employee_id AS emp_id FROM public.field_trip_sessions WHERE trip_start_time::date = CURRENT_DATE AND status != 'Cancelled'
+           UNION
+           SELECT employee_id AS emp_id FROM public.field_duty_assignments WHERE CURRENT_DATE >= start_date AND CURRENT_DATE <= end_date AND status NOT IN ('Cancelled', 'Archived')
+         ) u`
       );
 
       return {
-        fieldEmployeesToday: Number(assignmentsRes.rows[0]?.count || 0),
+        fieldEmployeesToday: Number(uniqueEmpsRes.rows[0]?.count || 0),
         currentlyTravelling: Number(activeRes.rows[0]?.count || 0),
         gpsIssues: Number(alertsRes.rows[0]?.count || 0),
         totalKmToday: Math.round(Number(totalKmRes.rows[0]?.total_km || 0) * 100) / 100,
@@ -998,7 +1065,8 @@ export class TrackingRepository {
   // --------------------------------------------------------------------------
   private mapTripRow(row: any, empInfo?: { uuid?: string; code: string; name: string; dept: string }): FieldTripSession {
     const isPastDay = row.trip_start_time && new Date(row.trip_start_time).toDateString() !== new Date().toDateString();
-    const effectiveStatus = (isPastDay && row.status === 'Active') ? 'Completed' : row.status;
+    // For past days with missing punch-out, status is 'Auto Closed' (never falsely claim Completed!)
+    const effectiveStatus = (isPastDay && row.status === 'Active') ? 'Auto Closed' : row.status;
 
     const accurate = deriveAccurateGpsStatus({
       tripStatus: effectiveStatus,
@@ -1006,14 +1074,25 @@ export class TrackingRepository {
       lastGpsUpdate: row.last_gps_update,
     });
 
+    const rawPoints = Number(row.raw_points_count) || 0;
+    const acceptedPoints = Number(row.accepted_points_count) || 0;
+    const unverifiedDist = Number(row.unverified_distance_meters) || 0;
+
+    const derivedQuality = row.derived_gps_quality || row.gps_quality || (
+      rawPoints === 0 ? 'No GPS Data' :
+      acceptedPoints <= 1 ? 'Insufficient GPS Data' :
+      unverifiedDist > 0 ? 'GPS Gaps Detected' :
+      acceptedPoints >= 5 ? 'Good GPS Data' : 'Partial GPS Data'
+    );
+
     return {
       id: row.id,
       assignmentId: row.assignment_id,
       employeeId: empInfo?.code || row.employee_code || row.employee_id,
       employeeName: empInfo?.name || row.employee_name || 'Staff',
       department: empInfo?.dept || row.department || 'Operations',
-      dutyType: row.duty_type || 'Site Visit',
-      customerSiteName: row.customer_site_name || 'Site',
+      dutyType: row.duty_type || (row.is_permanent_field ? 'Permanent Field' : 'Site Visit'),
+      customerSiteName: row.customer_site_name || 'Regular Field Duty',
       tripStartTime: row.trip_start_time,
       tripEndTime: row.trip_end_time,
       startLat: Number(row.start_lat),
@@ -1025,9 +1104,9 @@ export class TrackingRepository {
       totalKm: Number(row.total_km) || 0,
       recordedDistanceMeters: Number(row.recorded_distance_meters) || 0,
       roadMatchedDistanceMeters: row.road_matched_distance_meters ? Number(row.road_matched_distance_meters) : undefined,
-      unverifiedDistanceMeters: Number(row.unverified_distance_meters) || 0,
-      rawPointsCount: Number(row.raw_points_count) || 0,
-      acceptedPointsCount: Number(row.accepted_points_count) || 0,
+      unverifiedDistanceMeters: unverifiedDist,
+      rawPointsCount: rawPoints,
+      acceptedPointsCount: acceptedPoints,
       rejectedPointsCount: Number(row.rejected_points_count) || 0,
       status: effectiveStatus,
       isPermanentField: Boolean(row.is_permanent_field),
@@ -1035,9 +1114,13 @@ export class TrackingRepository {
       checkInTime: row.check_in_time,
       checkOutTime: row.check_out_time,
       locationPoints: [],
+      childVisits: Array.isArray(row.child_visits_json) ? row.child_visits_json : [],
+      childVisitsCount: Array.isArray(row.child_visits_json) ? row.child_visits_json.length : Number(row.child_visits_count || 0),
+      gpsQuality: derivedQuality,
       gpsStatus: accurate.gpsStatus,
       trackingStatus: accurate.trackingStatus,
       lastGpsUpdate: row.last_gps_update,
+      notes: row.notes,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

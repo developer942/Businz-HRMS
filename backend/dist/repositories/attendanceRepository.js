@@ -4,6 +4,7 @@ import { query, withTransaction } from '../config/database.js';
 import { employeeRepository } from './employeeRepository.js';
 import { shiftRepository } from './shiftRepository.js';
 import { toDeterministicUuid } from './trackingRepository.js';
+import { calculateHaversineMeters } from '../services/gpsAccuracyEngine.js';
 import { evaluateBackendShiftAttendance, calculateShiftDateTimes, toTimezoneWallClockDate, toDateStr, DEFAULT_COMPANY_TIMEZONE, resolveOvernightAttendanceSession, } from '../services/shiftAttendanceEngine.js';
 import { assertAttendanceTransition } from '../services/attendanceStateMachine.js';
 import { loadActiveLatePoliciesFromDb, resolveEffectiveLatePolicyForEmployee, countEmployeeMonthlyLateOccurrences, evaluateCheckInPunctualityAndPenalty, } from '../services/latePolicyService.js';
@@ -135,7 +136,7 @@ export class AttendanceRepository {
         const baseLocationAddress = (row.location_address && !isGenericPlaceholderLocation(row.location_address) ? row.location_address : '') ||
             (parsedNotes?.checkInLocation && !isGenericPlaceholderLocation(parsedNotes.checkInLocation) ? parsedNotes.checkInLocation : '') ||
             row.location_address ||
-            'Main Plant HQ';
+            '';
         const rawInCandidate = (!isGenericPlaceholderLocation(parsedNotes?.checkInLocation) && parsedNotes?.checkInLocation) ||
             (!isGenericPlaceholderLocation(row.check_in_location) && row.check_in_location) ||
             (!isGenericPlaceholderLocation(row.location_address) && row.location_address) ||
@@ -768,73 +769,97 @@ export class AttendanceRepository {
                 // Automatic GPS Tracking Session Start for Permanent Field Employees (Tracking Field)
                 if (isTrackingFieldWorker && savedRow?.id) {
                     try {
-                        const startLat = typeof params.locationLat === 'number' ? params.locationLat : 13.0827;
-                        const startLng = typeof params.locationLng === 'number' ? params.locationLng : 80.2707;
+                        const hasGps = typeof params.locationLat === 'number' && typeof params.locationLng === 'number';
+                        const startLat = hasGps ? params.locationLat : 13.0827;
+                        const startLng = hasGps ? params.locationLng : 80.2707;
                         const startAddr = resolvedInAddress || 'Starting Point (Field Duty)';
-                        const assignmentUuid = toDeterministicUuid(`perm-assign-${employee.id}-${targetShiftDate}`);
                         const tripUuid = toDeterministicUuid(`perm-trip-${savedRow.id}`);
                         const startPointUuid = toDeterministicUuid(`perm-pt-${savedRow.id}-start`);
-                        // 1. Ensure permanent field duty assignment exists
-                        await client.query(`INSERT INTO public.field_duty_assignments (
-                id, employee_id, department, duty_type, schedule_type,
-                start_date, end_date, start_time, end_time,
-                customer_site_name, site_address, purpose,
-                tracking_required, travel_km_required, attendance_type,
-                site_lat, site_lng, allowed_radius_meters, status, is_permanent_field
-              ) VALUES ($1, $2, $3, 'Permanent Field', 'One Day', $4::date, $4::date, '09:00', '18:00',
-                'Regular Field Duty', $5, 'Permanent Field Duty & GPS Tracking',
-                TRUE, TRUE, 'Flexible Field Check-in', $6, $7, 500, 'Active', TRUE)
-              ON CONFLICT (id) DO UPDATE SET status = 'Active', updated_at = NOW()`, [
-                            assignmentUuid,
-                            employee.id,
-                            employee.department_name || 'Field Operations',
-                            targetShiftDate,
-                            startAddr,
-                            startLat,
-                            startLng,
-                        ]);
-                        // 2. Ensure field trip session linked to attendance_record_id
-                        await client.query(`INSERT INTO public.field_trip_sessions (
-                id, assignment_id, employee_id, attendance_record_id, is_permanent_field,
-                trip_start_time, start_lat, start_lng, start_address,
-                total_km, recorded_distance_meters, road_matched_distance_meters, unverified_distance_meters,
-                status, tracking_status, gps_status, last_gps_update, raw_points_count, accepted_points_count, check_in_time
-              ) VALUES ($1, $2, $3, $4, TRUE,
-                $5, $6, $7, $8,
-                0.0, 0.0, 0.0, 0.0,
-                'Active', 'Travelling', $9, $5, 1, 1, $5)
-              ON CONFLICT (id) DO UPDATE SET
-                attendance_record_id = EXCLUDED.attendance_record_id,
-                status = 'Active',
-                tracking_status = 'Travelling',
-                last_gps_update = EXCLUDED.last_gps_update,
-                updated_at = NOW()`, [
-                            tripUuid,
-                            assignmentUuid,
-                            employee.id,
-                            savedRow.id,
-                            serverInstant.toISOString(),
-                            startLat,
-                            startLng,
-                            startAddr,
-                            typeof params.locationLat === 'number' ? 'GPS Active' : 'GPS Off',
-                        ]);
-                        // 3. Insert initial location point if GPS coordinates provided
-                        if (typeof params.locationLat === 'number' && typeof params.locationLng === 'number') {
+                        // 1. Check for any scheduled client/site visit for this employee today (do NOT create dummy assignments!)
+                        const assignedVisitRes = await client.query(`SELECT id FROM public.field_duty_assignments
+               WHERE employee_id = $1 AND start_date <= $2::date AND end_date >= $2::date
+                 AND status NOT IN ('Archived', 'Cancelled') AND is_permanent_field = FALSE
+               ORDER BY created_at ASC LIMIT 1`, [employee.id, targetShiftDate]);
+                        const assignedVisitId = assignedVisitRes.rows[0]?.id || null;
+                        // 2. Canonical Session Rule: Check if active session already exists for this employee
+                        const existingActive = await client.query(`SELECT id, raw_points_count, accepted_points_count FROM public.field_trip_sessions
+               WHERE employee_id = $1 AND status = 'Active' LIMIT 1`, [employee.id]);
+                        let canonicalTripId;
+                        const initialGpsQuality = hasGps ? 'Partial GPS Data' : 'No GPS Data';
+                        if (existingActive.rows.length > 0) {
+                            canonicalTripId = existingActive.rows[0].id;
+                            await client.query(`UPDATE public.field_trip_sessions SET
+                  attendance_record_id = $1,
+                  assignment_id = COALESCE(assignment_id, $2),
+                  check_in_time = COALESCE(check_in_time, $3),
+                  last_gps_update = NOW(),
+                  tracking_status = 'Travelling',
+                  gps_status = $4,
+                  gps_quality = CASE WHEN raw_points_count >= 2 THEN 'Good GPS Data' ELSE $5 END,
+                  updated_at = NOW()
+                 WHERE id = $6`, [
+                                savedRow.id,
+                                assignedVisitId,
+                                serverInstant.toISOString(),
+                                hasGps ? 'GPS Active' : 'GPS Off',
+                                initialGpsQuality,
+                                canonicalTripId,
+                            ]);
+                        }
+                        else {
+                            canonicalTripId = tripUuid;
+                            await client.query(`INSERT INTO public.field_trip_sessions (
+                  id, assignment_id, employee_id, attendance_record_id, is_permanent_field,
+                  trip_start_time, start_lat, start_lng, start_address,
+                  total_km, recorded_distance_meters, road_matched_distance_meters, unverified_distance_meters,
+                  status, tracking_status, gps_status, gps_quality, last_gps_update, raw_points_count, accepted_points_count, check_in_time
+                ) VALUES ($1, $2, $3, $4, TRUE,
+                  $5, $6, $7, $8,
+                  0.0, 0.0, 0.0, 0.0,
+                  'Active', 'Travelling', $9, $10, $5, $11, $11, $5)
+                ON CONFLICT (id) DO UPDATE SET
+                  attendance_record_id = EXCLUDED.attendance_record_id,
+                  status = 'Active',
+                  tracking_status = 'Travelling',
+                  gps_status = EXCLUDED.gps_status,
+                  last_gps_update = EXCLUDED.last_gps_update,
+                  updated_at = NOW()`, [
+                                canonicalTripId,
+                                assignedVisitId,
+                                employee.id,
+                                savedRow.id,
+                                serverInstant.toISOString(),
+                                startLat,
+                                startLng,
+                                startAddr,
+                                hasGps ? 'GPS Active' : 'GPS Off',
+                                initialGpsQuality,
+                                hasGps ? 1 : 0,
+                            ]);
+                        }
+                        // 3. Insert initial location point if valid GPS coordinates provided
+                        if (hasGps) {
                             await client.query(`INSERT INTO public.field_location_points (
                   id, trip_id, assignment_id, employee_id, recorded_at, latitude, longitude,
                   accuracy, speed, heading, distance_from_prev_meters, is_rejected, source
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, FALSE, 'face_punch_in')
                 ON CONFLICT (id) DO NOTHING`, [
                                 startPointUuid,
-                                tripUuid,
-                                assignmentUuid,
+                                canonicalTripId,
+                                assignedVisitId,
                                 employee.id,
                                 serverInstant.toISOString(),
                                 startLat,
                                 startLng,
                                 params.accuracyMeters ?? 15,
                             ]);
+                        }
+                        // 4. Link any scheduled customer visits to this canonical session as child visits
+                        if (assignedVisitId) {
+                            await client.query(`UPDATE public.field_duty_assignments
+                 SET canonical_session_id = $1, status = 'Active', updated_at = NOW()
+                 WHERE employee_id = $2 AND start_date <= $3::date AND end_date >= $3::date
+                   AND status NOT IN ('Archived', 'Cancelled') AND is_permanent_field = FALSE`, [canonicalTripId, employee.id, targetShiftDate]);
                         }
                     }
                     catch (trackingErr) {
@@ -980,10 +1005,10 @@ export class AttendanceRepository {
                         const endLng = typeof params.locationLng === 'number' ? params.locationLng : null;
                         const endAddr = resolvedOutAddress || 'Destination (Field Duty Completed)';
                         const outPointUuid = toDeterministicUuid(`perm-pt-${currentRow.id}-out`);
-                        // Find active trip session linked to this attendance record or active permanent trip for this employee
+                        // Find active trip session linked to this attendance record or active trip for this employee
                         const activeTripRes = await client.query(`SELECT id, assignment_id, total_km FROM public.field_trip_sessions
-               WHERE (attendance_record_id = $1 OR (employee_id = $2 AND status = 'Active' AND is_permanent_field = TRUE))
-               ORDER BY created_at DESC LIMIT 1`, [currentRow.id, employee.id]);
+               WHERE (attendance_record_id = $1 OR (employee_id = $2 AND status = 'Active'))
+               ORDER BY is_permanent_field DESC, created_at DESC LIMIT 1`, [currentRow.id, employee.id]);
                         if (activeTripRes.rows.length > 0) {
                             const activeTrip = activeTripRes.rows[0];
                             if (endLat !== null && endLng !== null) {
@@ -1002,20 +1027,53 @@ export class AttendanceRepository {
                                     params.accuracyMeters ?? 15,
                                 ]);
                             }
+                            // Recalculate authoritative distance and GPS Quality based on chronological GPS points
+                            const ptsRes = await client.query(`SELECT latitude, longitude, accuracy, recorded_at
+                 FROM public.field_location_points
+                 WHERE trip_id = $1 AND is_rejected = FALSE
+                 ORDER BY recorded_at ASC`, [activeTrip.id]);
+                            const pts = ptsRes.rows;
+                            let calculatedKm = 0.0;
+                            let quality = 'No GPS Data';
+                            if (pts.length === 0) {
+                                quality = 'No GPS Data';
+                            }
+                            else if (pts.length === 1) {
+                                quality = 'Insufficient GPS Data';
+                            }
+                            else {
+                                quality = pts.length >= 5 ? 'Good GPS Data' : 'Partial GPS Data';
+                                for (let i = 1; i < pts.length; i++) {
+                                    const d = calculateHaversineMeters(Number(pts[i - 1].latitude), Number(pts[i - 1].longitude), Number(pts[i].latitude), Number(pts[i].longitude));
+                                    if (d >= 15 && d <= 50000) {
+                                        calculatedKm += d / 1000.0;
+                                    }
+                                }
+                            }
+                            calculatedKm = Math.round(calculatedKm * 100) / 100;
                             await client.query(`UPDATE public.field_trip_sessions
                  SET end_lat = COALESCE($1, end_lat, start_lat),
                      end_lng = COALESCE($2, end_lng, start_lng),
                      end_address = $3,
                      trip_end_time = $4,
                      check_out_time = $4,
+                     total_km = GREATEST(total_km, $5),
+                     recorded_distance_meters = GREATEST(recorded_distance_meters, $5 * 1000),
+                     gps_quality = $6,
+                     raw_points_count = $7,
+                     accepted_points_count = $7,
                      status = 'Completed',
                      tracking_status = 'Completed',
+                     gps_status = 'GPS Off',
                      updated_at = NOW()
-                 WHERE id = $5`, [
+                 WHERE id = $8`, [
                                 endLat,
                                 endLng,
                                 endAddr,
                                 serverInstant.toISOString(),
+                                calculatedKm,
+                                quality,
+                                pts.length,
                                 activeTrip.id,
                             ]);
                             if (activeTrip.assignment_id) {

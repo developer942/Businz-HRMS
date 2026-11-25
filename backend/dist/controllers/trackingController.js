@@ -15,6 +15,25 @@ const canViewAllTracking = (req) => {
     const role = String(req.user?.role || '').trim().toLowerCase();
     return ADMIN_TRACKING_ROLES.has(role);
 };
+async function callerOwnsTrip(req, tripId) {
+    if (canViewAllTracking(req))
+        return true;
+    const employeeId = req.user?.employeeId || req.user?.id;
+    if (!employeeId)
+        return false;
+    const trips = await trackingRepository.getTrips({ employeeId });
+    return trips.some((trip) => String(trip.id) === String(tripId));
+}
+function denyTrackingAccess(res) {
+    res.status(403).json({
+        success: false,
+        error: {
+            code: 'FORBIDDEN',
+            message: 'You can only access your own authorized tracking session.',
+            details: [],
+        },
+    });
+}
 export const getAssignments = async (req, res, next) => {
     try {
         const { date, status, employeeId } = req.query;
@@ -119,6 +138,14 @@ export const startTrip = async (req, res, next) => {
             });
             return;
         }
+        if (!canViewAllTracking(req)) {
+            const assignments = await trackingRepository.getAssignments({ employeeId: targetEmpId });
+            const ownsAssignment = assignments.some((assignment) => String(assignment.id) === String(validated.assignmentId));
+            if (!ownsAssignment) {
+                denyTrackingAccess(res);
+                return;
+            }
+        }
         const trip = await trackingRepository.startTrip({
             tripId: validated.tripId,
             assignmentId: validated.assignmentId,
@@ -144,11 +171,21 @@ export const recordLocationPoints = async (req, res, next) => {
     try {
         const validated = locationPointsSchema.parse(req.body);
         const rawPoints = Array.isArray(validated) ? validated : [validated];
+        if (!canViewAllTracking(req)) {
+            const tripIds = [...new Set(rawPoints.map((point) => point.tripId))];
+            const ownership = await Promise.all(tripIds.map((tripId) => callerOwnsTrip(req, tripId)));
+            if (ownership.some((ownsTrip) => !ownsTrip)) {
+                denyTrackingAccess(res);
+                return;
+            }
+        }
         const points = rawPoints.map((p, idx) => ({
             id: p.id || `lp-${Date.now()}-${idx}`,
             tripId: p.tripId,
             assignmentId: p.assignmentId || '',
-            employeeId: p.employeeId || req.user?.employeeId || '',
+            employeeId: canViewAllTracking(req)
+                ? (p.employeeId || req.user?.employeeId || '')
+                : (req.user?.employeeId || req.user?.id || ''),
             recordedAt: p.recordedAt || p.timestamp || new Date().toISOString(),
             latitude: p.latitude,
             longitude: p.longitude,
@@ -183,6 +220,10 @@ export const endTrip = async (req, res, next) => {
     try {
         const id = String(req.params.id);
         const validated = endTripSchema.parse(req.body);
+        if (!(await callerOwnsTrip(req, id))) {
+            denyTrackingAccess(res);
+            return;
+        }
         const completed = await trackingRepository.endTrip(id, validated.endLat, validated.endLng, validated.endAddress, validated.totalKm);
         if (!completed) {
             res.status(404).json({
@@ -230,6 +271,10 @@ export const getTrips = async (req, res, next) => {
 export const getTripLocationPoints = async (req, res, next) => {
     try {
         const tripId = String(req.params.tripId);
+        if (!(await callerOwnsTrip(req, tripId))) {
+            denyTrackingAccess(res);
+            return;
+        }
         const points = await trackingRepository.getTripLocationPoints(tripId);
         res.status(200).json({
             success: true,

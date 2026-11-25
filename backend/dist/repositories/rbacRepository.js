@@ -172,6 +172,9 @@ export class RbacRepository {
             else if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'reports', 'documents', 'notifications', 'dashboard', 'customer_data', 'whatsapp_crm'].includes(m.key)) {
                 hrModules[m.key] = [...ALL_ACTIONS];
             }
+            else if (m.key === 'assets') {
+                hrModules[m.key] = ['view', 'create', 'edit', 'export'];
+            }
             else {
                 hrModules[m.key] = ['view'];
             }
@@ -243,6 +246,7 @@ export class RbacRepository {
             notifications: ['view'],
             customer_data: [...ALL_ACTIONS],
             whatsapp_crm: [...ALL_ACTIONS],
+            assets: ['view'],
         };
         this.permissionsByRole['role-manager'] = {
             roleId: 'role-manager',
@@ -275,6 +279,7 @@ export class RbacRepository {
             notifications: ['view'],
             customer_data: [...ALL_ACTIONS],
             whatsapp_crm: [...ALL_ACTIONS],
+            assets: ['view'],
         };
         this.permissionsByRole['role-team-leader'] = {
             roleId: 'role-team-leader',
@@ -304,6 +309,7 @@ export class RbacRepository {
             notifications: ['view'],
             customer_data: [...ALL_ACTIONS],
             whatsapp_crm: [...ALL_ACTIONS],
+            assets: ['view'],
         };
         this.permissionsByRole['role-employee'] = {
             roleId: 'role-employee',

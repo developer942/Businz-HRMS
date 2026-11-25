@@ -24,12 +24,24 @@ export type AssignmentStatus =
   | 'Scheduled' 
   | 'Active' 
   | 'Completed' 
+  | 'Archived'
   | 'Cancelled';
 
 export type TripStatus = 
   | 'Active' 
   | 'Completed' 
+  | 'Auto Closed'
+  | 'Attendance Review Required'
   | 'Cancelled';
+
+export type GpsDataQuality = 
+  | 'Good GPS Data'
+  | 'Partial GPS Data'
+  | 'Insufficient GPS Data'
+  | 'No GPS Data'
+  | 'GPS Gaps Detected'
+  | 'Verified' 
+  | 'Partial (Gaps Detected)';
 
 export type GpsStatus = 
   | 'GPS Active'
@@ -54,6 +66,7 @@ export type TrackingStatus =
   | 'Stopped'
   | 'Arrived at destination'
   | 'Active'
+  | 'Merged into canonical session'
   | 'Offline'
   | 'Stale Location'
   | 'Stationary (Stale)'
@@ -204,6 +217,10 @@ export interface FieldTripSession {
   routeGeometry?: string;
   isPermanentField?: boolean;
   attendanceRecordId?: string;
+  gpsQuality?: GpsDataQuality | string;
+  childVisitsCount?: number;
+  childVisits?: FieldAssignment[];
+  notes?: string;
   status: TripStatus;
   checkInTime?: string;
   checkOutTime?: string;

@@ -123,21 +123,22 @@ export function validateLocationPoint(curr, prevAccepted) {
         };
     }
     // 5. Stationary Drift Suppression
-    // Suppress jitter < 8m (or < 14m when accuracy > 35m), without blocking movement after long stops
+    // Suppress jitter < 8m (or < 14m when accuracy > 35m).
+    // CRITICAL: Point IS ACCEPTED as a valid device heartbeat, but accumulates 0 meters.
+    // This updates last_gps_update, reflects Stationary status, and prevents stale timeouts without false KM.
     const declaredSpeed = curr.speed ?? 0;
     const effectiveSpeedKmh = timeDeltaSeconds > 0 ? (distanceMeters / timeDeltaSeconds) * 3.6 : declaredSpeed;
     const minMovementMeters = accuracy > 35 ? Math.max(14, Math.min(25, accuracy * 0.35)) : 8;
     if (distanceMeters < minMovementMeters) {
         return {
-            accepted: false,
-            rejectionReason: `Stationary GPS drift (${distanceMeters.toFixed(1)}m < ${Math.round(minMovementMeters)}m)`,
+            accepted: true,
             distanceFromPrevMeters: 0,
             timeDeltaSeconds,
-            calculatedSpeedKmh: Math.round(effectiveSpeedKmh * 10) / 10,
+            calculatedSpeedKmh: 0,
             isStationary: true,
             isGap: false,
             gapDurationSeconds: 0,
-            qualityFlag: 'rejected',
+            qualityFlag,
         };
     }
     // 6. Jump & Impossible Speed Filter (> 140 km/h over short intervals or > 50 km jump)
@@ -384,5 +385,50 @@ export function calculateBackendRouteMetrics(points, tripEndTime) {
         gpsDataQuality,
         segments,
     };
+}
+/**
+ * Derives accurate GPS status and tracking status based on real telemetry, elapsed time, and session state.
+ * Never displays 'GPS Active' when last GPS update occurred hours ago.
+ */
+export function deriveAccurateGpsStatus(params) {
+    const normStatus = String(params.tripStatus || '').trim().toLowerCase();
+    if (normStatus === 'completed') {
+        return { gpsStatus: 'Completed', trackingStatus: 'Completed' };
+    }
+    if (normStatus === 'cancelled' || normStatus === 'stopped') {
+        return { gpsStatus: 'Tracking Stopped', trackingStatus: 'Tracking Stopped' };
+    }
+    if (params.deviceError === 'PERMISSION_DENIED') {
+        return { gpsStatus: 'Permission Denied', trackingStatus: 'Permission Denied' };
+    }
+    if (params.deviceError === 'POSITION_UNAVAILABLE' || params.deviceError === 'GPS_DISABLED') {
+        return { gpsStatus: 'GPS Disabled', trackingStatus: 'GPS Disabled' };
+    }
+    if (!params.lastGpsUpdate) {
+        return { gpsStatus: 'Offline', trackingStatus: 'Pending GPS Fix' };
+    }
+    const elapsedMs = Date.now() - new Date(params.lastGpsUpdate).getTime();
+    const elapsedMinutes = elapsedMs / (1000 * 60);
+    // If last update was > 45 minutes ago: Offline
+    if (elapsedMinutes >= 45) {
+        return { gpsStatus: 'Offline', trackingStatus: 'Offline' };
+    }
+    // If last update was 15 - 45 minutes ago: Stale Location
+    if (elapsedMinutes >= 15) {
+        return { gpsStatus: 'Stale Location', trackingStatus: 'Stationary (Stale)' };
+    }
+    // If last update was 5 - 15 minutes ago, or accuracy > 45m: GPS Weak
+    if (elapsedMinutes >= 5 || (params.accuracyMeters && params.accuracyMeters > 45)) {
+        return { gpsStatus: 'GPS Weak', trackingStatus: params.trackingStatus || 'Stationary' };
+    }
+    // Fresh fix (< 5 minutes)
+    const speed = params.speedKmh ?? 0;
+    if (speed > 3 || params.trackingStatus === 'Travelling') {
+        return { gpsStatus: 'Travelling', trackingStatus: 'Travelling' };
+    }
+    if (params.trackingStatus === 'Arrived at destination') {
+        return { gpsStatus: 'Active', trackingStatus: 'Arrived at destination' };
+    }
+    return { gpsStatus: 'Stationary', trackingStatus: 'Stationary' };
 }
 //# sourceMappingURL=gpsAccuracyEngine.js.map
