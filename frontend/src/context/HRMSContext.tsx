@@ -1,4 +1,7 @@
 import { mapToCanonicalEmploymentType } from '../utils/employmentTypeUtils';
+import { notificationToastManager } from '../utils/notificationToastManager';
+import { notificationService } from '../services/notificationService';
+import { resolveApproversForRequest } from '../utils/approvalRoutingUtils';
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, ReactNode } from 'react';
 import {
   Role,
@@ -2700,23 +2703,38 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setMissedPunchRequests(prev => [newReq, ...prev]);
 
-    // 1. Notify approvers (CEO & HR) across accounts on their own login
+    // 1. Resolve designated approver(s) using reporting hierarchy & approval rules
+    const applicantEmp = employees.find(e => e.employeeId === req.employeeId || e.id === req.employeeId);
+    const approvers = resolveApproversForRequest({
+      employee: applicantEmp,
+      module: 'attendance',
+      stage: 1,
+      allEmployees: employees
+    });
+
     pushSharedNotification({
       title: 'Missed Punch Request',
       message: `${req.employeeName} (${req.employeeId}) submitted a ${req.requestType} for ${formatDateDDMMYYYY(req.date)}.`,
       priority: 'Important',
       category: 'Attendance',
       link: 'attendance',
-      targetRoles: ['CEO', 'HR']
+      module: 'attendance',
+      recordId: newReq.id,
+      eventType: 'SUBMITTED',
+      actionRequired: true,
+      actionStatus: 'Pending',
+      targetEmployeeIds: approvers.targetEmployeeIds,
+      targetRoles: approvers.targetRoles,
+      metadata: { date: req.date, requestType: req.requestType }
     });
 
-    // 2. Local feedback for applicant
-    addNotification({
+    // 2. Ephemeral toast feedback for applicant
+    notificationToastManager.showToast({
+      id: `toast-${Date.now()}`,
       title: 'Missed Punch Request Submitted',
-      message: `Your ${req.requestType} for ${formatDateDDMMYYYY(req.date)} was submitted to HR & CEO for review.`,
+      message: `Your ${req.requestType} for ${formatDateDDMMYYYY(req.date)} was submitted for review (${approvers.approverDescription}).`,
       priority: 'Normal',
-      category: 'Attendance',
-      link: 'attendance'
+      category: 'Attendance'
     });
     return { success: true, message: 'Attendance correction request submitted successfully.' };
   };
@@ -2877,21 +2895,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       timestamp: `${dateStr} ${timeStr}`
     }, ...prev]);
 
+    // Mark pending action notification as handled
+    notificationService.markActionHandled('attendance', id).catch(() => {});
+
     pushSharedNotification({
       title: 'Missed Punch Approved',
       message: `Your ${target.requestType} request for ${formatDateDDMMYYYY(target.date)} was approved by ${reviewedBy}. Check-In: ${targetCheckIn}, Check-Out: ${targetCheckOut}.`,
       priority: 'Normal',
       category: 'Attendance',
       link: 'attendance',
+      module: 'attendance',
+      recordId: target.id,
+      eventType: 'APPROVED',
+      actionRequired: false,
       targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
-    });
-
-    addNotification({
-      title: 'Correction Approved',
-      message: `Attendance request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was approved.`,
-      priority: 'Normal',
-      category: 'Attendance',
-      link: 'attendance'
     });
   };
 
@@ -2899,7 +2916,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const target = missedPunchRequests.find(r => r.id === id);
     if (!target) return;
     if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
-      addNotification({
+      notificationToastManager.showToast({
+        id: `toast-err-${Date.now()}`,
         title: 'CEO Approval Required',
         message: 'HR staff requests can be rejected only by CEO.',
         priority: 'Important',
@@ -2916,6 +2934,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       hrRemarks: remarks || 'Rejected by HR/CEO'
     } : r));
 
+    // Mark pending action notification as handled
+    notificationService.markActionHandled('attendance', id).catch(() => {});
+
     const targetEmpObj = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
     pushSharedNotification({
       title: 'Missed Punch Rejected',
@@ -2923,15 +2944,11 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       priority: 'Urgent',
       category: 'Attendance',
       link: 'attendance',
+      module: 'attendance',
+      recordId: target.id,
+      eventType: 'REJECTED',
+      actionRequired: false,
       targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
-    });
-
-    addNotification({
-      title: 'Correction Rejected',
-      message: `Correction request for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} was rejected.`,
-      priority: 'Urgent',
-      category: 'Attendance',
-      link: 'attendance'
     });
   };
 
@@ -3086,21 +3103,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       timestamp: `${dateStr} ${timeStr}`
     }, ...prev]);
 
+    // Mark pending action notification as handled
+    notificationService.markActionHandled('attendance', id).catch(() => {});
+
     pushSharedNotification({
       title: 'Missed Punch Adjusted & Approved',
       message: `Your ${target.requestType} request for ${formatDateDDMMYYYY(target.date)} was adjusted and approved by ${reviewedBy}. Adjusted: ${adjustedCheckIn} - ${adjustedCheckOut}.`,
       priority: 'Normal',
       category: 'Attendance',
       link: 'attendance',
+      module: 'attendance',
+      recordId: target.id,
+      eventType: 'APPROVED',
+      actionRequired: false,
       targetEmployeeIds: [target.employeeId, target.employeeName, targetEmpObj?.id, targetEmpObj?.email].filter(Boolean) as string[]
-    });
-
-    addNotification({
-      title: 'Correction Adjusted & Approved',
-      message: `Attendance for ${target.employeeName} on ${formatDateDDMMYYYY(target.date)} adjusted to ${adjustedCheckIn} - ${adjustedCheckOut}.`,
-      priority: 'Normal',
-      category: 'Attendance',
-      link: 'attendance'
     });
   };
 
@@ -4351,23 +4367,77 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  /** Deliver a notification to other users (by audience role and/or employee ID) */
+  /** Deliver an enterprise notification with deduplication, PostgreSQL persistence, and cross-tab coordination */
   const pushSharedNotification = (
-    note: Omit<NotificationItem, 'id' | 'timestamp' | 'read' | 'createdAt' | 'readBy' | 'senderKey'>
+    note: Omit<NotificationItem, 'id' | 'timestamp' | 'read' | 'createdAt' | 'readBy' | 'senderKey'> & { id?: string }
   ) => {
+    const companyId = currentUser?.company_id || currentUser?.companyId || 'company-a';
+    const cleanTitle = (note.title || '').replace(/⚠️\s*/g, '').trim();
+    const cleanMessage = (note.message || '').replace(/⚠️\s*/g, '').trim();
+    const myKeys = getUserNotificationKeys();
+    const senderKey = myKeys[0] || '';
+
+    // Generate stable deduplication key if none provided
+    const dedupKey = note.dedupKey || [
+      companyId,
+      note.module || note.link || 'system',
+      note.recordId || 'event',
+      cleanTitle,
+      (note.targetEmployeeIds || []).sort().join(',') || (note.targetRoles || []).sort().join(',')
+    ].join(':');
+
+    const noteId = note.id || `SN-${Math.abs(dedupKey.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0))}-${Date.now()}`;
+
     const newNote: NotificationItem = {
       ...note,
-      title: (note.title || '').replace(/⚠️\s*/g, '').trim(),
-      message: (note.message || '').replace(/⚠️\s*/g, '').trim(),
-      id: `SN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: noteId,
+      title: cleanTitle,
+      message: cleanMessage,
       timestamp: 'Just now',
       read: false,
       createdAt: new Date().toISOString(),
-      senderKey: getUserNotificationKeys()[0] || '',
-      readBy: []
+      senderKey,
+      readBy: [],
+      dedupKey,
+      actionRequired: Boolean(note.actionRequired),
+      actionStatus: note.actionStatus || (note.actionRequired ? 'Pending' : 'None'),
     };
-    setSharedNotifications(prev => [newNote, ...prev]);
+
+    // 1. Optimistic local state update (avoid duplicate id or dedupKey)
+    setSharedNotifications(prev => {
+      if (prev.some(n => n.id === newNote.id || (n.dedupKey && n.dedupKey === newNote.dedupKey))) {
+        return prev;
+      }
+      return [newNote, ...prev];
+    });
+
+    // 2. Persist to PostgreSQL backend via notificationService
+    notificationService.createNotification({
+      title: newNote.title,
+      message: newNote.message,
+      priority: newNote.priority,
+      category: newNote.category,
+      link: newNote.link,
+      module: newNote.module,
+      recordId: newNote.recordId,
+      dedupKey: newNote.dedupKey,
+      actionRequired: newNote.actionRequired,
+      targetRoles: newNote.targetRoles,
+      targetEmployeeIds: newNote.targetEmployeeIds,
+      metadata: newNote.metadata,
+    }).catch(() => {});
+
+    // 3. Fallback save to company_settings for backward compatibility
     persistSharedNotifications([newNote]);
+
+    // 4. Trigger deduplicated ephemeral toast only if intended for current user and not seen
+    if (isSharedNotificationForMe(newNote)) {
+      notificationToastManager.handleIncomingNotification(newNote, currentUser?.id, (link) => {
+        if (link && typeof setActiveModule === 'function') {
+          setActiveModule(link as any);
+        }
+      });
+    }
   };
 
   const getReadNotifStorageKey = () => {
@@ -4411,6 +4481,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const markNotificationRead = (id: string) => {
     savePersistedReadNotifIds([id]);
+    notificationService.markAsRead(id).catch(() => {});
     const shared = sharedNotifications.find(n => n.id === id);
     if (shared) {
       const myKeys = getUserNotificationKeys();
@@ -4428,6 +4499,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const markAllNotificationsRead = () => {
+    notificationService.markAllAsRead().catch(() => {});
     const localIds = notifications.map(n => n.id);
     const sharedForMe = sharedNotifications.filter(isSharedNotificationForMe);
     savePersistedReadNotifIds([...localIds, ...sharedForMe.map(n => n.id)]);
@@ -4536,7 +4608,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         markModuleNotificationsRead(activeModule);
       }
     }
-  }, [activeModule, sharedNotifications.length, notifications.length]);
+  }, [activeModule]);
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>(INITIAL_DEPTS);
   const [designations, setDesignations] = useState<DesignationItem[]>([]);
@@ -4605,16 +4677,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [orgStructure, setOrgStructure] = useState<OrganizationStructure>(INITIAL_ORG_STRUCTURE);
 
   const triggerToast = (message: string) => {
-    const newNote: NotificationItem = {
-      id: `nt-${Date.now()}`,
-      title: 'Policy Engine Notification',
-      message,
-      timestamp: 'Just now',
+    notificationToastManager.showToast({
+      id: `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: 'HRMS Notification',
+      message: (message || '').replace(/⚠️\s*/g, '').trim(),
       priority: 'Normal',
-      category: 'Payroll',
-      read: false
-    };
-    setNotifications(prev => [newNote, ...prev]);
+      category: 'System',
+    });
   };
 
   const [masterAttendancePolicies, setMasterAttendancePolicies] = useState<AttendancePolicy[]>(() => {
@@ -5223,11 +5292,36 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
       return updated;
     });
-    addNotification({
+    const applicantEmp = employees.find(e => e.employeeId === requestData.employeeId || e.id === requestData.employeeId);
+    const approvers = resolveApproversForRequest({
+      employee: applicantEmp,
+      module: 'advance_salary',
+      stage: 1,
+      allEmployees: employees
+    });
+
+    pushSharedNotification({
       title: 'New Advance / Loan Request',
-      message: `${requestData.employeeName} submitted a request for ${formatCurrency(requestData.requestedAmount)} (${months} ${months === 1 ? 'month' : 'months'}).`,
+      message: `${requestData.employeeName} (${requestData.employeeId}) requested an advance salary of ${formatCurrency(requestData.requestedAmount)} (${months} ${months === 1 ? 'month' : 'months'}). Reason: ${requestData.purpose}`,
       priority: 'Important',
-      category: 'Payroll'
+      category: 'Advance Salary',
+      link: 'advance_salary',
+      module: 'advance_salary',
+      recordId: loanId,
+      eventType: 'SUBMITTED',
+      actionRequired: true,
+      actionStatus: 'Pending',
+      targetEmployeeIds: approvers.targetEmployeeIds,
+      targetRoles: approvers.targetRoles,
+      metadata: { amount: requestData.requestedAmount, months }
+    });
+
+    notificationToastManager.showToast({
+      id: `toast-${Date.now()}`,
+      title: 'Advance Salary Requested',
+      message: `Your request for ${formatCurrency(requestData.requestedAmount)} has been submitted for approval (${approvers.approverDescription}).`,
+      priority: 'Normal',
+      category: 'Advance Salary'
     });
 
     return { success: true, message: 'Advance Salary / Loan request submitted successfully.', loanId };
@@ -8634,7 +8728,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
     }
 
-    // 1. Notify approvers (CEO & HR) across accounts on their own login
+    // 1. Resolve designated approver(s) using reporting hierarchy & approval rules
+    const approvers = resolveApproversForRequest({
+      employee: emp,
+      module: 'leaves',
+      stage: 1,
+      allEmployees: employees
+    });
+
     pushSharedNotification({
       title: isWfh ? 'New Work From Home Request' : 'New Leave Request',
       message: isWfh
@@ -8643,16 +8744,23 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       priority: 'Important',
       category: 'Leave',
       link: 'leaves',
-      targetRoles: ['CEO', 'HR']
+      module: 'leaves',
+      recordId: tempLeaveId,
+      eventType: 'SUBMITTED',
+      actionRequired: true,
+      actionStatus: 'Pending',
+      targetEmployeeIds: approvers.targetEmployeeIds,
+      targetRoles: approvers.targetRoles,
+      metadata: { startDate: safeStartDate, endDate: safeEndDate, daysCount: finalDaysCount, isWfh }
     });
 
-    // 2. Local feedback for applicant
-    addNotification({
+    // 2. Ephemeral toast feedback for applicant
+    notificationToastManager.showToast({
+      id: `toast-${Date.now()}`,
       title: isWfh ? 'Work From Home Request Submitted' : 'Leave Request Submitted',
-      message: `Your request (${safeStartDate} to ${safeEndDate}) has been submitted and is pending HR / CEO review.`,
+      message: `Your request (${safeStartDate} to ${safeEndDate}) has been submitted for approval (${approvers.approverDescription}).`,
       priority: 'Normal',
-      category: 'Leave',
-      link: 'leaves'
+      category: 'Leave'
     });
   };
 
@@ -8814,13 +8922,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.updateLeaveRequestStatus(id, 'Approved', approvedBy, comment);
     }
 
-    // 1. Notify strictly and ONLY the employee who applied (targeted to their employee ID & name)
+    // Mark pending action notification as handled so it clears from approver's action required list
+    notificationService.markActionHandled('leaves', id).catch(() => {});
+
+    // Notify strictly and ONLY the employee who applied
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Approved' : 'Leave Request Approved',
       message: `Your ${target.leaveType} request (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}) was approved by ${approvedBy}.${comment ? ` Remarks: ${comment}` : ''} Attendance updated.`,
       priority: 'Normal',
       category: 'Leave',
       link: 'leaves',
+      module: 'leaves',
+      recordId: target.id,
+      eventType: 'APPROVED',
+      actionRequired: false,
       targetEmployeeIds: [target.employeeId, target.employeeName].filter(Boolean) as string[]
     });
   };
@@ -8829,7 +8944,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const target = leaveRequests.find(l => l.id === id);
     if (!target) return;
     if (!canCurrentUserApproveRequests({ employeeId: target.employeeId, employeeName: target.employeeName })) {
-      addNotification({
+      notificationToastManager.showToast({
+        id: `toast-err-${Date.now()}`,
         title: 'CEO Approval Required',
         message: 'HR staff requests can be rejected only by CEO.',
         priority: 'Important',
@@ -8867,13 +8983,20 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseDirect.updateLeaveRequestStatus(id, 'Rejected', approvedBy, comment);
     }
 
-    // 1. Notify strictly and ONLY the employee who applied (targeted to their employee ID & name)
+    // Mark pending action notification as handled
+    notificationService.markActionHandled('leaves', id).catch(() => {});
+
+    // Notify employee with rejection reason
     pushSharedNotification({
       title: target.leaveType === 'Work From Home' ? 'Work From Home Declined' : 'Leave Request Rejected',
       message: `Your ${target.leaveType} request (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}) was rejected by ${approvedBy}.${comment ? ` Reason: ${comment}` : ''}`,
       priority: 'Urgent',
       category: 'Leave',
       link: 'leaves',
+      module: 'leaves',
+      recordId: target.id,
+      eventType: 'REJECTED',
+      actionRequired: false,
       targetEmployeeIds: [target.employeeId, target.employeeName].filter(Boolean) as string[]
     });
   };
@@ -8921,11 +9044,30 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       reason: reason || `Leave request removed/deleted by ${currentUser.name || currentUser.role}.`
     });
 
-    addNotification({
-      title: 'Leave Request Removed',
-      message: `${target.employeeName}'s ${target.leaveType} request was removed.`,
+    // Mark pending action notification as handled
+    notificationService.markActionHandled('leaves', id).catch(() => {});
+
+    // Notify approver that request is withdrawn
+    const applicantEmp = employees.find(e => e.employeeId === target.employeeId || e.id === target.employeeId);
+    const approvers = resolveApproversForRequest({
+      employee: applicantEmp,
+      module: 'leaves',
+      stage: 1,
+      allEmployees: employees
+    });
+
+    pushSharedNotification({
+      title: 'Leave Request Withdrawn',
+      message: `${target.employeeName} (${target.employeeId}) cancelled their ${target.leaveType} application (${formatDateDDMMYYYY(target.startDate)} to ${formatDateDDMMYYYY(target.endDate)}). Action no longer required.`,
       priority: 'Normal',
-      category: 'Leave'
+      category: 'Leave',
+      link: 'leaves',
+      module: 'leaves',
+      recordId: target.id,
+      eventType: 'CANCELLED',
+      actionRequired: false,
+      targetEmployeeIds: approvers.targetEmployeeIds,
+      targetRoles: approvers.targetRoles
     });
 
     return true;
@@ -13556,6 +13698,8 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           title: (n.title || '').replace(/⚠️\s*/g, '').trim(),
           message: (n.message || '').replace(/⚠️\s*/g, '').trim()
         }));
+        // Prime backlog immediately so existing notifications never replay as toasts
+        notificationToastManager.primeBacklog(cloudNotes);
         setSharedNotifications(prev => {
           const cloudIds = new Set(cloudNotes.map(n => n.id));
           const recentCutoff = Date.now() - 2 * 60 * 1000;
@@ -13570,6 +13714,19 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
           return [...localOnly, ...merged];
         });
       }
+
+      // Live PostgreSQL notifications background synchronization
+      notificationService.getNotifications().then(backendRes => {
+        if (backendRes?.data && backendRes.data.length > 0) {
+          notificationToastManager.primeBacklog(backendRes.data);
+          setSharedNotifications(prev => {
+            const existingIds = new Set(prev.map(n => n.id));
+            const newFromDb = backendRes.data.filter(n => !existingIds.has(n.id));
+            if (newFromDb.length === 0) return prev;
+            return [...newFromDb, ...prev];
+          });
+        }
+      }).catch(() => {});
 
       if (Array.isArray(settings.holiday_policies_data) && hasSliceChanged('holiday_policies', settings.holiday_policies_data)) {
         setHolidayPolicies(settings.holiday_policies_data);

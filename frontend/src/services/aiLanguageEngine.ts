@@ -560,7 +560,7 @@ export function normalizeIntent(
     return 'FILTER_CURRENT_RESULT';
   }
 
-  // Early punch-out (Attendance Management "Early Punch Out" report)
+  // Early punch-out (Attendance Report "Early Punch Out" report)
   if (
     /\b(early\s*-?\s*(punch|check|clock)?\s*-?\s*out|early\s*(leave|leaving|go|going|exit)|munnadi\s*(poitanga|poga|poitu)|munnadiye\s*(poitanga|poga))\b/i.test(lower) &&
     !/\b(policy|policies|rule|rules)\b/i.test(lower)

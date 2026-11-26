@@ -19,41 +19,41 @@ crmRouter.post('/webhook', (req, res) => crmWebhookController.handleWebhookPaylo
 // ============================================================
 crmRouter.use(authenticateToken);
 // 1. Health & Analytics
-crmRouter.get('/health', requirePermission('customer_data', 'view'), (req, res) => crmController.getHealth(req, res));
-crmRouter.get('/analytics', requirePermission('customer_data', 'view'), (req, res) => crmController.getAnalytics(req, res));
+crmRouter.get('/health', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getHealth(req, res));
+crmRouter.get('/analytics', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getAnalytics(req, res));
 // 2. Contacts
-crmRouter.get('/contacts', requirePermission('customer_data', 'view'), (req, res) => crmController.getContacts(req, res));
-crmRouter.get('/contacts/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getContactById(req, res));
-crmRouter.get('/contacts/:id/marketing-restriction', requirePermission('customer_data', 'view'), (req, res) => crmController.getContactMarketingRestriction(req, res));
-crmRouter.post('/contacts', requirePermission('customer_data', 'create'), (req, res) => crmController.upsertContact(req, res));
-crmRouter.post('/contacts/:id/avatar', requirePermission('customer_data', 'edit'), (req, res) => crmController.updateContactAvatar(req, res));
-crmRouter.post('/contacts/:id/consent', requirePermission('customer_data', 'edit'), (req, res) => crmController.recordConsent(req, res));
-crmRouter.delete('/contacts/:id', requirePermission('customer_data', 'delete'), (req, res) => crmController.deleteContact(req, res));
-crmRouter.post('/contacts/:id/tags', requirePermission('customer_data', 'edit'), (req, res) => crmController.assignTag(req, res));
-crmRouter.delete('/contacts/:id/tags/:tagId', requirePermission('customer_data', 'edit'), (req, res) => crmController.removeTag(req, res));
+crmRouter.get('/contacts', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getContacts(req, res));
+crmRouter.get('/contacts/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getContactById(req, res));
+crmRouter.get('/contacts/:id/marketing-restriction', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getContactMarketingRestriction(req, res));
+crmRouter.post('/contacts', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.upsertContact(req, res));
+crmRouter.post('/contacts/:id/avatar', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.updateContactAvatar(req, res));
+crmRouter.post('/contacts/:id/consent', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.recordConsent(req, res));
+crmRouter.delete('/contacts/:id', requirePermission('whatsapp_crm', 'delete'), (req, res) => crmController.deleteContact(req, res));
+crmRouter.post('/contacts/:id/tags', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.assignTag(req, res));
+crmRouter.delete('/contacts/:id/tags/:tagId', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.removeTag(req, res));
 // 3. Tags
-crmRouter.get('/tags', requirePermission('customer_data', 'view'), (req, res) => crmController.getTags(req, res));
-crmRouter.post('/tags', requirePermission('customer_data', 'create'), (req, res) => crmController.createTag(req, res));
+crmRouter.get('/tags', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getTags(req, res));
+crmRouter.post('/tags', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.createTag(req, res));
 // 4. Conversations
-crmRouter.get('/conversations', requirePermission('customer_data', 'view'), (req, res) => crmController.getConversations(req, res));
-crmRouter.post('/conversations', requirePermission('customer_data', 'view'), (req, res) => crmController.startOrGetConversation(req, res));
-crmRouter.get('/conversations/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getConversationById(req, res));
-crmRouter.put('/conversations/:id/assign', requirePermission('customer_data', 'edit'), (req, res) => crmController.assignConversation(req, res));
-crmRouter.post('/conversations/:id/read', requirePermission('customer_data', 'edit'), (req, res) => crmController.markAsRead(req, res));
+crmRouter.get('/conversations', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getConversations(req, res));
+crmRouter.post('/conversations', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.startOrGetConversation(req, res));
+crmRouter.get('/conversations/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getConversationById(req, res));
+crmRouter.put('/conversations/:id/assign', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.assignConversation(req, res));
+crmRouter.post('/conversations/:id/read', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.markAsRead(req, res));
 // 5. Messages
-crmRouter.get('/conversations/:id/messages', requirePermission('customer_data', 'view'), (req, res) => crmController.getMessages(req, res));
-crmRouter.post('/conversations/:id/messages', requirePermission('customer_data', 'edit'), (req, res) => crmController.sendMessage(req, res));
-crmRouter.post('/messages/template', requirePermission('customer_data', 'edit'), (req, res) => crmController.sendTemplateMessage(req, res));
+crmRouter.get('/conversations/:id/messages', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getMessages(req, res));
+crmRouter.post('/conversations/:id/messages', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.sendMessage(req, res));
+crmRouter.post('/messages/template', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.sendTemplateMessage(req, res));
 // 6. Broadcasts (Accessible to all authorized HRMS users: Employee, HR, Accounts, CEO)
-crmRouter.get('/broadcasts', requirePermission('customer_data', 'view'), (req, res) => crmController.getBroadcasts(req, res));
-crmRouter.get('/broadcasts/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getBroadcastById(req, res));
-crmRouter.post('/broadcasts', requirePermission('customer_data', 'create'), (req, res) => crmController.createBroadcast(req, res));
+crmRouter.get('/broadcasts', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getBroadcasts(req, res));
+crmRouter.get('/broadcasts/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getBroadcastById(req, res));
+crmRouter.post('/broadcasts', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.createBroadcast(req, res));
 // 7. Templates
-crmRouter.get('/templates', requirePermission('customer_data', 'view'), (req, res) => crmController.getTemplates(req, res));
-crmRouter.get('/templates/:id', requirePermission('customer_data', 'view'), (req, res) => crmController.getTemplateById(req, res));
-crmRouter.post('/templates/draft', requirePermission('customer_data', 'create'), (req, res) => crmController.saveTemplateDraft(req, res));
-crmRouter.post('/templates/sync', requirePermission('customer_data', 'edit'), (req, res) => crmController.syncMetaTemplates(req, res));
-crmRouter.post('/templates/:id/submit', requirePermission('customer_data', 'create'), (req, res) => crmController.submitTemplateToMeta(req, res));
-crmRouter.post('/templates/:id/duplicate', requirePermission('customer_data', 'create'), (req, res) => crmController.duplicateTemplate(req, res));
-crmRouter.delete('/templates/:id', requirePermission('customer_data', 'delete'), (req, res) => crmController.deleteTemplate(req, res));
+crmRouter.get('/templates', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getTemplates(req, res));
+crmRouter.get('/templates/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getTemplateById(req, res));
+crmRouter.post('/templates/draft', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.saveTemplateDraft(req, res));
+crmRouter.post('/templates/sync', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.syncMetaTemplates(req, res));
+crmRouter.post('/templates/:id/submit', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.submitTemplateToMeta(req, res));
+crmRouter.post('/templates/:id/duplicate', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.duplicateTemplate(req, res));
+crmRouter.delete('/templates/:id', requirePermission('whatsapp_crm', 'delete'), (req, res) => crmController.deleteTemplate(req, res));
 //# sourceMappingURL=crmRoutes.js.map

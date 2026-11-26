@@ -37,6 +37,8 @@ const CustomerModule = lazyWithRetry(() => import('../customer/CustomerModule'),
 const WhatsAppCRMModule = lazyWithRetry(() => import('../whatsapp-crm/WhatsAppCRMModule'), 'WhatsAppCRMModule');
 const PettyCashManagement = lazyWithRetry(() => import('../petty-cash/PettyCashManagement'), 'PettyCashManagement');
 const FieldAllowanceModule = lazyWithRetry(() => import('../field-allowance/FieldAllowanceModule'), 'FieldAllowanceModule');
+const NotificationCenter = lazyWithRetry(() => import('../notifications/NotificationCenter').then(m => ({ default: m.NotificationCenter })), 'NotificationCenter');
+import { GlobalToastContainer } from '../common/GlobalToastContainer';
 
 interface AppLayoutProps {
     onLogout?: () => void;
@@ -168,6 +170,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
                 return <CustomerModule />;
             case 'whatsapp_crm':
                 return <WhatsAppCRMModule />;
+            case 'notifications':
+                return <NotificationCenter />;
             default:
                 return <Dashboard />;
         }
@@ -229,6 +233,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ onLogout }) => {
                     <AIAssistantWidget hideDesktopTrigger={!isMobile && activeModule !== 'dashboard'} />
                 </Suspense>
             )}
+
+            {/* Global Enterprise Toast Container (Deduplicated Across Tabs) */}
+            <GlobalToastContainer onNavigate={(mod) => handleSelectModule(mod as any)} />
 
             {/* Role-based Mobile Bottom Navigation (Hidden on desktop > 1024px via CSS) */}
             <MobileBottomNav onOpenSidebar={() => setIsMobileOpen(true)} />

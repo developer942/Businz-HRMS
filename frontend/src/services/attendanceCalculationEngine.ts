@@ -1255,7 +1255,13 @@ export function buildEmployeeMonthlyAttendanceCalendar(
   const monthEnd = `${monthKey}-${String(calendarDaysInMonth).padStart(2, '0')}`;
 
   const todayIst = normalizeDateToISO(params.todayStr) || getIstTodayDateStr();
-  const refNow = params.nowInput || new Date();
+  // A supplied todayStr is used by payroll previews and historical acceptance
+  // tests. Anchor the reference clock to that day unless an exact time is
+  // supplied; otherwise a replayed "today" can be treated as a missed punch
+  // merely because the workstation clock has advanced to a later date.
+  const refNow = params.nowInput || (params.todayStr
+    ? new Date(`${todayIst}T12:00:00+05:30`)
+    : new Date());
 
   const emp = params.employee || {};
   const canonicalEmpCode = String(params.employeeId || emp.employeeId || emp.id || '').trim();
@@ -1811,7 +1817,14 @@ export function buildEmployeeMonthlyAttendanceCalendar(
         attStatusNorm === 'missed punch-out' ||
         attStatusNorm === 'missing punch';
 
-      const shiftEnded = dateStr < todayIst ? true : isShiftEnded(dateStr, assignedShift, refNow);
+      // Without an assigned shift there is no authoritative end-time on the
+      // current day. Keep an open punch provisional until the day rolls over;
+      // treating it as MU immediately would create premature LOP.
+      const shiftEnded = dateStr < todayIst
+        ? true
+        : assignedShift
+          ? isShiftEnded(dateStr, assignedShift, refNow)
+          : false;
       const isMissedPunchOut = isMuStatus || (hasCheckIn && !hasCheckOut && shiftEnded);
       const isInProgress = hasCheckIn && !hasCheckOut && !shiftEnded;
 

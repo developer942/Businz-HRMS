@@ -15,7 +15,7 @@ whatsappRouter.use(authenticateToken);
 // WhatsApp Cloud API Configuration
 whatsappRouter.get(
   '/config',
-  requirePermission(['settings', 'customer_data'], 'view'),
+  requirePermission('settings', 'view'),
   customerController.getWhatsAppConfig.bind(customerController)
 );
 whatsappRouter.post(

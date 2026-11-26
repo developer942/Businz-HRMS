@@ -1,16 +1,22 @@
 import { Router } from 'express';
 import {
   listNotifications,
+  createNotification,
   markAllNotificationsRead,
   markNotificationRead,
+  markActionHandled,
+  getUnreadCount,
 } from '../controllers/notificationController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { requirePermission } from '../middleware/rbacMiddleware.js';
 
 export const notificationRouter = Router();
 
+// All notification operations require authenticated session
 notificationRouter.use(authenticateToken);
-notificationRouter.use(requirePermission('notifications', 'view'));
+
 notificationRouter.get('/', listNotifications);
+notificationRouter.post('/', createNotification);
+notificationRouter.get('/unread-count', getUnreadCount);
 notificationRouter.patch('/read-all', markAllNotificationsRead);
 notificationRouter.patch('/:id/read', markNotificationRead);
+notificationRouter.patch('/actions/:module/:recordId/handle', markActionHandled);

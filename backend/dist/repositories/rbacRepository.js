@@ -295,7 +295,7 @@ export class RbacRepository {
             updatedAt: new Date().toISOString(),
             updatedBy: 'System',
         };
-        // 6. Employee (Own Data Only + Full Contact Card Scanner & WhatsApp CRM)
+        // 6. Employee (Own Data Only + contact capture and assigned CRM inbox)
         const empModules = {
             dashboard: ['view'],
             attendance: ['view', 'create'],
@@ -307,8 +307,10 @@ export class RbacRepository {
             expenses: ['view', 'create'],
             documents: ['view'],
             notifications: ['view'],
-            customer_data: [...ALL_ACTIONS],
-            whatsapp_crm: [...ALL_ACTIONS],
+            // Employees can capture customers and send/read messages, but cannot
+            // delete shared CRM records, create broadcasts/templates or edit config.
+            customer_data: ['view', 'create'],
+            whatsapp_crm: ['view', 'edit'],
             assets: ['view'],
         };
         this.permissionsByRole['role-employee'] = {

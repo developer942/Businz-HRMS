@@ -63,7 +63,7 @@ export const requirePermission = (moduleName: string | string[], action: Permiss
       res.status(401).json({
         success: false,
         error: {
-          code: 'UNAUTHORIZED',
+          code: 'HRMS_UNAUTHENTICATED',
           message: 'Authentication required to verify permissions',
           details: [],
         },
@@ -80,11 +80,6 @@ export const requirePermission = (moduleName: string | string[], action: Permiss
 
     const modules = Array.isArray(moduleName) ? moduleName : [moduleName];
 
-    // Contact Card Scanner (customer_data) & WhatsApp CRM (whatsapp_crm) are accessible to all authenticated employees, HR, Accounts, and CEO
-    if (modules.includes('customer_data') || modules.includes('whatsapp_crm')) {
-      return next();
-    }
-
     const roleConfig = rbacRepository.getRolePermissions(userRole);
     if (!roleConfig) {
       // Fallback: check standard roles
@@ -94,7 +89,7 @@ export const requirePermission = (moduleName: string | string[], action: Permiss
       res.status(403).json({
         success: false,
         error: {
-          code: 'FORBIDDEN',
+          code: 'HRMS_FORBIDDEN',
           message: `No permission matrix configured for role: ${userRole}`,
           details: [`Required module permission: ${Array.isArray(moduleName) ? moduleName.join(', ') : moduleName}.${action}`],
         },
@@ -111,7 +106,7 @@ export const requirePermission = (moduleName: string | string[], action: Permiss
       res.status(403).json({
         success: false,
         error: {
-          code: 'FORBIDDEN',
+          code: 'HRMS_FORBIDDEN',
           message: `Access denied: Role "${userRole}" lacks "${action}" permission on ${modules.length > 1 ? `any of [${modules.join(', ')}]` : `module "${modules[0]}"`}.`,
           details: modules.map(m => `Configured actions for ${m}: [${(roleConfig.modulePermissions[m] || []).join(', ') || 'none'}]`),
         },
@@ -132,7 +127,7 @@ export const requireSpecialPermission = (specialPermissionKey: string) => {
       res.status(401).json({
         success: false,
         error: {
-          code: 'UNAUTHORIZED',
+          code: 'HRMS_UNAUTHENTICATED',
           message: 'Authentication required',
           details: [],
         },
@@ -152,7 +147,7 @@ export const requireSpecialPermission = (specialPermissionKey: string) => {
       res.status(403).json({
         success: false,
         error: {
-          code: 'FORBIDDEN',
+          code: 'HRMS_FORBIDDEN',
           message: `Access denied: Special permission "${specialPermissionKey}" required.`,
           details: [`Role "${userRole}" has no special permissions configured.`],
         },
@@ -164,7 +159,7 @@ export const requireSpecialPermission = (specialPermissionKey: string) => {
       res.status(403).json({
         success: false,
         error: {
-          code: 'FORBIDDEN',
+          code: 'HRMS_FORBIDDEN',
           message: `Access denied: Role "${userRole}" lacks special permission "${specialPermissionKey}".`,
           details: [],
         },

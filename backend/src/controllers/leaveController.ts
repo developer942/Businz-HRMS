@@ -58,26 +58,36 @@ export const createLeave = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const validated = createLeaveSchema.parse(req.body);
     const isHrOrAdmin = ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(user.role);
+    const rawRequestedEmpId = typeof req.body?.employeeId === 'string'
+      ? req.body.employeeId.trim()
+      : '';
+    // Ownership must be decided before date/reason validation. This guarantees
+    // unauthorized cross-employee submissions always fail closed with 403.
+    if (
+      rawRequestedEmpId &&
+      user.employeeId &&
+      rawRequestedEmpId.toLowerCase() !== user.employeeId.toLowerCase() &&
+      !isHrOrAdmin
+    ) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Access denied: You are not authorized to submit leave applications on behalf of another employee.',
+          details: [`Target employee: ${rawRequestedEmpId}`],
+        },
+      });
+      return;
+    }
+
+    const validated = createLeaveSchema.parse(req.body);
     const requestedEmpId = validated.employeeId?.trim();
 
     let targetEmpId = user.employeeId;
 
     // Leave Impersonation Prevention: Employees cannot apply for leave on behalf of other staff
     if (requestedEmpId && user.employeeId && requestedEmpId.toLowerCase() !== user.employeeId.toLowerCase()) {
-      if (!isHrOrAdmin) {
-        res.status(403).json({
-          success: false,
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Access denied: You are not authorized to submit leave applications on behalf of another employee.',
-            details: [`Target employee: ${requestedEmpId}`],
-          },
-        });
-        return;
-      }
-
       // Authorized HR/Admin manual override
       targetEmpId = requestedEmpId;
       await auditRepository.recordLog('LEAVE_MANUAL_OVERRIDE', targetEmpId, user.email, {

@@ -370,6 +370,10 @@ export class EmployeeRepository {
         if (filters?.department && filters.department !== 'All') {
             list = list.filter((e) => e.department.toLowerCase() === filters.department?.toLowerCase());
         }
+        if (filters?.status && filters.status !== 'All') {
+            const expected = filters.status.toLowerCase();
+            list = list.filter((e) => String(e.status || '').toLowerCase() === expected);
+        }
         if (filters?.search) {
             const q = filters.search.toLowerCase();
             list = list.filter((e) => e.firstName.toLowerCase().includes(q) ||

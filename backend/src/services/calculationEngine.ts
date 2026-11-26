@@ -1156,7 +1156,7 @@ export function formatPayslipOvertimeForViewer(params: {
 
   const label =
     vis.showOtHoursOnPayslip && hrs > 0
-      ? `Overtime Earnings (${formatHoursAndMinutes(hrs)})`
+      ? `Overtime Earnings (${Number.isInteger(hrs) ? `${hrs} hrs` : formatHoursAndMinutes(hrs)})`
       : 'Overtime Earnings';
 
   let description: string | undefined;

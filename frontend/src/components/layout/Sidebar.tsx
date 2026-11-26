@@ -442,13 +442,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return item.label.toLowerCase().includes(query) || item.section.toLowerCase().includes(query);
     }
 
-    // Hide Employee directory and Attendance Management modules for standard Employee role AND Accounts role
+    // Hide Employee directory and Attendance Report modules for standard Employee role AND Accounts role
     if ((currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin && (item.id === 'employees' || item.id === 'attendance')) {
       return false;
     }
 
     // Accounts role: Normal employee features + payment disbursement desk + Contact Card Scanner & WhatsApp CRM.
-    // STRICTLY NO access to Employee Directory, Attendance Management, Executive Reports, or HRMS Settings
+    // STRICTLY NO access to Employee Directory, Attendance Report, Executive Reports, or HRMS Settings
     if (isAccountsStaff && !isCEO) {
       if (['employees', 'attendance', 'reports', 'settings'].includes(item.id)) {
         return false;

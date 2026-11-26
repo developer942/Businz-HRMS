@@ -1,12 +1,70 @@
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import { pettyCashController } from '../controllers/pettyCashController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRoles } from '../middleware/rbacMiddleware.js';
+import { pettyCashService } from '../services/pettyCashService.js';
 
 export const pettyCashRouter = Router();
 
 // Enforce authentication on all petty cash routes
 pettyCashRouter.use(authenticateToken);
+
+const PETTY_CASH_OVERSIGHT_ROLES = new Set([
+  'CEO',
+  'Super Admin',
+  'Finance Manager',
+  'Finance',
+  'Accountant',
+  'Admin',
+]);
+
+export const canAccessPettyCash = (
+  user: { id?: string; employeeId?: string; role: string },
+  account?: { custodian_id?: string; custodian_employee_id?: string } | null
+): boolean => {
+  if (PETTY_CASH_OVERSIGHT_ROLES.has(user.role)) return true;
+  const callerIds = new Set(
+    [user.id, user.employeeId]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  return Boolean(account) && [
+    account?.custodian_id,
+    account?.custodian_employee_id,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .some((value) => callerIds.has(value));
+};
+
+const requirePettyCashParticipant = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = req.user!;
+    if (PETTY_CASH_OVERSIGHT_ROLES.has(user.role)) {
+      next();
+      return;
+    }
+    const account = await pettyCashService.getActiveCustodian(
+      user.company_id || 'company-a'
+    );
+    if (!canAccessPettyCash(user, account)) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'PETTY_CASH_ACCESS_DENIED',
+          message: 'Petty cash is available only to the active custodian and authorized finance oversight roles.',
+        },
+      });
+      return;
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
 
 // ============================================================
 // 1. Custodian Assignment (CEO ONLY)
@@ -25,6 +83,7 @@ pettyCashRouter.post(
 
 pettyCashRouter.get(
   '/custodian/active',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getActiveCustodian(req, res, next)
 );
 
@@ -38,6 +97,7 @@ pettyCashRouter.post(
 
 pettyCashRouter.get(
   '/requests',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getRequests(req, res, next)
 );
 
@@ -67,6 +127,7 @@ pettyCashRouter.post(
 
 pettyCashRouter.get(
   '/disbursements',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getDisbursements(req, res, next)
 );
 
@@ -88,6 +149,7 @@ pettyCashRouter.post(
 
 pettyCashRouter.get(
   '/expenses',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getExpenses(req, res, next)
 );
 
@@ -113,6 +175,7 @@ pettyCashRouter.post(
 // ============================================================
 pettyCashRouter.get(
   '/ledger',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getLedger(req, res, next)
 );
 
@@ -127,6 +190,7 @@ pettyCashRouter.get(
 // ============================================================
 pettyCashRouter.get(
   '/categories',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getCategories(req, res, next)
 );
 
@@ -159,6 +223,7 @@ pettyCashRouter.get(
 
 pettyCashRouter.get(
   '/dashboards/custodian',
+  requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getCustodianDashboard(req, res, next)
 );
 

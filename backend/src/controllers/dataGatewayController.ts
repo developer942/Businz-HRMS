@@ -246,6 +246,33 @@ export function isTaskVisibleToCaller(row: Record<string, any>, callerEmpCode: s
   });
 }
 
+export function mergeStandardTaskUpdate(
+  currentTask: Record<string, any>,
+  incomingTaskData: Record<string, any>,
+  overallStatus?: string,
+  overallProgress?: number,
+  updatedAt?: string
+): Record<string, any> {
+  const existingData = currentTask.task_data && typeof currentTask.task_data === 'object'
+    ? currentTask.task_data
+    : {};
+  return {
+    ...existingData,
+    dailyReports: Array.isArray(incomingTaskData.dailyReports)
+      ? incomingTaskData.dailyReports
+      : (existingData.dailyReports || []),
+    comments: Array.isArray(incomingTaskData.comments)
+      ? incomingTaskData.comments
+      : (existingData.comments || []),
+    attachments: Array.isArray(incomingTaskData.attachments)
+      ? incomingTaskData.attachments
+      : (existingData.attachments || []),
+    overallStatus: overallStatus || existingData.overallStatus,
+    overallProgress: overallProgress ?? existingData.overallProgress,
+    updatedAt: updatedAt || new Date().toISOString(),
+  };
+}
+
 export function isAssetVisibleToCaller(
   row: Record<string, any>,
   callerEmpCode: string,
@@ -441,13 +468,25 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
           });
           return;
         } else {
-          const lowerQuery = queryString.toLowerCase();
-          const ownsFilter = [...new Set([callerEmpCode, callerUuid].filter(Boolean))]
-            .some((identifier) => lowerQuery.includes(identifier));
-          if (!ownsFilter) {
+          const taskIdFilter = new URLSearchParams(queryString).get('id') || '';
+          const taskId = taskIdFilter.startsWith('eq.') ? taskIdFilter.slice(3) : '';
+          if (!taskId) {
+            res.status(400).json({
+              success: false,
+              error: { code: 'TASK_ID_REQUIRED', message: 'A single task ID is required for task updates.' },
+            });
+            return;
+          }
+
+          const currentTaskResult = await query(
+            `SELECT * FROM public.enterprise_tasks WHERE id::text = $1 LIMIT 1`,
+            [taskId]
+          );
+          const currentTask = currentTaskResult.rows[0];
+          if (!currentTask || !isTaskVisibleToCaller(currentTask, callerEmpCode, callerUuid)) {
             res.status(403).json({
               success: false,
-              error: { code: 'FORBIDDEN', message: 'Task updates must target an assigned employee record.' },
+              error: { code: 'FORBIDDEN', message: 'You can only update a task assigned or visible to you.' },
             });
             return;
           }
@@ -455,6 +494,19 @@ export const proxyDataGatewayRequest = async (req: Request, res: Response, next:
             const allowed = new Set(['overall_status', 'overall_progress', 'task_data', 'updated_at']);
             for (const key of Object.keys(payload)) {
               if (!allowed.has(key)) delete payload[key];
+            }
+
+            // Standard users may append work evidence and update their process
+            // state, but cannot rewrite task ownership, title, due dates, or
+            // assignee identities through the compatibility gateway.
+            if (payload.task_data && typeof payload.task_data === 'object' && !Array.isArray(payload.task_data)) {
+              payload.task_data = mergeStandardTaskUpdate(
+                currentTask,
+                payload.task_data,
+                payload.overall_status,
+                payload.overall_progress,
+                payload.updated_at
+              );
             }
           }
         }

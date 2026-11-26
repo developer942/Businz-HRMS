@@ -3,6 +3,11 @@ import { env } from './env.js';
 let databaseAdminClient = null;
 let databaseAnonClient = null;
 export const isRealSupabaseConfigured = () => {
+    // Automated tests must never reach a developer or production PostgREST
+    // endpoint merely because credentials exist in the local .env file.
+    if (env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+        return false;
+    }
     return !env.DB_REST_URL.includes('mock-supabase.local') && env.DB_REST_KEY !== 'mock-anon-key';
 };
 /**

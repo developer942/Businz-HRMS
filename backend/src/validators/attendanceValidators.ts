@@ -94,7 +94,7 @@ export const attendanceCorrectionSchema = z.object({
   checkOut: z.string().nullable().optional(),
   breakDurationMinutes: z.number().min(0).max(480).optional(),
   workingHours: z.number().min(0).max(24).optional(),
-  reason: z.string().trim().min(3, 'Correction reason / remarks is mandatory'),
+  reason: z.string().trim().min(1, 'Correction reason / remarks is required').optional().default('Regularized from Muster Roll'),
   halfDayType: z.enum(['First Half', 'Second Half']).optional(),
   otHours: z.number().min(0).max(24).optional(),
 });

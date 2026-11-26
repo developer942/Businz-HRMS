@@ -1,6 +1,6 @@
 import { Decimal } from 'decimal.js';
 import { getSupabaseAdmin, isRealSupabaseConfigured } from '../config/supabase.js';
-import { query } from '../config/database.js';
+import { query, withTransaction } from '../config/database.js';
 // Default categories
 const DEFAULT_CATEGORIES = [
     { id: 'cat-001', company_id: 'company-a', name: 'Tea & Coffee', description: 'Office daily tea, coffee, refreshments, snacks', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
@@ -551,63 +551,14 @@ export class PettyCashRepository {
                 status: 'DISBURSED',
                 created_at: new Date().toISOString(),
             };
-            // Atomically credit the custodian's cash balance
-            const account = await this.getAccountById(request.account_id) || await this.getActiveAccount(request.company_id);
-            if (account) {
-                const balanceBefore = new Decimal(account.current_balance || 0);
-                const balanceAfter = balanceBefore.plus(disbursed);
-                account.current_balance = balanceAfter.toNumber();
-                account.updated_at = new Date().toISOString();
-                this.accounts.set(account.id, account);
-                try {
-                    await query(`UPDATE public.petty_cash_accounts 
-             SET current_balance = $1, updated_at = NOW() 
-             WHERE id = $2`, [balanceAfter.toNumber(), account.id]);
-                }
-                catch (dbErr) {
-                    console.warn('[PettyCashRepository] DB update account balance fallback:', dbErr);
-                }
-                // Record immutable ledger entry for disbursement
-                const ledgerEntry = {
-                    id: crypto.randomUUID(),
-                    company_id: account.company_id,
-                    account_id: account.id,
-                    transaction_type: 'CREDIT',
-                    reference_type: 'DISBURSEMENT',
-                    reference_id: id,
-                    amount: disbursed.toNumber(),
-                    balance_before: balanceBefore.toNumber(),
-                    balance_after: balanceAfter.toNumber(),
-                    description: `Cash disbursement from Accounts (${params.paymentMode} - Ref: ${params.paymentReference || 'N/A'})`,
-                    idempotency_key: `LEDGER-DISB-${id}`,
-                    created_by_id: params.disbursedById,
-                    created_by_name: params.disbursedByName,
-                    created_at: new Date().toISOString(),
-                };
-                this.ledger.unshift(ledgerEntry);
-                try {
-                    await query(`INSERT INTO public.petty_cash_ledger (
-              id, company_id, account_id, transaction_type, reference_type,
-              reference_id, amount, balance_before, balance_after, description,
-              idempotency_key, created_by_id, created_by_name, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`, [
-                        ledgerEntry.id, ledgerEntry.company_id, ledgerEntry.account_id,
-                        ledgerEntry.transaction_type, ledgerEntry.reference_type,
-                        ledgerEntry.reference_id, ledgerEntry.amount, ledgerEntry.balance_before,
-                        ledgerEntry.balance_after, ledgerEntry.description, ledgerEntry.idempotency_key,
-                        ledgerEntry.created_by_id, ledgerEntry.created_by_name
-                    ]);
-                }
-                catch (dbErr) {
-                    console.warn('[PettyCashRepository] DB insert ledger fallback:', dbErr);
-                }
-            }
-            // Mark request as COMPLETED (Disbursed & Credited)
-            request.status = 'COMPLETED';
+            // Accounts recording a disbursement is not proof that the custodian has
+            // received the cash. Credit the wallet exactly once only after the
+            // custodian confirms receipt below.
+            request.status = 'DISBURSED_PENDING_RECEIPT';
             request.updated_at = new Date().toISOString();
             try {
                 await query(`UPDATE public.petty_cash_requests 
-           SET status = 'COMPLETED', updated_at = NOW() 
+           SET status = 'DISBURSED_PENDING_RECEIPT', updated_at = NOW() 
            WHERE id = $1`, [request.id]);
             }
             catch (dbErr) {
@@ -674,7 +625,42 @@ export class PettyCashRepository {
         return list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
     async getDisbursementById(id) {
-        return this.disbursements.get(id) || null;
+        const cached = this.disbursements.get(id);
+        if (cached)
+            return cached;
+        try {
+            const result = await query(`SELECT * FROM public.petty_cash_disbursements WHERE id = $1 LIMIT 1`, [id]);
+            const row = result.rows[0];
+            if (!row)
+                return null;
+            const disbursement = {
+                id: row.id,
+                disbursement_number: row.disbursement_number,
+                company_id: row.company_id,
+                request_id: row.request_id,
+                account_id: row.account_id,
+                disbursed_by_id: row.disbursed_by_id,
+                disbursed_by_name: row.disbursed_by_name,
+                disbursed_amount: Number(row.disbursed_amount),
+                payment_mode: row.payment_mode,
+                payment_date: row.payment_date instanceof Date
+                    ? row.payment_date.toISOString().slice(0, 10)
+                    : String(row.payment_date || ''),
+                payment_reference: row.payment_reference,
+                remarks: row.remarks,
+                payment_proof_url: row.payment_proof_url,
+                status: row.status,
+                created_at: row.created_at
+                    ? new Date(row.created_at).toISOString()
+                    : new Date().toISOString(),
+            };
+            this.disbursements.set(disbursement.id, disbursement);
+            return disbursement;
+        }
+        catch (error) {
+            console.warn('[PettyCashRepository] DB getDisbursementById fallback:', error);
+            return null;
+        }
     }
     // ============================================================
     // 4. EMPLOYEE RECEIPT CONFIRMATION (Atomic Credit)
@@ -729,6 +715,28 @@ export class PettyCashRepository {
                     idempotency_key: params.idempotencyKey,
                     confirmed_at: new Date().toISOString(),
                 };
+                try {
+                    await withTransaction(async (client) => {
+                        await client.query(`INSERT INTO public.petty_cash_receipts (
+                id, receipt_number, company_id, request_id, disbursement_id,
+                account_id, custodian_id, status, amount_received,
+                discrepancy_reason, idempotency_key, confirmed_at
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,'DISPUTED',$8,$9,$10,$11)
+              ON CONFLICT (idempotency_key) DO NOTHING`, [
+                            receipt.id, receipt.receipt_number, receipt.company_id,
+                            receipt.request_id, receipt.disbursement_id, receipt.account_id,
+                            receipt.custodian_id, receipt.amount_received ?? null,
+                            receipt.discrepancy_reason ?? null, receipt.idempotency_key,
+                            receipt.confirmed_at,
+                        ]);
+                        await client.query(`UPDATE public.petty_cash_disbursements SET status = 'DISPUTED' WHERE id = $1`, [disbursement.id]);
+                        await client.query(`UPDATE public.petty_cash_requests
+               SET status = 'DISPUTED_RECEIPT', updated_at = NOW() WHERE id = $1`, [request.id]);
+                    });
+                }
+                catch (error) {
+                    console.warn('[PettyCashRepository] DB dispute receipt fallback:', error);
+                }
                 this.receipts.set(receiptId, receipt);
                 this.disbursements.set(disbursement.id, disbursement);
                 this.requests.set(request.id, request);
@@ -773,6 +781,53 @@ export class PettyCashRepository {
                 created_by_name: params.custodianName,
                 created_at: new Date().toISOString(),
             };
+            try {
+                await withTransaction(async (client) => {
+                    const inserted = await client.query(`INSERT INTO public.petty_cash_receipts (
+              id, receipt_number, company_id, request_id, disbursement_id,
+              account_id, custodian_id, status, amount_received,
+              idempotency_key, confirmed_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,'CONFIRMED',$8,$9,$10)
+            ON CONFLICT (idempotency_key) DO NOTHING
+            RETURNING id`, [
+                        receipt.id, receipt.receipt_number, receipt.company_id,
+                        receipt.request_id, receipt.disbursement_id, receipt.account_id,
+                        receipt.custodian_id, receipt.amount_received,
+                        receipt.idempotency_key, receipt.confirmed_at,
+                    ]);
+                    if (inserted.rowCount === 0)
+                        return;
+                    const updatedAccount = await client.query(`UPDATE public.petty_cash_accounts
+             SET current_balance = current_balance + $1, updated_at = NOW()
+             WHERE id = $2
+             RETURNING current_balance`, [ledgerEntry.amount, account.id]);
+                    if (updatedAccount.rowCount !== 1) {
+                        throw new Error('Petty cash account disappeared during receipt confirmation');
+                    }
+                    const persistedBalance = Number(updatedAccount.rows[0].current_balance);
+                    if (!new Decimal(persistedBalance).equals(balanceAfter)) {
+                        throw new Error('Petty cash balance changed concurrently; receipt confirmation aborted');
+                    }
+                    await client.query(`UPDATE public.petty_cash_disbursements SET status = 'CONFIRMED' WHERE id = $1`, [disbursement.id]);
+                    await client.query(`UPDATE public.petty_cash_requests
+             SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1`, [request.id]);
+                    await client.query(`INSERT INTO public.petty_cash_ledger (
+              id, company_id, account_id, transaction_type, reference_type,
+              reference_id, amount, balance_before, balance_after, description,
+              idempotency_key, created_by_id, created_by_name, created_at
+            ) VALUES ($1,$2,$3,'CREDIT','RECEIPT_CONFIRMATION',$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
+                        ledgerEntry.id, ledgerEntry.company_id, ledgerEntry.account_id,
+                        ledgerEntry.reference_id, ledgerEntry.amount,
+                        ledgerEntry.balance_before, ledgerEntry.balance_after,
+                        ledgerEntry.description, ledgerEntry.idempotency_key,
+                        ledgerEntry.created_by_id, ledgerEntry.created_by_name,
+                        ledgerEntry.created_at,
+                    ]);
+                });
+            }
+            catch (error) {
+                console.warn('[PettyCashRepository] DB confirm receipt fallback:', error);
+            }
             this.receipts.set(receiptId, receipt);
             this.disbursements.set(disbursement.id, disbursement);
             this.requests.set(request.id, request);

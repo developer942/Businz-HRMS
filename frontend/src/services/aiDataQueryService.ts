@@ -78,7 +78,7 @@ const attendanceRecordDay = (record: AttendanceRecord) => (record.shiftDate || r
 
 /**
  * Single source of truth for chat bot attendance numbers.
- * Mirrors the Dashboard / Attendance Management rules exactly so the bot never disagrees with the UI.
+ * Mirrors the Dashboard / Attendance Report rules exactly so the bot never disagrees with the UI.
  */
 export function computeDashboardAttendance(data: QueryContextData, date: string, department?: string) {
   const workforce = data.employees.filter(e =>
@@ -607,7 +607,7 @@ export function executeHRMSQuery(
     };
   }
 
-  // 4b. Present list / Early punch-out / Missed punch / Overtime (Dashboard + Attendance Management parity)
+  // 4b. Present list / Early punch-out / Missed punch / Overtime (Dashboard + Attendance Report parity)
   if (intent === 'GET_PRESENT_EMPLOYEES' || intent === 'GET_EARLY_PUNCHOUT' || intent === 'GET_MISSED_PUNCH' || intent === 'GET_OVERTIME') {
     if (workforceEmployees.length === 0) {
       return {

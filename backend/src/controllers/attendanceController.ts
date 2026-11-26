@@ -64,8 +64,30 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const validated = punchSchema.parse(req.body);
     const isHrOrAdmin = ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(user.role);
+    const rawRequestedEmpId = typeof req.body?.employeeId === 'string'
+      ? req.body.employeeId.trim()
+      : '';
+    // Perform ownership enforcement before detailed payload validation so an
+    // attacker cannot use validation errors to probe another employee's flow.
+    if (
+      rawRequestedEmpId &&
+      user.employeeId &&
+      rawRequestedEmpId.toLowerCase() !== user.employeeId.toLowerCase() &&
+      !isHrOrAdmin
+    ) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Access denied: You are not authorized to record attendance on behalf of another employee.',
+          details: [`Target employee: ${rawRequestedEmpId}`],
+        },
+      });
+      return;
+    }
+
+    const validated = punchSchema.parse(req.body);
     const isCeo = user.role === 'CEO' || (user as any).designation?.toLowerCase?.().includes('ceo');
     const requestedEmpId = validated.employeeId?.trim();
 
@@ -73,18 +95,6 @@ export const recordPunch = async (req: Request, res: Response, next: NextFunctio
 
     // Attendance Impersonation Prevention: Employees cannot punch for other employees
     if (requestedEmpId && user.employeeId && requestedEmpId.toLowerCase() !== user.employeeId.toLowerCase()) {
-      if (!isHrOrAdmin) {
-        res.status(403).json({
-          success: false,
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Access denied: You are not authorized to record attendance on behalf of another employee.',
-            details: [`Target employee: ${requestedEmpId}`],
-          },
-        });
-        return;
-      }
-
       // Authorized HR/Admin manual override
       targetEmpId = requestedEmpId;
       await auditRepository.recordLog('ATTENDANCE_MANUAL_OVERRIDE', targetEmpId, user.email, {

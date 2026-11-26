@@ -39,6 +39,22 @@ import { toNum } from '../../utils/numbers';
 import { isShiftEnded, resolveEmployeeAssignedShift } from '../../services/shiftAttendanceEngine';
 import { resolveOvernightAttendanceSession } from '../../services/attendanceCalculationEngine';
 import { correctAttendanceRecord } from '../../services/attendanceApi';
+import { 
+  format24to12, 
+  isValidTimeInput, 
+  normalizeTimeString, 
+  format12to24 
+} from './ManualAttendanceEntryModal';
+
+const parse12Parts = (raw: string, fallback: string = '09:00 AM') => {
+  const norm = normalizeTimeString(raw) || normalizeTimeString(fallback) || '09:00 AM';
+  const m = norm.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return { hh: '09', mm: '00', mer: 'AM' as 'AM' | 'PM' };
+  let hh = String(parseInt(m[1], 10)).padStart(2, '0');
+  const mm = m[2];
+  const mer = (m[3]?.toUpperCase() || 'AM') as 'AM' | 'PM';
+  return { hh, mm, mer };
+};
 
 const parseTimeToMinutes = (timeStr?: string | null): number => {
   if (!timeStr) return 0;
@@ -217,6 +233,53 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
   const [exportDropdownOpen, setExportDropdownOpen] = useState<boolean>(false);
 
+  // Time Picker Popover State & Element References
+  const [activeTimePicker, setActiveTimePicker] = useState<'checkIn' | 'checkOut' | null>(null);
+  const checkInPickerRef = React.useRef<HTMLDivElement>(null);
+  const checkOutPickerRef = React.useRef<HTMLDivElement>(null);
+  const checkInNativeRef = React.useRef<HTMLInputElement>(null);
+  const checkOutNativeRef = React.useRef<HTMLInputElement>(null);
+
+  // Close time picker when clicking outside
+  useEffect(() => {
+    if (!activeTimePicker) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        activeTimePicker === 'checkIn' &&
+        checkInPickerRef.current &&
+        !checkInPickerRef.current.contains(target)
+      ) {
+        setActiveTimePicker(null);
+      } else if (
+        activeTimePicker === 'checkOut' &&
+        checkOutPickerRef.current &&
+        !checkOutPickerRef.current.contains(target)
+      ) {
+        setActiveTimePicker(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [activeTimePicker]);
+
+  // Resolve shift times for selected employee in modal
+  const selectedEmpShift = useMemo(() => {
+    if (!selectedCellDetail?.employee) return shifts[0];
+    return resolveEmployeeAssignedShift(selectedCellDetail.employee, shifts);
+  }, [selectedCellDetail, shifts]);
+
+  const shiftRangeMatch = (selectedCellDetail?.employee?.workShift || '').match(/\(([^)]+)\)/)?.[1]?.trim();
+  let resolvedShiftStartTime = selectedEmpShift?.startTime;
+  let resolvedShiftEndTime = selectedEmpShift?.endTime;
+  if (shiftRangeMatch) {
+    const parts = shiftRangeMatch.split('-').map(p => p.trim());
+    if (parts[0]) resolvedShiftStartTime = parts[0];
+    if (parts[1]) resolvedShiftEndTime = parts[1];
+  }
+  const shiftStartTimeStr = normalizeTimeString(resolvedShiftStartTime || selectedEmpShift?.startTime || '09:00 AM') || '09:00 AM';
+  const shiftEndTimeStr = normalizeTimeString(resolvedShiftEndTime || selectedEmpShift?.endTime || '06:00 PM') || '06:00 PM';
+
   // Trigger brief skeleton loader on month/year change
   useEffect(() => {
     setIsLoading(true);
@@ -317,8 +380,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   // ---------------------------------------------------------------------------
   const getCellAttendance = (employee: Employee, dayItem: { dayNum: number; dateStr: string; dayName: string; isSunday: boolean; isHoliday: boolean }) => {
     const editKey = `${employee.employeeId}_${dayItem.dateStr}`;
-    if (customEdits[editKey]) {
-      const edit = customEdits[editKey];
+    const editKeyUid = employee.id ? `${employee.id}_${dayItem.dateStr}` : '';
+    const edit = customEdits[editKey] || (editKeyUid ? customEdits[editKeyUid] : undefined);
+    if (edit) {
       return {
         status: edit.status,
         checkIn: edit.checkIn,
@@ -742,6 +806,19 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
   const handleOpenCellModal = (employee: Employee, dayItem: { dayNum: number; dateStr: string; dayName: string; isSunday: boolean; isHoliday: boolean }) => {
     const data = getCellAttendance(employee, dayItem);
     const isMu = data.status === 'MU';
+
+    const assignedShift = resolveEmployeeAssignedShift(employee, shifts);
+    const rangeMatch = (employee.workShift || '').match(/\(([^)]+)\)/)?.[1]?.trim();
+    let sStart = assignedShift?.startTime;
+    let sEnd = assignedShift?.endTime;
+    if (rangeMatch) {
+      const parts = rangeMatch.split('-').map(p => p.trim());
+      if (parts[0]) sStart = parts[0];
+      if (parts[1]) sEnd = parts[1];
+    }
+    const defaultIn = normalizeTimeString(sStart || '09:00 AM') || '09:00 AM';
+    const defaultOut = normalizeTimeString(sEnd || '06:00 PM') || '06:00 PM';
+
     setSelectedCellDetail({
       employee,
       dateStr: dayItem.dateStr,
@@ -756,11 +833,16 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
       remarks: data.remarks
     });
     setValidationError(null);
+    setActiveTimePicker(null);
+
+    const hasValidIn = data.checkIn && data.checkIn !== '-' && data.checkIn !== '--:--';
+    const hasValidOut = data.checkOut && data.checkOut !== '-' && data.checkOut !== '--:--' && data.checkOut !== 'In Progress';
+
     setEditForm({
       status: data.status,
-      checkIn: data.checkIn === '-' || data.checkIn === '--:--' ? '09:00 AM' : data.checkIn,
-      checkOut: isMu || data.checkOut === '-' || data.checkOut === '--:--' || data.checkOut === 'In Progress' ? '' : data.checkOut,
-      remarks: data.remarks && !data.remarks.startsWith('Missed Punch-Out') ? data.remarks : ''
+      checkIn: hasValidIn ? (normalizeTimeString(data.checkIn) || data.checkIn) : (data.status === 'P' || data.status === 'HD' || isMu ? defaultIn : ''),
+      checkOut: isMu ? '' : (hasValidOut ? (normalizeTimeString(data.checkOut) || data.checkOut) : ''),
+      remarks: ''
     });
   };
 
@@ -769,15 +851,11 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
     const emp = selectedCellDetail.employee;
     const dateStr = selectedCellDetail.dateStr;
     const editKey = `${emp.employeeId}_${dateStr}`;
+    const editKeyUid = emp.id ? `${emp.id}_${dateStr}` : '';
 
     const isHrOrAdmin = isOwnerOrCEO(currentUser) || ['Super Admin', 'CEO', 'HR Manager', 'HR Admin', 'Admin', 'HR'].includes(currentUser?.role || '');
     if (!isHrOrAdmin) {
       setValidationError('Unauthorized: Only HR or CEO administrators can modify attendance records.');
-      return;
-    }
-
-    if (!editForm.remarks || !editForm.remarks.trim()) {
-      setValidationError('Correction reason / remarks is mandatory before saving.');
       return;
     }
 
@@ -791,29 +869,41 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
 
     const isMu = editForm.status === 'MU';
 
+    let cleanCheckIn = isNonWorking ? null : (editForm.checkIn && editForm.checkIn !== '-' && editForm.checkIn !== '--:--' ? (normalizeTimeString(editForm.checkIn) || editForm.checkIn) : null);
+    let cleanCheckOut = isNonWorking || isMu ? null : (editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--' ? (normalizeTimeString(editForm.checkOut) || editForm.checkOut) : null);
+
+    // If status is Present or Half Day, ensure valid checkIn and checkOut exist so it never reverts to MU
     if (!isNonWorking && !isMu && (editForm.status === 'P' || editForm.status === 'HD')) {
-      if (!editForm.checkOut || !editForm.checkOut.trim() || editForm.checkOut === '-' || editForm.checkOut === '--:--') {
-        setValidationError('Please provide a valid Check-Out time to regularize attendance as Present or Half Day.');
-        return;
+      if (!cleanCheckIn) {
+        cleanCheckIn = shiftStartTimeStr || '09:00 AM';
+      }
+      if (!cleanCheckOut) {
+        cleanCheckOut = shiftEndTimeStr || '06:00 PM';
       }
     }
 
     let computedWorkingHours = 0;
     let computedOtHours = 0;
 
-    if (!isNonWorking && !isMu && editForm.checkIn && editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--') {
+    if (!isNonWorking && !isMu && cleanCheckIn && cleanCheckOut) {
       const session = resolveOvernightAttendanceSession({
         attendanceDate: dateStr,
-        checkIn: editForm.checkIn,
-        checkOut: editForm.checkOut,
+        checkIn: cleanCheckIn,
+        checkOut: cleanCheckOut,
         allowAutoRollSameDateIsoCheckOut: true,
       });
-      if (!session.isValid) {
-        setValidationError(session.errorMessage || 'Check-out time cannot be earlier than check-in time.');
-        return;
+      if (session.isValid) {
+        computedWorkingHours = session.workingHours;
+        computedOtHours = session.otHours;
+      } else {
+        const inM = parseTimeToMinutes(cleanCheckIn);
+        const outM = parseTimeToMinutes(cleanCheckOut);
+        if (inM && outM && outM > inM) {
+          computedWorkingHours = parseFloat(((outM - inM) / 60).toFixed(2));
+        } else {
+          computedWorkingHours = editForm.status === 'HD' ? 4.0 : 8.5;
+        }
       }
-      computedWorkingHours = session.workingHours;
-      computedOtHours = session.otHours;
     } else if (editForm.status === 'HD') {
       computedWorkingHours = 4.0;
     }
@@ -833,19 +923,9 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         ? 'Half Day'
         : 'Present';
 
-    const cleanCheckIn = isNonWorking ? null : (editForm.checkIn && editForm.checkIn !== '-' && editForm.checkIn !== '--:--' ? editForm.checkIn : null);
-    const cleanCheckOut = isNonWorking || isMu ? null : (editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== '--:--' ? editForm.checkOut : null);
-
-    const reasonPrefix =
-      editForm.status === 'MU'
-        ? 'Missed Punch-Out'
-        : editForm.status === 'UL'
-        ? 'Unpaid Leave (LOP)'
-        : editForm.status === 'FV' || editForm.status === 'OD'
-        ? 'Field Visit'
-        : editForm.status === 'A'
-        ? 'Marked Absent by HR/CEO'
-        : 'Corrected from Muster Roll';
+    const reasonToSave = editForm.status === 'MU'
+      ? 'Missed Punch-Out'
+      : `Regularized from Muster Roll: ${editForm.status}`;
 
     setIsSavingEdit(true);
     setValidationError(null);
@@ -860,7 +940,7 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         checkOut: cleanCheckOut,
         workingHours: isNonWorking || isMu ? 0 : computedWorkingHours,
         otHours: isNonWorking || isMu ? 0 : computedOtHours,
-        reason: editForm.remarks.trim(),
+        reason: reasonToSave,
       }).catch(err => {
         console.warn('[MusterRoll] Backend correctAttendanceRecord warning:', err);
       });
@@ -872,22 +952,34 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
         status: mappedRecordStatus,
         checkIn: cleanCheckIn,
         checkOut: cleanCheckOut,
-        workingHours: isNonWorking || isMu ? 0 : (computedWorkingHours > 0 ? computedWorkingHours : (editForm.status === 'HD' ? 4 : 9)),
+        workingHours: isNonWorking || isMu ? 0 : (computedWorkingHours > 0 ? computedWorkingHours : (editForm.status === 'HD' ? 4 : 8.5)),
+        halfDayType: editForm.status === 'HD' ? 'First Half' : undefined,
         otHours: isNonWorking || isMu ? 0 : computedOtHours,
-        reason: editForm.remarks ? `${reasonPrefix}: ${editForm.remarks}` : reasonPrefix,
+        reason: reasonToSave,
         addedBy: `${currentUser?.name || 'Admin'} (${currentUser?.role || 'HR/CEO'})`
       });
 
       // 3. Update custom user edits map for immediate local feedback
-      setCustomEdits(prev => ({
-        ...prev,
-        [editKey]: {
-          status: editForm.status,
-          checkIn: cleanCheckIn || '-',
-          checkOut: cleanCheckOut || '-',
-          remarks: editForm.remarks
+      setCustomEdits(prev => {
+        const next: Record<string, CustomCellEdit> = {
+          ...prev,
+          [editKey]: {
+            status: editForm.status,
+            checkIn: cleanCheckIn || '-',
+            checkOut: cleanCheckOut || '-',
+            remarks: reasonToSave
+          }
+        };
+        if (editKeyUid) {
+          next[editKeyUid] = {
+            status: editForm.status,
+            checkIn: cleanCheckIn || '-',
+            checkOut: cleanCheckOut || '-',
+            remarks: reasonToSave
+          };
         }
-      }));
+        return next;
+      });
 
       setSelectedCellDetail(null);
     } catch (err: any) {
@@ -1636,7 +1728,8 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 </div>
               )}
 
-              <div style={{ marginBottom: '16px' }}>
+              {/* ATTENDANCE STATUS SELECTOR */}
+              <div style={{ marginBottom: '18px' }}>
                 <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
                   ATTENDANCE STATUS
                 </label>
@@ -1644,8 +1737,29 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                   className="form-select"
                   value={editForm.status}
                   disabled={!isHrOrAdmin || isSavingEdit}
-                  onChange={e => setEditForm({ ...editForm, status: e.target.value as AttendanceStatusCode })}
-                  style={{ width: '100%', padding: '10px 12px', fontSize: '0.88rem', fontWeight: 700, borderRadius: '10px', border: '1px solid #CBD5E1' }}
+                  onChange={e => {
+                    const newStatus = e.target.value as AttendanceStatusCode;
+                    const isNonWork = ['A', 'UL', 'H', 'WO', 'PL', 'L'].includes(newStatus);
+                    if (isNonWork) {
+                      setEditForm(prev => ({ ...prev, status: newStatus, checkIn: '', checkOut: '' }));
+                    } else if (newStatus === 'MU') {
+                      setEditForm(prev => ({
+                        ...prev,
+                        status: newStatus,
+                        checkIn: prev.checkIn || shiftStartTimeStr,
+                        checkOut: ''
+                      }));
+                    } else {
+                      setEditForm(prev => ({
+                        ...prev,
+                        status: newStatus,
+                        checkIn: prev.checkIn || shiftStartTimeStr,
+                        checkOut: prev.checkOut || shiftEndTimeStr
+                      }));
+                    }
+                    setValidationError(null);
+                  }}
+                  style={{ width: '100%', padding: '10px 12px', fontSize: '0.88rem', fontWeight: 700, borderRadius: '10px', border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', color: '#0F172A' }}
                 >
                   {DISPLAYED_STATUS_CONFIGS.map(cfg => (
                     <option key={cfg.code} value={cfg.code}>{cfg.code} - {cfg.label}</option>
@@ -1653,49 +1767,394 @@ export const MusterRollModule: React.FC<MusterRollModuleProps> = ({
                 </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                    CHECK-IN TIME
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.checkIn}
-                    disabled={!isHrOrAdmin || isSavingEdit}
-                    placeholder="e.g. 09:30 AM"
-                    onChange={e => setEditForm({ ...editForm, checkIn: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', fontSize: '0.86rem', fontWeight: 600, borderRadius: '10px', border: '1px solid #CBD5E1' }}
-                  />
-                </div>
+              {/* CHECK-IN & CHECK-OUT TIME PICKERS (Manual Attendance Style) */}
+              {(() => {
+                const isNonWork = ['A', 'UL', 'H', 'WO', 'PL', 'L'].includes(editForm.status);
+                const inParts = parse12Parts(editForm.checkIn, shiftStartTimeStr);
+                const outParts = parse12Parts(editForm.checkOut, shiftEndTimeStr);
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                    CHECK-OUT TIME
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.checkOut}
-                    disabled={!isHrOrAdmin || isSavingEdit}
-                    placeholder="e.g. 06:30 PM (blank for MU)"
-                    onChange={e => setEditForm({ ...editForm, checkOut: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', fontSize: '0.86rem', fontWeight: 600, borderRadius: '10px', border: '1px solid #CBD5E1' }}
-                  />
-                </div>
-              </div>
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '22px' }}>
+                    
+                    {/* CHECK-IN TIME */}
+                    <div style={{ position: 'relative' }} ref={checkInPickerRef}>
+                      <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                        CHECK-IN TIME
+                      </label>
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={isNonWork ? '-' : editForm.checkIn}
+                          disabled={!isHrOrAdmin || isSavingEdit || isNonWork}
+                          placeholder="e.g. 09:30 AM"
+                          readOnly
+                          onClick={() => {
+                            if (isHrOrAdmin && !isSavingEdit && !isNonWork) {
+                              if (!editForm.checkIn.trim()) setEditForm(prev => ({ ...prev, checkIn: shiftStartTimeStr }));
+                              setActiveTimePicker(prev => (prev === 'checkIn' ? null : 'checkIn'));
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 38px 10px 12px',
+                            fontSize: '0.88rem',
+                            fontWeight: 700,
+                            borderRadius: '10px',
+                            border: '1px solid #CBD5E1',
+                            backgroundColor: isNonWork ? '#F1F5F9' : '#FFFFFF',
+                            color: isNonWork ? '#94A3B8' : '#0F172A',
+                            cursor: isNonWork ? 'not-allowed' : 'pointer',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={!isHrOrAdmin || isSavingEdit || isNonWork}
+                          onClick={() => {
+                            if (!editForm.checkIn.trim()) setEditForm(prev => ({ ...prev, checkIn: shiftStartTimeStr }));
+                            setActiveTimePicker(prev => (prev === 'checkIn' ? null : 'checkIn'));
+                          }}
+                          title="Pick check-in time"
+                          style={{
+                            position: 'absolute',
+                            right: '6px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: activeTimePicker === 'checkIn' ? '#ECFEFF' : 'transparent',
+                            color: activeTimePicker === 'checkIn' ? '#0E7490' : '#64748B',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: isNonWork ? 'not-allowed' : 'pointer',
+                            padding: 0
+                          }}
+                        >
+                          <Clock size={16} />
+                        </button>
+                      </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                  REMARKS / CORRECTION REASON <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter reason or remark (mandatory)..."
-                  value={editForm.remarks}
-                  disabled={!isHrOrAdmin || isSavingEdit}
-                  onChange={e => setEditForm({ ...editForm, remarks: e.target.value })}
-                  style={{ width: '100%', padding: '10px 12px', fontSize: '0.86rem', fontWeight: 500, borderRadius: '10px', border: '1px solid #CBD5E1' }}
-                />
-              </div>
+                      {/* Native time input synchronized */}
+                      {!isNonWork && (
+                        <input
+                          ref={checkInNativeRef}
+                          type="time"
+                          tabIndex={-1}
+                          value={format12to24(editForm.checkIn || shiftStartTimeStr)}
+                          onChange={e => {
+                            if (e.target.value) {
+                              setEditForm(prev => ({ ...prev, checkIn: format24to12(e.target.value) }));
+                              setValidationError(null);
+                            }
+                          }}
+                          style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
+                        />
+                      )}
+
+                      {/* Check-In Popover */}
+                      {activeTimePicker === 'checkIn' && !isNonWork && (
+                        <div
+                          role="dialog"
+                          style={{
+                            position: 'absolute',
+                            top: 'calc(100% + 6px)',
+                            left: 0,
+                            right: 0,
+                            zIndex: 100,
+                            backgroundColor: '#FFFFFF',
+                            border: '1px solid #CBD5E1',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 30px -4px rgba(15, 23, 42, 0.2)',
+                            padding: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                          }}
+                        >
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>Hour</label>
+                              <select
+                                value={inParts.hh}
+                                onChange={e => {
+                                  const newTime = `${e.target.value}:${inParts.mm} ${inParts.mer}`;
+                                  setEditForm(prev => ({ ...prev, checkIn: newTime }));
+                                  setValidationError(null);
+                                }}
+                                style={{ width: '100%', height: '34px', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 8px', fontSize: '0.84rem', fontWeight: 700, color: '#0F172A', backgroundColor: '#FFFFFF' }}
+                              >
+                                {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(h => (
+                                  <option key={h} value={h}>{h}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>Minute</label>
+                              <select
+                                value={inParts.mm}
+                                onChange={e => {
+                                  const newTime = `${inParts.hh}:${e.target.value} ${inParts.mer}`;
+                                  setEditForm(prev => ({ ...prev, checkIn: newTime }));
+                                  setValidationError(null);
+                                }}
+                                style={{ width: '100%', height: '34px', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 8px', fontSize: '0.84rem', fontWeight: 700, color: '#0F172A', backgroundColor: '#FFFFFF' }}
+                              >
+                                {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>Period</label>
+                              <div style={{ display: 'flex', borderRadius: '8px', border: '1px solid #CBD5E1', overflow: 'hidden', height: '34px' }}>
+                                {(['AM', 'PM'] as const).map(p => (
+                                  <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => {
+                                      const newTime = `${inParts.hh}:${inParts.mm} ${p}`;
+                                      setEditForm(prev => ({ ...prev, checkIn: newTime }));
+                                      setValidationError(null);
+                                    }}
+                                    style={{
+                                      border: 'none',
+                                      padding: '0 10px',
+                                      fontSize: '0.78rem',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      backgroundColor: inParts.mer === p ? '#0E7490' : '#FFFFFF',
+                                      color: inParts.mer === p ? '#FFFFFF' : '#475569'
+                                    }}
+                                  >
+                                    {p}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditForm(prev => ({ ...prev, checkIn: shiftStartTimeStr }));
+                                setValidationError(null);
+                              }}
+                              style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600, border: '1px solid #CBD5E1', borderRadius: '6px', background: '#F8FAFC', cursor: 'pointer', color: '#475569' }}
+                            >
+                              Shift Start ({shiftStartTimeStr})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTimePicker(null)}
+                              style={{ padding: '4px 12px', fontSize: '0.74rem', fontWeight: 700, border: 'none', borderRadius: '6px', background: '#0E7490', color: '#FFFFFF', cursor: 'pointer' }}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* CHECK-OUT TIME */}
+                    <div style={{ position: 'relative' }} ref={checkOutPickerRef}>
+                      <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                        CHECK-OUT TIME {editForm.status === 'MU' && <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: '0.7rem' }}>(Blank for MU)</span>}
+                      </label>
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={isNonWork ? '-' : (editForm.checkOut || '')}
+                          disabled={!isHrOrAdmin || isSavingEdit || isNonWork}
+                          placeholder={editForm.status === 'MU' ? 'Blank for Missed Out' : 'e.g. 06:00 PM'}
+                          readOnly
+                          onClick={() => {
+                            if (isHrOrAdmin && !isSavingEdit && !isNonWork) {
+                              if (!editForm.checkOut.trim()) setEditForm(prev => ({ ...prev, checkOut: shiftEndTimeStr }));
+                              setActiveTimePicker(prev => (prev === 'checkOut' ? null : 'checkOut'));
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 38px 10px 12px',
+                            fontSize: '0.88rem',
+                            fontWeight: 700,
+                            borderRadius: '10px',
+                            border: '1px solid #CBD5E1',
+                            backgroundColor: isNonWork ? '#F1F5F9' : '#FFFFFF',
+                            color: isNonWork ? '#94A3B8' : (editForm.checkOut ? '#0F172A' : '#94A3B8'),
+                            cursor: isNonWork ? 'not-allowed' : 'pointer',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={!isHrOrAdmin || isSavingEdit || isNonWork}
+                          onClick={() => {
+                            if (!editForm.checkOut.trim()) setEditForm(prev => ({ ...prev, checkOut: shiftEndTimeStr }));
+                            setActiveTimePicker(prev => (prev === 'checkOut' ? null : 'checkOut'));
+                          }}
+                          title="Pick check-out time"
+                          style={{
+                            position: 'absolute',
+                            right: '6px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: activeTimePicker === 'checkOut' ? '#ECFEFF' : 'transparent',
+                            color: activeTimePicker === 'checkOut' ? '#0E7490' : '#64748B',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: isNonWork ? 'not-allowed' : 'pointer',
+                            padding: 0
+                          }}
+                        >
+                          <Clock size={16} />
+                        </button>
+                      </div>
+
+                      {/* Native time input synchronized */}
+                      {!isNonWork && (
+                        <input
+                          ref={checkOutNativeRef}
+                          type="time"
+                          tabIndex={-1}
+                          value={format12to24(editForm.checkOut || shiftEndTimeStr)}
+                          onChange={e => {
+                            if (e.target.value) {
+                              setEditForm(prev => ({ ...prev, checkOut: format24to12(e.target.value) }));
+                              setValidationError(null);
+                            }
+                          }}
+                          style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
+                        />
+                      )}
+
+                      {/* Check-Out Popover */}
+                      {activeTimePicker === 'checkOut' && !isNonWork && (
+                        <div
+                          role="dialog"
+                          style={{
+                            position: 'absolute',
+                            top: 'calc(100% + 6px)',
+                            left: 0,
+                            right: 0,
+                            zIndex: 100,
+                            backgroundColor: '#FFFFFF',
+                            border: '1px solid #CBD5E1',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 30px -4px rgba(15, 23, 42, 0.2)',
+                            padding: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                          }}
+                        >
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>Hour</label>
+                              <select
+                                value={outParts.hh}
+                                onChange={e => {
+                                  const newTime = `${e.target.value}:${outParts.mm} ${outParts.mer}`;
+                                  setEditForm(prev => ({ ...prev, checkOut: newTime }));
+                                  setValidationError(null);
+                                }}
+                                style={{ width: '100%', height: '34px', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 8px', fontSize: '0.84rem', fontWeight: 700, color: '#0F172A', backgroundColor: '#FFFFFF' }}
+                              >
+                                {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(h => (
+                                  <option key={h} value={h}>{h}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>Minute</label>
+                              <select
+                                value={outParts.mm}
+                                onChange={e => {
+                                  const newTime = `${outParts.hh}:${e.target.value} ${outParts.mer}`;
+                                  setEditForm(prev => ({ ...prev, checkOut: newTime }));
+                                  setValidationError(null);
+                                }}
+                                style={{ width: '100%', height: '34px', borderRadius: '8px', border: '1px solid #CBD5E1', padding: '0 8px', fontSize: '0.84rem', fontWeight: 700, color: '#0F172A', backgroundColor: '#FFFFFF' }}
+                              >
+                                {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#64748B', marginBottom: '4px' }}>Period</label>
+                              <div style={{ display: 'flex', borderRadius: '8px', border: '1px solid #CBD5E1', overflow: 'hidden', height: '34px' }}>
+                                {(['AM', 'PM'] as const).map(p => (
+                                  <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => {
+                                      const newTime = `${outParts.hh}:${outParts.mm} ${p}`;
+                                      setEditForm(prev => ({ ...prev, checkOut: newTime }));
+                                      setValidationError(null);
+                                    }}
+                                    style={{
+                                      border: 'none',
+                                      padding: '0 10px',
+                                      fontSize: '0.78rem',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      backgroundColor: outParts.mer === p ? '#0E7490' : '#FFFFFF',
+                                      color: outParts.mer === p ? '#FFFFFF' : '#475569'
+                                    }}
+                                  >
+                                    {p}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditForm(prev => ({ ...prev, checkOut: shiftEndTimeStr }));
+                                  setValidationError(null);
+                                }}
+                                style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600, border: '1px solid #CBD5E1', borderRadius: '6px', background: '#F8FAFC', cursor: 'pointer', color: '#475569' }}
+                              >
+                                Shift End ({shiftEndTimeStr})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditForm(prev => ({ ...prev, checkOut: '' }));
+                                  setValidationError(null);
+                                }}
+                                style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600, border: '1px solid #CBD5E1', borderRadius: '6px', background: '#F8FAFC', cursor: 'pointer', color: '#64748B' }}
+                              >
+                                Blank (MU)
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTimePicker(null)}
+                              style={{ padding: '4px 12px', fontSize: '0.74rem', fontWeight: 700, border: 'none', borderRadius: '6px', background: '#0E7490', color: '#FFFFFF', cursor: 'pointer' }}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                );
+              })()}
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

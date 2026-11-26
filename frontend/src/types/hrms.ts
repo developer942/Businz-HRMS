@@ -514,6 +514,20 @@ export interface NotificationItem {
   createdAt?: string;
   /** User keys who have read this shared notification */
   readBy?: string[];
+  /** Module identifier for deep-linking and action lifecycle */
+  module?: string;
+  /** Associated record ID */
+  recordId?: string;
+  /** Event lifecycle type (e.g. 'CREATED' | 'APPROVED' | 'REJECTED' | 'DISBURSED') */
+  eventType?: string;
+  /** Unique deduplication key */
+  dedupKey?: string;
+  /** Whether this notification requires action from recipient */
+  actionRequired?: boolean;
+  /** Action lifecycle status */
+  actionStatus?: 'None' | 'Pending' | 'Handled' | 'Expired';
+  /** Extra metadata */
+  metadata?: Record<string, any>;
 }
 
 export interface PayrollRecord {
