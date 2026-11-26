@@ -1,36 +1,37 @@
 import { TableColumn, MetricCardItem } from '../types/aiAssistant';
-import { downloadCSV, downloadExcel, downloadPDF } from '../utils/exportUtils';
 import { formatDateTimeDDMMYYYY } from '../utils/dateUtils';
 
 /**
  * Exports data to an Excel (.xls) file with formatted styling
  */
-export function exportToExcel(
+export async function exportToExcel(
   rows: Record<string, any>[],
   columns: TableColumn[],
   fileNamePrefix: string = 'HRMS_Report'
-): void {
+): Promise<void> {
   if (!rows || rows.length === 0) {
     alert('No active data available to export.');
     return;
   }
+  const { downloadExcel } = await import('../utils/exportUtils');
   const cols = columns.map(c => ({ key: c.key, label: c.label }));
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  downloadExcel(rows, `${fileNamePrefix}_${timestamp}`, cols);
+  void downloadExcel(rows, `${fileNamePrefix}_${timestamp}`, cols);
 }
 
 /**
  * Exports data to a standard CSV file with UTF-8 BOM
  */
-export function exportToCSV(
+export async function exportToCSV(
   rows: Record<string, any>[],
   columns: TableColumn[],
   fileNamePrefix: string = 'HRMS_Report'
-): void {
+): Promise<void> {
   if (!rows || rows.length === 0) {
     alert('No active data available to export.');
     return;
   }
+  const { downloadCSV } = await import('../utils/exportUtils');
   const cols = columns.map(c => ({ key: c.key, label: c.label }));
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   downloadCSV(rows, `${fileNamePrefix}_${timestamp}`, cols);
@@ -39,18 +40,19 @@ export function exportToCSV(
 /**
  * Generates an official, publication-quality PDF report document
  */
-export function exportToPDF(
+export async function exportToPDF(
   rows: Record<string, any>[],
   columns: TableColumn[],
   title: string = 'Businz Enterprise HRMS Report',
   metrics?: MetricCardItem[],
   appliedFilters?: Record<string, string | undefined>
-): void {
+): Promise<void> {
   const printWindow = window.open('', '_blank', 'width=900,height=700');
   if (!printWindow) {
     // Mac Safari / iOS popup blocked fallback: Generate vector PDF directly
+    const { downloadPDF } = await import('../utils/exportUtils');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    downloadPDF(rows, title, `${title.replace(/\s+/g, '_')}_${timestamp}`, columns.map(c => ({ key: c.key, label: c.label })));
+    void downloadPDF(rows, title, `${title.replace(/\s+/g, '_')}_${timestamp}`, columns.map(c => ({ key: c.key, label: c.label })));
     return;
   }
 

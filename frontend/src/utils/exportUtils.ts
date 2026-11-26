@@ -1,5 +1,3 @@
-// @ts-ignore
-import html2canvas from 'html2canvas';
 /**
  * Universal Cross-Platform Export Utilities for Businz Enterprise HRM
  * Fully compatible with Apple Mac (macOS, Safari, Apple Numbers), Windows (Microsoft Excel, Acrobat), iOS, and Android.
@@ -10,9 +8,22 @@ import html2canvas from 'html2canvas';
  * 4. Element PDF: Print/Save engine with hidden iframe to bypass Safari macOS pop-up blockers
  */
 
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import type * as XLSX from 'xlsx';
+import type { jsPDF } from 'jspdf';
+
+const loadXlsx = async () => await import('xlsx');
+const loadJsPdf = async () => {
+  const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable')
+  ]);
+  const autoTable = typeof autoTableModule === 'function' ? autoTableModule : ((autoTableModule as any)?.default || (autoTableModule as any)?.autoTable || autoTableModule);
+  return { jsPDF, autoTable };
+};
+const loadHtml2Canvas = async () => {
+  const { default: html2canvas } = await import('html2canvas');
+  return html2canvas;
+};
 import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, isValidISODate, parseDDMMYYYY } from './dateUtils';
 import { formatCurrency } from './numbers';
 
@@ -329,7 +340,9 @@ export function applyBoldStylesToXlsxBuffer(
   }
 }
 
-export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportColumn[]): XLSX.WorkSheet => {
+export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportColumn[], xlsxInstance?: typeof XLSX): XLSX.WorkSheet => {
+  const xlsxLib = xlsxInstance;
+  if (!xlsxLib) throw new Error('XLSX instance required for buildExcelWorksheet');
   const sheetData = data.map(item => {
     const row: Record<string, any> = {};
     cols.forEach(column => {
@@ -339,9 +352,9 @@ export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportCol
     });
     return row;
   });
-  const worksheet = XLSX.utils.json_to_sheet(sheetData, { cellDates: true });
+  const worksheet = xlsxLib.utils.json_to_sheet(sheetData, { cellDates: true });
   cols.forEach((column, columnIndex) => {
-    const headerAddr = XLSX.utils.encode_cell({ r: 0, c: columnIndex });
+    const headerAddr = xlsxLib.utils.encode_cell({ r: 0, c: columnIndex });
     if (worksheet[headerAddr]) {
       (worksheet[headerAddr] as any).s = { font: { bold: true } };
     }
@@ -349,7 +362,7 @@ export const buildExcelWorksheet = (data: Record<string, any>[], cols: ExportCol
     data.forEach((item, rowIndex) => {
       const parsed = parseExportDate(item[column.key]);
       if (!parsed) return;
-      const address = XLSX.utils.encode_cell({ r: rowIndex + 1, c: columnIndex });
+      const address = xlsxLib.utils.encode_cell({ r: rowIndex + 1, c: columnIndex });
       if (worksheet[address]) worksheet[address].z = parsed.includesTime ? 'dd/mm/yyyy hh:mm' : 'dd/mm/yyyy';
     });
   });
@@ -396,31 +409,32 @@ export function downloadCSV(
  * - Microsoft Excel on Windows (without XML/extension warnings)
  * - Google Sheets & Mobile Excel
  */
-export function buildStyledExcelBuffer(
+export async function buildStyledExcelBuffer(
   data: Record<string, any>[],
   columns?: ExportColumn[]
-): Uint8Array {
+): Promise<Uint8Array> {
+  const XLSX = await loadXlsx();
   const cols = columns && columns.length > 0
     ? columns
     : Object.keys(data[0] || {}).map(k => ({ key: k, label: k }));
-  const ws = buildExcelWorksheet(data, cols);
+  const ws = buildExcelWorksheet(data, cols, XLSX);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
   const rawBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   return applyBoldStylesToXlsxBuffer(rawBuffer, { boldRows: [1] });
 }
 
-export function downloadExcel(
+export async function downloadExcel(
   data: Record<string, any>[],
   filename: string,
   columns?: ExportColumn[]
-): void {
+): Promise<void> {
   if (!data || data.length === 0) {
     alert('No data available to export.');
     return;
   }
 
-  const styledBuffer = buildStyledExcelBuffer(data, columns);
+  const styledBuffer = await buildStyledExcelBuffer(data, columns);
   const cleanFilename = filename.replace(/\.(xlsx?|xls)$/i, '') + '.xlsx';
 
   const blob = new Blob([styledBuffer as unknown as BlobPart], { 
@@ -437,7 +451,7 @@ export function exportToExcel(
   const filename = typeof secondArg === 'string' ? secondArg : (typeof thirdArg === 'string' ? thirdArg : 'Report');
   const rawCols = Array.isArray(secondArg) ? secondArg : (Array.isArray(thirdArg) ? thirdArg : undefined);
   const cols = rawCols?.map(c => ({ key: c.key, label: c.label || c.header || c.key }));
-  downloadExcel(data, filename, cols);
+  void downloadExcel(data, filename, cols);
 }
 
 export function exportToPDF(
@@ -451,13 +465,13 @@ export function exportToPDF(
     const cols = secondArg.map(c => ({ key: c.key, label: c.label || c.header || c.key }));
     const title = thirdArg || 'Report';
     const filename = typeof fourthArg === 'string' ? fourthArg : 'Report';
-    downloadPDF(data, title, filename, cols, fifthArg || 'Businz');
+    void downloadPDF(data, title, filename, cols, fifthArg || 'Businz');
   } else {
     const title = secondArg || 'Report';
     const filename = thirdArg || 'Report';
     const rawCols = Array.isArray(fourthArg) ? fourthArg : undefined;
     const cols = rawCols?.map(c => ({ key: c.key, label: c.label || c.header || c.key }));
-    downloadPDF(data, title, filename, cols, fifthArg || 'Businz');
+    void downloadPDF(data, title, filename, cols, fifthArg || 'Businz');
   }
 }
 
@@ -467,17 +481,19 @@ export const exportToCSV = downloadCSV;
  * Generates an official, publication-quality vector PDF document (.pdf)
  * Compatible with Apple Mac Preview, Adobe Acrobat, Safari, Chrome, and mobile devices.
  */
-export function downloadPDF(
+export async function downloadPDF(
   data: Record<string, any>[],
   title: string,
   filename: string,
   columns?: ExportColumn[],
   companyName: string = 'Businz'
-): void {
+): Promise<void> {
   if (!data || data.length === 0) {
     alert('No data available to export.');
     return;
   }
+
+  const { jsPDF, autoTable } = await loadJsPdf();
 
   const cols = columns && columns.length > 0
     ? columns
@@ -716,6 +732,8 @@ export async function downloadElementAsDirectPdf(
   }
 
   try {
+    const html2canvas = await loadHtml2Canvas();
+    const { jsPDF } = await loadJsPdf();
     const canvas = await html2canvas(elem, {
       scale: 2,
       useCORS: true,
@@ -1714,10 +1732,11 @@ async function safeLoadImage(src?: string, trimWhitespace = false): Promise<Load
  * Builds the official 2-page Offer Letter jsPDF instance with crisp alignment and zero excessive blank gaps
  */
 export async function buildOfferLetterJsPdf(opts: GenerateOfferLetterPdfOptions): Promise<jsPDF> {
-  const [logoImg, sigImg, stampImg] = await Promise.all([
+  const [logoImg, sigImg, stampImg, { jsPDF, autoTable }] = await Promise.all([
     safeLoadImage(opts.logoUrl, true),
     safeLoadImage(opts.signatureImageUrl, true),
     safeLoadImage(opts.stampImageUrl, true),
+    loadJsPdf(),
   ]);
 
   const doc = new jsPDF({

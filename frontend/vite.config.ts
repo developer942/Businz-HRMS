@@ -30,6 +30,17 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 900,
+    modulePreload: {
+      resolveDependencies(_filename, deps) {
+        // Prevent heavy on-demand libraries from being preloaded into initial page startup
+        return deps.filter(dep => 
+          !dep.includes('vendor-pdf') && 
+          !dep.includes('vendor-xlsx') && 
+          !dep.includes('vendor-map') && 
+          !dep.includes('vendor-ocr')
+        );
+      }
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {

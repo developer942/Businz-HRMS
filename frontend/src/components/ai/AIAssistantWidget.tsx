@@ -13,7 +13,6 @@ import {
 } from '../../services/aiLanguageEngine';
 import { executeHRMSQuery, computeDashboardAttendance } from '../../services/aiDataQueryService';
 import { executeVerifiedHRMSQuery } from '../../services/aiBackendQueryService';
-import { exportToExcel, exportToPDF, exportToCSV } from '../../services/aiExportService';
 import {
   setStoredGeminiApiKey,
   getStoredGeminiModel,
@@ -149,6 +148,17 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [convState.conversationHistory, isOpen, isTyping]);
+
+  const handleAiExport = async (format: 'excel' | 'pdf' | 'csv', rows: any[], cols: any[], title?: string, metrics?: any, filters?: any) => {
+    const service = await import('../../services/aiExportService');
+    if (format === 'excel') {
+      await service.exportToExcel(rows, cols, title || 'HRMS_Export');
+    } else if (format === 'csv') {
+      await service.exportToCSV(rows, cols, title || 'HRMS_Data');
+    } else {
+      await service.exportToPDF(rows, cols, title || 'VRM HRMS Report', metrics, filters);
+    }
+  };
 
   // Focus input when opened
   useEffect(() => {
@@ -404,9 +414,9 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
         }
 
         if (format === 'excel') {
-          exportToExcel(dataRows, cols, 'HRMS_Export');
+          void handleAiExport('excel', dataRows, cols, 'HRMS_Export');
         } else {
-          exportToPDF(dataRows, cols, 'VRM HRMS Report', undefined, convState.lastFilters);
+          void handleAiExport('pdf', dataRows, cols, 'VRM HRMS Report', undefined, convState.lastFilters);
         }
 
         const exportSuccessMsg: AIMessage = {
@@ -911,7 +921,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
                       <div className="vrm-ai-actions-row">
                         <button
                           className="vrm-ai-action-btn excel"
-                          onClick={() => exportToExcel(msg.richPayload!.rows!, msg.richPayload!.columns || [], 'HRMS_Data')}
+                          onClick={() => void handleAiExport('excel', msg.richPayload!.rows!, msg.richPayload!.columns || [], 'HRMS_Data')}
                           title="Download Excel spreadsheet (.xls)"
                         >
                           <FileSpreadsheet size={13} />
@@ -919,7 +929,8 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
                         </button>
                         <button
                           className="vrm-ai-action-btn pdf"
-                          onClick={() => exportToPDF(
+                          onClick={() => void handleAiExport(
+                            'pdf',
                             msg.richPayload!.rows!,
                             msg.richPayload!.columns || [],
                             msg.richPayload!.title || 'HRMS Report',
@@ -933,7 +944,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ hideDeskto
                         </button>
                         <button
                           className="vrm-ai-action-btn csv"
-                          onClick={() => exportToCSV(msg.richPayload!.rows!, msg.richPayload!.columns || [], 'HRMS_Data')}
+                          onClick={() => void handleAiExport('csv', msg.richPayload!.rows!, msg.richPayload!.columns || [], 'HRMS_Data')}
                           title="Download CSV file (.csv)"
                         >
                           <Download size={13} />

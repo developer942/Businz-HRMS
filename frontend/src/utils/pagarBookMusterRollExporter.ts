@@ -12,8 +12,10 @@ import {
   DepartmentOtPolicy,
   EmployeeOtPolicy
 } from '../types/attendanceEnterprise';
-import * as XLSX from 'xlsx';
+import type * as XLSXType from 'xlsx';
 import { applyBoldStylesToXlsxBuffer } from './exportUtils';
+
+const loadXlsx = async () => await import('xlsx');
 import { calculateEnterpriseOvertimeRateAndAmount } from '../services/attendanceCalculationEngine';
 import { resolveEffectiveLatePolicy, isCheckInLate } from '../services/policyEngine';
 import { isShiftEnded } from '../services/shiftAttendanceEngine';
@@ -170,7 +172,7 @@ export function generatePagarBookMusterRollFilename(
   return `${companyName} - Attendance Muster Roll - ${startDay} ${startMonth} ${startYear} to ${endDay} ${endMonth} ${endYear}.xlsx`;
 }
 
-export function buildPagarBookMusterRollExcelData(
+export async function buildPagarBookMusterRollExcelData(
   employees: Employee[],
   attendanceRecords: AttendanceRecord[],
   leaveRequests: LeaveRequest[],
@@ -180,13 +182,14 @@ export function buildPagarBookMusterRollExcelData(
   shifts: Shift[] = [],
   holidayPolicies: HolidayItem[] = [],
   options?: PagarBookMusterRollExportOptions
-): {
+): Promise<{
   aoaRows: (string | number)[][];
   boldRows: number[];
   boldCells: string[];
   styledBuffer: Uint8Array;
   filename: string;
-} {
+}> {
+  const XLSX = await loadXlsx();
   // 1. Generate timezone-safe date list between fromDateStr and toDateStr
   const dates: string[] = [];
   const [y1, m1, d1] = (fromDateStr || '').slice(0, 10).split('-').map(Number);
@@ -770,7 +773,7 @@ export function buildPagarBookMusterRollExcelData(
   };
 }
 
-export function downloadPagarBookMusterRollExcel(
+export async function downloadPagarBookMusterRollExcel(
   employees: Employee[],
   attendanceRecords: AttendanceRecord[],
   leaveRequests: LeaveRequest[],
@@ -780,13 +783,13 @@ export function downloadPagarBookMusterRollExcel(
   shifts: Shift[] = [],
   holidayPolicies: HolidayItem[] = [],
   options?: PagarBookMusterRollExportOptions
-): void {
+): Promise<void> {
   if (!employees || employees.length === 0) {
     alert('No employee data available to export.');
     return;
   }
 
-  const { styledBuffer, filename } = buildPagarBookMusterRollExcelData(
+  const { styledBuffer, filename } = await buildPagarBookMusterRollExcelData(
     employees,
     attendanceRecords,
     leaveRequests,

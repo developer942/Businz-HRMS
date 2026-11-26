@@ -1,8 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { FilterReportsModal, FilterReportsState, initialFilterReportsState } from '../common/FilterReportsModal';
-import { EmployeeProfile } from '../employees/EmployeeProfile';
-import { AttendanceCategoryModal, AttendanceCategoryType } from './AttendanceCategoryModal';
+import type { AttendanceCategoryType } from './AttendanceCategoryModal';
+
+const AttendanceCategoryModal = React.lazy(() =>
+  import('./AttendanceCategoryModal').then(m => ({ default: m.AttendanceCategoryModal }))
+);
+const EmployeeProfile = React.lazy(() =>
+  import('../employees/EmployeeProfile').then(m => ({ default: m.EmployeeProfile }))
+);
 import { TodayAttendanceCard } from './TodayAttendanceCard';
 import { EmployeeMonthlyAttendanceCard } from './EmployeeMonthlyAttendanceCard';
 import { CeoDashboardView } from './CeoDashboardView';
@@ -842,25 +848,29 @@ export const Dashboard: React.FC = () => {
 
         {/* Modal: Category Drill-down */}
         {selectedCategory && (
-          <AttendanceCategoryModal
-            category={selectedCategory}
-            onClose={() => setSelectedCategory(null)}
-            onSelectEmployee={(emp) => {
-              setSelectedCategory(null);
-              setProfileModalEmployee(emp);
-            }}
-            employees={filteredEmployees}
-            attendanceRecords={filteredAttendance}
-            leaveRequests={leaveRequests}
-          />
+          <React.Suspense fallback={null}>
+            <AttendanceCategoryModal
+              category={selectedCategory}
+              onClose={() => setSelectedCategory(null)}
+              onSelectEmployee={(emp) => {
+                setSelectedCategory(null);
+                setProfileModalEmployee(emp);
+              }}
+              employees={filteredEmployees}
+              attendanceRecords={filteredAttendance}
+              leaveRequests={leaveRequests}
+            />
+          </React.Suspense>
         )}
 
         {/* Modal: Employee Profile Detail */}
         {profileModalEmployee && (
-          <EmployeeProfile
-            employee={profileModalEmployee}
-            onClose={() => setProfileModalEmployee(null)}
-          />
+          <React.Suspense fallback={null}>
+            <EmployeeProfile
+              employee={profileModalEmployee}
+              onClose={() => setProfileModalEmployee(null)}
+            />
+          </React.Suspense>
         )}
 
         {/* Modal: Dashboard Filter Reports */}
@@ -2245,33 +2255,37 @@ export const Dashboard: React.FC = () => {
       {profileModalEmployee && (() => {
         const liveEmp = employees.find(e => (e.id && (e.id === profileModalEmployee.id || e.id === profileModalEmployee.employeeId)) || (e.employeeId && (e.employeeId === profileModalEmployee.employeeId || e.employeeId === profileModalEmployee.id))) || profileModalEmployee;
         return (
-          <EmployeeProfile
-            employee={liveEmp}
-            onClose={() => setProfileModalEmployee(null)}
-            onUpdate={(updatedEmp) => setProfileModalEmployee(updatedEmp)}
-            initialTab="leave"
-          />
+          <React.Suspense fallback={null}>
+            <EmployeeProfile
+              employee={liveEmp}
+              onClose={() => setProfileModalEmployee(null)}
+              onUpdate={(updatedEmp) => setProfileModalEmployee(updatedEmp)}
+              initialTab="leave"
+            />
+          </React.Suspense>
         );
       })()}
 
       {/* ATTENDANCE CATEGORY FULL MODAL (TOTAL, ABSENT, PRESENT, EARLY, MISSED) */}
       {selectedCategory && (
-        <AttendanceCategoryModal
-          category={selectedCategory}
-          onClose={() => setSelectedCategory(null)}
-          onSelectEmployee={(emp) => {
-            setSelectedCategory(null);
-            setProfileModalEmployee(emp);
-          }}
-          employees={filteredEmployees}
-          attendanceRecords={filteredAttendance}
-          leaveRequests={leaveRequests}
-          shifts={shifts}
-          weeklySchedules={weeklySchedules}
-          holidayPolicies={holidayPolicies}
-          fieldAssignments={fieldAssignments}
-          currentUser={currentUser}
-        />
+        <React.Suspense fallback={null}>
+          <AttendanceCategoryModal
+            category={selectedCategory}
+            onClose={() => setSelectedCategory(null)}
+            onSelectEmployee={(emp) => {
+              setSelectedCategory(null);
+              setProfileModalEmployee(emp);
+            }}
+            employees={filteredEmployees}
+            attendanceRecords={filteredAttendance}
+            leaveRequests={leaveRequests}
+            shifts={shifts}
+            weeklySchedules={weeklySchedules}
+            holidayPolicies={holidayPolicies}
+            fieldAssignments={fieldAssignments}
+            currentUser={currentUser}
+          />
+        </React.Suspense>
       )}
 
       {/* DAILY OVERTIME (OT HRS & AMOUNT) MODAL (DESKTOP & MOBILE) */}
